@@ -1,0 +1,5 @@
+{
+  "deprecated": true,
+  "reason": "This legacy report depended on bull_prob and bull_reason, which are not part of the confirmed raw PGC entry data.",
+  "replacement": "reports/pgc_raw_event_research.json"
+}

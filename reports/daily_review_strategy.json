@@ -1,0 +1,338 @@
+{
+  "generated_at": "2026-05-06T09:31:20+00:00",
+  "events": 237,
+  "candidates": 705,
+  "eligible_candidates": 434,
+  "daily_picks_t1": 84,
+  "daily_picks_t2": 83,
+  "candidate_by_setup": {
+    "old_volume_reactivation": 295,
+    "pullback_stabilization": 240,
+    "contracting_pullback_bullish": 97,
+    "sideways_breakout": 73
+  },
+  "eligible_candidate_by_setup": {
+    "old_volume_reactivation": 176,
+    "pullback_stabilization": 143,
+    "contracting_pullback_bullish": 71,
+    "sideways_breakout": 44
+  },
+  "pick_by_setup_t1": {
+    "old_volume_reactivation": 44,
+    "contracting_pullback_bullish": 20,
+    "sideways_breakout": 16,
+    "pullback_stabilization": 4
+  },
+  "pick_by_setup_t2": {
+    "old_volume_reactivation": 43,
+    "contracting_pullback_bullish": 20,
+    "sideways_breakout": 16,
+    "pullback_stabilization": 4
+  },
+  "fixed_t1": {
+    "n": 83,
+    "win_rate": 0.4819,
+    "mean": 0.004,
+    "median": -0.0037,
+    "p25": -0.0352,
+    "p75": 0.0193,
+    "min": -0.1239,
+    "max": 0.2164,
+    "avg_win": 0.0486,
+    "avg_loss": -0.0375
+  },
+  "decision_t1": {
+    "n": 81,
+    "win_rate": 0.4815,
+    "mean": 0.0107,
+    "median": -0.0083,
+    "p25": -0.0476,
+    "p75": 0.0603,
+    "min": -0.1239,
+    "max": 0.2683,
+    "avg_win": 0.0796,
+    "avg_loss": -0.0533
+  },
+  "fixed_t1_by_setup": [
+    {
+      "key": "sideways_breakout",
+      "n": 16,
+      "win_rate": 0.6875,
+      "mean": 0.0083,
+      "median": 0.0049,
+      "p25": -0.0072,
+      "p75": 0.0212,
+      "min": -0.0354,
+      "max": 0.0648,
+      "avg_win": 0.0213,
+      "avg_loss": -0.0201
+    },
+    {
+      "key": "old_volume_reactivation",
+      "n": 44,
+      "win_rate": 0.4545,
+      "mean": 0.0059,
+      "median": -0.0053,
+      "p25": -0.0508,
+      "p75": 0.0297,
+      "min": -0.1239,
+      "max": 0.2164,
+      "avg_win": 0.064,
+      "avg_loss": -0.0425
+    },
+    {
+      "key": "contracting_pullback_bullish",
+      "n": 19,
+      "win_rate": 0.4211,
+      "mean": 0.0024,
+      "median": -0.0063,
+      "p25": -0.0388,
+      "p75": 0.0114,
+      "min": -0.0941,
+      "max": 0.1579,
+      "avg_win": 0.0523,
+      "avg_loss": -0.0339
+    },
+    {
+      "key": "pullback_stabilization",
+      "n": 4,
+      "win_rate": 0.25,
+      "mean": -0.0275,
+      "median": -0.0386,
+      "p25": -0.0465,
+      "p75": -0.0347,
+      "min": -0.0465,
+      "max": 0.0098,
+      "avg_win": 0.0098,
+      "avg_loss": -0.0399
+    }
+  ],
+  "decision_t1_by_setup": [
+    {
+      "key": "sideways_breakout",
+      "n": 15,
+      "win_rate": 0.5333,
+      "mean": 0.0336,
+      "median": 0.0011,
+      "p25": -0.0319,
+      "p75": 0.0603,
+      "min": -0.0536,
+      "max": 0.2683,
+      "avg_win": 0.0898,
+      "avg_loss": -0.0305
+    },
+    {
+      "key": "contracting_pullback_bullish",
+      "n": 18,
+      "win_rate": 0.5,
+      "mean": 0.0112,
+      "median": -0.0027,
+      "p25": -0.0423,
+      "p75": 0.0458,
+      "min": -0.0941,
+      "max": 0.1579,
+      "avg_win": 0.0713,
+      "avg_loss": -0.0489
+    },
+    {
+      "key": "old_volume_reactivation",
+      "n": 44,
+      "win_rate": 0.4773,
+      "mean": 0.0062,
+      "median": -0.0166,
+      "p25": -0.0656,
+      "p75": 0.0656,
+      "min": -0.1239,
+      "max": 0.2164,
+      "avg_win": 0.0827,
+      "avg_loss": -0.0637
+    },
+    {
+      "key": "pullback_stabilization",
+      "n": 4,
+      "win_rate": 0.25,
+      "mean": -0.0281,
+      "median": -0.0386,
+      "p25": -0.0465,
+      "p75": -0.0347,
+      "min": -0.0465,
+      "max": 0.0071,
+      "avg_win": 0.0071,
+      "avg_loss": -0.0399
+    }
+  ],
+  "decision_t1_reason_counts": {
+    "hold_middle_to_t5_after_t1": 40,
+    "sell_t1_stop_le_neg3": 24,
+    "sell_t1_take_profit_ge3": 17
+  },
+  "fixed_t2": {
+    "n": 81,
+    "win_rate": 0.4691,
+    "mean": 0.0078,
+    "median": -0.0021,
+    "p25": -0.0344,
+    "p75": 0.0261,
+    "min": -0.1693,
+    "max": 0.3896,
+    "avg_win": 0.0692,
+    "avg_loss": -0.0476
+  },
+  "decision_t2": {
+    "n": 79,
+    "win_rate": 0.519,
+    "mean": 0.0201,
+    "median": 0.0012,
+    "p25": -0.0444,
+    "p75": 0.0792,
+    "min": -0.1693,
+    "max": 0.3896,
+    "avg_win": 0.0951,
+    "avg_loss": -0.0608
+  },
+  "fixed_t2_by_setup": [
+    {
+      "key": "contracting_pullback_bullish",
+      "n": 19,
+      "win_rate": 0.6316,
+      "mean": 0.019,
+      "median": 0.0107,
+      "p25": -0.0446,
+      "p75": 0.0261,
+      "min": -0.1248,
+      "max": 0.3896,
+      "avg_win": 0.0676,
+      "avg_loss": -0.0643
+    },
+    {
+      "key": "sideways_breakout",
+      "n": 15,
+      "win_rate": 0.3333,
+      "mean": 0.0118,
+      "median": -0.0021,
+      "p25": -0.011,
+      "p75": 0.0143,
+      "min": -0.0196,
+      "max": 0.0972,
+      "avg_win": 0.0531,
+      "avg_loss": -0.0098
+    },
+    {
+      "key": "old_volume_reactivation",
+      "n": 43,
+      "win_rate": 0.4651,
+      "mean": 0.0055,
+      "median": -0.0082,
+      "p25": -0.0443,
+      "p75": 0.0259,
+      "min": -0.1693,
+      "max": 0.3382,
+      "avg_win": 0.0765,
+      "avg_loss": -0.0563
+    },
+    {
+      "key": "pullback_stabilization",
+      "n": 4,
+      "win_rate": 0.25,
+      "mean": -0.0348,
+      "median": -0.0559,
+      "p25": -0.0812,
+      "p75": -0.027,
+      "min": -0.0812,
+      "max": 0.025,
+      "avg_win": 0.025,
+      "avg_loss": -0.0547
+    }
+  ],
+  "decision_t2_by_setup": [
+    {
+      "key": "sideways_breakout",
+      "n": 15,
+      "win_rate": 0.6667,
+      "mean": 0.0387,
+      "median": 0.0251,
+      "p25": -0.0252,
+      "p75": 0.0539,
+      "min": -0.1043,
+      "max": 0.2683,
+      "avg_win": 0.0797,
+      "avg_loss": -0.0434
+    },
+    {
+      "key": "contracting_pullback_bullish",
+      "n": 17,
+      "win_rate": 0.5294,
+      "mean": 0.0303,
+      "median": 0.0012,
+      "p25": -0.0446,
+      "p75": 0.0883,
+      "min": -0.1248,
+      "max": 0.3896,
+      "avg_win": 0.1099,
+      "avg_loss": -0.0591
+    },
+    {
+      "key": "old_volume_reactivation",
+      "n": 43,
+      "win_rate": 0.4884,
+      "mean": 0.0154,
+      "median": -0.0083,
+      "p25": -0.0532,
+      "p75": 0.0792,
+      "min": -0.1693,
+      "max": 0.3382,
+      "avg_win": 0.1003,
+      "avg_loss": -0.0655
+    },
+    {
+      "key": "pullback_stabilization",
+      "n": 4,
+      "win_rate": 0.25,
+      "mean": -0.0429,
+      "median": -0.0559,
+      "p25": -0.0812,
+      "p75": -0.0414,
+      "min": -0.0812,
+      "max": 0.0071,
+      "avg_win": 0.0071,
+      "avg_loss": -0.0595
+    }
+  ],
+  "decision_t2_reason_counts": {
+    "hold_middle_to_t5_after_t2": 36,
+    "sell_t2_stop_le_neg3": 23,
+    "sell_t2_take_profit_ge3": 20
+  },
+  "latest_review_date": "20260506",
+  "current_pick": {
+    "event_id": 193,
+    "ts_code": "603778.SH",
+    "name": "国晟科技",
+    "entry_date": "20260416",
+    "entry_price": 28.01,
+    "setup": "contracting_pullback_bullish",
+    "score": 129.0134,
+    "score_reasons": "contracting_pullback_bullish,preferred_price_20_100,contracting_pullback_bullish",
+    "review_date": "20260506",
+    "trigger_age_trading_days": 11,
+    "trigger_close": 27.91,
+    "trigger_pct_chg": 0.0492,
+    "trigger_volume_ratio": null,
+    "setup_pullback_days": 2.0,
+    "setup_amount_contract_ratio": 0.7845,
+    "setup_pullback_avg_amount_to_ma10": 0.7974,
+    "setup_pullback_close_ret": -0.0281,
+    "setup_drawdown_from_peak": -0.0937,
+    "setup_bull_body": 0.0528,
+    "setup_amount_to_last_pullback": 1.0718,
+    "setup_pct_chg": 0.0492
+  },
+  "assumptions": {
+    "review": "Select after review_date close.",
+    "buy": "Buy next trading day open.",
+    "t1": "T+1 means the first trading day after buy day, sold or reviewed at close.",
+    "t2": "T+2 means the second trading day after buy day, sold or reviewed at close.",
+    "position_overlap": "One new pick per review day is allowed; the same symbol is not picked while its prior fixed-horizon position is active.",
+    "min_entry_price": 10.0
+  }
+}

@@ -1,0 +1,132 @@
+{
+  "generated_at": "2026-05-06T14:06:20.604315+00:00",
+  "outputs": {
+    "trades": "/Users/azboo/Desktop/Person/pgc/data/cpb_v2_strategy_trades.csv",
+    "current": "/Users/azboo/Desktop/Person/pgc/data/cpb_v2_current_plan.csv",
+    "markdown": "/Users/azboo/Desktop/Person/pgc/reports/cpb_v2_strategy.md"
+  },
+  "summary": [
+    {
+      "group": "V1全部CPB",
+      "ret_n": 48,
+      "ret_win_rate": 0.625,
+      "ret_mean": 0.0144,
+      "ret_median": 0.0246,
+      "ret_p25": -0.0453,
+      "ret_p75": 0.0623,
+      "ret_min": -0.127,
+      "ret_max": 0.1534
+    },
+    {
+      "group": "V2过滤后",
+      "ret_n": 35,
+      "ret_win_rate": 0.8,
+      "ret_mean": 0.0327,
+      "ret_median": 0.038,
+      "ret_p25": 0.0085,
+      "ret_p75": 0.0663,
+      "ret_min": -0.0997,
+      "ret_max": 0.134
+    },
+    {
+      "group": "V2短线仓",
+      "ret_n": 29,
+      "ret_win_rate": 0.7931,
+      "ret_mean": 0.0329,
+      "ret_median": 0.038,
+      "ret_p25": 0.0025,
+      "ret_p75": 0.0764,
+      "ret_min": -0.0997,
+      "ret_max": 0.134
+    },
+    {
+      "group": "V2含观察仓",
+      "ret_n": 6,
+      "ret_win_rate": 0.8333,
+      "ret_mean": 0.0317,
+      "ret_median": 0.0387,
+      "ret_p25": 0.0186,
+      "ret_p75": 0.0547,
+      "ret_min": -0.0381,
+      "ret_max": 0.0791
+    }
+  ],
+  "current": [
+    {
+      "ts_code": "603881.SH",
+      "name": "数据港",
+      "industry": "软件服务",
+      "review_date": 20260506,
+      "trigger_age_trading_days": 17,
+      "trigger_close": 38.5,
+      "buy_zone_low": 37.73,
+      "buy_zone_high": 38.5,
+      "max_chase_price": 39.27,
+      "no_buy_above": 40.04,
+      "combined_score": 76.3,
+      "bigwin_score": 80,
+      "buy_point_percentile": 0.678,
+      "score": 128.3494,
+      "swing_watch": true,
+      "position_plan": "不追高成交后:70%短线仓+30%观察仓",
+      "v2_action": "优先买点"
+    },
+    {
+      "ts_code": "300785.SZ",
+      "name": "值得买",
+      "industry": "互联网",
+      "review_date": 20260506,
+      "trigger_age_trading_days": 8,
+      "trigger_close": 51.37,
+      "buy_zone_low": 50.34,
+      "buy_zone_high": 51.37,
+      "max_chase_price": 52.4,
+      "no_buy_above": 53.42,
+      "combined_score": 69.2,
+      "bigwin_score": 80,
+      "buy_point_percentile": 0.4407,
+      "score": 123.4262,
+      "swing_watch": true,
+      "position_plan": "不追高成交后:70%短线仓+30%观察仓",
+      "v2_action": "低吸观察"
+    },
+    {
+      "ts_code": "603778.SH",
+      "name": "国晟科技",
+      "industry": "电气设备",
+      "review_date": 20260506,
+      "trigger_age_trading_days": 11,
+      "trigger_close": 27.91,
+      "buy_zone_low": 27.35,
+      "buy_zone_high": 27.91,
+      "max_chase_price": 28.47,
+      "no_buy_above": 29.03,
+      "combined_score": 56.8,
+      "bigwin_score": 47,
+      "buy_point_percentile": 0.7966,
+      "score": 131.0435,
+      "swing_watch": false,
+      "position_plan": "短线仓或不做",
+      "v2_action": "轻仓交易型"
+    },
+    {
+      "ts_code": "300570.SZ",
+      "name": "太辰光",
+      "industry": "通信设备",
+      "review_date": 20260506,
+      "trigger_age_trading_days": 14,
+      "trigger_close": 143.87,
+      "buy_zone_low": 140.99,
+      "buy_zone_high": 143.87,
+      "max_chase_price": 146.75,
+      "no_buy_above": 149.62,
+      "combined_score": 33.7,
+      "bigwin_score": 38,
+      "buy_point_percentile": 0.2373,
+      "score": 120.4445,
+      "swing_watch": false,
+      "position_plan": "短线仓或不做",
+      "v2_action": "观察/放弃"
+    }
+  ]
+}

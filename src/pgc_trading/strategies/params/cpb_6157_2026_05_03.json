@@ -1,0 +1,29 @@
+{
+  "strategy_key": "cpb_6157",
+  "strategy_version": "cpb_6157@2026-05-03",
+  "params_hash": "c4908f5cabe061f4d58fcbdd740f0c255c7c4830f467a9ed1602726688367ddc",
+  "params": {
+    "avg_amount_max": 0.95,
+    "bull_body_min": 0.012,
+    "close_recover_min": 0.0,
+    "contract_max": 0.95,
+    "max_drawdown": 0.14,
+    "max_entry_runup": 0.18,
+    "min_drawdown": 0.025,
+    "pct_chg_min": 0.0,
+    "trigger_amount_max": 1.3,
+    "variant_id": "cpb_6157"
+  },
+  "forbidden_input_fields": [
+    "bull_prob",
+    "bull_reason",
+    "latest_ret",
+    "max_high",
+    "status",
+    "future_ret",
+    "t1_ret",
+    "t2_ret",
+    "t5_ret",
+    "win_label"
+  ]
+}
