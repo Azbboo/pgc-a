@@ -1177,11 +1177,12 @@ storage/repositories/
 | `pgc review run` | `DailyReviewService.run_daily_review` |
 | `pgc after-close run` | `DailyCloseWorkflowService.run_after_close` |
 | `pgc agent review` | `AgentReviewService.review_daily_pick` |
-| `pgc plan generate` | `PortfolioPlanningService.generate_buy_plan` |
-| `pgc plan publish` | `PortfolioPlanningService.publish_plan` |
-| `pgc plan cancel` | `PortfolioPlanningService.cancel_plan` |
-| `pgc trade record` | `ExecutionRecordingService.record_trade` |
-| `pgc exit evaluate` | `PositionLifecycleService.evaluate_exits` |
+| `pgc plan` | `PortfolioPlanningService.generate_buy_plan` |
+| `POST /api/trade-plans/{id}/publish` | `PortfolioPlanningService.publish_plan` |
+| `POST /api/trade-plans/{id}/cancel` | `PortfolioPlanningService.cancel_plan` |
+| `pgc record-buy` | `ExecutionRecordingService.record_trade` |
+| `pgc record-sell` | `ExecutionRecordingService.record_position_sell` |
+| `pgc exits-evaluate` | `PositionLifecycleService.evaluate_exits` |
 | `pgc report daily` | `ReportingQueryService.get_daily_report` |
 
 API 同理只做 HTTP wrapper。

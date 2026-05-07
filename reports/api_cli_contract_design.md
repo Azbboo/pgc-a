@@ -350,19 +350,22 @@ pgc agent review \
 
 对应服务：`AgentReviewService.review_daily_pick`
 
-### 6.5 生成或发布交易计划
+### 6.5 生成交易计划
 
 ```bash
-pgc plan generate \
-  --review-date 20260430 \
-  --planned-date 20260506 \
-  --strategy-run-id 82 \
+pgc plan \
+  --date 2026-04-30 \
+  --planned-trade-date 2026-05-06 \
+  --daily-pick-id 82 \
   --account paper-main
 ```
 
 ```bash
-pgc plan publish \
-  --trade-plan-id 29 \
+pgc plan \
+  --date 2026-04-30 \
+  --daily-pick-id 82 \
+  --account paper-main \
+  --apply \
   --operator azboo
 ```
 
@@ -374,17 +377,18 @@ pgc plan publish \
 - `reason`
 - 账户空闲仓位。
 
-对应服务：`PortfolioPlanningService.generate_plan`、`PortfolioPlanningService.publish_plan`
+对应服务：`PortfolioPlanningService.generate_buy_plan`
+
+当前 CLI 预览默认不写库；只有 `--apply` 才会写入 `trade_plans`。计划发布/取消能力由服务层和 HTTP API 提供，CLI 入口后续单独补齐时仍必须复用 `PortfolioPlanningService.publish_plan` / `cancel_plan`。
 
 ### 6.6 录入买入成交
 
 ```bash
-pgc trade record \
-  --trade-plan-id 29 \
+pgc record-buy \
+  --plan-id 29 \
   --account paper-main \
-  --side buy \
-  --executed-date 20260506 \
-  --executed-price 23.40 \
+  --date 2026-05-06 \
+  --price 23.40 \
   --shares 2800 \
   --fee 5.00 \
   --source manual \
@@ -404,8 +408,8 @@ pgc trade record \
 ### 6.7 评估 T+2/T+5 退出
 
 ```bash
-pgc exit evaluate \
-  --as-of-date 20260508 \
+pgc exits-evaluate \
+  --date 2026-05-08 \
   --account paper-main
 ```
 
@@ -421,12 +425,11 @@ pgc exit evaluate \
 ### 6.8 录入卖出成交
 
 ```bash
-pgc trade record \
-  --trade-plan-id 35 \
+pgc record-sell \
+  --position-id 35 \
   --account paper-main \
-  --side sell \
-  --executed-date 20260508 \
-  --executed-price 24.20 \
+  --date 2026-05-08 \
+  --price 24.20 \
   --shares 2800 \
   --fee 5.00 \
   --tax 67.76 \
@@ -680,7 +683,7 @@ sequenceDiagram
   CLI->>Workflow: run_daily_close(S, strategy_version, account)
   Workflow->>Review: run_daily_review(S, strategy_version)
   Review->>Store: feature_run + strategy_run + signals + daily_pick
-  Workflow->>Plan: generate_plan(account, daily_pick)
+  Workflow->>Plan: generate_buy_plan(account, daily_pick)
   Plan->>Store: trade_plan
   opt with_agent_review
     Review->>Agent: review_daily_pick(daily_pick)
@@ -717,9 +720,7 @@ sequenceDiagram
   participant Store as SQLite
   participant Report as ReportingQueryService
 
-  Op->>CLI: pgc plan publish --trade-plan-id P
-  CLI->>Store: trade_plan status=draft -> active
-  Op->>CLI: pgc trade record --trade-plan-id P --side buy
+  Op->>CLI: pgc record-buy --plan-id P
   CLI->>Trade: record_trade(...)
   Trade->>Store: trades
   Trade->>Position: create_or_update_position(trade)
@@ -748,12 +749,12 @@ sequenceDiagram
   participant Trade as ExecutionRecordingService
   participant Store as SQLite
 
-  Op->>CLI: pgc exit evaluate --as-of-date S
+  Op->>CLI: pgc exits-evaluate --date S
   CLI->>Position: evaluate_exits(account, S)
   Position->>Store: exit_decision
   Position->>Plan: generate_sell_plan(exit_decision)
   Plan->>Store: sell trade_plan
-  Op->>CLI: pgc trade record --side sell
+  Op->>CLI: pgc record-sell --position-id P
   CLI->>Trade: record_trade(sell)
   Trade->>Store: sell trade
   Trade->>Position: close_or_reduce_position
@@ -972,9 +973,9 @@ Consequences：
 1. `pgc raw import`
 2. `pgc market refresh`
 3. `pgc daily-close`
-4. `pgc plan generate`
-5. `pgc trade record`
-6. `pgc exit evaluate`
+4. `pgc plan`
+5. `pgc record-buy` / `pgc record-sell`
+6. `pgc exits-evaluate`
 7. `pgc report daily`
 8. `pgc paper-readiness`
 

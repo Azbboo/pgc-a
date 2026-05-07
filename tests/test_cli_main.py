@@ -79,6 +79,39 @@ class _UnexpectedCloseService:
         raise AssertionError(f"daily close service should not be built for missing db: {db_path}")
 
 
+@dataclass(frozen=True)
+class _FakePlanData:
+    trade_plan_id: int | None = None
+    action: str = "buy_next_open"
+    status: str = "active"
+    reason: str = "daily_pick"
+    planned_trade_date: str | None = "20260505"
+    planned_cash: float | None = 66666.67
+    planned_shares: int | None = 6600
+    free_position_slots: int = 2
+    idempotent: bool = False
+
+
+class _FakePlanningService:
+    calls: list[tuple[Path, object, RequestContext]] = []
+
+    def __init__(self, db_path: Path):
+        self.db_path = db_path
+
+    def generate_buy_plan(self, request, ctx: RequestContext) -> ServiceResult[_FakePlanData]:
+        self.calls.append((self.db_path, request, ctx))
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data=_FakePlanData(),
+        )
+
+
+class _UnexpectedPlanningService:
+    def __init__(self, db_path: Path):
+        raise AssertionError(f"planning service should not be built for missing db: {db_path}")
+
+
 class _UnexpectedReviewService:
     def __init__(self, db_path: Path):
         raise AssertionError(f"review service should not be built for missing db: {db_path}")
@@ -115,6 +148,7 @@ class CliMainTest(unittest.TestCase):
     def setUp(self) -> None:
         _FakeReviewService.calls = []
         _FakeCloseService.calls = []
+        _FakePlanningService.calls = []
         _FakeReadinessService.calls = []
 
     def test_help_lists_command_surface(self) -> None:
@@ -246,6 +280,92 @@ class CliMainTest(unittest.TestCase):
             self.assertIn("database not found", stdout.getvalue())
             self.assertIn("20260504", stdout.getvalue())
 
+    def test_plan_routes_to_planning_service_with_preview_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc_plan.db"
+            db_path.touch()
+            stdout = io.StringIO()
+            code = main(
+                [
+                    "plan",
+                    "--date",
+                    "2026-05-04",
+                    "--daily-pick-id",
+                    "11",
+                    "--planned-trade-date",
+                    "2026-05-05",
+                    "--account",
+                    "paper-main",
+                    "--db-path",
+                    str(db_path),
+                ],
+                stdout=stdout,
+                services=CommandServices(planning_service_factory=_FakePlanningService),
+            )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(len(_FakePlanningService.calls), 1)
+        called_db_path, request, ctx = _FakePlanningService.calls[0]
+        self.assertEqual(called_db_path, db_path)
+        self.assertEqual(request.account_key, "paper-main")
+        self.assertIsNone(request.account_id)
+        self.assertEqual(request.daily_pick_id, 11)
+        self.assertEqual(request.review_date, "20260504")
+        self.assertEqual(request.planned_trade_date, "20260505")
+        self.assertTrue(ctx.dry_run)
+        self.assertEqual(ctx.operator, "cli")
+        self.assertEqual(ctx.source, "cli")
+        self.assertEqual(ctx.idempotency_key, "plan-buy:paper-main:20260504:11")
+        output = stdout.getvalue()
+        self.assertIn("service returned success", output)
+        self.assertIn("trade_plan=id=none action=buy_next_open status=active", output)
+        self.assertIn("planned_trade_date=2026-05-05", output)
+        self.assertIn("planned_shares=6600", output)
+
+    def test_plan_apply_mode_uses_write_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc_plan_apply.db"
+            db_path.touch()
+            stdout = io.StringIO()
+            code = main(
+                [
+                    "plan",
+                    "--date",
+                    "2026-05-04",
+                    "--db-path",
+                    str(db_path),
+                    "--apply",
+                    "--operator",
+                    "tester",
+                ],
+                stdout=stdout,
+                services=CommandServices(planning_service_factory=_FakePlanningService),
+            )
+
+        self.assertEqual(code, 0)
+        _, request, ctx = _FakePlanningService.calls[0]
+        self.assertEqual(request.review_date, "20260504")
+        self.assertIsNone(request.daily_pick_id)
+        self.assertFalse(ctx.dry_run)
+        self.assertEqual(ctx.operator, "tester")
+        self.assertEqual(ctx.idempotency_key, "plan-buy:paper-main:20260504:20260504")
+        self.assertIn("trade_plan=id=none action=buy_next_open status=active", stdout.getvalue())
+
+    def test_plan_missing_db_fails_without_creating_database(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "missing.db"
+            stdout = io.StringIO()
+            code = main(
+                ["plan", "--date", "2026-05-04", "--db-path", str(db_path)],
+                stdout=stdout,
+                services=CommandServices(planning_service_factory=_UnexpectedPlanningService),
+            )
+
+            self.assertEqual(code, 1)
+            self.assertFalse(db_path.exists())
+            self.assertIn("database not found", stdout.getvalue())
+            self.assertIn("20260504", stdout.getvalue())
+
     def test_paper_readiness_routes_to_service_and_prints_summary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "pgc_readiness.db"
@@ -300,7 +420,6 @@ class CliMainTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             missing_db = str(Path(tmp) / "missing.db")
             cases = [
-                ["plan", "--date", "2026-05-04", "--db-path", missing_db],
                 ["positions", "--date", "2026-05-07", "--db-path", missing_db],
             ]
 

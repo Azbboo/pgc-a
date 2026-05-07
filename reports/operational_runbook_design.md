@@ -229,6 +229,20 @@ pgc daily-close --date S --db-path data/pgc_trading.db --account paper-main --ap
 
 默认策略版本是当前 paper 部署版本；需要回放或验证其他版本时，才显式追加 `--strategy-version`。
 
+如果已经有 `daily_pick`，只需要单独预览或补生成买入计划，可以走规划服务命令：
+
+```bash
+pgc plan --date S --db-path data/pgc_trading.db --account paper-main --daily-pick-id DAILY_PICK_ID
+```
+
+默认不写库；确认后才显式持久化：
+
+```bash
+pgc plan --date S --db-path data/pgc_trading.db --account paper-main --daily-pick-id DAILY_PICK_ID --apply --operator azboo
+```
+
+该命令调用 `PortfolioPlanningService.generate_buy_plan`，不会录入成交，也不会创建持仓。
+
 成功标准：
 
 - 返回 `workflow_status`；
@@ -350,17 +364,13 @@ pgc report daily \
 
 ### Step 3: 发布计划
 
-命令契约：
+当前 CLI v0 中，`daily-close --apply` 和 `plan --apply` 生成的买入计划状态为 `active`，不需要额外发布步骤。
 
-```bash
-pgc plan publish \
-  --trade-plan-id TRADE_PLAN_ID \
-  --operator azboo
-```
+如果未来恢复 `draft -> active` 发布流，发布仍必须走 `PortfolioPlanningService.publish_plan` 或同等 API 入口；不能手工改表。
 
-发布后：
+有效计划确认后：
 
-- `trade_plan.status` 从 `draft` 变为 `active`；
+- `trade_plan.status` 应为 `active`；
 - 仍不是成交；
 - 仍不能生成持仓。
 
@@ -386,15 +396,15 @@ pgc plan publish \
 命令契约：
 
 ```bash
-pgc trade record \
-  --trade-plan-id TRADE_PLAN_ID \
+pgc record-buy \
+  --plan-id TRADE_PLAN_ID \
   --account paper-main \
-  --side buy \
-  --executed-date YYYYMMDD \
-  --executed-price PRICE \
+  --date YYYY-MM-DD \
+  --price PRICE \
   --shares SHARES \
   --fee FEE \
   --source manual \
+  --db-path data/pgc_trading.db \
   --operator azboo
 ```
 
@@ -430,16 +440,16 @@ stateDiagram-v2
 命令契约：
 
 ```bash
-pgc trade record \
-  --trade-plan-id TRADE_PLAN_ID \
+pgc record-sell \
+  --position-id POSITION_ID \
   --account paper-main \
-  --side sell \
-  --executed-date YYYYMMDD \
-  --executed-price PRICE \
+  --date YYYY-MM-DD \
+  --price PRICE \
   --shares SHARES \
   --fee FEE \
   --tax TAX \
   --source manual \
+  --db-path data/pgc_trading.db \
   --operator azboo
 ```
 
@@ -459,9 +469,11 @@ pgc trade record \
 每日收盘后运行：
 
 ```bash
-pgc exit evaluate \
-  --as-of-date S \
-  --account paper-main
+pgc exits-evaluate \
+  --date S \
+  --account paper-main \
+  --db-path data/pgc_trading.db \
+  --operator azboo
 ```
 
 系统查找：

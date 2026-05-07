@@ -38,6 +38,10 @@ from pgc_trading.services.position_lifecycle_service import (
     ListPositionsRequest,
     PositionLifecycleService,
 )
+from pgc_trading.services.portfolio_planning_service import (
+    GenerateBuyPlanRequest,
+    PortfolioPlanningService,
+)
 from pgc_trading.strategies.cpb_6157 import STRATEGY_VERSION
 
 
@@ -47,6 +51,7 @@ ReportServiceFactory = Callable[[Path], ReportingQueryService]
 ExecutionServiceFactory = Callable[[Path], ExecutionRecordingService]
 PositionServiceFactory = Callable[[Path], PositionLifecycleService]
 OperationalReadinessServiceFactory = Callable[[Path], OperationalReadinessService]
+PlanningServiceFactory = Callable[[Path], PortfolioPlanningService]
 
 
 @dataclass(frozen=True)
@@ -57,6 +62,7 @@ class CommandServices:
     execution_service_factory: ExecutionServiceFactory = ExecutionRecordingService
     position_service_factory: PositionServiceFactory = PositionLifecycleService
     operational_readiness_service_factory: OperationalReadinessServiceFactory = OperationalReadinessService
+    planning_service_factory: PlanningServiceFactory = PortfolioPlanningService
 
 
 class PgcArgumentParser(argparse.ArgumentParser):
@@ -151,13 +157,28 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
 
     plan = subparsers.add_parser(
         "plan",
-        help="route a buy-plan draft request",
+        help="generate a buy-plan preview or apply it",
         stdout=stdout,
         stderr=stderr,
     )
     _add_date_argument(plan)
+    _add_account_arguments(plan)
+    plan.add_argument("--daily-pick-id", type=_positive_int, help="daily pick id to plan from")
+    plan.add_argument(
+        "--planned-trade-date",
+        type=_parse_iso_date,
+        metavar="YYYY-MM-DD",
+        help="override the planned trade date",
+    )
+    plan.add_argument("--agent-decision-id", type=_positive_int, help="optional advisory agent decision id")
+    plan.add_argument(
+        "--apply",
+        action="store_true",
+        help="persist the generated buy plan instead of previewing it",
+    )
+    _add_lifecycle_context_arguments(plan)
     _add_db_path_argument(plan)
-    plan.set_defaults(handler=_run_placeholder)
+    plan.set_defaults(handler=_run_plan)
 
     report = subparsers.add_parser(
         "report",
@@ -323,16 +344,44 @@ def _run_daily_close(args: argparse.Namespace, stdout: TextIO, services: Command
     return 0 if result.ok else 1
 
 
-def _run_placeholder(args: argparse.Namespace, stdout: TextIO, services: CommandServices) -> int:
-    del services
-    _write_routed_message(
-        stdout,
-        args.command,
-        args.date,
-        _normalized_db_path(args.db_path),
-        "service implementation pending; no writes were performed",
+def _run_plan(args: argparse.Namespace, stdout: TextIO, services: CommandServices) -> int:
+    db_path = _normalized_db_path(args.db_path)
+    review_date = args.date
+
+    if not db_path.exists():
+        _write_routed_message(
+            stdout,
+            args.command,
+            review_date,
+            db_path,
+            "database not found; planning service was not run and no writes were performed",
+        )
+        return 1
+
+    service = services.planning_service_factory(db_path)
+    request = GenerateBuyPlanRequest(
+        account_key=args.account_key,
+        account_id=args.account_id,
+        daily_pick_id=args.daily_pick_id,
+        review_date=review_date,
+        planned_trade_date=args.planned_trade_date,
+        agent_decision_id=args.agent_decision_id,
     )
-    return 0
+    ctx = RequestContext(
+        request_id="cli-plan",
+        idempotency_key=args.idempotency_key or _plan_idempotency_key(args),
+        dry_run=not args.apply,
+        operator=args.operator,
+        source="cli",
+    )
+    try:
+        result = service.generate_buy_plan(request, ctx)
+    except sqlite3.OperationalError as exc:
+        stdout.write(f"plan failed for {review_date}: database is not initialized or is incompatible: {exc}\n")
+        return 1
+
+    _write_plan_result(stdout, args.command, review_date, db_path, result)
+    return 0 if result.ok else 1
 
 
 def _run_record_buy(args: argparse.Namespace, stdout: TextIO, services: CommandServices) -> int:
@@ -682,6 +731,12 @@ def _daily_close_idempotency_key(args: argparse.Namespace) -> str:
     return f"daily-close:{account_ref}:{args.date}:{args.strategy_version}:{args.run_type}"
 
 
+def _plan_idempotency_key(args: argparse.Namespace) -> str:
+    account_ref = args.account_key or f"account-id-{args.account_id}"
+    pick_ref = args.daily_pick_id if args.daily_pick_id is not None else args.date
+    return f"plan-buy:{account_ref}:{args.date}:{pick_ref}"
+
+
 def _exit_idempotency_key(args: argparse.Namespace) -> str:
     account_ref = args.account_key or f"account-id-{args.account_id}"
     return f"exit-eval:{account_ref}:{args.date}"
@@ -774,6 +829,33 @@ def _write_daily_close_result(
         )
     else:
         stdout.write("buy_plan=none\n")
+
+
+def _write_plan_result(
+    stdout: TextIO,
+    command: str,
+    date: str,
+    db_path: Path,
+    result: ServiceResult[object],
+) -> None:
+    _write_routed_message(stdout, command, date, db_path, f"service returned {result.status}")
+    _write_warnings_and_errors(stdout, result)
+    data = result.data
+    if data is None:
+        return
+
+    stdout.write(
+        "trade_plan="
+        f"id={_display_optional_int(getattr(data, 'trade_plan_id', None))} "
+        f"action={getattr(data, 'action', 'n/a')} "
+        f"status={getattr(data, 'status', 'n/a')} "
+        f"reason={getattr(data, 'reason', 'n/a')} "
+        f"planned_trade_date={_display_date(getattr(data, 'planned_trade_date', None))} "
+        f"planned_cash={_display_optional_float(getattr(data, 'planned_cash', None))} "
+        f"planned_shares={_display_optional_int(getattr(data, 'planned_shares', None))} "
+        f"free_position_slots={getattr(data, 'free_position_slots', 'n/a')} "
+        f"idempotent={str(bool(getattr(data, 'idempotent', False))).lower()}\n"
+    )
 
 
 def _write_positions_result(
@@ -914,6 +996,10 @@ def _display_percent(value: float | None) -> str:
 
 def _display_optional_int(value: int | None) -> str:
     return "none" if value is None else str(value)
+
+
+def _display_optional_float(value: float | None) -> str:
+    return "n/a" if value is None else f"{value:.2f}"
 
 
 def _display_data(data: object) -> object:

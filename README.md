@@ -106,6 +106,17 @@ PYTHONPATH=/Users/azboo/Desktop/Person/pgc/src PGC_API_ENABLE_WRITES=0 python3 -
 
 Dashboard 默认同源调用 `/api/*`。如果前端静态文件单独打开，可在顶部 `API Base` 填入 `http://127.0.0.1:8000`。非 dry-run 写操作仍需要 API 侧显式设置 `PGC_API_ENABLE_WRITES=1`，并在页面填写操作者。
 
+日常 paper CLI 主路径：
+
+```bash
+PYTHONPATH=src python3 -m pgc_trading.cli.main daily-close --date 2026-05-07 --db-path data/pgc_trading.db --account paper-main
+PYTHONPATH=src python3 -m pgc_trading.cli.main daily-close --date 2026-05-07 --db-path data/pgc_trading.db --account paper-main --apply --operator azboo
+PYTHONPATH=src python3 -m pgc_trading.cli.main plan --date 2026-05-07 --db-path data/pgc_trading.db --account paper-main --daily-pick-id 1
+PYTHONPATH=src python3 -m pgc_trading.cli.main record-buy --plan-id 1 --date 2026-05-08 --price 10.50 --shares 1200 --db-path data/pgc_trading.db --account paper-main --source manual --operator azboo
+PYTHONPATH=src python3 -m pgc_trading.cli.main exits-evaluate --date 2026-05-12 --db-path data/pgc_trading.db --account paper-main --operator azboo
+PYTHONPATH=src python3 -m pgc_trading.cli.main paper-readiness --date 2026-05-12 --db-path data/pgc_trading.db --account paper-main --min-trades 10
+```
+
 兼容旧入口：
 
 ```bash
