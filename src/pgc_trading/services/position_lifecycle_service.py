@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from dataclasses import asdict, dataclass, is_dataclass
+from dataclasses import asdict, dataclass, field, is_dataclass
 from pathlib import Path
 from typing import Any
 
@@ -34,9 +34,61 @@ class EvaluateExitsRequest:
 
 
 @dataclass(frozen=True)
+class ListPositionsRequest:
+    as_of_date: str
+    account_key: str | None = None
+    account_id: int | None = None
+
+
+@dataclass(frozen=True)
+class PositionDTO:
+    position_id: int
+    account_id: int
+    account_key: str
+    ts_code: str
+    name: str
+    buy_date: str
+    buy_price: float
+    shares: int
+    cost: float
+    planned_t2_date: str | None
+    planned_t5_date: str | None
+    status: str
+    due_stage: str | None
+    latest_trade_date: str | None
+    latest_close: float | None
+    unrealized_ret: float | None
+
+
+@dataclass(frozen=True)
+class ListPositionsResult:
+    as_of_date: str
+    positions: list[PositionDTO]
+
+
+@dataclass(frozen=True)
 class SkippedPositionDTO:
     position_id: int
     reason: str
+
+
+@dataclass(frozen=True)
+class ExitDecisionDTO:
+    exit_decision_id: int
+    position_id: int
+    account_id: int
+    account_key: str
+    ts_code: str
+    name: str
+    decision_date: str
+    decision_stage: str
+    decision: str
+    ret: float | None
+    reason: str
+    planned_t2_date: str | None
+    planned_t5_date: str | None
+    planned_exit_date: str | None
+    generated_trade_plan_id: int | None
 
 
 @dataclass(frozen=True)
@@ -45,6 +97,7 @@ class EvaluateExitsResult:
     exit_decision_ids: list[int]
     generated_trade_plan_ids: list[int]
     skipped_positions: list[SkippedPositionDTO]
+    exit_decisions: list[ExitDecisionDTO] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -65,6 +118,39 @@ class PositionLifecycleService:
 
     def __init__(self, db_path: Path | None = None):
         self.db_path = db_path or Paths().db_path
+
+    def list_positions(
+        self,
+        request: ListPositionsRequest,
+        ctx: RequestContext,
+    ) -> ServiceResult[ListPositionsResult]:
+        if not is_yyyymmdd(request.as_of_date):
+            return ServiceResult(
+                status="validation_failed",
+                request_id=ctx.request_id,
+                data=ListPositionsResult(as_of_date=request.as_of_date, positions=[]),
+                errors=[ServiceError(code="VALIDATION_ERROR", message="as_of_date must use YYYYMMDD format.")],
+            )
+
+        with connect(self.db_path) as conn:
+            account = _resolve_account(conn, request.account_key, request.account_id)
+            if isinstance(account, ServiceError):
+                return ServiceResult(
+                    status="validation_failed",
+                    request_id=ctx.request_id,
+                    data=ListPositionsResult(as_of_date=request.as_of_date, positions=[]),
+                    errors=[account],
+                )
+            positions = [
+                _position_dto(row, account.account_key, request.as_of_date)
+                for row in _load_positions_for_review(conn, account.id, request.as_of_date)
+            ]
+            return ServiceResult(
+                status="success",
+                request_id=ctx.request_id,
+                data=ListPositionsResult(as_of_date=request.as_of_date, positions=positions),
+                lineage={"account_id": account.id, "as_of_date": request.as_of_date},
+            )
 
     def evaluate_exits(
         self,
@@ -221,6 +307,11 @@ def _evaluate_exits_in_tx(
         else:
             exit_decision_ids.append(-1)
 
+    decision_details = _load_exit_decision_details(
+        conn,
+        [decision_id for decision_id in exit_decision_ids if decision_id > 0],
+    )
+
     return ServiceResult(
         status="success",
         request_id=ctx.request_id,
@@ -229,6 +320,7 @@ def _evaluate_exits_in_tx(
             exit_decision_ids=exit_decision_ids,
             generated_trade_plan_ids=generated_trade_plan_ids,
             skipped_positions=skipped,
+            exit_decisions=decision_details,
         ),
         created_ids={
             "exit_decision_ids": exit_decision_ids,
@@ -256,6 +348,68 @@ def _load_open_positions(conn: sqlite3.Connection, account_id: int) -> list[sqli
         """,
         (account_id, *_open_status_tuple()),
     ).fetchall()
+
+
+def _load_positions_for_review(
+    conn: sqlite3.Connection,
+    account_id: int,
+    as_of_date: str,
+) -> list[sqlite3.Row]:
+    return conn.execute(
+        f"""
+        SELECT
+          p.*,
+          mb.trade_date AS latest_trade_date,
+          COALESCE(NULLIF(mb.adj_close, 0), mb.close) AS latest_close
+        FROM positions p
+        LEFT JOIN market_bars mb
+          ON mb.ts_code = p.ts_code
+         AND mb.trade_date = (
+            SELECT MAX(mb2.trade_date)
+            FROM market_bars mb2
+            WHERE mb2.ts_code = p.ts_code
+              AND mb2.trade_date <= ?
+         )
+        WHERE p.account_id = ?
+          AND p.status IN ({_status_placeholders()})
+        ORDER BY p.id
+        """,
+        (as_of_date, account_id, *_open_status_tuple()),
+    ).fetchall()
+
+
+def _position_dto(row: sqlite3.Row, account_key: str, as_of_date: str) -> PositionDTO:
+    latest_close = row["latest_close"]
+    unrealized_ret = None
+    if latest_close is not None:
+        unrealized_ret = (float(latest_close) - float(row["buy_price"])) / float(row["buy_price"])
+    return PositionDTO(
+        position_id=int(row["id"]),
+        account_id=int(row["account_id"]),
+        account_key=account_key,
+        ts_code=row["ts_code"],
+        name=row["name"],
+        buy_date=row["buy_date"],
+        buy_price=float(row["buy_price"]),
+        shares=int(row["shares"]),
+        cost=float(row["cost"]),
+        planned_t2_date=row["planned_t2_date"],
+        planned_t5_date=row["planned_t5_date"],
+        status=row["status"],
+        due_stage=_display_due_stage(row, as_of_date),
+        latest_trade_date=row["latest_trade_date"],
+        latest_close=float(latest_close) if latest_close is not None else None,
+        unrealized_ret=unrealized_ret,
+    )
+
+
+def _display_due_stage(position: sqlite3.Row, as_of_date: str) -> str | None:
+    stage = _due_stage(position, as_of_date)
+    if stage is not None:
+        return stage
+    if position["status"] == "planned_exit":
+        return "exit_planned"
+    return None
 
 
 def _due_stage(position: sqlite3.Row, as_of_date: str) -> str | None:
@@ -487,6 +641,70 @@ def _ensure_sell_plan_for_decision(
     if result.status != "success":
         return None
     return result.data.trade_plan_id
+
+
+def _load_exit_decision_details(
+    conn: sqlite3.Connection,
+    exit_decision_ids: list[int],
+) -> list[ExitDecisionDTO]:
+    if not exit_decision_ids:
+        return []
+    placeholders = ", ".join("?" for _ in exit_decision_ids)
+    rows = conn.execute(
+        f"""
+        SELECT
+          ed.id AS exit_decision_id,
+          ed.position_id,
+          ed.account_id,
+          pa.account_key,
+          p.ts_code,
+          p.name,
+          ed.decision_date,
+          ed.decision_stage,
+          ed.decision,
+          ed.ret,
+          ed.reason,
+          p.planned_t2_date,
+          p.planned_t5_date,
+          ed.planned_exit_date,
+          ed.generated_trade_plan_id
+        FROM exit_decisions ed
+        JOIN positions p ON p.id = ed.position_id
+        JOIN portfolio_accounts pa ON pa.id = ed.account_id
+        WHERE ed.id IN ({placeholders})
+        """,
+        tuple(exit_decision_ids),
+    ).fetchall()
+    by_id = {int(row["exit_decision_id"]): row for row in rows}
+    details: list[ExitDecisionDTO] = []
+    for exit_decision_id in exit_decision_ids:
+        row = by_id.get(exit_decision_id)
+        if row is None:
+            continue
+        details.append(
+            ExitDecisionDTO(
+                exit_decision_id=int(row["exit_decision_id"]),
+                position_id=int(row["position_id"]),
+                account_id=int(row["account_id"]),
+                account_key=row["account_key"],
+                ts_code=row["ts_code"],
+                name=row["name"],
+                decision_date=row["decision_date"],
+                decision_stage=row["decision_stage"],
+                decision=row["decision"],
+                ret=float(row["ret"]) if row["ret"] is not None else None,
+                reason=row["reason"],
+                planned_t2_date=row["planned_t2_date"],
+                planned_t5_date=row["planned_t5_date"],
+                planned_exit_date=row["planned_exit_date"],
+                generated_trade_plan_id=(
+                    int(row["generated_trade_plan_id"])
+                    if row["generated_trade_plan_id"] is not None
+                    else None
+                ),
+            )
+        )
+    return details
 
 
 def _action_for_decision(decision: str) -> str | None:

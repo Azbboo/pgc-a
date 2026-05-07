@@ -25,12 +25,18 @@ from pgc_trading.services.execution_recording_service import (
     RecordPositionSellRequest,
     RecordTradeRequest,
 )
+from pgc_trading.services.position_lifecycle_service import (
+    EvaluateExitsRequest,
+    ListPositionsRequest,
+    PositionLifecycleService,
+)
 from pgc_trading.strategies.cpb_6157 import STRATEGY_VERSION
 
 
 ReviewServiceFactory = Callable[[Path], DailyReviewService]
 ReportServiceFactory = Callable[[Path], ReportingQueryService]
 ExecutionServiceFactory = Callable[[Path], ExecutionRecordingService]
+PositionServiceFactory = Callable[[Path], PositionLifecycleService]
 
 
 @dataclass(frozen=True)
@@ -38,6 +44,7 @@ class CommandServices:
     review_service_factory: ReviewServiceFactory = DailyReviewService
     report_service_factory: ReportServiceFactory = ReportingQueryService
     execution_service_factory: ExecutionServiceFactory = ExecutionRecordingService
+    position_service_factory: PositionServiceFactory = PositionLifecycleService
 
 
 class PgcArgumentParser(argparse.ArgumentParser):
@@ -163,8 +170,9 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
         stderr=stderr,
     )
     _add_date_argument(positions)
+    _add_account_arguments(positions)
     _add_db_path_argument(positions)
-    positions.set_defaults(handler=_run_placeholder)
+    positions.set_defaults(handler=_run_positions)
 
     exits_evaluate = subparsers.add_parser(
         "exits-evaluate",
@@ -173,8 +181,15 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
         stderr=stderr,
     )
     _add_date_argument(exits_evaluate)
+    _add_account_arguments(exits_evaluate)
+    exits_evaluate.add_argument(
+        "--no-generate-sell-plans",
+        action="store_true",
+        help="create exit decisions without generating sell trade plans",
+    )
+    _add_lifecycle_context_arguments(exits_evaluate)
     _add_db_path_argument(exits_evaluate)
-    exits_evaluate.set_defaults(handler=_run_placeholder)
+    exits_evaluate.set_defaults(handler=_run_exits_evaluate)
 
     return parser
 
@@ -291,6 +306,74 @@ def _run_record_sell(args: argparse.Namespace, stdout: TextIO, services: Command
     return 0 if result.ok else 1
 
 
+def _run_positions(args: argparse.Namespace, stdout: TextIO, services: CommandServices) -> int:
+    db_path = _normalized_db_path(args.db_path)
+    as_of_date = args.date
+
+    if not db_path.exists():
+        _write_routed_message(
+            stdout,
+            args.command,
+            as_of_date,
+            db_path,
+            "database not found; position service was not run and no writes were performed",
+        )
+        return 0
+
+    service = services.position_service_factory(db_path)
+    request = ListPositionsRequest(
+        as_of_date=as_of_date,
+        account_key=args.account_key,
+        account_id=args.account_id,
+    )
+    try:
+        ctx = RequestContext(request_id="cli-positions", operator="cli", source="cli")
+        result = service.list_positions(request, ctx)
+    except sqlite3.OperationalError as exc:
+        stdout.write(f"positions failed for {as_of_date}: database is not initialized or is incompatible: {exc}\n")
+        return 1
+
+    _write_positions_result(stdout, args.command, as_of_date, db_path, result)
+    return 0 if result.ok else 1
+
+
+def _run_exits_evaluate(args: argparse.Namespace, stdout: TextIO, services: CommandServices) -> int:
+    db_path = _normalized_db_path(args.db_path)
+    as_of_date = args.date
+
+    if not db_path.exists():
+        _write_routed_message(
+            stdout,
+            args.command,
+            as_of_date,
+            db_path,
+            "database not found; position service was not run and no writes were performed",
+        )
+        return 1
+
+    service = services.position_service_factory(db_path)
+    request = EvaluateExitsRequest(
+        as_of_date=as_of_date,
+        account_key=args.account_key,
+        account_id=args.account_id,
+        generate_sell_plans=not args.no_generate_sell_plans,
+    )
+    ctx = RequestContext(
+        request_id="cli-exits-evaluate",
+        idempotency_key=args.idempotency_key or _exit_idempotency_key(args),
+        operator=args.operator,
+        source="cli",
+    )
+    try:
+        result = service.evaluate_exits(request, ctx)
+    except sqlite3.OperationalError as exc:
+        stdout.write(f"exits-evaluate failed for {as_of_date}: database is not initialized or is incompatible: {exc}\n")
+        return 1
+
+    _write_exit_evaluation_result(stdout, args.command, as_of_date, db_path, result)
+    return 0 if result.ok else 1
+
+
 def _run_report(args: argparse.Namespace, stdout: TextIO, services: CommandServices) -> int:
     db_path = _normalized_db_path(args.db_path)
     report_date = args.date
@@ -375,9 +458,18 @@ def _add_db_path_argument(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _add_execution_common_arguments(parser: argparse.ArgumentParser) -> None:
+def _add_account_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--account", dest="account_key", default=DEFAULT_ACCOUNT_KEY, help="portfolio account key")
     parser.add_argument("--account-id", type=_positive_int, help="portfolio account id")
+
+
+def _add_lifecycle_context_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--operator", default="cli", help="operator name for audit fields")
+    parser.add_argument("--idempotency-key", help="optional idempotency key for audit logging")
+
+
+def _add_execution_common_arguments(parser: argparse.ArgumentParser) -> None:
+    _add_account_arguments(parser)
     parser.add_argument("--fee", type=_non_negative_float, default=0.0, help="execution fee")
     parser.add_argument("--tax", type=_non_negative_float, default=0.0, help="execution tax")
     parser.add_argument(
@@ -451,6 +543,11 @@ def _execution_context(args: argparse.Namespace, command: str) -> RequestContext
     )
 
 
+def _exit_idempotency_key(args: argparse.Namespace) -> str:
+    account_ref = args.account_key or f"account-id-{args.account_id}"
+    return f"exit-eval:{account_ref}:{args.date}"
+
+
 def _normalized_db_path(db_path: Path) -> Path:
     return db_path.expanduser()
 
@@ -493,6 +590,124 @@ def _write_service_result(
             stdout.write(f"- {error.code}: {error.message}\n")
     if result.data is not None:
         stdout.write(f"data: {_display_data(result.data)}\n")
+
+
+def _write_positions_result(
+    stdout: TextIO,
+    command: str,
+    date: str,
+    db_path: Path,
+    result: ServiceResult[object],
+) -> None:
+    _write_routed_message(stdout, command, date, db_path, f"service returned {result.status}")
+    _write_warnings_and_errors(stdout, result)
+    data = result.data
+    if data is None or not getattr(data, "positions", []):
+        stdout.write(f"positions as of {_display_date(date)}: none\n")
+        return
+
+    stdout.write(f"positions as of {_display_date(data.as_of_date)}:\n")
+    for position in data.positions:
+        latest = "n/a"
+        if position.latest_close is not None:
+            latest = f"{position.latest_close:.2f} on {_display_date(position.latest_trade_date)}"
+        ret = _display_percent(position.unrealized_ret)
+        due_stage = position.due_stage or "not_due"
+        stdout.write(
+            "- "
+            f"position_id={position.position_id} "
+            f"account_id={position.account_id} "
+            f"account={position.account_key} "
+            f"{position.ts_code} {position.name} "
+            f"shares={position.shares} "
+            f"status={position.status} "
+            f"buy_date={_display_date(position.buy_date)} "
+            f"planned_t2_date={_display_date(position.planned_t2_date)} "
+            f"planned_t5_date={_display_date(position.planned_t5_date)} "
+            f"due_stage={due_stage} "
+            f"latest_close={latest} "
+            f"unrealized_ret={ret}\n"
+        )
+
+
+def _write_exit_evaluation_result(
+    stdout: TextIO,
+    command: str,
+    date: str,
+    db_path: Path,
+    result: ServiceResult[object],
+) -> None:
+    _write_routed_message(stdout, command, date, db_path, f"service returned {result.status}")
+    _write_warnings_and_errors(stdout, result)
+    data = result.data
+    if data is None:
+        return
+
+    stdout.write(f"evaluated_positions={data.evaluated_positions}\n")
+    if data.exit_decisions:
+        stdout.write("exit decisions:\n")
+        for decision in data.exit_decisions:
+            stdout.write(
+                "- "
+                f"exit_decision_id={decision.exit_decision_id} "
+                f"position_id={decision.position_id} "
+                f"account_id={decision.account_id} "
+                f"account={decision.account_key} "
+                f"{decision.ts_code} {decision.name} "
+                f"decision_date={_display_date(decision.decision_date)} "
+                f"stage={decision.decision_stage} "
+                f"decision={decision.decision} "
+                f"reason={decision.reason} "
+                f"return={_display_percent(decision.ret)} "
+                f"planned_t2_date={_display_date(decision.planned_t2_date)} "
+                f"planned_t5_date={_display_date(decision.planned_t5_date)} "
+                f"planned_exit_date={_display_date(decision.planned_exit_date)} "
+                f"generated_trade_plan_id={_display_optional_int(decision.generated_trade_plan_id)}\n"
+            )
+    else:
+        stdout.write("exit decisions: none\n")
+
+    if data.generated_trade_plan_ids:
+        ids = ", ".join(str(item) for item in data.generated_trade_plan_ids)
+        stdout.write(f"generated_trade_plan_ids={ids}\n")
+    else:
+        stdout.write("generated_trade_plan_ids=none\n")
+
+    if data.skipped_positions:
+        stdout.write("skipped positions:\n")
+        for skipped in data.skipped_positions:
+            stdout.write(f"- position_id={skipped.position_id} reason={skipped.reason}\n")
+
+    stdout.write("sell trades recorded by this command: 0\n")
+
+
+def _write_warnings_and_errors(stdout: TextIO, result: ServiceResult[object]) -> None:
+    if result.warnings:
+        stdout.write("warnings:\n")
+        for warning in result.warnings:
+            stdout.write(f"- {warning.code}: {warning.message}\n")
+    if result.errors:
+        stdout.write("errors:\n")
+        for error in result.errors:
+            stdout.write(f"- {error.code}: {error.message}\n")
+
+
+def _display_date(value: str | None) -> str:
+    if value is None:
+        return "n/a"
+    if len(value) == 8 and value.isdigit():
+        return f"{value[:4]}-{value[4:6]}-{value[6:]}"
+    return value
+
+
+def _display_percent(value: float | None) -> str:
+    if value is None:
+        return "n/a"
+    return f"{value * 100:.2f}%"
+
+
+def _display_optional_int(value: int | None) -> str:
+    return "none" if value is None else str(value)
 
 
 def _display_data(data: object) -> object:

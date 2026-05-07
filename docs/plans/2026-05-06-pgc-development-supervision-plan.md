@@ -89,7 +89,7 @@ PGC_TEST_REDIS_PASSWORD=<local-only-secret-or-empty>
 | DEV3 Daily Review Report Output | done | DEV2 | reporting/templates/tests | Markdown/JSON daily report |
 | DEV4 Tushare Runtime Adapter Hardening | done | WP10 | market adapter/config/tests | env-driven real fetch guardrails |
 | DEV5 Execution Recording CLI | done | DEV1, WP12 | CLI + portfolio services/tests | record buy/sell execution safely |
-| DEV6 Position Exit Decision CLI | todo | DEV5 | position lifecycle/tests | T+2/T+5 review commands |
+| DEV6 Position Exit Decision CLI | done | DEV5 | position lifecycle/tests | T+2/T+5 review commands |
 | DEV7 Replay & Golden Regression | todo | DEV2-DEV6 | tests/fixtures/replay | no-future replay gate |
 | DEV8 Test Server Sync POC | todo | DEV3, DEV7 | scripts/adapters/docs | optional MySQL/Redis sync, no secrets |
 | DEV9 HTTP API P0 | deferred | DEV1-DEV7 | API layer/tests | service-backed API |
@@ -392,6 +392,13 @@ pgc exits-evaluate --date 2026-05-07 --db-path /private/tmp/pgc_cli.db
 - Explicit calendar dates are shown, not only T+2/T+5 shorthand.
 - Generated exit plan is traceable to position and account.
 - No sell execution is recorded unless user runs record-sell.
+
+**DEV6 completion review (2026-05-07):**
+
+- Accepted: `pgc positions` now routes to `PositionLifecycleService.list_positions`, shows account, position, buy date, planned T+2/T+5 calendar dates, due stage, latest close date, and unrealized return.
+- Accepted: `pgc exits-evaluate` now routes to `PositionLifecycleService.evaluate_exits`, writes exit decisions and generated sell trade plans with position/account lineage, and prints explicit decision and planned exit dates.
+- Accepted: exit evaluation does not record sell trades; sell execution remains gated behind `pgc record-sell`.
+- Quality gate during completion review: DEV6 focused tests passed with 14 tests; full suite passed with 110 tests; `compileall` passed.
 
 ### DEV7: Replay & Golden Regression
 

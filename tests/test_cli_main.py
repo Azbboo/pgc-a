@@ -46,7 +46,7 @@ class CliMainTest(unittest.TestCase):
 
         self.assertEqual(raised.exception.code, 0)
         output = stdout.getvalue()
-        for command in ["review", "plan", "report", "record-buy", "record-sell", "positions"]:
+        for command in ["review", "plan", "report", "record-buy", "record-sell", "positions", "exits-evaluate"]:
             self.assertIn(command, output)
 
     def test_review_routes_to_service_with_normalized_date_and_db_path(self) -> None:
@@ -97,18 +97,20 @@ class CliMainTest(unittest.TestCase):
         self.assertIn("no writes were performed", stdout.getvalue())
 
     def test_future_commands_have_routing(self) -> None:
-        cases = [
-            ["plan", "--date", "2026-05-04", "--db-path", "/private/tmp/pgc_cli.db"],
-            ["positions", "--date", "2026-05-07", "--db-path", "/private/tmp/pgc_cli.db"],
-        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            missing_db = str(Path(tmp) / "missing.db")
+            cases = [
+                ["plan", "--date", "2026-05-04", "--db-path", missing_db],
+                ["positions", "--date", "2026-05-07", "--db-path", missing_db],
+            ]
 
-        for argv in cases:
-            with self.subTest(command=argv[0]):
-                stdout = io.StringIO()
-                code = main(argv, stdout=stdout)
-                self.assertEqual(code, 0)
-                self.assertIn(f"{argv[0]} command routed", stdout.getvalue())
-                self.assertIn("no writes were performed", stdout.getvalue())
+            for argv in cases:
+                with self.subTest(command=argv[0]):
+                    stdout = io.StringIO()
+                    code = main(argv, stdout=stdout)
+                    self.assertEqual(code, 0)
+                    self.assertIn(f"{argv[0]} command routed", stdout.getvalue())
+                    self.assertIn("no writes were performed", stdout.getvalue())
 
     def test_record_command_missing_db_fails_without_creating_database(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
