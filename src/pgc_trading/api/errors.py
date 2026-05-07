@@ -10,6 +10,7 @@ _HTTP_STATUS_BY_RESULT_STATUS = {
     "partial_success": 207,
     "skipped": 200,
     "validation_failed": 400,
+    "forbidden": 403,
     "blocked": 409,
     "failed": 500,
 }

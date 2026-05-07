@@ -92,7 +92,7 @@ PGC_TEST_REDIS_PASSWORD=<local-only-secret-or-empty>
 | DEV6 Position Exit Decision CLI | done | DEV5 | position lifecycle/tests | T+2/T+5 review commands |
 | DEV7 Replay & Golden Regression | done | DEV2-DEV6 | tests/fixtures/replay | no-future replay gate |
 | DEV8 Test Server Sync POC | done | DEV3, DEV7 | scripts/adapters/docs | optional MySQL/Redis sync, no secrets |
-| DEV9 HTTP API P0 | in_progress | DEV1-DEV8 | API layer/tests | service-backed API |
+| DEV9 HTTP API P0 | done | DEV1-DEV8 | API layer/tests | service-backed API |
 | DEV10 Dashboard P0 | deferred | DEV9 | frontend/API only | production Dashboard |
 
 ## 5. Work Packages
@@ -504,6 +504,15 @@ pgc exits-evaluate --date 2026-05-07 --db-path /private/tmp/pgc_cli.db
 - Accepted: `PortfolioPlanningService.list_trade_plans` provides the required read-only trade-plan query behind the service layer and enforces account scoping.
 - Quality gate during completion review: DEV9A-B focused tests passed with 17 tests and 1 expected skip; full suite passed with 130 unittest tests and 1 skip, 129 pytest tests with 1 skip and 8 subtests; `compileall` passed; secret scan had no matches.
 - Remaining DEV9 work: DEV9C controlled write endpoints and write-disabled-by-default behavior.
+
+**DEV9C completion review (2026-05-07):**
+
+- Accepted: `src/pgc_trading/api/routes.py` now exposes controlled write adapters for review runs, trade-plan publish/cancel, trade execution recording, and exit evaluation.
+- Accepted: non-dry write requests are rejected unless API writes are explicitly enabled, and enabled writes require both `operator` and `idempotency_key`.
+- Accepted: write adapters create `RequestContext(source="api")` and call only `DailyCloseWorkflowService`, `PortfolioPlanningService`, `ExecutionRecordingService`, or `PositionLifecycleService`.
+- Accepted: dry-run is allowed for review runs, trade recording, and exit evaluation where the service supports it; publish/cancel reject dry-run.
+- Accepted: service error codes are preserved in API envelopes, and API route modules still do not import `sqlite3` or call `connect`.
+- Quality gate during completion review: DEV9 focused API/portfolio tests passed with 25 tests and 1 expected skip; full suite passed with 138 unittest tests and 1 skip, 137 pytest tests with 1 skip and 8 subtests; `compileall` passed; secret scan and API direct-DB scan had no matches.
 
 ## 6. Handoff Template For New Development Sessions
 

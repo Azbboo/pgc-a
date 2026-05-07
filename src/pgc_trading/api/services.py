@@ -8,12 +8,16 @@ from typing import Callable
 
 from pgc_trading.reporting.daily_report import ReportingQueryService
 from pgc_trading.services.data_quality_service import DataQualityService
+from pgc_trading.services.daily_close_workflow_service import DailyCloseWorkflowService
+from pgc_trading.services.execution_recording_service import ExecutionRecordingService
 from pgc_trading.services.portfolio_planning_service import PortfolioPlanningService
 from pgc_trading.services.position_lifecycle_service import PositionLifecycleService
 
 
 ReportServiceFactory = Callable[[Path], ReportingQueryService]
 DataQualityServiceFactory = Callable[[Path], DataQualityService]
+DailyCloseWorkflowServiceFactory = Callable[[Path], DailyCloseWorkflowService]
+ExecutionRecordingServiceFactory = Callable[[Path], ExecutionRecordingService]
 PortfolioPlanningServiceFactory = Callable[[Path], PortfolioPlanningService]
 PositionLifecycleServiceFactory = Callable[[Path], PositionLifecycleService]
 
@@ -22,5 +26,7 @@ PositionLifecycleServiceFactory = Callable[[Path], PositionLifecycleService]
 class ApiServices:
     report_service_factory: ReportServiceFactory = ReportingQueryService
     data_quality_service_factory: DataQualityServiceFactory = DataQualityService
+    daily_close_workflow_service_factory: DailyCloseWorkflowServiceFactory = DailyCloseWorkflowService
+    execution_recording_service_factory: ExecutionRecordingServiceFactory = ExecutionRecordingService
     portfolio_planning_service_factory: PortfolioPlanningServiceFactory = PortfolioPlanningService
     position_lifecycle_service_factory: PositionLifecycleServiceFactory = PositionLifecycleService
