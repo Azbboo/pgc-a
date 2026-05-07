@@ -297,9 +297,28 @@ class PortfolioLifecycleServiceTest(unittest.TestCase):
             self.assertEqual(result.status, "success")
             self.assertEqual(result.data.account_id, 1)
             self.assertEqual([plan.id for plan in result.data.trade_plans], [plan_id])
-            self.assertEqual(result.data.trade_plans[0].action, "buy_next_open")
+            plan = result.data.trade_plans[0]
+            self.assertEqual(plan.action, "buy_next_open")
             self.assertEqual(result.lineage["account_id"], 1)
             with sqlite3.connect(db_path) as conn:
+                stored = conn.execute(
+                    """
+                    SELECT daily_pick_id, signal_id, operator, created_at, plan_json
+                    FROM trade_plans
+                    WHERE id = ?
+                    """,
+                    (plan_id,),
+                ).fetchone()
+                plan_json = json.loads(stored[4])
+                self.assertEqual(plan.daily_pick_id, stored[0])
+                self.assertEqual(plan.signal_id, stored[1])
+                self.assertEqual(plan.operator, stored[2])
+                self.assertEqual(plan.created_at, stored[3])
+                self.assertEqual(plan.planned_cash, plan_json["planned_cash"])
+                self.assertEqual(plan.planned_shares, plan_json["planned_shares"])
+                self.assertEqual(plan.ts_code, plan_json["ts_code"])
+                self.assertEqual(plan.name, plan_json["name"])
+                self.assertIsNotNone(plan.created_at)
                 self.assertEqual(self._count(conn, "trade_plans"), 2)
 
     def _migrated_seeded_db(self, tmp: str) -> Path:

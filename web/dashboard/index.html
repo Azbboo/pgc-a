@@ -52,7 +52,12 @@
       </header>
 
       <nav class="sidebar" aria-label="主导航">
-        <button class="nav-item active" type="button" data-page-button="review">
+        <button class="nav-item active" type="button" data-page-button="execution">
+          <span class="nav-glyph">X</span>
+          <span>开盘执行</span>
+          <b id="executionBadge">0</b>
+        </button>
+        <button class="nav-item" type="button" data-page-button="review">
           <span class="nav-glyph">R</span>
           <span>每日复盘</span>
           <b id="reviewBadge">0</b>
@@ -114,7 +119,55 @@
 
         <div class="notice-line" id="noticeLine" hidden></div>
 
-        <section class="page active" data-page="review">
+        <section class="page active" data-page="execution">
+          <div class="page-heading">
+            <div>
+              <h1>开盘执行</h1>
+              <p>按计划日扫描 active 买入计划，先完成开盘检查，再记录人工纸面成交。</p>
+            </div>
+            <div class="toolbar">
+              <button type="button" id="executionEvaluateExitsButton">评估退出：生成决策/计划</button>
+              <button type="button" id="reloadExecutionButton">刷新执行台</button>
+            </div>
+          </div>
+
+          <div class="execution-grid">
+            <section class="panel execution-plan-panel">
+              <div class="panel-heading">
+                <h2>今日主动计划</h2>
+                <span id="openingBlockerChip" class="chip chip-neutral">-</span>
+              </div>
+              <div id="openingPlanBody" class="execution-plan-body"></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <h2>开盘检查清单</h2>
+                <span id="preOpenChecklistState" class="chip chip-neutral">未确认</span>
+              </div>
+              <div id="preOpenChecklist" class="checklist-grid" aria-label="开盘检查清单"></div>
+            </section>
+          </div>
+
+          <section class="split-panels">
+            <div class="panel">
+              <div class="panel-heading">
+                <h2>取消 / 跳过</h2>
+                <span class="muted">取消原因必填</span>
+              </div>
+              <div id="openingCancelQueue" class="compact-list"></div>
+            </div>
+            <div class="panel">
+              <div class="panel-heading">
+                <h2>退出任务</h2>
+                <span class="muted">评估只生成决策/计划，不录入卖出成交</span>
+              </div>
+              <div id="openingExitQueue" class="compact-list"></div>
+            </div>
+          </section>
+        </section>
+
+        <section class="page" data-page="review">
           <div class="page-heading">
             <div>
               <h1>每日复盘</h1>
@@ -222,10 +275,13 @@
                 <thead>
                   <tr>
                     <th>ID</th>
+                    <th>股票</th>
                     <th>动作</th>
                     <th>状态</th>
                     <th>生成日</th>
                     <th>计划交易日</th>
+                    <th class="num">计划股数</th>
+                    <th class="num">计划资金</th>
                     <th>原因</th>
                     <th>操作</th>
                   </tr>
@@ -257,6 +313,7 @@
                 <span id="recordModeChip" class="chip chip-neutral">未选择</span>
               </div>
               <form class="record-form" id="recordForm">
+                <p class="execution-advisory">仅记录人工纸面成交；Dashboard 不会向券商下单。</p>
                 <label>
                   <span>计划 ID</span>
                   <input id="recordPlanId" inputmode="numeric" autocomplete="off" />
@@ -298,7 +355,7 @@
                 </label>
                 <div class="form-actions">
                   <button type="button" id="clearRecordButton">清空</button>
-                  <button type="submit" class="primary-button">提交成交</button>
+                  <button type="submit" class="primary-button" id="submitRecordButton">提交成交</button>
                 </div>
               </form>
             </section>
@@ -312,7 +369,7 @@
               <p>T+2 / T+5 日期在移动端仍保留，不折叠关键风险。</p>
             </div>
             <div class="toolbar">
-              <button type="button" id="evaluateExitsButton">评估退出</button>
+              <button type="button" id="evaluateExitsButton">评估退出：生成决策/计划</button>
               <button type="button" id="reloadPositionsButton">刷新持仓</button>
             </div>
           </div>
@@ -408,6 +465,7 @@
           <span id="confirmInputText">原因</span>
           <input id="confirmInput" autocomplete="off" />
         </label>
+        <div class="quick-reason-grid" id="confirmQuickChoices" hidden></div>
         <div class="dialog-actions">
           <button value="cancel">取消</button>
           <button value="confirm" class="primary-button" id="confirmSubmit">确认</button>

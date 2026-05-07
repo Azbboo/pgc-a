@@ -362,6 +362,19 @@ pgc report daily \
 - 是否跳过由人工决定；
 - 跳过必须写 `cancel_reason` 或 `skip_manual`。
 
+CLI 取消安全阀：
+
+```bash
+pgc plan-cancel \
+  --plan-id TRADE_PLAN_ID \
+  --reason 高开过大 \
+  --account paper-main \
+  --db-path data/pgc_trading.db \
+  --operator azboo
+```
+
+该命令必须走 `PortfolioPlanningService.cancel_plan`，不能手工更新 `trade_plans`。数据库文件不存在时命令返回非 0，且不会创建新库；`--reason` 必填，输出需包含计划 id、取消后状态和取消原因。
+
 ### Step 3: 发布计划
 
 当前 CLI v0 中，`daily-close --apply` 和 `plan --apply` 生成的买入计划状态为 `active`，不需要额外发布步骤。

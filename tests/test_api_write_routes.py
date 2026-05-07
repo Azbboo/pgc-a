@@ -6,6 +6,7 @@ from pathlib import Path
 from pgc_trading.api.routes import (
     cancel_plan,
     evaluate_exits,
+    generate_trade_plan,
     publish_plan,
     record_trade_execution,
     run_review_run,
@@ -39,6 +40,23 @@ class _FakePortfolioService:
 
     def __init__(self, db_path: Path):
         self.db_path = db_path
+
+    def generate_buy_plan(self, request, ctx):
+        self.calls.append(("generate_buy", self.db_path, request, ctx))
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data={
+                "trade_plan_id": None if ctx.dry_run else 77,
+                "action": "buy_next_open",
+                "status": "active",
+                "reason": "daily_pick",
+                "planned_trade_date": request.planned_trade_date or request.review_date,
+                "planned_cash": 66666.67,
+                "planned_shares": 6600,
+                "free_position_slots": 3,
+            },
+        )
 
     def publish_plan(self, request, ctx):
         self.calls.append(("publish", self.db_path, request, ctx))
@@ -232,6 +250,85 @@ class ApiWriteRoutesTest(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(missing_account["errors"][0]["message"], "account_key or account_id is required.")
         self.assertEqual(_FakePortfolioService.calls, [])
+
+    def test_generate_trade_plan_routes_dry_run_with_review_date_alias(self) -> None:
+        response = _Response()
+
+        payload = generate_trade_plan(
+            self.disabled,
+            self.services,
+            response,
+            payload={
+                "account_key": "paper-main",
+                "daily_pick_id": 11,
+                "as_of_date": "2026-05-04",
+                "planned_trade_date": "2026-05-05",
+                "agent_decision_id": 21,
+                "dry_run": True,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["data"]["trade_plan_id"], None)
+        self.assertEqual(payload["data"]["planned_trade_date"], "20260505")
+        call = _FakePortfolioService.calls[0]
+        self.assertEqual(call[0], "generate_buy")
+        self.assertEqual(call[2].account_key, "paper-main")
+        self.assertEqual(call[2].daily_pick_id, 11)
+        self.assertEqual(call[2].review_date, "20260504")
+        self.assertEqual(call[2].planned_trade_date, "20260505")
+        self.assertEqual(call[2].agent_decision_id, 21)
+        self.assertTrue(call[3].dry_run)
+        self.assertEqual(call[3].source, "api")
+        self.assertIsNone(call[3].operator)
+        self.assertIsNone(call[3].idempotency_key)
+
+    def test_generate_trade_plan_requires_operator_and_idempotency_for_non_dry(self) -> None:
+        response = _Response()
+
+        payload = generate_trade_plan(
+            self.enabled,
+            self.services,
+            response,
+            payload={
+                "account_id": 3,
+                "review_date": "2026-05-04",
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        messages = [error["message"] for error in payload["errors"]]
+        self.assertIn("operator is required for non-dry API writes.", messages)
+        self.assertIn("idempotency_key is required for non-dry API writes.", messages)
+        self.assertEqual(_FakePortfolioService.calls, [])
+
+    def test_generate_trade_plan_passes_write_context_to_service(self) -> None:
+        response = _Response()
+
+        payload = generate_trade_plan(
+            self.enabled,
+            self.services,
+            response,
+            payload={
+                "account_key": "paper-main",
+                "daily_pick_id": 11,
+                "review_date": "2026-05-04",
+                "planned_trade_date": "2026-05-05",
+                "operator": "tester",
+                "idempotency_key": "api:plan:11",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["data"]["trade_plan_id"], 77)
+        self.assertEqual(payload["data"]["action"], "buy_next_open")
+        call = _FakePortfolioService.calls[0]
+        self.assertEqual(call[0], "generate_buy")
+        self.assertEqual(call[2].review_date, "20260504")
+        self.assertEqual(call[2].planned_trade_date, "20260505")
+        self.assertEqual(call[3].operator, "tester")
+        self.assertEqual(call[3].idempotency_key, "api:plan:11")
+        self.assertFalse(call[3].dry_run)
 
     def test_publish_and_cancel_pass_write_context_to_service(self) -> None:
         publish_response = _Response()

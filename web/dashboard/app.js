@@ -1,14 +1,17 @@
 const DEFAULT_STRATEGY_VERSION = "cpb_6157@2026-05-03";
+const DEFAULT_ACCOUNT_KEY = "paper-main";
+const LEGACY_DEFAULT_ACCOUNT_KEY = "paper-200k";
+const CANCEL_REASON_CHOICES = ["高开过大", "停牌/不可交易", "重大利空", "人工跳过"];
 
 const state = {
   apiBase: localStorage.getItem("pgc.dashboard.apiBase") || "",
-  accountKey: localStorage.getItem("pgc.dashboard.accountKey") || "paper-200k",
+  accountKey: dashboardAccountKey(),
   accountId: localStorage.getItem("pgc.dashboard.accountId") || "",
   asOfDate: localStorage.getItem("pgc.dashboard.asOfDate") || localDateCompact(),
   strategyVersion: localStorage.getItem("pgc.dashboard.strategyVersion") || DEFAULT_STRATEGY_VERSION,
   operator: localStorage.getItem("pgc.dashboard.operator") || "",
   dryRun: localStorage.getItem("pgc.dashboard.dryRun") !== "false",
-  activePage: "review",
+  activePage: "execution",
   busy: false,
   report: null,
   reportEnvelope: null,
@@ -17,6 +20,12 @@ const state = {
   qualityEvents: [],
   selectedPlan: null,
   selectedPosition: null,
+  preOpenChecks: {
+    notSuspended: false,
+    noMajorBadNews: false,
+    openNotExtremeHigh: false,
+    cashSlotsChecked: false,
+  },
 };
 
 const els = {};
@@ -38,6 +47,15 @@ function cacheElements() {
     "operatorInput",
     "apiBaseInput",
     "dryRunInput",
+    "executionBadge",
+    "reloadExecutionButton",
+    "executionEvaluateExitsButton",
+    "openingBlockerChip",
+    "openingPlanBody",
+    "preOpenChecklist",
+    "preOpenChecklistState",
+    "openingCancelQueue",
+    "openingExitQueue",
     "statusAccount",
     "statusReviewDate",
     "statusNextDate",
@@ -78,6 +96,7 @@ function cacheElements() {
     "recordSlippage",
     "recordModeChip",
     "clearRecordButton",
+    "submitRecordButton",
     "evaluateExitsButton",
     "reloadPositionsButton",
     "positionsBody",
@@ -95,6 +114,7 @@ function cacheElements() {
     "confirmInputLabel",
     "confirmInputText",
     "confirmInput",
+    "confirmQuickChoices",
     "confirmSubmit",
   ];
   for (const id of ids) {
@@ -118,6 +138,8 @@ function bindEvents() {
   });
 
   els.runReviewButton.addEventListener("click", runReview);
+  els.reloadExecutionButton.addEventListener("click", refreshAll);
+  els.executionEvaluateExitsButton.addEventListener("click", evaluateExits);
   els.publishReviewPlanButton.addEventListener("click", () => {
     const plan = state.report?.buy_plan;
     if (plan?.trade_plan_id) publishPlan(plan.trade_plan_id);
@@ -138,6 +160,10 @@ function bindEvents() {
   els.clearRecordButton.addEventListener("click", clearRecordForm);
   els.closeDrawerButton.addEventListener("click", closeDrawer);
 
+  els.preOpenChecklist.addEventListener("change", onPreOpenChecklistChange);
+  els.openingPlanBody.addEventListener("click", onPlansTableClick);
+  els.openingCancelQueue.addEventListener("click", onPlansTableClick);
+  els.openingExitQueue.addEventListener("click", onRecordQueueClick);
   els.plansBody.addEventListener("click", onPlansTableClick);
   els.recordQueue.addEventListener("click", onRecordQueueClick);
   els.positionsBody.addEventListener("click", onPositionsTableClick);
@@ -211,7 +237,6 @@ async function loadPlans() {
     state.tradePlans = [];
     return;
   }
-  if (els.planStatusFilter.value) params.set("status", els.planStatusFilter.value);
   params.set("limit", "100");
   const envelope = await apiRequest(`/api/trade-plans?${params.toString()}`);
   state.tradePlans = envelope.data?.trade_plans || [];
@@ -241,6 +266,7 @@ async function loadPositions() {
 async function loadPlansAndRender() {
   await runWithNotice(async () => {
     await loadPlans();
+    renderOpeningExecution();
     renderPlans();
     renderBadges();
   });
@@ -249,6 +275,7 @@ async function loadPlansAndRender() {
 async function loadQualityAndRender() {
   await runWithNotice(async () => {
     await loadQuality();
+    renderOpeningExecution();
     renderQuality();
     renderStatusBand();
     renderBadges();
@@ -258,6 +285,7 @@ async function loadQualityAndRender() {
 async function loadPositionsAndRender() {
   await runWithNotice(async () => {
     await loadPositions();
+    renderOpeningExecution();
     renderPositions();
     renderDuePositions();
     renderBadges();
@@ -324,6 +352,7 @@ async function cancelPlan(tradePlanId) {
     title: "确认取消计划",
     body: `计划 ${tradePlanId} 将被标记为 cancelled。此操作不支持 dry run。`,
     inputLabel: "取消原因",
+    quickChoices: CANCEL_REASON_CHOICES,
   });
   if (!ok.confirmed) return;
   const cancelReason = ok.value.trim();
@@ -358,6 +387,9 @@ async function submitTradeRecord(event) {
     }
     if (tradePlanId) {
       const plan = findPlan(tradePlanId) || (state.report?.buy_plan?.trade_plan_id === tradePlanId ? planFromReport(state.report.buy_plan) : null);
+      if (hasBlockingQuality()) {
+        throw new Error("存在数据质量 blocker，不能录入计划成交。");
+      }
       if (plan && plan.status !== "active") {
         throw new Error("只有 active 计划才能录入成交。");
       }
@@ -378,7 +410,7 @@ async function submitTradeRecord(event) {
     if (!state.dryRun) {
       const ok = await confirmAction({
         title: "确认记录成交",
-        body: `将写入成交日期 ${displayDate(payload.executed_date)} 的成交事实。`,
+        body: `将写入成交日期 ${displayDate(payload.executed_date)} 的成交事实；Dashboard 不会向券商下单。`,
       });
       if (!ok.confirmed) return;
     }
@@ -399,7 +431,7 @@ async function evaluateExits() {
     if (!state.dryRun) {
       const ok = await confirmAction({
         title: "确认评估退出",
-        body: `将对复盘日 ${displayDate(state.asOfDate)} 到期持仓生成退出决策。`,
+        body: `将对复盘日 ${displayDate(state.asOfDate)} 到期持仓生成退出决策/卖出计划，不会记录卖出成交。`,
       });
       if (!ok.confirmed) return;
     }
@@ -418,6 +450,7 @@ function handleMutationEnvelope(envelope, successText) {
 }
 
 function renderAll() {
+  renderOpeningExecution();
   renderStatusBand();
   renderReview();
   renderPlans();
@@ -426,6 +459,127 @@ function renderAll() {
   renderQuality();
   renderAgent();
   renderBadges();
+}
+
+function renderOpeningExecution() {
+  const blocked = hasBlockingQuality();
+  const executionPlanPanel = document.querySelector(".execution-plan-panel");
+  const activePlans = todaysBuyPlans().filter((plan) => plan.status === "active");
+  const visiblePlans = todaysBuyPlans().length ? todaysBuyPlans() : activeBuyPlans();
+  const executionDay = executionDate();
+
+  executionPlanPanel.classList.toggle("blocked", blocked);
+  executionPlanPanel.classList.toggle("idle", !blocked && activePlans.length === 0);
+  els.openingBlockerChip.textContent = blocked ? "数据阻断" : activePlans.length ? "可执行" : "无 active 买入计划";
+  els.openingBlockerChip.className = `chip ${blocked ? "chip-red" : activePlans.length ? "chip-green" : "chip-neutral"}`;
+
+  if (blocked) {
+    const blockers = blockingEvents().slice(0, 2).map((item) => escapeHtml(item.message || item.code || "数据阻断")).join("；");
+    els.openingPlanBody.innerHTML = `
+      <h3 class="action-title">数据质量 blocker，买入执行按钮已禁用</h3>
+      <p class="muted">${blockers || "请先处理数据质量页面中的 blocker。"}</p>
+      ${actionMetrics([
+        ["执行日", displayDate(executionDay)],
+        ["active 买入计划", String(activePlans.length)],
+        ["阻断数", String(blockingEvents().length)],
+        ["账户容量", capacityText(state.report?.account)],
+      ])}
+    `;
+  } else if (visiblePlans.length) {
+    els.openingPlanBody.innerHTML = visiblePlans.map((plan) => openingPlanCard(plan, executionDay)).join("");
+  } else {
+    els.openingPlanBody.innerHTML = emptyState(`没有计划交易日为 ${displayDate(executionDay)} 的 active 买入计划。`);
+  }
+
+  renderPreOpenChecklist(activePlans, executionDay, blocked);
+  renderOpeningCancelQueue();
+  renderOpeningExitQueue();
+}
+
+function openingPlanCard(plan, executionDay) {
+  const isActive = plan.status === "active";
+  const canRecord = isActive && !hasBlockingQuality();
+  const canCancel = ["draft", "active"].includes(plan.status);
+  return `
+    <div class="execution-plan-card">
+      <div class="plan-title-line">
+        <strong>${escapeHtml(planStockText(plan))}</strong>
+        <span>${chipHtml(statusText(plan.status), statusClass(plan.status))}</span>
+      </div>
+      ${actionMetrics([
+        ["计划 ID", dash(plan.id)],
+        ["动作", actionText(plan.action)],
+        ["计划交易日", displayDate(planTradeDate(plan))],
+        ["执行日匹配", planTradeDate(plan) === executionDay ? "是" : "否"],
+        ["计划股数", integerText(plannedShares(plan))],
+        ["计划资金", money(plannedCash(plan))],
+      ])}
+      <div class="row-actions">
+        <button type="button" data-plan-action="record" data-plan-id="${plan.id}" ${canRecord ? "" : "disabled"}>录入买入成交</button>
+        <button type="button" data-plan-action="cancel" data-plan-id="${plan.id}" ${canCancel ? "" : "disabled"}>取消计划</button>
+        <button type="button" data-plan-action="detail" data-plan-id="${plan.id}">详情</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderPreOpenChecklist(activePlans, executionDay, blocked) {
+  const hasExecutionPlan = activePlans.some((plan) => planTradeDate(plan) === executionDay);
+  const items = [
+    ["notSuspended", "未停牌 / 可交易", state.preOpenChecks.notSuspended, false],
+    ["noMajorBadNews", "无重大利空", state.preOpenChecks.noMajorBadNews, false],
+    ["openNotExtremeHigh", "开盘未极端高开", state.preOpenChecks.openNotExtremeHigh, false],
+    ["cashSlotsChecked", "现金 / 仓位已核对", state.preOpenChecks.cashSlotsChecked, false],
+    ["planDateToday", `计划日是执行日 ${displayDate(executionDay)}`, hasExecutionPlan, true],
+  ];
+  els.preOpenChecklist.innerHTML = items.map(([key, label, checked, auto]) => `
+    <label class="checklist-item ${auto ? "auto" : ""}">
+      <input type="checkbox" data-preopen-check="${key}" ${checked ? "checked" : ""} ${auto ? "disabled" : ""} />
+      <span>${escapeHtml(label)}</span>
+    </label>
+  `).join("");
+  const checkedCount = items.filter(([, , checked]) => checked).length;
+  els.preOpenChecklistState.textContent = `${checkedCount}/${items.length} 已确认`;
+  els.preOpenChecklistState.className = `chip ${!blocked && checkedCount === items.length ? "chip-green" : "chip-amber"}`;
+}
+
+function renderOpeningCancelQueue() {
+  const plans = state.tradePlans.filter((plan) => ["draft", "active"].includes(plan.status));
+  els.openingCancelQueue.innerHTML = plans.length
+    ? plans.map((plan) => `
+      <div class="list-row">
+        ${chipHtml(statusText(plan.status), statusClass(plan.status))}
+        <span>计划 ${plan.id} / ${escapeHtml(planStockText(plan))} / ${displayDate(planTradeDate(plan))}</span>
+        <button type="button" data-plan-action="cancel" data-plan-id="${plan.id}">取消</button>
+      </div>
+    `).join("")
+    : emptyState("没有可取消的 draft / active 计划。");
+}
+
+function renderOpeningExitQueue() {
+  const due = duePositions();
+  els.openingExitQueue.innerHTML = due.length
+    ? due.map((position) => {
+      const due = position.due_stage || position.action_due;
+      return `
+        <div class="list-row">
+          ${chipHtml(dueText(due), dueClass(due))}
+          <span>持仓 ${position.position_id} / ${escapeHtml(position.ts_code)} ${escapeHtml(position.name)} / T+2 ${displayDate(position.planned_t2_date)} / T+5 ${displayDate(position.planned_t5_date)}</span>
+          <button type="button" data-record-position-id="${position.position_id}">卖出录入</button>
+        </div>
+      `;
+    }).join("")
+    : emptyState("当前没有持仓退出任务。");
+}
+
+function onPreOpenChecklistChange(event) {
+  const input = event.target.closest("input[data-preopen-check]");
+  if (!input || input.disabled) return;
+  const key = input.dataset.preopenCheck;
+  if (Object.prototype.hasOwnProperty.call(state.preOpenChecks, key)) {
+    state.preOpenChecks[key] = input.checked;
+    renderPreOpenChecklist(todaysBuyPlans().filter((plan) => plan.status === "active"), executionDate(), hasBlockingQuality());
+  }
 }
 
 function renderStatusBand() {
@@ -528,7 +682,7 @@ function setReviewButtons() {
   const plan = state.report?.buy_plan;
   const blocked = hasBlockingQuality();
   els.publishReviewPlanButton.disabled = blocked || !plan || plan.status !== "draft";
-  els.recordReviewPlanButton.disabled = !plan || plan.status !== "active";
+  els.recordReviewPlanButton.disabled = blocked || !plan || plan.status !== "active";
 }
 
 function renderBlockers() {
@@ -619,18 +773,22 @@ function renderAgent() {
 
 function renderPlans() {
   const blocked = hasBlockingQuality();
-  els.plansBody.innerHTML = state.tradePlans.length
-    ? state.tradePlans.map((plan) => {
+  const plans = filteredTradePlans();
+  els.plansBody.innerHTML = plans.length
+    ? plans.map((plan) => {
       const canPublish = !blocked && plan.status === "draft";
       const canCancel = ["draft", "active"].includes(plan.status);
-      const canRecord = plan.status === "active";
+      const canRecord = !blocked && plan.status === "active";
       return `
         <tr>
           <td>${plan.id}</td>
+          <td>${escapeHtml(planStockText(plan))}</td>
           <td>${chipHtml(actionText(plan.action), actionClass(plan.action))}</td>
           <td>${chipHtml(statusText(plan.status), statusClass(plan.status))}</td>
           <td>${displayDate(plan.as_of_date)}</td>
-          <td>${displayDate(plan.planned_trade_date || plan.planned_buy_date)}</td>
+          <td>${displayDate(planTradeDate(plan))}</td>
+          <td class="num">${integerText(plannedShares(plan))}</td>
+          <td class="num">${money(plannedCash(plan))}</td>
           <td>${escapeHtml(reasonText(plan.reason))}</td>
           <td>
             <div class="row-actions">
@@ -643,7 +801,7 @@ function renderPlans() {
         </tr>
       `;
     }).join("")
-    : emptyRow(7, "没有交易计划。");
+    : emptyRow(10, "没有交易计划。");
   renderRecordQueue();
 }
 
@@ -653,8 +811,8 @@ function renderRecordQueue() {
   const planRows = activePlans.map((plan) => `
     <div class="list-row">
       ${chipHtml(actionText(plan.action), actionClass(plan.action))}
-      <span>计划 ${plan.id} / 交易日 ${displayDate(plan.planned_trade_date || plan.planned_buy_date)}</span>
-      <button type="button" data-record-plan-id="${plan.id}">录入</button>
+      <span>计划 ${plan.id} / ${escapeHtml(planStockText(plan))} / 交易日 ${displayDate(planTradeDate(plan))} / 股数 ${integerText(plannedShares(plan))}</span>
+      <button type="button" data-record-plan-id="${plan.id}" ${hasBlockingQuality() ? "disabled" : ""}>录入</button>
     </div>
   `);
   const positionRows = due.map((position) => `
@@ -665,18 +823,14 @@ function renderRecordQueue() {
     </div>
   `);
   els.recordQueue.innerHTML = [...planRows, ...positionRows].join("") || emptyState("没有待录入的 active 计划或到期持仓。");
+  setRecordFormState();
 }
 
 function renderPositions() {
-  const ordered = [...state.positions].sort((a, b) => {
-    const aDue = a.due_stage ? 0 : 1;
-    const bDue = b.due_stage ? 0 : 1;
-    if (aDue !== bDue) return aDue - bDue;
-    return String(a.planned_t2_date || "").localeCompare(String(b.planned_t2_date || ""));
-  });
+  const ordered = orderedPositions();
   els.positionsBody.innerHTML = ordered.length
     ? ordered.map((position) => `
-      <tr>
+      <tr class="${position.due_stage || position.action_due ? "row-due" : ""}">
         <td>${position.position_id}</td>
         <td>${escapeHtml(position.ts_code)} ${escapeHtml(position.name)}</td>
         <td>${displayDate(position.buy_date)}</td>
@@ -719,6 +873,7 @@ function renderBadges() {
   const activePlans = state.tradePlans.filter((plan) => plan.status === "active").length;
   const draftPlans = state.tradePlans.filter((plan) => plan.status === "draft").length;
   const due = duePositions().length;
+  els.executionBadge.textContent = String(todaysBuyPlans().filter((plan) => plan.status === "active").length + due);
   els.reviewBadge.textContent = blockers ? String(blockers) : state.report?.buy_plan ? "1" : "0";
   els.plansBadge.textContent = String(activePlans + draftPlans);
   els.recordBadge.textContent = String(activePlans + due);
@@ -766,10 +921,17 @@ function selectPlan(plan, options = {}) {
   openDrawer("交易计划", `计划 ${plan.id}`, [
     ["计划 ID", plan.id],
     ["账户 ID", plan.account_id],
+    ["股票", planStockText(plan)],
     ["动作", actionText(plan.action)],
     ["状态", statusText(plan.status)],
     ["生成日", displayDate(plan.as_of_date)],
-    ["计划交易日", displayDate(plan.planned_trade_date || plan.planned_buy_date)],
+    ["计划交易日", displayDate(planTradeDate(plan))],
+    ["计划股数", integerText(plannedShares(plan))],
+    ["计划资金", money(plannedCash(plan))],
+    ["入选记录", dash(planDailyPickId(plan))],
+    ["信号记录", dash(planSignalId(plan))],
+    ["操作者", dash(plan.operator)],
+    ["创建时间", dash(plan.created_at)],
     ["原因", reasonText(plan.reason)],
     ["取消原因", plan.cancel_reason || "-"],
   ]);
@@ -806,9 +968,11 @@ function fillRecordFromPlan(plan) {
   els.recordPlanId.value = plan.id;
   els.recordPositionId.value = "";
   els.recordSide.value = actionIsSell(plan.action) ? "sell" : "buy";
-  els.recordDate.value = plan.planned_trade_date || plan.planned_buy_date || state.report?.next_trade_date || "";
+  els.recordDate.value = planTradeDate(plan) || state.report?.next_trade_date || "";
+  els.recordShares.value = plannedShares(plan) || "";
   els.recordModeChip.textContent = plan.status === "active" ? "按 active 计划录入" : "计划未激活";
   els.recordModeChip.className = `chip ${plan.status === "active" ? "chip-blue" : "chip-amber"}`;
+  setRecordFormState();
 }
 
 function fillRecordFromPosition(position) {
@@ -837,6 +1001,7 @@ function clearRecordForm(resetChip = true) {
     els.recordModeChip.textContent = "未选择";
     els.recordModeChip.className = "chip chip-neutral";
   }
+  setRecordFormState();
 }
 
 function openLineageDrawer() {
@@ -971,9 +1136,41 @@ function blockingEvents() {
 }
 
 function duePositions() {
-  const reportDue = state.report?.due_positions || [];
+  const reportDue = (state.report?.due_positions || []).filter(isExitDuePosition);
   if (reportDue.length) return reportDue;
-  return state.positions.filter((position) => position.due_stage);
+  return state.positions.filter(isExitDuePosition);
+}
+
+function isExitDuePosition(position) {
+  const marker = position?.due_stage ?? position?.action_due;
+  return marker != null && !["", "none", "null", "undefined"].includes(String(marker));
+}
+
+function orderedPositions() {
+  return [...state.positions].sort((a, b) => {
+    const aDue = a.due_stage || a.action_due ? 0 : 1;
+    const bDue = b.due_stage || b.action_due ? 0 : 1;
+    if (aDue !== bDue) return aDue - bDue;
+    return String(a.planned_t2_date || "").localeCompare(String(b.planned_t2_date || ""));
+  });
+}
+
+function filteredTradePlans() {
+  const status = els.planStatusFilter.value;
+  return status ? state.tradePlans.filter((plan) => plan.status === status) : state.tradePlans;
+}
+
+function activeBuyPlans() {
+  return state.tradePlans.filter((plan) => isBuyPlan(plan) && ["draft", "active"].includes(plan.status));
+}
+
+function todaysBuyPlans() {
+  const day = executionDate();
+  return activeBuyPlans().filter((plan) => planTradeDate(plan) === day);
+}
+
+function executionDate() {
+  return normalizeDate(state.report?.next_trade_date || state.asOfDate);
 }
 
 function findPlan(id) {
@@ -985,6 +1182,7 @@ function findPosition(id) {
 }
 
 function planFromReport(plan) {
+  const candidate = state.report?.candidate;
   return {
     id: plan.trade_plan_id,
     account_id: state.report?.account?.account_id,
@@ -995,7 +1193,50 @@ function planFromReport(plan) {
     planned_buy_date: plan.planned_buy_date,
     reason: plan.reason,
     cancel_reason: null,
+    daily_pick_id: candidate?.daily_pick_id || state.report?.lineage?.daily_pick_id,
+    signal_id: candidate?.signal_id || state.report?.lineage?.signal_id,
+    ts_code: candidate?.ts_code,
+    name: candidate?.name,
+    planned_cash: plan.planned_cash,
+    planned_shares: plan.planned_shares,
   };
+}
+
+function planTradeDate(plan) {
+  return normalizeDate(plan?.planned_trade_date || plan?.planned_buy_date || "");
+}
+
+function planStockText(plan) {
+  const tsCode = plan?.ts_code || plan?.stock_code || plan?.symbol || plan?.plan_json?.ts_code;
+  const name = plan?.name || plan?.stock_name || plan?.plan_json?.name;
+  if (tsCode && name) return `${tsCode} ${name}`;
+  return tsCode || name || "-";
+}
+
+function plannedShares(plan) {
+  return plan?.planned_shares ?? plan?.shares ?? plan?.plan_json?.planned_shares ?? plan?.plan_json?.shares ?? null;
+}
+
+function plannedCash(plan) {
+  return plan?.planned_cash ?? plan?.planned_amount ?? plan?.plan_json?.planned_cash ?? null;
+}
+
+function planDailyPickId(plan) {
+  return plan?.daily_pick_id ?? plan?.plan_json?.daily_pick_id ?? null;
+}
+
+function planSignalId(plan) {
+  return plan?.signal_id ?? plan?.plan_json?.signal_id ?? null;
+}
+
+function isBuyPlan(plan) {
+  return plan?.action === "buy_next_open" || String(plan?.action || "").startsWith("buy");
+}
+
+function setRecordFormState() {
+  const planId = Number(String(els.recordPlanId.value || "").trim());
+  const plan = Number.isFinite(planId) && planId > 0 ? findPlan(planId) : null;
+  els.submitRecordButton.disabled = Boolean(plan && hasBlockingQuality());
 }
 
 function setBusy(value) {
@@ -1020,7 +1261,7 @@ function showNotice(message, tone = "error") {
   els.noticeLine.style.color = tone === "ok" ? "#065f46" : "#991b1b";
 }
 
-function confirmAction({ title, body, inputLabel }) {
+function confirmAction({ title, body, inputLabel, quickChoices = [] }) {
   if (!els.confirmDialog.showModal) {
     const confirmed = window.confirm(body);
     const value = inputLabel && confirmed ? window.prompt(inputLabel, "") || "" : "";
@@ -1031,6 +1272,17 @@ function confirmAction({ title, body, inputLabel }) {
   els.confirmInput.value = "";
   els.confirmInputLabel.hidden = !inputLabel;
   els.confirmInputText.textContent = inputLabel || "";
+  els.confirmInput.required = Boolean(inputLabel);
+  els.confirmQuickChoices.hidden = !quickChoices.length;
+  els.confirmQuickChoices.innerHTML = quickChoices.map((choice) => (
+    `<button type="button" data-confirm-choice="${escapeHtml(choice)}">${escapeHtml(choice)}</button>`
+  )).join("");
+  els.confirmQuickChoices.querySelectorAll("[data-confirm-choice]").forEach((button) => {
+    button.addEventListener("click", () => {
+      els.confirmInput.value = button.dataset.confirmChoice || "";
+      els.confirmInput.focus();
+    });
+  });
   els.confirmSubmit.textContent = "确认";
   return new Promise((resolve) => {
     const onClose = () => {
@@ -1052,6 +1304,17 @@ function localDateCompact() {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}${month}${day}`;
+}
+
+function dashboardAccountKey() {
+  const saved = localStorage.getItem("pgc.dashboard.accountKey");
+  if (!saved || saved === LEGACY_DEFAULT_ACCOUNT_KEY) {
+    if (saved === LEGACY_DEFAULT_ACCOUNT_KEY) {
+      localStorage.setItem("pgc.dashboard.accountKey", DEFAULT_ACCOUNT_KEY);
+    }
+    return DEFAULT_ACCOUNT_KEY;
+  }
+  return saved;
 }
 
 function normalizeDate(value) {

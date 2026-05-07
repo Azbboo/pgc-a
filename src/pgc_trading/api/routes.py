@@ -20,6 +20,7 @@ from pgc_trading.services.execution_recording_service import (
 )
 from pgc_trading.services.portfolio_planning_service import (
     CancelTradePlanRequest,
+    GenerateBuyPlanRequest,
     ListTradePlansRequest,
     PublishTradePlanRequest,
 )
@@ -116,6 +117,18 @@ def register_routes(app: Any) -> None:
             planned_trade_date=_normalize_optional_date(planned_trade_date),
             limit=limit,
             request_id=request_id,
+        )
+
+    @app.post("/api/trade-plans/generate", tags=["portfolio"])
+    def generate_trade_plan_route(
+        response: Response,
+        payload: dict[str, Any] | None = Body(default=None),
+    ) -> dict[str, object]:
+        return generate_trade_plan(
+            app.state.settings,
+            app.state.services,
+            response,
+            payload=payload or {},
         )
 
     @app.post("/api/review-runs", tags=["workflow"])
@@ -263,6 +276,50 @@ def list_trade_plans(
             limit=limit,
         ),
         RequestContext(request_id=request_id, dry_run=True, source="api"),
+    )
+    return _service_response(result, response)
+
+
+def generate_trade_plan(
+    settings: ApiSettings,
+    services: ApiServices,
+    response: Any,
+    *,
+    payload: dict[str, Any],
+) -> dict[str, object]:
+    ctx_or_response = _write_context_or_response(settings, response, payload, allow_dry_run=True)
+    if isinstance(ctx_or_response, dict):
+        return ctx_or_response
+    ctx = ctx_or_response
+
+    errors: list[ServiceError] = []
+    daily_pick_id = _optional_int_field(payload, "daily_pick_id", errors)
+    agent_decision_id = _optional_int_field(payload, "agent_decision_id", errors)
+    account_id = _optional_int_field(payload, "account_id", errors)
+    review_date = _normalize_optional_date(_optional_text(payload.get("review_date")))
+    as_of_date = _normalize_optional_date(_optional_text(payload.get("as_of_date")))
+    if review_date is not None and as_of_date is not None and review_date != as_of_date:
+        errors.append(
+            ServiceError(
+                code="VALIDATION_ERROR",
+                message="review_date and as_of_date must match when both are provided.",
+            )
+        )
+    planned_trade_date = _normalize_optional_date(_optional_text(payload.get("planned_trade_date")))
+    if errors:
+        return _api_error_response(response, "validation_failed", ctx.request_id, errors)
+
+    service = services.portfolio_planning_service_factory(settings.db_path)
+    result = service.generate_buy_plan(
+        GenerateBuyPlanRequest(
+            account_key=_optional_text(payload.get("account_key")),
+            account_id=account_id,
+            daily_pick_id=daily_pick_id,
+            review_date=review_date or as_of_date,
+            planned_trade_date=planned_trade_date,
+            agent_decision_id=agent_decision_id,
+        ),
+        ctx,
     )
     return _service_response(result, response)
 

@@ -92,6 +92,13 @@ class _FakePlanData:
     idempotent: bool = False
 
 
+@dataclass(frozen=True)
+class _FakeCancelPlanData:
+    id: int = 1
+    status: str = "cancelled"
+    cancel_reason: str = "高开过大"
+
+
 class _FakePlanningService:
     calls: list[tuple[Path, object, RequestContext]] = []
 
@@ -104,6 +111,14 @@ class _FakePlanningService:
             status="success",
             request_id=ctx.request_id,
             data=_FakePlanData(),
+        )
+
+    def cancel_plan(self, request, ctx: RequestContext) -> ServiceResult[_FakeCancelPlanData]:
+        self.calls.append((self.db_path, request, ctx))
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data=_FakeCancelPlanData(id=request.trade_plan_id, cancel_reason=request.cancel_reason),
         )
 
 
@@ -162,6 +177,7 @@ class CliMainTest(unittest.TestCase):
             "review",
             "daily-close",
             "plan",
+            "plan-cancel",
             "report",
             "record-buy",
             "record-sell",
@@ -365,6 +381,86 @@ class CliMainTest(unittest.TestCase):
             self.assertFalse(db_path.exists())
             self.assertIn("database not found", stdout.getvalue())
             self.assertIn("20260504", stdout.getvalue())
+
+    def test_plan_cancel_routes_to_planning_service_and_prints_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc_plan_cancel.db"
+            db_path.touch()
+            stdout = io.StringIO()
+            code = main(
+                [
+                    "plan-cancel",
+                    "--plan-id",
+                    "1",
+                    "--reason",
+                    "高开过大",
+                    "--account",
+                    "paper-main",
+                    "--db-path",
+                    str(db_path),
+                    "--operator",
+                    "azboo",
+                ],
+                stdout=stdout,
+                services=CommandServices(planning_service_factory=_FakePlanningService),
+            )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(len(_FakePlanningService.calls), 1)
+        called_db_path, request, ctx = _FakePlanningService.calls[0]
+        self.assertEqual(called_db_path, db_path)
+        self.assertEqual(request.trade_plan_id, 1)
+        self.assertEqual(request.cancel_reason, "高开过大")
+        self.assertEqual(request.account_key, "paper-main")
+        self.assertIsNone(request.account_id)
+        self.assertEqual(ctx.request_id, "cli-plan-cancel")
+        self.assertEqual(ctx.operator, "azboo")
+        self.assertEqual(ctx.source, "cli")
+        output = stdout.getvalue()
+        self.assertIn("service returned success", output)
+        self.assertIn("trade_plan=id=1 status=cancelled cancel_reason=高开过大", output)
+
+    def test_plan_cancel_missing_db_fails_without_creating_database(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "missing.db"
+            stdout = io.StringIO()
+            code = main(
+                [
+                    "plan-cancel",
+                    "--plan-id",
+                    "1",
+                    "--reason",
+                    "高开过大",
+                    "--db-path",
+                    str(db_path),
+                ],
+                stdout=stdout,
+                services=CommandServices(planning_service_factory=_UnexpectedPlanningService),
+            )
+
+            self.assertEqual(code, 1)
+            self.assertFalse(db_path.exists())
+            self.assertIn("database not found", stdout.getvalue())
+            self.assertIn("plan-id=1", stdout.getvalue())
+
+    def test_plan_cancel_requires_reason(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc_plan_cancel.db"
+            db_path.touch()
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            with self.assertRaises(SystemExit) as raised:
+                main(
+                    ["plan-cancel", "--plan-id", "1", "--db-path", str(db_path)],
+                    stdout=stdout,
+                    stderr=stderr,
+                    services=CommandServices(planning_service_factory=_FakePlanningService),
+                )
+
+        self.assertNotEqual(raised.exception.code, 0)
+        self.assertEqual(_FakePlanningService.calls, [])
+        self.assertIn("the following arguments are required: --reason", stderr.getvalue())
 
     def test_paper_readiness_routes_to_service_and_prints_summary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

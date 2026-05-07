@@ -29,7 +29,7 @@ class DashboardStaticTest(unittest.TestCase):
             ]
         )
 
-        for label in ["每日复盘", "交易计划", "成交录入", "当前持仓", "数据质量", "Agent 复核"]:
+        for label in ["开盘执行", "每日复盘", "交易计划", "成交录入", "当前持仓", "数据质量", "Agent 复核"]:
             self.assertIn(label, source)
         self.assertIn("T+2", source)
         self.assertIn("T+5", source)
@@ -53,6 +53,54 @@ class DashboardStaticTest(unittest.TestCase):
         self.assertNotIn("sqlite", script.lower())
         self.assertNotIn("pgc_trading.db", script)
         self.assertNotIn("data/pgc", script)
+
+    def test_dashboard_p1_execution_workbench_is_visible(self) -> None:
+        source = "\n".join(
+            [
+                (DASHBOARD_DIR / "index.html").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8"),
+            ]
+        )
+
+        for label in [
+            "今日主动计划",
+            "开盘检查清单",
+            "未停牌 / 可交易",
+            "无重大利空",
+            "开盘未极端高开",
+            "现金 / 仓位已核对",
+            "计划日是执行日",
+            "数据质量 blocker",
+        ]:
+            self.assertIn(label, source)
+
+    def test_dashboard_p1_cancel_and_execution_guardrails_are_visible(self) -> None:
+        source = "\n".join(
+            [
+                (DASHBOARD_DIR / "index.html").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8"),
+            ]
+        )
+
+        for reason in ["高开过大", "停牌/不可交易", "重大利空", "人工跳过"]:
+            self.assertIn(reason, source)
+        self.assertIn("取消原因必填", source)
+        self.assertIn("此操作不支持 dry run", source)
+        self.assertIn("Dashboard 不会向券商下单", source)
+        self.assertIn("不会记录卖出成交", source)
+        self.assertIn("recordReviewPlanButton.disabled = blocked", source)
+        self.assertIn("submitRecordButton.disabled", source)
+
+    def test_dashboard_p1_defaults_and_exit_queue_are_scoped(self) -> None:
+        script = (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn('const DEFAULT_ACCOUNT_KEY = "paper-main"', script)
+        self.assertIn('const LEGACY_DEFAULT_ACCOUNT_KEY = "paper-200k"', script)
+        self.assertIn("accountKey: dashboardAccountKey()", script)
+        self.assertIn("localStorage.setItem(\"pgc.dashboard.accountKey\", DEFAULT_ACCOUNT_KEY)", script)
+        self.assertIn("function renderOpeningExitQueue()", script)
+        self.assertIn("const due = duePositions();", script)
+        self.assertIn("function isExitDuePosition", script)
 
     def test_dashboard_guardrails_are_visible_in_client(self) -> None:
         script = (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8")

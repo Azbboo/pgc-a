@@ -362,7 +362,8 @@ td {
   justify-content: flex-end;
 }
 
-.review-grid {
+.review-grid,
+.execution-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
   gap: 12px;
@@ -417,6 +418,7 @@ td {
 }
 
 .action-body,
+.execution-plan-body,
 .candidate-summary,
 .agent-summary,
 .agent-page,
@@ -433,6 +435,18 @@ td {
 }
 
 .next-action-panel.no-action {
+  border-left-color: var(--slate);
+}
+
+.execution-plan-panel {
+  border-left: 4px solid var(--green);
+}
+
+.execution-plan-panel.blocked {
+  border-left-color: var(--red);
+}
+
+.execution-plan-panel.idle {
   border-left-color: var(--slate);
 }
 
@@ -467,6 +481,59 @@ td {
   margin-top: 3px;
   font-size: 14px;
   font-variant-numeric: tabular-nums;
+}
+
+.execution-plan-card {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+
+.execution-plan-card + .execution-plan-card {
+  margin-top: 10px;
+}
+
+.plan-title-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.plan-title-line strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 15px;
+}
+
+.checklist-grid {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.checklist-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  min-height: 34px;
+  padding: 8px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+
+.checklist-item input {
+  min-height: 0;
+}
+
+.checklist-item.auto {
+  background: #f8fafc;
 }
 
 .compact-list {
@@ -556,6 +623,10 @@ td {
   font-weight: 650;
 }
 
+.row-due {
+  background: #fffbeb;
+}
+
 .row-actions {
   display: flex;
   flex-wrap: wrap;
@@ -572,6 +643,17 @@ td {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   padding: 12px;
+}
+
+.execution-advisory {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid #bae6fd;
+  border-radius: 6px;
+  background: #f0f9ff;
+  color: #075985;
+  font-size: 12px;
 }
 
 .form-actions {
@@ -658,6 +740,17 @@ td {
   color: #374151;
 }
 
+.quick-reason-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.quick-reason-grid button {
+  min-height: 28px;
+  padding: 0 9px;
+}
+
 .dialog-actions {
   display: flex;
   justify-content: flex-end;
@@ -683,6 +776,7 @@ td {
   }
 
   .review-grid,
+  .execution-grid,
   .split-panels,
   .record-layout {
     grid-template-columns: 1fr;

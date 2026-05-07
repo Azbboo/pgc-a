@@ -39,6 +39,7 @@ from pgc_trading.services.position_lifecycle_service import (
     PositionLifecycleService,
 )
 from pgc_trading.services.portfolio_planning_service import (
+    CancelTradePlanRequest,
     GenerateBuyPlanRequest,
     PortfolioPlanningService,
 )
@@ -179,6 +180,19 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
     _add_lifecycle_context_arguments(plan)
     _add_db_path_argument(plan)
     plan.set_defaults(handler=_run_plan)
+
+    plan_cancel = subparsers.add_parser(
+        "plan-cancel",
+        help="cancel an unexecuted paper trade plan",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    plan_cancel.add_argument("--plan-id", type=_positive_int, required=True)
+    plan_cancel.add_argument("--reason", type=_non_blank_text, required=True, help="manual cancellation reason")
+    _add_account_arguments(plan_cancel)
+    _add_lifecycle_context_arguments(plan_cancel)
+    _add_db_path_argument(plan_cancel)
+    plan_cancel.set_defaults(handler=_run_plan_cancel)
 
     report = subparsers.add_parser(
         "report",
@@ -381,6 +395,42 @@ def _run_plan(args: argparse.Namespace, stdout: TextIO, services: CommandService
         return 1
 
     _write_plan_result(stdout, args.command, review_date, db_path, result)
+    return 0 if result.ok else 1
+
+
+def _run_plan_cancel(args: argparse.Namespace, stdout: TextIO, services: CommandServices) -> int:
+    db_path = _normalized_db_path(args.db_path)
+
+    if not db_path.exists():
+        _write_routed_message(
+            stdout,
+            args.command,
+            f"plan-id={args.plan_id}",
+            db_path,
+            "database not found; planning service was not run and no writes were performed",
+        )
+        return 1
+
+    service = services.planning_service_factory(db_path)
+    request = CancelTradePlanRequest(
+        trade_plan_id=args.plan_id,
+        cancel_reason=args.reason,
+        account_key=args.account_key,
+        account_id=args.account_id,
+    )
+    ctx = RequestContext(
+        request_id="cli-plan-cancel",
+        idempotency_key=args.idempotency_key,
+        operator=args.operator,
+        source="cli",
+    )
+    try:
+        result = service.cancel_plan(request, ctx)
+    except sqlite3.OperationalError as exc:
+        stdout.write(f"plan-cancel failed for plan-id={args.plan_id}: database is not initialized or is incompatible: {exc}\n")
+        return 1
+
+    _write_plan_cancel_result(stdout, args.command, args.plan_id, db_path, result)
     return 0 if result.ok else 1
 
 
@@ -717,6 +767,13 @@ def _non_negative_float(value: str) -> float:
     return parsed
 
 
+def _non_blank_text(value: str) -> str:
+    parsed = value.strip()
+    if not parsed:
+        raise argparse.ArgumentTypeError("value must not be blank")
+    return parsed
+
+
 def _execution_context(args: argparse.Namespace, command: str) -> RequestContext:
     return RequestContext(
         request_id=f"cli-{command}",
@@ -855,6 +912,27 @@ def _write_plan_result(
         f"planned_shares={_display_optional_int(getattr(data, 'planned_shares', None))} "
         f"free_position_slots={getattr(data, 'free_position_slots', 'n/a')} "
         f"idempotent={str(bool(getattr(data, 'idempotent', False))).lower()}\n"
+    )
+
+
+def _write_plan_cancel_result(
+    stdout: TextIO,
+    command: str,
+    plan_id: int,
+    db_path: Path,
+    result: ServiceResult[object],
+) -> None:
+    _write_routed_message(stdout, command, f"plan-id={plan_id}", db_path, f"service returned {result.status}")
+    _write_warnings_and_errors(stdout, result)
+    data = result.data
+    if data is None:
+        return
+
+    stdout.write(
+        "trade_plan="
+        f"id={_display_optional_int(getattr(data, 'id', None))} "
+        f"status={getattr(data, 'status', 'n/a')} "
+        f"cancel_reason={getattr(data, 'cancel_reason', None) or 'n/a'}\n"
     )
 
 

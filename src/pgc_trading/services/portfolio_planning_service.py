@@ -99,6 +99,14 @@ class TradePlanDTO:
     planned_buy_date: str | None
     reason: str | None
     cancel_reason: str | None = None
+    daily_pick_id: int | None = None
+    signal_id: int | None = None
+    planned_cash: float | None = None
+    planned_shares: int | None = None
+    ts_code: str | None = None
+    name: str | None = None
+    operator: str | None = None
+    created_at: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1010,6 +1018,12 @@ def _load_trade_plan(conn: sqlite3.Connection, trade_plan_id: int) -> sqlite3.Ro
 
 
 def _trade_plan_dto(row: sqlite3.Row) -> TradePlanDTO:
+    payload = _loads_json_object(row["plan_json"])
+    planned_shares = payload.get("planned_shares")
+    if planned_shares is None:
+        planned_shares = payload.get("shares")
+    ts_code = payload.get("ts_code")
+    name = payload.get("name")
     return TradePlanDTO(
         id=int(row["id"]),
         account_id=int(row["account_id"]),
@@ -1020,6 +1034,14 @@ def _trade_plan_dto(row: sqlite3.Row) -> TradePlanDTO:
         planned_buy_date=row["planned_buy_date"],
         reason=row["reason"],
         cancel_reason=row["cancel_reason"],
+        daily_pick_id=_optional_int(row["daily_pick_id"]),
+        signal_id=_optional_int(row["signal_id"]),
+        planned_cash=_optional_float(payload.get("planned_cash")),
+        planned_shares=_optional_int(planned_shares),
+        ts_code=None if ts_code is None else str(ts_code),
+        name=None if name is None else str(name),
+        operator=row["operator"],
+        created_at=row["created_at"],
     )
 
 
