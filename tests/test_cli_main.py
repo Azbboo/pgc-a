@@ -3,7 +3,7 @@ from __future__ import annotations
 import io
 import tempfile
 import unittest
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from pgc_trading.cli.main import CommandServices, main
@@ -30,6 +30,55 @@ class _FakeReviewService:
         )
 
 
+@dataclass(frozen=True)
+class _FakeCloseCandidate:
+    ts_code: str = "000001.SZ"
+    name: str = "Close Pick"
+    daily_pick_id: int | None = 11
+    score: float = 123.4
+
+
+@dataclass(frozen=True)
+class _FakeClosePlan:
+    trade_plan_id: int | None = 22
+    action: str = "buy_next_open"
+    status: str = "active"
+    planned_trade_date: str | None = "20260505"
+    planned_shares: int | None = 6600
+
+
+@dataclass(frozen=True)
+class _FakeCloseData:
+    workflow_status: str = "plan_ready"
+    readiness: str = "pass"
+    review_status: str = "success"
+    plan_status: str = "success"
+    next_trade_date: str | None = "20260505"
+    signals_count: int = 1
+    candidate: _FakeCloseCandidate | None = field(default_factory=_FakeCloseCandidate)
+    buy_plan: _FakeClosePlan | None = field(default_factory=_FakeClosePlan)
+
+
+class _FakeCloseService:
+    calls: list[tuple[Path, object, RequestContext]] = []
+
+    def __init__(self, db_path: Path):
+        self.db_path = db_path
+
+    def run_daily_close(self, request, ctx: RequestContext) -> ServiceResult[_FakeCloseData]:
+        self.calls.append((self.db_path, request, ctx))
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data=_FakeCloseData(),
+        )
+
+
+class _UnexpectedCloseService:
+    def __init__(self, db_path: Path):
+        raise AssertionError(f"daily close service should not be built for missing db: {db_path}")
+
+
 class _UnexpectedReviewService:
     def __init__(self, db_path: Path):
         raise AssertionError(f"review service should not be built for missing db: {db_path}")
@@ -38,6 +87,7 @@ class _UnexpectedReviewService:
 class CliMainTest(unittest.TestCase):
     def setUp(self) -> None:
         _FakeReviewService.calls = []
+        _FakeCloseService.calls = []
 
     def test_help_lists_command_surface(self) -> None:
         stdout = io.StringIO()
@@ -46,7 +96,16 @@ class CliMainTest(unittest.TestCase):
 
         self.assertEqual(raised.exception.code, 0)
         output = stdout.getvalue()
-        for command in ["review", "plan", "report", "record-buy", "record-sell", "positions", "exits-evaluate"]:
+        for command in [
+            "review",
+            "daily-close",
+            "plan",
+            "report",
+            "record-buy",
+            "record-sell",
+            "positions",
+            "exits-evaluate",
+        ]:
             self.assertIn(command, output)
 
     def test_review_routes_to_service_with_normalized_date_and_db_path(self) -> None:
@@ -81,6 +140,79 @@ class CliMainTest(unittest.TestCase):
             )
 
             self.assertEqual(code, 0)
+            self.assertFalse(db_path.exists())
+            self.assertIn("database not found", stdout.getvalue())
+            self.assertIn("20260504", stdout.getvalue())
+
+    def test_daily_close_routes_to_service_with_preview_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc_close.db"
+            db_path.touch()
+            stdout = io.StringIO()
+            code = main(
+                ["daily-close", "--date", "2026-05-04", "--db-path", str(db_path)],
+                stdout=stdout,
+                services=CommandServices(daily_close_workflow_service_factory=_FakeCloseService),
+            )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(len(_FakeCloseService.calls), 1)
+        called_db_path, request, ctx = _FakeCloseService.calls[0]
+        self.assertEqual(called_db_path, db_path)
+        self.assertEqual(request.as_of_date, "20260504")
+        self.assertEqual(request.strategy_version, "cpb_6157@2026-05-03")
+        self.assertEqual(request.account_key, "paper-200k")
+        self.assertIsNone(request.account_id)
+        self.assertEqual(request.run_type, "paper")
+        self.assertFalse(request.force_new_review_run)
+        self.assertTrue(ctx.dry_run)
+        self.assertEqual(ctx.operator, "cli")
+        self.assertEqual(ctx.source, "cli")
+        self.assertTrue(ctx.idempotency_key.startswith("daily-close:paper-200k:20260504:"))
+        output = stdout.getvalue()
+        self.assertIn("service returned success", output)
+        self.assertIn("workflow_status=plan_ready", output)
+        self.assertIn("buy_plan=id=22 action=buy_next_open status=active", output)
+
+    def test_daily_close_apply_mode_uses_write_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc_close_apply.db"
+            db_path.touch()
+            stdout = io.StringIO()
+            code = main(
+                [
+                    "daily-close",
+                    "--date",
+                    "2026-05-04",
+                    "--db-path",
+                    str(db_path),
+                    "--apply",
+                    "--operator",
+                    "tester",
+                ],
+                stdout=stdout,
+                services=CommandServices(daily_close_workflow_service_factory=_FakeCloseService),
+            )
+
+        self.assertEqual(code, 0)
+        _, request, ctx = _FakeCloseService.calls[0]
+        self.assertEqual(request.as_of_date, "20260504")
+        self.assertFalse(ctx.dry_run)
+        self.assertEqual(ctx.operator, "tester")
+        self.assertTrue(ctx.idempotency_key.startswith("daily-close:paper-200k:20260504:"))
+        self.assertIn("workflow_status=plan_ready", stdout.getvalue())
+
+    def test_daily_close_missing_db_fails_without_creating_database(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "missing.db"
+            stdout = io.StringIO()
+            code = main(
+                ["daily-close", "--date", "2026-05-04", "--db-path", str(db_path)],
+                stdout=stdout,
+                services=CommandServices(daily_close_workflow_service_factory=_UnexpectedCloseService),
+            )
+
+            self.assertEqual(code, 1)
             self.assertFalse(db_path.exists())
             self.assertIn("database not found", stdout.getvalue())
             self.assertIn("20260504", stdout.getvalue())

@@ -18,7 +18,11 @@ from pgc_trading.reporting.daily_report import (
     render_daily_report_markdown,
 )
 from pgc_trading.services.common import RequestContext, ServiceResult
-from pgc_trading.services.daily_close_workflow_service import DEFAULT_ACCOUNT_KEY
+from pgc_trading.services.daily_close_workflow_service import (
+    DEFAULT_ACCOUNT_KEY,
+    DailyCloseWorkflowService,
+    RunDailyCloseWorkflowRequest,
+)
 from pgc_trading.services.daily_review_service import DailyReviewService, RunDailyReviewRequest
 from pgc_trading.services.execution_recording_service import (
     ExecutionRecordingService,
@@ -34,6 +38,7 @@ from pgc_trading.strategies.cpb_6157 import STRATEGY_VERSION
 
 
 ReviewServiceFactory = Callable[[Path], DailyReviewService]
+CloseServiceFactory = Callable[[Path], DailyCloseWorkflowService]
 ReportServiceFactory = Callable[[Path], ReportingQueryService]
 ExecutionServiceFactory = Callable[[Path], ExecutionRecordingService]
 PositionServiceFactory = Callable[[Path], PositionLifecycleService]
@@ -41,6 +46,7 @@ PositionServiceFactory = Callable[[Path], PositionLifecycleService]
 
 @dataclass(frozen=True)
 class CommandServices:
+    daily_close_workflow_service_factory: CloseServiceFactory = DailyCloseWorkflowService
     review_service_factory: ReviewServiceFactory = DailyReviewService
     report_service_factory: ReportServiceFactory = ReportingQueryService
     execution_service_factory: ExecutionServiceFactory = ExecutionRecordingService
@@ -103,6 +109,39 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
     _add_date_argument(review)
     _add_db_path_argument(review)
     review.set_defaults(handler=_run_review)
+
+    daily_close = subparsers.add_parser(
+        "daily-close",
+        help="run the daily close workflow preview or apply",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    _add_date_argument(daily_close)
+    _add_db_path_argument(daily_close)
+    _add_account_arguments(daily_close)
+    daily_close.add_argument(
+        "--strategy-version",
+        default=STRATEGY_VERSION,
+        help="strategy version to run in the daily close workflow",
+    )
+    daily_close.add_argument(
+        "--run-type",
+        choices=["research", "backtest", "validation", "paper", "live"],
+        default="paper",
+        help="workflow run type",
+    )
+    daily_close.add_argument(
+        "--apply",
+        action="store_true",
+        help="persist the workflow result instead of running dry-run preview",
+    )
+    daily_close.add_argument(
+        "--force-new-review-run",
+        action="store_true",
+        help="ignore any completed review with the same idempotency key",
+    )
+    _add_lifecycle_context_arguments(daily_close)
+    daily_close.set_defaults(handler=_run_daily_close)
 
     plan = subparsers.add_parser(
         "plan",
@@ -218,6 +257,46 @@ def _run_review(args: argparse.Namespace, stdout: TextIO, services: CommandServi
         return 1
 
     _write_service_result(stdout, args.command, review_date, db_path, result)
+    return 0 if result.ok else 1
+
+
+def _run_daily_close(args: argparse.Namespace, stdout: TextIO, services: CommandServices) -> int:
+    db_path = _normalized_db_path(args.db_path)
+    as_of_date = args.date
+
+    if not db_path.exists():
+        _write_routed_message(
+            stdout,
+            args.command,
+            as_of_date,
+            db_path,
+            "database not found; daily close workflow was not run and no writes were performed",
+        )
+        return 1
+
+    service = services.daily_close_workflow_service_factory(db_path)
+    request = RunDailyCloseWorkflowRequest(
+        as_of_date=as_of_date,
+        strategy_version=args.strategy_version,
+        account_key=args.account_key,
+        account_id=args.account_id,
+        run_type=args.run_type,
+        force_new_review_run=args.force_new_review_run,
+    )
+    ctx = RequestContext(
+        request_id="cli-daily-close",
+        idempotency_key=args.idempotency_key or _daily_close_idempotency_key(args),
+        dry_run=not args.apply,
+        operator=args.operator,
+        source="cli",
+    )
+    try:
+        result = service.run_daily_close(request, ctx)
+    except sqlite3.OperationalError as exc:
+        stdout.write(f"daily-close failed for {as_of_date}: database is not initialized or is incompatible: {exc}\n")
+        return 1
+
+    _write_daily_close_result(stdout, args.command, as_of_date, db_path, result)
     return 0 if result.ok else 1
 
 
@@ -543,6 +622,11 @@ def _execution_context(args: argparse.Namespace, command: str) -> RequestContext
     )
 
 
+def _daily_close_idempotency_key(args: argparse.Namespace) -> str:
+    account_ref = args.account_key or f"account-id-{args.account_id}"
+    return f"daily-close:{account_ref}:{args.date}:{args.strategy_version}:{args.run_type}"
+
+
 def _exit_idempotency_key(args: argparse.Namespace) -> str:
     account_ref = args.account_key or f"account-id-{args.account_id}"
     return f"exit-eval:{account_ref}:{args.date}"
@@ -590,6 +674,51 @@ def _write_service_result(
             stdout.write(f"- {error.code}: {error.message}\n")
     if result.data is not None:
         stdout.write(f"data: {_display_data(result.data)}\n")
+
+
+def _write_daily_close_result(
+    stdout: TextIO,
+    command: str,
+    date: str,
+    db_path: Path,
+    result: ServiceResult[object],
+) -> None:
+    _write_routed_message(stdout, command, date, db_path, f"service returned {result.status}")
+    _write_warnings_and_errors(stdout, result)
+    data = result.data
+    if data is None:
+        return
+
+    stdout.write(f"workflow_status={getattr(data, 'workflow_status', 'n/a')}\n")
+    stdout.write(f"readiness={getattr(data, 'readiness', 'n/a')}\n")
+    stdout.write(f"review_status={getattr(data, 'review_status', 'n/a')}\n")
+    stdout.write(f"plan_status={getattr(data, 'plan_status', 'n/a')}\n")
+    stdout.write(f"next_trade_date={_display_date(getattr(data, 'next_trade_date', None))}\n")
+    stdout.write(f"signals_count={getattr(data, 'signals_count', 0)}\n")
+
+    candidate = getattr(data, "candidate", None)
+    if candidate is not None:
+        stdout.write(
+            "candidate="
+            f"{candidate.ts_code} {candidate.name} "
+            f"daily_pick_id={_display_optional_int(candidate.daily_pick_id)} "
+            f"score={candidate.score:.2f}\n"
+        )
+    else:
+        stdout.write("candidate=none\n")
+
+    buy_plan = getattr(data, "buy_plan", None)
+    if buy_plan is not None:
+        stdout.write(
+            "buy_plan="
+            f"id={_display_optional_int(buy_plan.trade_plan_id)} "
+            f"action={buy_plan.action} "
+            f"status={buy_plan.status} "
+            f"planned_trade_date={_display_date(buy_plan.planned_trade_date)} "
+            f"planned_shares={_display_optional_int(buy_plan.planned_shares)}\n"
+        )
+    else:
+        stdout.write("buy_plan=none\n")
 
 
 def _write_positions_result(

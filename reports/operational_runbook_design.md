@@ -215,23 +215,35 @@ pgc market refresh \
 
 ### Step 5: 运行每日复盘
 
-命令契约：
+当前 CLI v0 命令契约：
 
 ```bash
-pgc review run \
-  --as-of-date S \
+pgc daily-close \
+  --date S \
+  --db-path data/pgc_trading.db \
   --strategy-version cpb_6157@2026-05-03 \
-  --account paper-main \
-  --max-daily-picks 1
+  --account paper-200k
+```
+
+默认不写库，只做 preview。确认数据质量、候选和计划结果后，再显式持久化：
+
+```bash
+pgc daily-close \
+  --date S \
+  --db-path data/pgc_trading.db \
+  --strategy-version cpb_6157@2026-05-03 \
+  --account paper-200k \
+  --apply \
+  --operator azboo
 ```
 
 成功标准：
 
-- 返回 `feature_run_id`；
-- 返回 `strategy_run_id`；
+- 返回 `workflow_status`；
+- 返回 `readiness`；
 - 返回候选信号数量；
 - 每日最多一只 `daily_pick`；
-- 生成 `trade_plan` 或明确 `skip` 原因。
+- `--apply` 时生成 `trade_plan`，或明确 `skip`/blocked 原因。
 
 没有信号时：
 
