@@ -159,12 +159,45 @@ class _FakeReadinessService:
         )
 
 
+@dataclass(frozen=True)
+class _FakeAgentReviewData:
+    input_snapshot_id: int | None = 101
+    agent_run_id: int | None = 202
+    agent_decision_id: int | None = 303
+    action: str | None = "caution"
+    confidence: float | None = None
+    risk_level: str | None = "medium"
+    summary: str | None = "Agent advisory only."
+    artifact_paths: list[str] = field(default_factory=lambda: ["/tmp/agent_run_000202_decision.json"])
+
+
+class _FakeAgentReviewService:
+    calls: list[tuple[Path, object, RequestContext]] = []
+
+    def __init__(self, db_path: Path):
+        self.db_path = db_path
+
+    def review_daily_pick(self, request, ctx: RequestContext) -> ServiceResult[_FakeAgentReviewData]:
+        self.calls.append((self.db_path, request, ctx))
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data=_FakeAgentReviewData(),
+        )
+
+
+class _UnexpectedAgentReviewService:
+    def __init__(self, db_path: Path):
+        raise AssertionError(f"agent review service should not be built for missing db: {db_path}")
+
+
 class CliMainTest(unittest.TestCase):
     def setUp(self) -> None:
         _FakeReviewService.calls = []
         _FakeCloseService.calls = []
         _FakePlanningService.calls = []
         _FakeReadinessService.calls = []
+        _FakeAgentReviewService.calls = []
 
     def test_help_lists_command_surface(self) -> None:
         stdout = io.StringIO()
@@ -184,6 +217,7 @@ class CliMainTest(unittest.TestCase):
             "positions",
             "exits-evaluate",
             "paper-readiness",
+            "agent",
         ]:
             self.assertIn(command, output)
 
@@ -500,6 +534,87 @@ class CliMainTest(unittest.TestCase):
         self.assertIn("due_exit_positions_count=0", output)
         self.assertIn("open_blockers_count=0", output)
         self.assertIn("invariant_ok=true", output)
+
+    def test_agent_review_routes_to_service_with_dry_run_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc_agent.db"
+            db_path.touch()
+            stdout = io.StringIO()
+            code = main(
+                [
+                    "agent",
+                    "review",
+                    "--daily-pick-id",
+                    "1",
+                    "--account",
+                    "paper-main",
+                    "--db-path",
+                    str(db_path),
+                ],
+                stdout=stdout,
+                services=CommandServices(agent_review_service_factory=_FakeAgentReviewService),
+            )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(len(_FakeAgentReviewService.calls), 1)
+        called_db_path, request, ctx = _FakeAgentReviewService.calls[0]
+        self.assertEqual(called_db_path, db_path)
+        self.assertEqual(request.daily_pick_id, 1)
+        self.assertEqual(request.account_key, "paper-main")
+        self.assertFalse(request.online_tools)
+        self.assertTrue(ctx.dry_run)
+        self.assertEqual(ctx.request_id, "cli-agent-review")
+        self.assertEqual(ctx.operator, "cli")
+        self.assertEqual(ctx.idempotency_key, "agent-review:paper-main:daily-pick-1")
+        output = stdout.getvalue()
+        self.assertIn("agent review command routed", output)
+        self.assertIn("service returned success", output)
+        self.assertIn("agent_review=input_snapshot_id=101 agent_run_id=202 agent_decision_id=303", output)
+        self.assertIn("action=caution", output)
+        self.assertIn("summary=Agent advisory only.", output)
+
+    def test_agent_review_apply_mode_uses_write_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc_agent_apply.db"
+            db_path.touch()
+            stdout = io.StringIO()
+            code = main(
+                [
+                    "agent",
+                    "review",
+                    "--daily-pick-id",
+                    "1",
+                    "--db-path",
+                    str(db_path),
+                    "--apply",
+                    "--operator",
+                    "azboo",
+                    "--online-tools",
+                ],
+                stdout=stdout,
+                services=CommandServices(agent_review_service_factory=_FakeAgentReviewService),
+            )
+
+        self.assertEqual(code, 0)
+        _, request, ctx = _FakeAgentReviewService.calls[0]
+        self.assertFalse(ctx.dry_run)
+        self.assertEqual(ctx.operator, "azboo")
+        self.assertTrue(request.online_tools)
+
+    def test_agent_review_missing_db_fails_without_creating_database(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "missing.db"
+            stdout = io.StringIO()
+            code = main(
+                ["agent", "review", "--daily-pick-id", "1", "--db-path", str(db_path)],
+                stdout=stdout,
+                services=CommandServices(agent_review_service_factory=_UnexpectedAgentReviewService),
+            )
+
+            self.assertEqual(code, 1)
+            self.assertFalse(db_path.exists())
+            self.assertIn("database not found", stdout.getvalue())
+            self.assertIn("daily-pick-id=1", stdout.getvalue())
 
     def test_report_command_routes_as_noop(self) -> None:
         stdout = io.StringIO()

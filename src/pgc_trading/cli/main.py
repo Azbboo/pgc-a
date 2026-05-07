@@ -17,6 +17,7 @@ from pgc_trading.reporting.daily_report import (
     render_daily_report_json,
     render_daily_report_markdown,
 )
+from pgc_trading.services.agent_review_service import AgentReviewService, ReviewDailyPickRequest
 from pgc_trading.services.common import RequestContext, ServiceResult
 from pgc_trading.services.daily_close_workflow_service import (
     DEFAULT_ACCOUNT_KEY,
@@ -53,6 +54,7 @@ ExecutionServiceFactory = Callable[[Path], ExecutionRecordingService]
 PositionServiceFactory = Callable[[Path], PositionLifecycleService]
 OperationalReadinessServiceFactory = Callable[[Path], OperationalReadinessService]
 PlanningServiceFactory = Callable[[Path], PortfolioPlanningService]
+AgentReviewServiceFactory = Callable[[Path], AgentReviewService]
 
 
 @dataclass(frozen=True)
@@ -64,6 +66,7 @@ class CommandServices:
     position_service_factory: PositionServiceFactory = PositionLifecycleService
     operational_readiness_service_factory: OperationalReadinessServiceFactory = OperationalReadinessService
     planning_service_factory: PlanningServiceFactory = PortfolioPlanningService
+    agent_review_service_factory: AgentReviewServiceFactory = AgentReviewService
 
 
 class PgcArgumentParser(argparse.ArgumentParser):
@@ -287,6 +290,35 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
     )
     _add_db_path_argument(paper_readiness)
     paper_readiness.set_defaults(handler=_run_paper_readiness)
+
+    agent = subparsers.add_parser(
+        "agent",
+        help="run advisory agent workflows",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    agent_subparsers = agent.add_subparsers(dest="agent_command", metavar="agent-command")
+    agent_review = agent_subparsers.add_parser(
+        "review",
+        help="run a TradingAgents advisory review for a daily pick",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    agent_review.add_argument("--daily-pick-id", type=_positive_int, required=True)
+    _add_account_arguments(agent_review)
+    agent_review.add_argument(
+        "--apply",
+        action="store_true",
+        help="persist the advisory run and decision; without this only builds a dry-run preview",
+    )
+    agent_review.add_argument(
+        "--online-tools",
+        action="store_true",
+        help="allow external TradingAgents tools to fetch online data if the optional package is installed",
+    )
+    _add_lifecycle_context_arguments(agent_review)
+    _add_db_path_argument(agent_review)
+    agent_review.set_defaults(handler=_run_agent_review)
 
     return parser
 
@@ -607,6 +639,47 @@ def _run_paper_readiness(args: argparse.Namespace, stdout: TextIO, services: Com
     return 0 if result.ok else 1
 
 
+def _run_agent_review(args: argparse.Namespace, stdout: TextIO, services: CommandServices) -> int:
+    db_path = _normalized_db_path(args.db_path)
+    command = "agent review"
+
+    if not db_path.exists():
+        _write_routed_message(
+            stdout,
+            command,
+            f"daily-pick-id={args.daily_pick_id}",
+            db_path,
+            "database not found; agent review service was not run and no writes were performed",
+        )
+        return 1
+
+    service = services.agent_review_service_factory(db_path)
+    request = ReviewDailyPickRequest(
+        daily_pick_id=args.daily_pick_id,
+        account_key=args.account_key,
+        account_id=args.account_id,
+        online_tools=args.online_tools,
+    )
+    ctx = RequestContext(
+        request_id="cli-agent-review",
+        idempotency_key=args.idempotency_key or _agent_review_idempotency_key(args),
+        dry_run=not args.apply,
+        operator=args.operator,
+        source="cli",
+    )
+    try:
+        result = service.review_daily_pick(request, ctx)
+    except sqlite3.OperationalError as exc:
+        stdout.write(
+            f"agent review failed for daily-pick-id={args.daily_pick_id}: "
+            f"database is not initialized or is incompatible: {exc}\n"
+        )
+        return 1
+
+    _write_agent_review_result(stdout, command, args.daily_pick_id, db_path, result)
+    return 0 if result.ok else 1
+
+
 def _run_report(args: argparse.Namespace, stdout: TextIO, services: CommandServices) -> int:
     db_path = _normalized_db_path(args.db_path)
     report_date = args.date
@@ -797,6 +870,11 @@ def _plan_idempotency_key(args: argparse.Namespace) -> str:
 def _exit_idempotency_key(args: argparse.Namespace) -> str:
     account_ref = args.account_key or f"account-id-{args.account_id}"
     return f"exit-eval:{account_ref}:{args.date}"
+
+
+def _agent_review_idempotency_key(args: argparse.Namespace) -> str:
+    account_ref = args.account_key or f"account-id-{args.account_id}"
+    return f"agent-review:{account_ref}:daily-pick-{args.daily_pick_id}"
 
 
 def _normalized_db_path(db_path: Path) -> Path:
@@ -1045,6 +1123,44 @@ def _write_paper_readiness_result(
     stdout.write(f"open_blockers_count={getattr(data, 'open_blockers_count', 0)}\n")
     invariant_ok = bool(getattr(data, "invariant_ok", False))
     stdout.write(f"invariant_ok={str(invariant_ok).lower()}\n")
+
+
+def _write_agent_review_result(
+    stdout: TextIO,
+    command: str,
+    daily_pick_id: int,
+    db_path: Path,
+    result: ServiceResult[object],
+) -> None:
+    _write_routed_message(
+        stdout,
+        command,
+        f"daily-pick-id={daily_pick_id}",
+        db_path,
+        f"service returned {result.status}",
+    )
+    _write_warnings_and_errors(stdout, result)
+    data = result.data
+    if data is None:
+        return
+
+    stdout.write(
+        "agent_review="
+        f"input_snapshot_id={_display_optional_int(getattr(data, 'input_snapshot_id', None))} "
+        f"agent_run_id={_display_optional_int(getattr(data, 'agent_run_id', None))} "
+        f"agent_decision_id={_display_optional_int(getattr(data, 'agent_decision_id', None))} "
+        f"action={getattr(data, 'action', None) or 'n/a'} "
+        f"risk_level={getattr(data, 'risk_level', None) or 'n/a'} "
+        f"confidence={_display_optional_float(getattr(data, 'confidence', None))}\n"
+    )
+    summary = getattr(data, "summary", None)
+    if summary:
+        stdout.write(f"summary={summary}\n")
+    artifact_paths = getattr(data, "artifact_paths", [])
+    if artifact_paths:
+        stdout.write("artifacts:\n")
+        for path in artifact_paths:
+            stdout.write(f"- {path}\n")
 
 
 def _write_warnings_and_errors(stdout: TextIO, result: ServiceResult[object]) -> None:
