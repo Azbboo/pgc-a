@@ -10,6 +10,7 @@ from pgc_trading.config import AccountConfig
 from pgc_trading.storage.migrate import run_migrations
 from pgc_trading.storage.seed import seed_reference_data
 from pgc_trading.strategies.cpb_6157 import PARAMS_HASH
+from pgc_trading.strategies.cpb_v2 import PARAMS_HASH as CPB_V2_PARAMS_HASH
 
 
 class ReferenceSeedTest(unittest.TestCase):
@@ -79,6 +80,43 @@ class ReferenceSeedTest(unittest.TestCase):
                 self.assertEqual(parameter_set[3], PARAMS_HASH)
                 self.assertEqual(json.loads(parameter_set[2])["variant_id"], "cpb_6157")
 
+                v2_version = conn.execute(
+                    """
+                    SELECT
+                      id,
+                      strategy_family_id,
+                      strategy_key,
+                      strategy_version,
+                      params_hash,
+                      agent_policy,
+                      status
+                    FROM strategy_versions
+                    WHERE strategy_version = 'cpb_v2@2026-05-06'
+                    """
+                ).fetchone()
+                self.assertIsNotNone(v2_version)
+                self.assertEqual(v2_version[0], result.ids["strategy_version_cpb_v2"])
+                self.assertEqual(v2_version[1], family[0])
+                self.assertEqual(v2_version[2], "cpb_v2")
+                self.assertEqual(v2_version[3], "cpb_v2@2026-05-06")
+                self.assertEqual(v2_version[4], CPB_V2_PARAMS_HASH)
+                self.assertEqual(v2_version[5], "advisory")
+                self.assertEqual(v2_version[6], "candidate")
+
+                v2_parameter_set = conn.execute(
+                    """
+                    SELECT id, strategy_version_id, params_json, params_hash
+                    FROM parameter_sets
+                    WHERE strategy_version_id = ?
+                    """,
+                    (v2_version[0],),
+                ).fetchone()
+                self.assertIsNotNone(v2_parameter_set)
+                self.assertEqual(v2_parameter_set[0], result.ids["parameter_set_cpb_v2"])
+                self.assertEqual(v2_parameter_set[1], v2_version[0])
+                self.assertEqual(v2_parameter_set[3], CPB_V2_PARAMS_HASH)
+                self.assertEqual(json.loads(v2_parameter_set[2])["variant_id"], "cpb_v2")
+
                 account_row = conn.execute(
                     """
                     SELECT
@@ -136,8 +174,8 @@ class ReferenceSeedTest(unittest.TestCase):
                 counts,
                 {
                     "strategy_families": 1,
-                    "strategy_versions": 1,
-                    "parameter_sets": 1,
+                    "strategy_versions": 2,
+                    "parameter_sets": 2,
                     "portfolio_accounts": 1,
                 },
             )

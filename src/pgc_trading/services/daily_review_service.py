@@ -9,8 +9,14 @@ from pathlib import Path
 from typing import Any
 
 from pgc_trading.config import Paths
+from pgc_trading.features.cpb_v2_inputs import (
+    CONTEXT_FEATURE_VERSIONS as CPB_V2_CONTEXT_FEATURE_VERSIONS,
+    FEATURE_VERSION as CPB_V2_FEATURE_VERSION,
+    build_cpb_v2_feature_enrichment,
+)
 from pgc_trading.features.contracting_pullback import (
     ContractingPullbackSnapshot,
+    FEATURE_VERSION as CONTRACTING_PULLBACK_FEATURE_VERSION,
     MarketBarInput,
     RawEventInput,
     build_contracting_pullback_snapshot,
@@ -25,19 +31,25 @@ from pgc_trading.services.data_quality_service import (
 from pgc_trading.storage.database import connect
 from pgc_trading.strategies.cpb_6157 import (
     Cpb6157Params,
-    PARAMS,
-    STRATEGY_KEY,
-    STRATEGY_VERSION,
+    PARAMS as CPB_6157_PARAMS,
+    STRATEGY_KEY as CPB_6157_STRATEGY_KEY,
+    STRATEGY_VERSION as CPB_6157_STRATEGY_VERSION,
+)
+from pgc_trading.strategies.cpb_v2 import (
+    CpbV2Params,
+    PARAMS as CPB_V2_PARAMS,
+    STRATEGY_KEY as CPB_V2_STRATEGY_KEY,
 )
 
 
 VALID_RUN_TYPES = {"research", "backtest", "validation", "paper", "live"}
+StrategyParams = Cpb6157Params | CpbV2Params
 
 
 @dataclass(frozen=True)
 class RunDailyReviewRequest:
     as_of_date: str
-    strategy_version: str = STRATEGY_VERSION
+    strategy_version: str = CPB_6157_STRATEGY_VERSION
     max_daily_picks: int = 1
     run_type: str = "paper"
     force_new_run: bool = True
@@ -73,9 +85,17 @@ class _StrategyDefinition:
     strategy_version_id: int
     strategy_key: str
     strategy_version: str
-    params: Cpb6157Params
+    params: StrategyParams
     params_json: str
     params_hash: str
+    feature_version: str
+
+
+@dataclass(frozen=True)
+class _StrategyAdapter:
+    params_type: type[StrategyParams]
+    default_params: StrategyParams
+    feature_version: str
 
 
 @dataclass(frozen=True)
@@ -102,6 +122,20 @@ class _PersistedReview:
     signal_ids: list[int]
     daily_pick_id: int | None
     daily_pick: DailyPickDTO | None
+
+
+_STRATEGY_REGISTRY: dict[str, _StrategyAdapter] = {
+    CPB_6157_STRATEGY_KEY: _StrategyAdapter(
+        params_type=Cpb6157Params,
+        default_params=CPB_6157_PARAMS,
+        feature_version=CONTRACTING_PULLBACK_FEATURE_VERSION,
+    ),
+    CPB_V2_STRATEGY_KEY: _StrategyAdapter(
+        params_type=CpbV2Params,
+        default_params=CPB_V2_PARAMS,
+        feature_version=CPB_V2_FEATURE_VERSION,
+    ),
+}
 
 
 class DailyReviewService:
@@ -165,8 +199,9 @@ class DailyReviewService:
                         warnings=readiness.warnings,
                         errors=[strategy],
                     )
-                candidates = _build_review_candidates(conn, request, strategy)
-                signal_drafts = _build_signal_drafts(conn, request, candidates)
+                planned_buy_date = _next_open_date(conn, request.as_of_date)
+                candidates = _build_review_candidates(conn, request, strategy, planned_buy_date)
+                signal_drafts = _build_signal_drafts(request, candidates, planned_buy_date)
                 daily_pick = (
                     _daily_pick_dto(None, None, signal_drafts[0])
                     if signal_drafts and request.max_daily_picks
@@ -204,8 +239,9 @@ class DailyReviewService:
                     conn.commit()
                     return result
 
-                candidates = _build_review_candidates(conn, request, strategy)
-                signal_drafts = _build_signal_drafts(conn, request, candidates)
+                planned_buy_date = _next_open_date(conn, request.as_of_date)
+                candidates = _build_review_candidates(conn, request, strategy, planned_buy_date)
+                signal_drafts = _build_signal_drafts(request, candidates, planned_buy_date)
                 persisted = _persist_review(conn, request, strategy, candidates, signal_drafts)
                 result_data = RunDailyReviewResult(
                     feature_run_id=persisted.feature_run_id,
@@ -285,7 +321,8 @@ def _resolve_strategy(
             message=f"Strategy version was not found: {request.strategy_version}.",
             severity="blocker",
         )
-    if row["strategy_key"] != STRATEGY_KEY:
+    adapter = _STRATEGY_REGISTRY.get(row["strategy_key"])
+    if adapter is None:
         return ServiceError(
             code="UNSUPPORTED_STRATEGY_VERSION",
             message=f"DailyReviewService does not support strategy key: {row['strategy_key']}.",
@@ -293,9 +330,9 @@ def _resolve_strategy(
             entity_id=int(row["id"]),
         )
 
-    params_json = row["params_json"] or PARAMS.canonical_json()
+    params_json = row["params_json"] or adapter.default_params.canonical_json()
     try:
-        params = _params_from_json(params_json)
+        params = _params_from_json(params_json, adapter.params_type)
     except (TypeError, ValueError, json.JSONDecodeError) as exc:
         return ServiceError(
             code="INVALID_STRATEGY_PARAMS",
@@ -311,43 +348,57 @@ def _resolve_strategy(
         params=params,
         params_json=_json_dumps(params.to_dict()),
         params_hash=row["params_hash"],
+        feature_version=adapter.feature_version,
     )
 
 
-def _params_from_json(params_json: str) -> Cpb6157Params:
+def _params_from_json(
+    params_json: str,
+    params_type: type[StrategyParams],
+) -> StrategyParams:
     payload = json.loads(params_json)
     if not isinstance(payload, dict):
         raise ValueError("params_json must be an object")
-    valid_fields = {field.name for field in fields(Cpb6157Params)}
+    valid_fields = {field.name for field in fields(params_type)}
     kwargs = {key: payload[key] for key in valid_fields if key in payload}
-    return Cpb6157Params(**kwargs)
+    return params_type(**kwargs)
 
 
 def _build_review_candidates(
     conn: sqlite3.Connection,
     request: RunDailyReviewRequest,
     strategy: _StrategyDefinition,
+    planned_buy_date: str | None,
 ) -> list[_ReviewCandidate]:
     events = _load_raw_events(conn, request.as_of_date)
     candidates: list[_ReviewCandidate] = []
     for event in events:
         bars = _load_market_bars(conn, event.ts_code, request.as_of_date)
+        base_params = strategy.params if isinstance(strategy.params, Cpb6157Params) else CPB_6157_PARAMS
         snapshot = build_contracting_pullback_snapshot(
             event,
             bars,
             request.as_of_date,
-            params=strategy.params,
+            params=base_params,
         )
+        if strategy.strategy_key == CPB_V2_STRATEGY_KEY:
+            snapshot = _build_cpb_v2_snapshot(
+                conn,
+                event,
+                snapshot,
+                request,
+                planned_buy_date,
+                strategy,
+            )
         candidates.append(_ReviewCandidate(event=event, snapshot=snapshot))
     return candidates
 
 
 def _build_signal_drafts(
-    conn: sqlite3.Connection,
     request: RunDailyReviewRequest,
     candidates: list[_ReviewCandidate],
+    planned_buy_date: str | None,
 ) -> list[_SignalDraft]:
-    planned_buy_date = _next_open_date(conn, request.as_of_date)
     passed = [candidate for candidate in candidates if candidate.snapshot.signal_passed]
     ranked = sorted(
         passed,
@@ -366,6 +417,99 @@ def _build_signal_drafts(
     ]
 
 
+def _build_cpb_v2_snapshot(
+    conn: sqlite3.Connection,
+    event: RawEventInput,
+    base_snapshot: ContractingPullbackSnapshot,
+    request: RunDailyReviewRequest,
+    planned_buy_date: str | None,
+    strategy: _StrategyDefinition,
+) -> ContractingPullbackSnapshot:
+    if not isinstance(strategy.params, CpbV2Params):
+        raise TypeError("CPB V2 strategy params must be CpbV2Params")
+    enrichment = build_cpb_v2_feature_enrichment(
+        base_snapshot.features,
+        base_input_hash=base_snapshot.input_hash,
+        trigger_age_trading_days=_trigger_age_trading_days(
+            conn,
+            event.ts_code,
+            event.entry_date,
+            request.as_of_date,
+        ),
+        planned_buy_date=planned_buy_date,
+        context=_load_cpb_v2_context(conn, event, request.as_of_date),
+        params=strategy.params,
+    )
+    return ContractingPullbackSnapshot(
+        raw_event_id=base_snapshot.raw_event_id,
+        ts_code=base_snapshot.ts_code,
+        review_date=base_snapshot.review_date,
+        feature_version=CPB_V2_FEATURE_VERSION,
+        features=enrichment.features,
+        input_hash=enrichment.input_hash,
+    )
+
+
+def _trigger_age_trading_days(
+    conn: sqlite3.Connection,
+    ts_code: str,
+    entry_date: str,
+    as_of_date: str,
+) -> int | None:
+    row = conn.execute(
+        """
+        SELECT COUNT(*) AS bar_count
+        FROM market_bars
+        WHERE ts_code = ?
+          AND trade_date >= ?
+          AND trade_date <= ?
+        """,
+        (ts_code, entry_date, as_of_date),
+    ).fetchone()
+    if row is None or row["bar_count"] is None:
+        return None
+    bar_count = int(row["bar_count"])
+    if bar_count <= 0:
+        return None
+    return bar_count - 1
+
+
+def _load_cpb_v2_context(
+    conn: sqlite3.Connection,
+    event: RawEventInput,
+    as_of_date: str,
+) -> dict[str, Any]:
+    placeholders = ", ".join("?" for _ in CPB_V2_CONTEXT_FEATURE_VERSIONS)
+    row = conn.execute(
+        f"""
+        SELECT feature_version, review_date, features_json
+        FROM feature_snapshots
+        WHERE raw_event_id = ?
+          AND review_date <= ?
+          AND feature_version IN ({placeholders})
+        ORDER BY review_date DESC, id DESC
+        LIMIT 1
+        """,
+        (event.id, as_of_date, *CPB_V2_CONTEXT_FEATURE_VERSIONS),
+    ).fetchone()
+    if row is None:
+        return {}
+    try:
+        payload = json.loads(row["features_json"])
+    except (TypeError, json.JSONDecodeError):
+        return {
+            "source_feature_version": row["feature_version"],
+            "source_review_date": row["review_date"],
+        }
+    if not isinstance(payload, dict):
+        payload = {}
+    return {
+        **payload,
+        "source_feature_version": row["feature_version"],
+        "source_review_date": row["review_date"],
+    }
+
+
 def _persist_review(
     conn: sqlite3.Connection,
     request: RunDailyReviewRequest,
@@ -374,7 +518,7 @@ def _persist_review(
     signal_drafts: list[_SignalDraft],
 ) -> _PersistedReview:
     input_market_fetch_run_id = _latest_market_fetch_run_id(conn, request.as_of_date)
-    feature_run_id = _insert_feature_run(conn, request, input_market_fetch_run_id)
+    feature_run_id = _insert_feature_run(conn, request, strategy, input_market_fetch_run_id)
     snapshot_ids = _insert_feature_snapshots(conn, feature_run_id, candidates)
     strategy_run_id = _insert_strategy_run(conn, request, strategy, feature_run_id)
     signal_ids = _insert_strategy_signals(conn, strategy_run_id, snapshot_ids, signal_drafts)
@@ -505,6 +649,7 @@ def _next_open_date(conn: sqlite3.Connection, as_of_date: str) -> str | None:
 def _insert_feature_run(
     conn: sqlite3.Connection,
     request: RunDailyReviewRequest,
+    strategy: _StrategyDefinition,
     input_market_fetch_run_id: int | None,
 ) -> int:
     cursor = conn.execute(
@@ -512,9 +657,9 @@ def _insert_feature_run(
         INSERT INTO feature_runs
           (feature_version, as_of_date, input_market_fetch_run_id, status)
         VALUES
-          ('contracting_pullback.v1', ?, ?, 'started')
+          (?, ?, ?, 'started')
         """,
-        (request.as_of_date, input_market_fetch_run_id),
+        (strategy.feature_version, request.as_of_date, input_market_fetch_run_id),
     )
     return int(cursor.lastrowid)
 

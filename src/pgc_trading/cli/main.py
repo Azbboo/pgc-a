@@ -11,16 +11,26 @@ from pathlib import Path
 from typing import Callable, TextIO
 
 from pgc_trading.config import Paths
+from pgc_trading.reporting.daily_report import (
+    DailyReportRequest,
+    ReportingQueryService,
+    render_daily_report_json,
+    render_daily_report_markdown,
+)
 from pgc_trading.services.common import RequestContext, ServiceResult
+from pgc_trading.services.daily_close_workflow_service import DEFAULT_ACCOUNT_KEY
 from pgc_trading.services.daily_review_service import DailyReviewService, RunDailyReviewRequest
+from pgc_trading.strategies.cpb_6157 import STRATEGY_VERSION
 
 
 ReviewServiceFactory = Callable[[Path], DailyReviewService]
+ReportServiceFactory = Callable[[Path], ReportingQueryService]
 
 
 @dataclass(frozen=True)
 class CommandServices:
     review_service_factory: ReviewServiceFactory = DailyReviewService
+    report_service_factory: ReportServiceFactory = ReportingQueryService
 
 
 class PgcArgumentParser(argparse.ArgumentParser):
@@ -92,13 +102,24 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
 
     report = subparsers.add_parser(
         "report",
-        help="route daily review report output",
+        help="generate daily review report output",
         stdout=stdout,
         stderr=stderr,
     )
-    _add_date_argument(report)
+    report.add_argument("report_type", nargs="?", choices=["daily"], default="daily")
+    _add_report_date_argument(report)
+    report.add_argument("--account", dest="account_key", default=DEFAULT_ACCOUNT_KEY, help="portfolio account key")
+    report.add_argument("--account-id", type=_positive_int, help="portfolio account id")
+    report.add_argument("--strategy-version", default=STRATEGY_VERSION, help="strategy version to report")
+    report.add_argument("--format", choices=["markdown", "json"], default="markdown", help="report output format")
+    report.add_argument("--output", type=Path, help="write the rendered report to this path")
+    report.add_argument(
+        "--write-live-plan",
+        action="store_true",
+        help="write to reports/live_trade_plan.md or reports/live_trade_plan.json",
+    )
     _add_db_path_argument(report)
-    report.set_defaults(handler=_run_placeholder)
+    report.set_defaults(handler=_run_report)
 
     record_buy = subparsers.add_parser(
         "record-buy",
@@ -188,6 +209,59 @@ def _run_placeholder(args: argparse.Namespace, stdout: TextIO, services: Command
     return 0
 
 
+def _run_report(args: argparse.Namespace, stdout: TextIO, services: CommandServices) -> int:
+    db_path = _normalized_db_path(args.db_path)
+    report_date = args.date
+
+    if args.output is not None and args.write_live_plan:
+        stdout.write("report failed: choose either --output or --write-live-plan, not both.\n")
+        return 1
+
+    if not db_path.exists():
+        _write_routed_message(
+            stdout,
+            args.command,
+            report_date,
+            db_path,
+            "database not found; report service was not run and no writes were performed",
+        )
+        return 0
+
+    service = services.report_service_factory(db_path)
+    try:
+        result = service.get_daily_report(
+            DailyReportRequest(
+                as_of_date=report_date,
+                account_key=args.account_key,
+                account_id=args.account_id,
+                strategy_version=args.strategy_version,
+            ),
+            RequestContext(request_id="cli-report", operator="cli", source="cli"),
+        )
+    except sqlite3.OperationalError as exc:
+        stdout.write(f"report failed for {report_date}: database is not initialized or is incompatible: {exc}\n")
+        return 1
+
+    if result.data is None:
+        _write_service_result(stdout, args.command, report_date, db_path, result)
+        return 0 if result.ok else 1
+
+    rendered = (
+        render_daily_report_json(result.data)
+        if args.format == "json"
+        else render_daily_report_markdown(result.data)
+    )
+    output_path = _report_output_path(args)
+    if output_path is None:
+        stdout.write(rendered)
+        return 0
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(rendered, encoding="utf-8")
+    stdout.write(f"report written for {report_date}: {output_path}\n")
+    return 0
+
+
 def _add_date_argument(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--date",
@@ -195,6 +269,18 @@ def _add_date_argument(parser: argparse.ArgumentParser) -> None:
         type=_parse_iso_date,
         metavar="YYYY-MM-DD",
         help="review or execution date in ISO format",
+    )
+
+
+def _add_report_date_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--date",
+        "--as-of-date",
+        required=True,
+        dest="date",
+        type=_parse_report_date,
+        metavar="YYYY-MM-DD|YYYYMMDD",
+        help="review date in ISO or YYYYMMDD format",
     )
 
 
@@ -215,6 +301,18 @@ def _parse_iso_date(value: str) -> str:
     if parsed.strftime("%Y-%m-%d") != value:
         raise argparse.ArgumentTypeError(f"invalid date {value!r}: expected YYYY-MM-DD")
     return parsed.strftime("%Y%m%d")
+
+
+def _parse_report_date(value: str) -> str:
+    if len(value) == 8 and value.isdigit():
+        try:
+            parsed = datetime.strptime(value, "%Y%m%d")
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError(f"invalid date {value!r}: expected YYYYMMDD or YYYY-MM-DD") from exc
+        if parsed.strftime("%Y%m%d") != value:
+            raise argparse.ArgumentTypeError(f"invalid date {value!r}: expected YYYYMMDD or YYYY-MM-DD")
+        return value
+    return _parse_iso_date(value)
 
 
 def _positive_int(value: str) -> int:
@@ -239,6 +337,15 @@ def _positive_float(value: str) -> float:
 
 def _normalized_db_path(db_path: Path) -> Path:
     return db_path.expanduser()
+
+
+def _report_output_path(args: argparse.Namespace) -> Path | None:
+    if args.output is not None:
+        return _normalized_db_path(args.output)
+    if not args.write_live_plan:
+        return None
+    paths = Paths()
+    return paths.live_plan_json if args.format == "json" else paths.live_plan_md
 
 
 def _write_routed_message(

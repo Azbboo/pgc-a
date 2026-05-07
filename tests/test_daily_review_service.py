@@ -13,7 +13,9 @@ from pgc_trading.services.daily_review_service import (
 )
 from pgc_trading.storage.migrate import run_migrations
 from pgc_trading.storage.seed import seed_reference_data
+from pgc_trading.features.cpb_v2_inputs import CONTEXT_FEATURE_VERSIONS
 from pgc_trading.strategies.cpb_6157 import STRATEGY_VERSION
+from pgc_trading.strategies.cpb_v2 import STRATEGY_VERSION as CPB_V2_STRATEGY_VERSION
 
 
 AS_OF_DATE = "20260504"
@@ -135,6 +137,112 @@ class DailyReviewServiceTest(unittest.TestCase):
                 self.assertEqual(self._count(conn, "daily_picks"), 0)
                 self.assertEqual(self._count(conn, "operation_requests"), 0)
 
+    def test_cpb_v2_dry_run_uses_enriched_decision_without_portfolio_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._migrated_seeded_db(tmp)
+            with sqlite3.connect(db_path) as conn:
+                self._insert_open_calendar(conn)
+                raw_event_id = self._insert_contracting_pullback_case(
+                    conn,
+                    "000003.SZ",
+                    "V2 Elastic",
+                    2.5,
+                    entry_date="20260424",
+                )
+                conn.execute(
+                    """
+                    UPDATE market_bars
+                    SET amount = 500
+                    WHERE ts_code = '000003.SZ'
+                      AND trade_date = '20260501'
+                    """
+                )
+                self._insert_cpb_v2_context(
+                    conn,
+                    raw_event_id,
+                    "000003.SZ",
+                    {
+                        "industry": "软件服务",
+                        "bigwin_score": 80.0,
+                        "gap_from_trigger_close": 0.01,
+                        "future_return_20d": 9.99,
+                    },
+                )
+
+            result = DailyReviewService(db_path).run_daily_review(
+                RunDailyReviewRequest(
+                    as_of_date=AS_OF_DATE,
+                    strategy_version=CPB_V2_STRATEGY_VERSION,
+                ),
+                RequestContext(request_id="req-v2-dry", dry_run=True, operator="tester"),
+            )
+
+            self.assertEqual(result.status, "success")
+            self.assertEqual(result.data.signals_count, 1)
+            self.assertIsNotNone(result.data.daily_pick)
+            features = result.data.daily_pick.features
+            self.assertTrue(features["signal_passed"])
+            self.assertEqual(features["feature_name"], "contracting_pullback_cpb_v2")
+            self.assertEqual(features["cpb_v2_non_security_result"], "passed")
+            self.assertEqual(features["cpb_v2_no_chase_result"], "passed")
+            self.assertTrue(features["cpb_v2_observation_sleeve"])
+            self.assertEqual(features["cpb_v2_short_sleeve_weight"], 0.7)
+            self.assertEqual(features["cpb_v2_observation_sleeve_weight"], 0.3)
+            self.assertNotIn("future_return_20d", json.dumps(features, ensure_ascii=False))
+
+            with sqlite3.connect(db_path) as conn:
+                self.assertEqual(self._count(conn, "feature_runs"), 1)
+                self.assertEqual(self._count(conn, "strategy_runs"), 0)
+                self.assertEqual(self._count(conn, "strategy_signals"), 0)
+                self.assertEqual(self._count(conn, "trade_plans"), 0)
+                self.assertEqual(self._count(conn, "trades"), 0)
+                self.assertEqual(self._count(conn, "positions"), 0)
+
+    def test_cpb_v2_missing_industry_writes_clear_feature_skip_without_signal(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._migrated_seeded_db(tmp)
+            with sqlite3.connect(db_path) as conn:
+                self._insert_open_calendar(conn)
+                self._insert_contracting_pullback_case(
+                    conn,
+                    "000004.SZ",
+                    "V2 Missing Industry",
+                    1.5,
+                    entry_date="20260424",
+                )
+
+            result = DailyReviewService(db_path).run_daily_review(
+                RunDailyReviewRequest(
+                    as_of_date=AS_OF_DATE,
+                    strategy_version=CPB_V2_STRATEGY_VERSION,
+                ),
+                RequestContext(
+                    request_id="req-v2-missing-industry",
+                    idempotency_key="review:v2:missing-industry",
+                    operator="tester",
+                ),
+            )
+
+            self.assertEqual(result.status, "success")
+            self.assertEqual(result.data.signals_count, 0)
+            self.assertEqual(result.data.skipped_reason, "no_strategy_signals")
+            with sqlite3.connect(db_path) as conn:
+                features = json.loads(
+                    conn.execute(
+                        """
+                        SELECT features_json
+                        FROM feature_snapshots
+                        ORDER BY id DESC
+                        LIMIT 1
+                        """
+                    ).fetchone()[0]
+                )
+                self.assertFalse(features["signal_passed"])
+                self.assertEqual(features["invalid_reason"], "cpb_v2_missing_industry")
+                self.assertEqual(features["cpb_v2_non_security_result"], "missing_industry")
+                self.assertEqual(self._count(conn, "strategy_signals"), 0)
+                self.assertEqual(self._count(conn, "daily_picks"), 0)
+
     def test_review_feature_hash_ignores_future_market_bars_and_new_runs_do_not_overwrite(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = self._migrated_seeded_db(tmp)
@@ -209,6 +317,7 @@ class DailyReviewServiceTest(unittest.TestCase):
         ts_code: str,
         name: str,
         price_scale: float,
+        entry_date: str = ENTRY_DATE,
     ) -> int:
         cursor = conn.execute(
             """
@@ -217,7 +326,7 @@ class DailyReviewServiceTest(unittest.TestCase):
             VALUES
               (?, substr(?, 1, 6), ?, ?, '15:00', ?)
             """,
-            (ts_code, ts_code, name, ENTRY_DATE, 10.0 * price_scale),
+            (ts_code, ts_code, name, entry_date, 10.0 * price_scale),
         )
         raw_event_id = int(cursor.lastrowid)
         bars = [
@@ -241,6 +350,46 @@ class DailyReviewServiceTest(unittest.TestCase):
                 amount=amount,
             )
         return raw_event_id
+
+    def _insert_cpb_v2_context(
+        self,
+        conn: sqlite3.Connection,
+        raw_event_id: int,
+        ts_code: str,
+        features: dict[str, object],
+    ) -> None:
+        cursor = conn.execute(
+            """
+            INSERT INTO feature_runs (feature_version, as_of_date, status)
+            VALUES (?, ?, 'completed')
+            """,
+            (CONTEXT_FEATURE_VERSIONS[0], AS_OF_DATE),
+        )
+        conn.execute(
+            """
+            INSERT INTO feature_snapshots
+              (
+                feature_run_id,
+                raw_event_id,
+                ts_code,
+                review_date,
+                feature_version,
+                features_json,
+                input_hash
+              )
+            VALUES
+              (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                int(cursor.lastrowid),
+                raw_event_id,
+                ts_code,
+                AS_OF_DATE,
+                CONTEXT_FEATURE_VERSIONS[0],
+                json.dumps(features, ensure_ascii=False, sort_keys=True),
+                f"context-hash:{raw_event_id}",
+            ),
+        )
 
     def _insert_market_bar(
         self,

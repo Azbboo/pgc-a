@@ -84,10 +84,10 @@ PGC_TEST_REDIS_PASSWORD=<local-only-secret-or-empty>
 | --- | --- | --- | --- | --- |
 | DEV0 Baseline Commit & Tracking | done | WP0-WP12 | git/docs only | clean baseline commit and status board |
 | DEV1 CLI Command Skeleton | done | DEV0 | CLI package/tests | `pgc` command entrypoints |
-| DEV2A CPB V2 Strategy Integration | todo | DEV0, WP11 | strategies/features/seed/tests | `cpb_v2@2026-05-06` candidate strategy |
-| DEV2 DailyCloseWorkflowService | todo | WP8-WP12 | services/workflow/tests | one-call daily close orchestration |
-| DEV3 Daily Review Report Output | todo | DEV2 | reporting/templates/tests | Markdown/JSON daily report |
-| DEV4 Tushare Runtime Adapter Hardening | todo | WP10 | market adapter/config/tests | env-driven real fetch guardrails |
+| DEV2A CPB V2 Strategy Integration | done | DEV0, WP11 | strategies/features/seed/tests | `cpb_v2@2026-05-06` candidate seeded and service-dispatch ready |
+| DEV2 DailyCloseWorkflowService | done | WP8-WP12 | services/workflow/tests | one-call daily close orchestration |
+| DEV3 Daily Review Report Output | done | DEV2 | reporting/templates/tests | Markdown/JSON daily report |
+| DEV4 Tushare Runtime Adapter Hardening | done | WP10 | market adapter/config/tests | env-driven real fetch guardrails |
 | DEV5 Execution Recording CLI | todo | DEV1, WP12 | CLI + portfolio services/tests | record buy/sell execution safely |
 | DEV6 Position Exit Decision CLI | todo | DEV5 | position lifecycle/tests | T+2/T+5 review commands |
 | DEV7 Replay & Golden Regression | todo | DEV2-DEV6 | tests/fixtures/replay | no-future replay gate |
@@ -180,6 +180,44 @@ pgc report --date 2026-05-04 --db-path /private/tmp/pgc_cli.db
 - Initial commands can be no-op or call existing skeletons, but command routing must be tested.
 - Invalid date exits nonzero with a clear message.
 
+### DEV2A: CPB V2 Strategy Integration
+
+**Priority:** P0
+
+**Goal:** Add `cpb_v2@2026-05-06` as a separate candidate strategy version without replacing `cpb_6157@2026-05-03`.
+
+**Required scope:**
+
+- Pure V2 params and decision engine.
+- Seed both V1 and V2 strategy versions idempotently.
+- Enrich or explicitly degrade missing V2 feature inputs, including industry and potential score.
+- Dispatch DailyReviewService by strategy version without changing V1 behavior.
+- Add replay/golden validation for no-future V2 decisions.
+
+**DEV2A supervision review (2026-05-06):**
+
+- Partial implementation accepted: `src/pgc_trading/strategies/cpb_v2.py`, `tests/test_cpb_v2_params.py`, and `tests/test_cpb_v2_decisions.py` cover V2 identity, deterministic params, securities exclusion, age/gap filters, and `70/30` observation-sleeve decisions.
+- Completion not accepted yet: `seed_reference_data()` still seeds only `cpb_6157@2026-05-03`; a temp seeded DB contained only `[('cpb_6157', 'cpb_6157@2026-05-03', 'paper')]`.
+- Completion not accepted yet: `DailyReviewService` still imports `cpb_6157` params directly and rejects strategy keys other than `cpb_6157`.
+- Remaining gaps: no V2 feature-input enrichment test, no V2 dry-run service dispatch test, no replay/golden fixture, and no persisted source path for potential score.
+- Quality gate during review: `unittest discover` passed with 82 tests; `compileall` passed; token/server-password scan had no matches.
+
+**Next DEV2A fix list:**
+
+- Update `src/pgc_trading/storage/seed.py` and `tests/test_reference_seed.py` to seed V1 and V2 under one `contracting_pullback` family.
+- Add V2 feature input handling with explicit missing-input reasons; do not read `data/*.csv` from production services.
+- Add strategy dispatch in `DailyReviewService` so V1 remains unchanged and V2 can run by `strategy_version`.
+- Add replay/golden tests using only visible data up to review date.
+
+**DEV2A completion review (2026-05-06):**
+
+- Accepted after rework: `cpb_v2@2026-05-06` is seeded as `candidate`, with `agent_policy='advisory'`, alongside unchanged `cpb_6157@2026-05-03`.
+- Accepted after rework: V2 feature enrichment uses caller-provided base features plus persisted `feature_snapshots` context only; production code does not read research CSV files.
+- Accepted after rework: `DailyReviewService` dispatches by strategy key, keeps V1 behavior, and can run V2 dry-run with at most one daily pick.
+- Accepted after rework: replay/golden fixtures cover securities filter, high-chase filter, normal short-only setup, and elastic observation-sleeve setup without future-label inputs.
+- Quality gate during completion review: `unittest discover` passed with 90 tests; `compileall` passed; token/server-password scan had no matches; seed smoke returned V1/V2 strategy rows, `integrity_check=ok`, and no FK violations.
+- Remaining non-blocking risks: upstream industry/potential-score feature production still needs to be operationalized; observation-sleeve execution still belongs to future portfolio lifecycle work.
+
 ### DEV2: DailyCloseWorkflowService
 
 **Priority:** P0
@@ -216,6 +254,15 @@ pgc report --date 2026-05-04 --db-path /private/tmp/pgc_cli.db
 - One candidate with capacity produces one draft/active buy plan, depending existing service contract.
 - Re-running for same date is idempotent or clearly returns existing result.
 
+**DEV2 completion review (2026-05-06):**
+
+- Accepted: `DailyCloseWorkflowService` performs invariant check, data-quality readiness, next trading date lookup, daily review, one-pick selection, and portfolio buy-plan generation through downstream services.
+- Accepted: data-quality blockers stop before review and plan creation; no-pick state returns a clear skipped result; one valid candidate creates an active buy plan without trades or positions; same idempotency key returns the existing review/plan.
+- Accepted: V2 smoke passed with `cpb_v2@2026-05-06`, producing one candidate and a `buy_next_open` plan.
+- Boundary check: workflow service itself has no direct `INSERT`, `UPDATE`, or `DELETE`; writes are delegated to `DataQualityService`, `DailyReviewService`, and `PortfolioPlanningService`.
+- Quality gate during completion review: DEV2 tests passed with 4 tests; full suite passed with 94 tests; `compileall` passed; token/server-password scan had no matches; `data/pgc_trading.db` was not modified.
+- Remaining non-blocking risk: full workflow `dry_run=True` can preview the candidate, but buy-plan preview is limited because the dry-run daily pick is not persisted. DEV3/CLI should decide whether to add an explicit preview path or run the workflow in write mode on the canonical paper DB.
+
 ### DEV3: Daily Review Report Output
 
 **Priority:** P0
@@ -245,6 +292,14 @@ pgc report --date 2026-05-04 --db-path /private/tmp/pgc_cli.db
 - JSON preserves stable keys for future API/Dashboard use.
 - Report command can write to `reports/live_trade_plan.md` only when user asks; tests write under temp paths.
 
+**DEV3 completion review (2026-05-07):**
+
+- Accepted: `ReportingQueryService.get_daily_report` is read-only and produces report-ready data for data quality, candidate/no-candidate state, buy plan, Agent advisory placeholder, current positions, T+2/T+5 due actions, and lineage IDs.
+- Accepted: Markdown rendering uses human-facing section names and avoids snake_case database field names; JSON rendering preserves stable structured keys for API/Dashboard reuse.
+- Accepted: `pgc report daily --as-of-date YYYYMMDD --account paper-200k --format markdown|json` prints to stdout by default; `--output` writes only to an explicit path, and `--write-live-plan` is required for `reports/live_trade_plan.md/json`.
+- Accepted: report query smoke was read-only; counts for operations, data-quality events, daily picks, and trade plans were unchanged before and after rendering Markdown/JSON.
+- Quality gate during completion review: daily report + CLI focused tests passed with 10 tests; full suite passed with 98 tests; `compileall` passed; token/server-password scan had no matches; `data/pgc_trading.db` and live plan output files were not modified.
+
 ### DEV4: Tushare Runtime Adapter Hardening
 
 **Priority:** P0
@@ -270,6 +325,14 @@ pgc report --date 2026-05-04 --db-path /private/tmp/pgc_cli.db
 - Missing token gives clear error.
 - Tests do not require network.
 - Token prefix scan remains clean.
+
+**DEV4 completion review (2026-05-07):**
+
+- Accepted: `TushareAdapter` reads its runtime credential from environment only, treats missing or blank values as a clear configuration error, and does not store or print the value.
+- Accepted: `MarketDataService` reserves `operation_requests` and `market_fetch_runs` as started before the external adapter call, then completes success or failure records in short transactions after the call.
+- Accepted: mock adapter tests still exercise the service path without network; missing real Tushare configuration returns a failed service result with persisted failed run/operation records.
+- Accepted: missing-token smoke produced a failed `market_fetch_run` and failed `operation_request` with `MARKET_PROVIDER_ERROR`, without requiring network access.
+- Quality gate during completion review: DEV4 focused tests passed with 10 tests; full suite passed with 102 tests; `compileall` passed; token prefix and common secret scans had no matches; `data/pgc_trading.db` and live plan output files were not modified.
 
 ### DEV5: Execution Recording CLI
 

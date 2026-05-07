@@ -84,15 +84,17 @@ class MarketDataAdapter(Protocol):
     ) -> Sequence[TradeCalendarDay]: ...
 
 
+class TushareConfigurationError(RuntimeError):
+    """Raised when real Tushare fetching is not explicitly configured."""
+
+
 class TushareAdapter:
     """Network adapter for Tushare Pro APIs."""
 
     provider = "tushare"
 
     def __init__(self, token_env_var: str = "TUSHARE_TOKEN"):
-        token = os.environ.get(token_env_var)
-        if not token:
-            raise RuntimeError(f"{token_env_var} is required in the environment.")
+        token = _required_env_token(token_env_var)
 
         import tushare as ts  # type: ignore[import-not-found]
 
@@ -223,6 +225,15 @@ def _normalize_frame(df):
     elif "cal_date" in df.columns:
         df = df.sort_values("cal_date")
     return df.reset_index(drop=True)
+
+
+def _required_env_token(token_env_var: str) -> str:
+    token = os.environ.get(token_env_var, "").strip()
+    if not token:
+        raise TushareConfigurationError(
+            f"{token_env_var} is required in the environment for real Tushare fetches."
+        )
+    return token
 
 
 def _maybe_float(value: object) -> float | None:

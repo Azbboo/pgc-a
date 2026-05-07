@@ -1,0 +1,90 @@
+[
+  {
+    "case_id": "security_industry_filtered",
+    "review_date": "20260504",
+    "visible_features": {
+      "industry": "证券",
+      "trigger_age_trading_days": 6,
+      "gap_from_trigger_close": 0.0,
+      "big_winner_potential_score": 80.0,
+      "cpb_buy_point_score": 130.0,
+      "bull_body": 0.03,
+      "trigger_pct_chg": 0.02,
+      "trigger_amount_to_ma10": 0.9,
+      "amount_contract_ratio": 0.7
+    },
+    "expected": {
+      "eligible": false,
+      "skip_reason": "excluded_industry",
+      "observation_sleeve": false,
+      "short_sleeve_weight": 0.0,
+      "observation_sleeve_weight": 0.0
+    }
+  },
+  {
+    "case_id": "high_chase_open_filtered",
+    "review_date": "20260504",
+    "visible_features": {
+      "industry": "软件服务",
+      "trigger_age_trading_days": 6,
+      "gap_from_trigger_close": 0.021,
+      "big_winner_potential_score": 80.0,
+      "cpb_buy_point_score": 130.0,
+      "bull_body": 0.03,
+      "trigger_pct_chg": 0.02,
+      "trigger_amount_to_ma10": 0.9,
+      "amount_contract_ratio": 0.7
+    },
+    "expected": {
+      "eligible": false,
+      "skip_reason": "gap_above_max",
+      "observation_sleeve": false,
+      "short_sleeve_weight": 0.0,
+      "observation_sleeve_weight": 0.0
+    }
+  },
+  {
+    "case_id": "valid_normal_cpb_short_only",
+    "review_date": "20260504",
+    "visible_features": {
+      "industry": "食品饮料",
+      "trigger_age_trading_days": 6,
+      "gap_from_trigger_close": 0.01,
+      "big_winner_potential_score": 80.0,
+      "cpb_buy_point_score": 125.0,
+      "bull_body": 0.025,
+      "trigger_pct_chg": 0.019,
+      "trigger_amount_to_ma10": 0.8,
+      "amount_contract_ratio": 0.8
+    },
+    "expected": {
+      "eligible": true,
+      "skip_reason": null,
+      "observation_sleeve": false,
+      "short_sleeve_weight": 1.0,
+      "observation_sleeve_weight": 0.0
+    }
+  },
+  {
+    "case_id": "valid_elastic_high_score_observation_sleeve",
+    "review_date": "20260504",
+    "visible_features": {
+      "industry": "软件服务",
+      "trigger_age_trading_days": 6,
+      "gap_from_trigger_close": 0.01,
+      "big_winner_potential_score": 80.0,
+      "cpb_buy_point_score": 130.0,
+      "bull_body": 0.03,
+      "trigger_pct_chg": 0.02,
+      "trigger_amount_to_ma10": 0.9,
+      "amount_contract_ratio": 0.7
+    },
+    "expected": {
+      "eligible": true,
+      "skip_reason": null,
+      "observation_sleeve": true,
+      "short_sleeve_weight": 0.7,
+      "observation_sleeve_weight": 0.3
+    }
+  }
+]

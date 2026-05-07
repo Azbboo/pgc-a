@@ -12,10 +12,16 @@ from pathlib import Path
 from pgc_trading.config import AccountConfig, Paths
 from pgc_trading.storage.migrate import connect_for_migration
 from pgc_trading.strategies.cpb_6157 import (
-    PARAMS,
-    PARAMS_HASH,
-    STRATEGY_KEY,
-    STRATEGY_VERSION,
+    PARAMS as CPB_6157_PARAMS,
+    PARAMS_HASH as CPB_6157_PARAMS_HASH,
+    STRATEGY_KEY as CPB_6157_STRATEGY_KEY,
+    STRATEGY_VERSION as CPB_6157_STRATEGY_VERSION,
+)
+from pgc_trading.strategies.cpb_v2 import (
+    PARAMS as CPB_V2_PARAMS,
+    PARAMS_HASH as CPB_V2_PARAMS_HASH,
+    STRATEGY_KEY as CPB_V2_STRATEGY_KEY,
+    STRATEGY_VERSION as CPB_V2_STRATEGY_VERSION,
 )
 
 
@@ -49,16 +55,46 @@ def seed_reference_data(
 
     with connect_for_migration(path) as conn:
         family_id = _seed_strategy_family(conn)
-        version_id = _seed_strategy_version(conn, family_id)
-        parameter_set_id = _seed_parameter_set(conn, version_id)
+        cpb_6157_version_id = _seed_strategy_version(
+            conn,
+            family_id,
+            strategy_key=CPB_6157_STRATEGY_KEY,
+            strategy_version=CPB_6157_STRATEGY_VERSION,
+            params_hash=CPB_6157_PARAMS_HASH,
+            status="paper",
+        )
+        cpb_6157_parameter_set_id = _seed_parameter_set(
+            conn,
+            cpb_6157_version_id,
+            CPB_6157_PARAMS.canonical_json(),
+            CPB_6157_PARAMS_HASH,
+        )
+        cpb_v2_version_id = _seed_strategy_version(
+            conn,
+            family_id,
+            strategy_key=CPB_V2_STRATEGY_KEY,
+            strategy_version=CPB_V2_STRATEGY_VERSION,
+            params_hash=CPB_V2_PARAMS_HASH,
+            status="candidate",
+        )
+        cpb_v2_parameter_set_id = _seed_parameter_set(
+            conn,
+            cpb_v2_version_id,
+            CPB_V2_PARAMS.canonical_json(),
+            CPB_V2_PARAMS_HASH,
+        )
         account_id = _seed_paper_account(conn, account)
 
     return ReferenceSeedResult(
         db_path=path,
         ids={
             "strategy_family": family_id,
-            "strategy_version": version_id,
-            "parameter_set": parameter_set_id,
+            "strategy_version": cpb_6157_version_id,
+            "parameter_set": cpb_6157_parameter_set_id,
+            "strategy_version_cpb_6157": cpb_6157_version_id,
+            "parameter_set_cpb_6157": cpb_6157_parameter_set_id,
+            "strategy_version_cpb_v2": cpb_v2_version_id,
+            "parameter_set_cpb_v2": cpb_v2_parameter_set_id,
             "portfolio_account": account_id,
         },
     )
@@ -86,7 +122,15 @@ def _seed_strategy_family(conn: sqlite3.Connection) -> int:
     )
 
 
-def _seed_strategy_version(conn: sqlite3.Connection, family_id: int) -> int:
+def _seed_strategy_version(
+    conn: sqlite3.Connection,
+    family_id: int,
+    *,
+    strategy_key: str,
+    strategy_version: str,
+    params_hash: str,
+    status: str,
+) -> int:
     conn.execute(
         """
         INSERT INTO strategy_versions
@@ -113,7 +157,7 @@ def _seed_strategy_version(conn: sqlite3.Connection, family_id: int) -> int:
             't2_3pct_t5_timeout',
             'equal_slots_max3',
             'advisory',
-            'paper'
+            ?
           )
         ON CONFLICT(strategy_version) DO UPDATE SET
           strategy_family_id = excluded.strategy_family_id,
@@ -126,16 +170,21 @@ def _seed_strategy_version(conn: sqlite3.Connection, family_id: int) -> int:
           agent_policy = excluded.agent_policy,
           status = excluded.status
         """,
-        (family_id, STRATEGY_KEY, STRATEGY_VERSION, PARAMS_HASH),
+        (family_id, strategy_key, strategy_version, params_hash, status),
     )
     return _single_id(
         conn,
         "SELECT id FROM strategy_versions WHERE strategy_version = ?",
-        (STRATEGY_VERSION,),
+        (strategy_version,),
     )
 
 
-def _seed_parameter_set(conn: sqlite3.Connection, version_id: int) -> int:
+def _seed_parameter_set(
+    conn: sqlite3.Connection,
+    version_id: int,
+    params_json: str,
+    params_hash: str,
+) -> int:
     conn.execute(
         """
         INSERT INTO parameter_sets
@@ -145,7 +194,7 @@ def _seed_parameter_set(conn: sqlite3.Connection, version_id: int) -> int:
         ON CONFLICT(strategy_version_id, params_hash) DO UPDATE SET
           params_json = excluded.params_json
         """,
-        (version_id, PARAMS.canonical_json(), PARAMS_HASH),
+        (version_id, params_json, params_hash),
     )
     return _single_id(
         conn,
@@ -153,7 +202,7 @@ def _seed_parameter_set(conn: sqlite3.Connection, version_id: int) -> int:
         SELECT id FROM parameter_sets
         WHERE strategy_version_id = ? AND params_hash = ?
         """,
-        (version_id, PARAMS_HASH),
+        (version_id, params_hash),
     )
 
 

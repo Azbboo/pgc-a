@@ -114,6 +114,7 @@ class MarketDataService:
             )
 
         operation_id = None
+        fetch_run_id = None
         with connect(self.db_path) as conn:
             conn.execute("BEGIN")
             try:
@@ -122,6 +123,18 @@ class MarketDataService:
                     conn.commit()
                     return previous
                 operation_id = _reserve_market_operation(conn, request, resolved, ctx)
+                fetch_run_id = _insert_market_fetch_run(
+                    conn,
+                    request,
+                    resolved,
+                    status="started",
+                    manifest={
+                        "ts_codes": resolved.ts_codes,
+                        "include_daily_basic": request.include_daily_basic,
+                        "bars": 0,
+                        "daily_basic": 0,
+                    },
+                )
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -136,7 +149,18 @@ class MarketDataService:
                 include_daily_basic=request.include_daily_basic,
             )
         except Exception as exc:
-            return _failed_market_fetch_result(self.db_path, request, resolved, ctx, operation_id, exc)
+            return _failed_market_fetch_result(
+                self.db_path,
+                request,
+                resolved,
+                ctx,
+                operation_id,
+                fetch_run_id,
+                exc,
+            )
+
+        if fetch_run_id is None:
+            raise RuntimeError("market fetch run was not reserved.")
 
         bars = tuple(payload.bars)
         daily_basic = tuple(payload.daily_basic)
@@ -144,22 +168,17 @@ class MarketDataService:
         coverage_start_date, coverage_end_date = _coverage_dates(bars)
         service_status = "partial_success" if missing_ts_codes else "success"
         fetch_status = "partial_success" if missing_ts_codes else "completed"
+        fetch_manifest = {
+            "ts_codes": resolved.ts_codes,
+            "include_daily_basic": request.include_daily_basic,
+            "bars": len(bars),
+            "daily_basic": len(daily_basic),
+            "missing_ts_codes": missing_ts_codes,
+        }
 
         with connect(self.db_path) as conn:
             conn.execute("BEGIN")
             try:
-                fetch_run_id = _insert_market_fetch_run(
-                    conn,
-                    request,
-                    resolved,
-                    status="started",
-                    manifest={
-                        "ts_codes": resolved.ts_codes,
-                        "bars": len(bars),
-                        "daily_basic": len(daily_basic),
-                        "missing_ts_codes": missing_ts_codes,
-                    },
-                )
                 bars_upserted = _upsert_market_bars(conn, fetch_run_id, request.provider, bars)
                 daily_basic_upserted = (
                     _upsert_daily_basic(conn, fetch_run_id, request.provider, daily_basic)
@@ -199,7 +218,13 @@ class MarketDataService:
                         "end_date": resolved.end_date,
                     },
                 )
-                _finish_market_fetch_run(conn, fetch_run_id, fetch_status, service_result)
+                _finish_market_fetch_run(
+                    conn,
+                    fetch_run_id,
+                    fetch_status,
+                    service_result,
+                    manifest=fetch_manifest,
+                )
                 _write_market_domain_event(conn, fetch_run_id, result_data, ctx)
                 _finish_operation(conn, operation_id, _operation_status(service_result.status), service_result)
                 conn.commit()
@@ -406,17 +431,35 @@ def _finish_market_fetch_run(
     fetch_run_id: int,
     status: str,
     result: ServiceResult[RefreshMarketDataResult],
+    manifest: dict[str, Any] | None = None,
 ) -> None:
     first_error = result.errors[0] if result.errors else None
+    if manifest is None:
+        conn.execute(
+            """
+            UPDATE market_fetch_runs
+            SET status = ?,
+                error_message = ?
+            WHERE id = ?
+            """,
+            (
+                status,
+                first_error.message if first_error else None,
+                fetch_run_id,
+            ),
+        )
+        return
     conn.execute(
         """
         UPDATE market_fetch_runs
         SET status = ?,
+            manifest_json = ?,
             error_message = ?
         WHERE id = ?
         """,
         (
             status,
+            _json_dumps(manifest),
             first_error.message if first_error else None,
             fetch_run_id,
         ),
@@ -938,46 +981,35 @@ def _failed_market_fetch_result(
     resolved: _ResolvedMarketScope,
     ctx: RequestContext,
     operation_id: int | None,
+    fetch_run_id: int | None,
     exc: Exception,
 ) -> ServiceResult[RefreshMarketDataResult]:
     error = ServiceError(code="MARKET_PROVIDER_ERROR", message=str(exc))
-    result_data = RefreshMarketDataResult(
-        market_fetch_run_id=None,
-        ts_code_count=len(resolved.ts_codes),
-        bars_upserted=0,
-        daily_basic_upserted=0,
-        missing_ts_codes=resolved.ts_codes,
-        coverage_start_date=None,
-        coverage_end_date=None,
-    )
-    service_result = ServiceResult(
-        status="failed",
-        request_id=ctx.request_id,
-        data=result_data,
-        errors=[error],
-        lineage={
-            "provider": request.provider,
-            "start_date": resolved.start_date,
-            "end_date": resolved.end_date,
-        },
-    )
+    error_manifest = {
+        "ts_codes": resolved.ts_codes,
+        "include_daily_basic": request.include_daily_basic,
+        "bars": 0,
+        "daily_basic": 0,
+        "error_code": error.code,
+    }
     with connect(db_path) as conn:
         conn.execute("BEGIN")
         try:
-            fetch_run_id = _insert_market_fetch_run(
-                conn,
-                request,
-                resolved,
-                status="failed",
-                manifest={"ts_codes": resolved.ts_codes, "bars": 0, "daily_basic": 0},
-                error_message=error.message,
-            )
+            if fetch_run_id is None:
+                fetch_run_id = _insert_market_fetch_run(
+                    conn,
+                    request,
+                    resolved,
+                    status="failed",
+                    manifest=error_manifest,
+                    error_message=error.message,
+                )
             result_data = RefreshMarketDataResult(
                 market_fetch_run_id=fetch_run_id,
-                ts_code_count=result_data.ts_code_count,
+                ts_code_count=len(resolved.ts_codes),
                 bars_upserted=0,
                 daily_basic_upserted=0,
-                missing_ts_codes=result_data.missing_ts_codes,
+                missing_ts_codes=resolved.ts_codes,
                 coverage_start_date=None,
                 coverage_end_date=None,
             )
@@ -993,6 +1025,13 @@ def _failed_market_fetch_result(
                     "start_date": resolved.start_date,
                     "end_date": resolved.end_date,
                 },
+            )
+            _finish_market_fetch_run(
+                conn,
+                fetch_run_id,
+                "failed",
+                service_result,
+                manifest=error_manifest,
             )
             _finish_operation(conn, operation_id, "failed", service_result)
             conn.commit()
@@ -1153,4 +1192,3 @@ def _market_service_result_from_json(
         ],
         lineage=payload.get("lineage", {}),
     )
-

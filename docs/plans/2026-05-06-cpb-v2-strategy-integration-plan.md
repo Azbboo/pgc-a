@@ -97,13 +97,13 @@ normal short-term CPB handling, T+2/T+5 discipline unchanged
 
 | Task | Status | Owner Scope | Output |
 | --- | --- | --- | --- |
-| CPB2-001 Strategy parameter module | todo | `src/pgc_trading/strategies/` | deterministic params and hash |
-| CPB2-002 Strategy registry/seed support | todo | `storage/seed.py`, tests | seed both V1 and V2 versions |
-| CPB2-003 Feature input enrichment | todo | `features/`, services/tests | industry and potential-score inputs without future data |
-| CPB2-004 Pure V2 decision engine | todo | `strategies/`, tests | entry/observation-sleeve decisions |
-| CPB2-005 DailyReviewService strategy dispatch | todo | services/tests | run V1 or V2 by strategy version |
-| CPB2-006 Replay/golden validation | todo | tests/fixtures/replay | no-future V2 regression |
-| CPB2-007 Documentation and supervision update | todo | docs/reports | handoff-ready docs |
+| CPB2-001 Strategy parameter module | done | `src/pgc_trading/strategies/` | deterministic params and hash |
+| CPB2-002 Strategy registry/seed support | done | `storage/seed.py`, tests | seed both V1 and V2 versions |
+| CPB2-003 Feature input enrichment | done | `features/`, services/tests | industry and potential-score inputs without future data |
+| CPB2-004 Pure V2 decision engine | done | `strategies/`, tests | entry/observation-sleeve decisions |
+| CPB2-005 DailyReviewService strategy dispatch | done | services/tests | run V1 or V2 by strategy version |
+| CPB2-006 Replay/golden validation | done | tests/fixtures/replay | no-future V2 regression |
+| CPB2-007 Documentation and supervision update | done | docs/reports | supervision recorded; handoff ready |
 
 ## 4. Task Details
 
