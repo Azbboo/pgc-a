@@ -16,8 +16,9 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
-from analyze_pgc_event_backtest import MARKET_DIR, RAW_EVENTS_PATH, load_events, load_market, pct, round_num
-from deep_dive_contracting_pullback import build_param_grid, latest_current_candidates
+from analyze_pgc_buy_setups import prepare_frame, row_value
+from analyze_pgc_event_backtest import MARKET_DIR, RAW_EVENTS_PATH, load_events, load_market, pct, ret_from_adj, round_num
+from deep_dive_contracting_pullback import build_param_grid, detect_param_signal, setup_score
 from score_pgc_big_winner_potential import score_big_winner_potential
 
 
@@ -235,6 +236,178 @@ def score_candidates(candidates: pd.DataFrame, industry_map: dict[str, str]) -> 
     return out.sort_values(["_rank", "score", "bigwin_score"], ascending=[True, False, False]).drop(columns=["_rank"])
 
 
+def confirmed_candidates_at_date(events: pd.DataFrame, markets: dict, params: dict, review_date: str) -> pd.DataFrame:
+    rows = []
+    for _, event in events.iterrows():
+        if float(event["entry_price"]) < 10:
+            continue
+        market = markets.get(event["ts_code"])
+        if market is None:
+            continue
+        df = prepare_frame(market.frame)
+        signal_idx = market.by_date.get(str(event["entry_date"]))
+        latest_idx = market.by_date.get(str(review_date))
+        if signal_idx is None or latest_idx is None:
+            continue
+        if latest_idx <= signal_idx or latest_idx > signal_idx + 20:
+            continue
+        passed, features = detect_param_signal(df, signal_idx, latest_idx, params)
+        if passed:
+            latest = df.iloc[latest_idx]
+            event = event.copy()
+            event["signal_idx"] = signal_idx
+            rows.append(
+                {
+                    "ts_code": event["ts_code"],
+                    "name": event["name"],
+                    "entry_date": str(event["entry_date"]),
+                    "entry_price": float(event["entry_price"]),
+                    "review_date": latest["trade_date"],
+                    "trigger_age_trading_days": latest_idx - signal_idx,
+                    "trigger_close": round_num(latest["close"]),
+                    "score": setup_score(event, features),
+                    **{key: round_num(value) for key, value in features.items()},
+                }
+            )
+    if not rows:
+        return pd.DataFrame()
+    return pd.DataFrame(rows).sort_values("score", ascending=False)
+
+
+def detect_pre_confirm_setup(df: pd.DataFrame, signal_idx: int, idx: int, params: dict) -> tuple[bool, dict]:
+    if idx < signal_idx + 3:
+        return False, {}
+    row = df.iloc[idx]
+    entry = df.iloc[signal_idx]
+    amount_ma10 = row_value(row, "amount_ma10")
+    if not amount_ma10:
+        return False, {}
+
+    for lookback in range(2, 7):
+        start = idx - lookback + 1
+        if start <= signal_idx:
+            continue
+        pullback = df.iloc[start : idx + 1]
+        first_amount = pullback.iloc[0]["amount"]
+        last_amount = pullback.iloc[-1]["amount"]
+        first_close = pullback.iloc[0]["adj_close"]
+        last_close = pullback.iloc[-1]["adj_close"]
+        if not first_amount or not first_close:
+            continue
+
+        amount_ratio = last_amount / first_amount
+        avg_amount_ratio = pullback["amount"].mean() / amount_ma10
+        close_pullback = last_close / first_close - 1
+        down_days = int((pullback["adj_close"].diff().dropna() <= 0).sum())
+        peak_before = df.iloc[signal_idx : idx + 1]["adj_high"].max()
+        drawdown_from_peak = ret_from_adj(peak_before, last_close)
+        entry_runup = ret_from_adj(entry["adj_close"], row["adj_close"])
+        if drawdown_from_peak is None or entry_runup is None:
+            continue
+
+        drawdown_abs = abs(drawdown_from_peak)
+        latest_pct = row["pct_chg"] / 100 if pd.notna(row.get("pct_chg")) else None
+        pre_avg_amount_max = max(params["avg_amount_max"], 1.05)
+        if (
+            amount_ratio <= params["contract_max"]
+            and avg_amount_ratio <= pre_avg_amount_max
+            and close_pullback <= -0.015
+            and params["min_drawdown"] <= drawdown_abs <= params["max_drawdown"]
+            and down_days >= max(1, lookback - 2)
+            and row["adj_low"] >= pullback["adj_low"].min() * 0.992
+            and entry_runup <= params["max_entry_runup"]
+            and (latest_pct is None or latest_pct < max(0.04, params["pct_chg_min"]))
+        ):
+            confirm_close_min = row["close"] * (1 + max(params["bull_body_min"], params["close_recover_min"], params["pct_chg_min"]))
+            return True, {
+                "watch_age_trading_days": idx - signal_idx,
+                "watch_close": row["close"],
+                "watch_pct_chg": latest_pct,
+                "pullback_days": lookback,
+                "amount_contract_ratio": amount_ratio,
+                "avg_amount_to_ma10": avg_amount_ratio,
+                "pullback_close_ret": close_pullback,
+                "drawdown_from_peak": drawdown_from_peak,
+                "entry_runup": entry_runup,
+                "confirm_close_min": confirm_close_min,
+                "confirm_note": "次日需放量不过热且收阳，站回上一日收盘上方",
+            }
+    return False, {}
+
+
+def pre_confirm_watchlist_at_date(
+    events: pd.DataFrame,
+    markets: dict,
+    params: dict,
+    review_date: str,
+    industry_map: dict[str, str],
+) -> pd.DataFrame:
+    rows = []
+    confirmed_codes = set()
+    confirmed = confirmed_candidates_at_date(events, markets, params, review_date)
+    if not confirmed.empty:
+        confirmed_codes = set(zip(confirmed["ts_code"], confirmed["entry_date"].astype(str)))
+
+    for _, event in events.iterrows():
+        if float(event["entry_price"]) < 10:
+            continue
+        key = (event["ts_code"], str(event["entry_date"]))
+        if key in confirmed_codes:
+            continue
+        market = markets.get(event["ts_code"])
+        if market is None:
+            continue
+        df = prepare_frame(market.frame)
+        signal_idx = market.by_date.get(str(event["entry_date"]))
+        latest_idx = market.by_date.get(str(review_date))
+        if signal_idx is None or latest_idx is None:
+            continue
+        if latest_idx <= signal_idx or latest_idx > signal_idx + 20:
+            continue
+        passed, features = detect_pre_confirm_setup(df, signal_idx, latest_idx, params)
+        if passed:
+            normalized_features = {}
+            for key, value in features.items():
+                normalized_features[key] = value if isinstance(value, str) else round_num(value)
+            rows.append(
+                {
+                    "ts_code": event["ts_code"],
+                    "name": event["name"],
+                    "entry_date": str(event["entry_date"]),
+                    "entry_price": float(event["entry_price"]),
+                    "review_date": review_date,
+                    "industry": industry_map.get(event["ts_code"], ""),
+                    **normalized_features,
+                }
+            )
+    if not rows:
+        return pd.DataFrame()
+
+    event_backtest = pd.read_csv(EVENT_BACKTEST_CSV, dtype={"entry_date": str})
+    feature_cols = [
+        "ts_code",
+        "entry_date",
+        "entry_price_pos_in_day",
+        "buy_gap_from_entry",
+        "pre_ret_20d",
+        "pre_amount_ratio_5_20",
+        "range_pos_20",
+        "dist_ma20",
+        "signal_turnover_rate",
+        "signal_volume_ratio",
+        "buy_total_mv",
+        "buy_circ_mv",
+    ]
+    out = pd.DataFrame(rows).merge(event_backtest[feature_cols], on=["ts_code", "entry_date"], how="left")
+    score_cols = out.apply(score_big_winner_potential, axis=1, result_type="expand")
+    out = pd.concat([out, score_cols], axis=1)
+    out = out[out["industry"].ne("证券")].copy()
+    out["pre_action"] = out["bigwin_score"].apply(lambda value: "高潜伏预警" if value >= 85 else ("普通预警" if value >= 75 else "观察"))
+    order = {"高潜伏预警": 1, "普通预警": 2, "观察": 3}
+    out["_rank"] = out["pre_action"].map(order).fillna(9)
+    return out.sort_values(["_rank", "bigwin_score", "amount_contract_ratio"], ascending=[True, False, True]).drop(columns=["_rank"])
+
+
 def daily_summary(pool: pd.DataFrame) -> dict:
     return {
         "n": int(len(pool)),
@@ -256,6 +429,7 @@ def render_report(
     prior: pd.DataFrame,
     candidates: pd.DataFrame,
     ref_candidates: pd.DataFrame,
+    prewatch: pd.DataFrame,
 ) -> str:
     summary = daily_summary(pool)
     top_gainers = pool.sort_values("pct_chg", ascending=False).head(12).to_dict("records")
@@ -325,6 +499,24 @@ def render_report(
             ],
         )
 
+    prewatch_table = "无确认前预警票。"
+    if not prewatch.empty:
+        prewatch_table = md_table(
+            ["股票", "行业", "预警", "收盘", "确认价参考", "回调", "缩量", "潜力分", "备注"],
+            prewatch.head(12).to_dict("records"),
+            lambda r: [
+                f'{r["ts_code"]} {r["name"]}',
+                r["industry"],
+                r["pre_action"],
+                f'{safe(r["watch_close"], 0):.2f}',
+                f'{safe(r["confirm_close_min"], 0):.2f}+',
+                pct(r["drawdown_from_peak"]),
+                f'{safe(r["amount_contract_ratio"], 0):.2f}',
+                f'{safe(r["bigwin_score"], 0):.0f}',
+                r["confirm_note"],
+            ],
+        )
+
     return "\n".join(
         [
             f"# PGC每日复盘 {review_date}",
@@ -369,12 +561,19 @@ def render_report(
             "",
             ref_table,
             "",
+            "## 确认前预警池",
+            "",
+            "这层用于提前发现“可能要启动但还没确认”的票，不直接买，次日必须等阳线确认。",
+            "",
+            prewatch_table,
+            "",
             "## 执行规则",
             "",
             "1. 不追高: 明日开盘高于+2%上限，不追；高于+4%直接视为错过。",
             "2. 只排除证券；多元金融按正常候选评分执行。",
             "3. 观察仓只给弹性行业且潜力分、CPB分都合格的票；短线仓按T+2/T+5纪律。",
             "4. 今日新重搜参数只作观察，不用于替换冻结V2。",
+            "5. 预警池不是买入池；它只提醒明天盘中重点盯确认阳线。",
             "",
         ]
     )
@@ -389,12 +588,13 @@ def run(args: argparse.Namespace) -> None:
     markets = {ts_code: load_market(ts_code, MARKET_DIR) for ts_code in sorted(events["ts_code"].dropna().unique())}
     variant_idx = int(args.variant_id.split("_")[1]) - 1
     params = build_param_grid()[variant_idx]
-    candidates = latest_current_candidates(events, markets, params)
+    candidates = confirmed_candidates_at_date(events, markets, params, review_date)
     candidates = score_candidates(candidates, industry_map)
 
     ref_idx = int(args.reference_variant_id.split("_")[1]) - 1
-    ref_candidates = latest_current_candidates(events, markets, build_param_grid()[ref_idx])
+    ref_candidates = confirmed_candidates_at_date(events, markets, build_param_grid()[ref_idx], review_date)
     ref_candidates = score_candidates(ref_candidates, industry_map)
+    prewatch = pre_confirm_watchlist_at_date(events, markets, params, review_date, industry_map)
 
     pool = pool_performance(events, industry_map, review_date)
     previous_plan = pd.read_csv(args.previous_plan) if Path(args.previous_plan).exists() else pd.DataFrame()
@@ -406,6 +606,7 @@ def run(args: argparse.Namespace) -> None:
     prior_out = DATA_DIR / f"daily_review_{review_date}_prior_plan.csv"
     candidates_out = DATA_DIR / f"daily_review_{review_date}_v2_candidates.csv"
     ref_out = DATA_DIR / f"daily_review_{review_date}_reference_candidates.csv"
+    prewatch_out = DATA_DIR / f"daily_review_{review_date}_preconfirm_watchlist.csv"
     report_out = REPORTS_DIR / f"daily_review_{review_date}.md"
     json_out = REPORTS_DIR / f"daily_review_{review_date}.json"
 
@@ -413,7 +614,8 @@ def run(args: argparse.Namespace) -> None:
     prior.to_csv(prior_out, index=False)
     candidates.to_csv(candidates_out, index=False)
     ref_candidates.to_csv(ref_out, index=False)
-    report = render_report(review_date, next_date, args.variant_id, pool, prior, candidates, ref_candidates)
+    prewatch.to_csv(prewatch_out, index=False)
+    report = render_report(review_date, next_date, args.variant_id, pool, prior, candidates, ref_candidates, prewatch)
     report_out.write_text(report, encoding="utf-8")
     json_out.write_text(
         json.dumps(
@@ -428,11 +630,13 @@ def run(args: argparse.Namespace) -> None:
                     "prior_plan": str(prior_out),
                     "candidates": str(candidates_out),
                     "reference_candidates": str(ref_out),
+                    "preconfirm_watchlist": str(prewatch_out),
                     "report": str(report_out),
                 },
                 "pool_summary": daily_summary(pool),
                 "candidates": candidates.to_dict("records"),
                 "reference_candidates": ref_candidates.to_dict("records"),
+                "preconfirm_watchlist": prewatch.to_dict("records"),
                 "prior_plan": prior.to_dict("records"),
             },
             ensure_ascii=False,
