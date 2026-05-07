@@ -37,6 +37,14 @@ class _FakeTradingAgentsRunner:
             summary="形态可复核，但开盘前需要人工检查。",
             supporting_points=["缩量回调后转强"],
             risk_points=["次日高开风险"],
+            analyst_reports={
+                "technical": {
+                    "status": "available",
+                    "summary": "技术面可复核。",
+                    "supporting_points": ["缩量回调后转强"],
+                    "risk_points": ["次日高开风险"],
+                }
+            },
             raw_decision={"decision": "HOLD", "summary": "形态可复核"},
             raw_state={"ticker": snapshot["candidate"]["ts_code"]},
             final_report="# TradingAgents Advisory\n\nHOLD until pre-open checks pass.\n",
@@ -101,6 +109,11 @@ class AgentReviewServiceTest(unittest.TestCase):
             self.assertEqual(snapshot["snapshot_type"], "tradingagents_candidate_review")
             self.assertEqual(snapshot["candidate"]["ts_code"], "000001.SZ")
             self.assertEqual(snapshot["candidate"]["portfolio_context"]["account_key"], "paper-main")
+            self.assertIn("analysis_contexts", snapshot["candidate"])
+            self.assertEqual(snapshot["candidate"]["analysis_contexts"]["technical"]["status"], "available")
+            self.assertEqual(snapshot["candidate"]["analysis_contexts"]["fundamental"]["status"], "unavailable")
+            self.assertEqual(snapshot["candidate"]["analysis_contexts"]["news"]["status"], "unavailable")
+            self.assertEqual(snapshot["candidate"]["analysis_contexts"]["sentiment"]["status"], "partial")
             self.assertFalse(config.online_tools)
             self.assertEqual(config.llm_provider, "deepseek")
             self.assertEqual(config.deep_think_llm, "deepseek-v4-pro")

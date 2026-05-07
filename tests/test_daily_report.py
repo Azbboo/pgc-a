@@ -82,6 +82,8 @@ class DailyReportTest(unittest.TestCase):
             self.assertEqual(advice.action, "support")
             self.assertEqual(advice.supporting_points, ["score is strong", "portfolio has room"])
             self.assertEqual(advice.risk_points, ["gap risk"])
+            self.assertEqual([report.analyst_key for report in advice.analyst_reports], ["technical", "fundamental"])
+            self.assertEqual(advice.analyst_reports[0].summary, "技术面转强。")
             self.assertEqual(advice.report_markdown, "# Agent Report\n\nDetailed advisory.\n")
             self.assertEqual([artifact.artifact_type for artifact in advice.artifacts], ["decision_json", "final_report"])
 
@@ -91,6 +93,7 @@ class DailyReportTest(unittest.TestCase):
             self.assertIn("风险提示", markdown)
             payload = json.loads(render_daily_report_json(result.data))
             self.assertEqual(payload["agent_advice"]["supporting_points"], ["score is strong", "portfolio has room"])
+            self.assertEqual(payload["agent_advice"]["analyst_reports"][1]["analyst_name"], "基本面")
             self.assertEqual(payload["agent_advice"]["artifacts"][1]["artifact_type"], "final_report")
             self.assertNotIn("path", payload["agent_advice"]["artifacts"][1])
 
@@ -282,7 +285,27 @@ class DailyReportTest(unittest.TestCase):
                 daily_pick[0],
                 json.dumps(["score is strong", "portfolio has room"], ensure_ascii=False),
                 json.dumps(["gap risk"], ensure_ascii=False),
-                json.dumps({"supporting_points": ["fallback"], "risk_points": ["fallback"]}, ensure_ascii=False),
+                json.dumps(
+                    {
+                        "supporting_points": ["fallback"],
+                        "risk_points": ["fallback"],
+                        "analyst_reports": {
+                            "technical": {
+                                "status": "available",
+                                "summary": "技术面转强。",
+                                "supporting_points": ["放量突破"],
+                                "risk_points": ["高开回落"],
+                            },
+                            "fundamental": {
+                                "status": "partial",
+                                "summary": "基本面数据有限。",
+                                "supporting_points": ["市值适中"],
+                                "risk_points": ["缺少财报快照"],
+                            },
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
             ),
         )
         conn.execute(

@@ -110,6 +110,16 @@ class AgentArtifactReport:
 
 
 @dataclass(frozen=True)
+class AgentAnalystReport:
+    analyst_key: str
+    analyst_name: str
+    status: str
+    summary: str
+    supporting_points: list[str] = field(default_factory=list)
+    risk_points: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class AgentAdviceReport:
     agent_run_id: int | None
     agent_decision_id: int | None
@@ -121,6 +131,7 @@ class AgentAdviceReport:
     note: str
     supporting_points: list[str] = field(default_factory=list)
     risk_points: list[str] = field(default_factory=list)
+    analyst_reports: list[AgentAnalystReport] = field(default_factory=list)
     artifacts: list[AgentArtifactReport] = field(default_factory=list)
     report_markdown: str | None = None
 
@@ -343,6 +354,14 @@ def render_daily_report_markdown(report: DailyReport) -> str:
     if report.agent_advice.risk_points:
         lines.extend(["", "风险提示："])
         lines.extend(f"- {point}" for point in report.agent_advice.risk_points)
+    if report.agent_advice.analyst_reports:
+        lines.extend(["", "分项分析："])
+        for analyst in report.agent_advice.analyst_reports:
+            lines.extend(["", f"### {analyst.analyst_name}", "", analyst.summary])
+            if analyst.supporting_points:
+                lines.extend(["", "支持依据：", *[f"- {point}" for point in analyst.supporting_points]])
+            if analyst.risk_points:
+                lines.extend(["", "风险提示：", *[f"- {point}" for point in analyst.risk_points]])
 
     lines.extend(["", "## 当前持仓处理", ""])
     if not report.positions:
@@ -655,6 +674,7 @@ def _load_agent_advice(conn: Any, candidate: CandidateReport | None) -> AgentAdv
     risk_points = _loads_json_list(row["risk_points_json"])
     if not risk_points:
         risk_points = _string_list(raw_decision.get("risk_points"))
+    analyst_reports = _load_agent_analyst_reports(raw_decision.get("analyst_reports"))
     artifacts, final_report_path = _load_agent_artifacts(conn, int(row["agent_run_id"]))
     return AgentAdviceReport(
         agent_run_id=int(row["agent_run_id"]),
@@ -667,9 +687,36 @@ def _load_agent_advice(conn: Any, candidate: CandidateReport | None) -> AgentAdv
         note="Agent 复核失败，需人工复核。" if status == "failed" else "Agent 复核仅作参考。",
         supporting_points=supporting_points,
         risk_points=risk_points,
+        analyst_reports=analyst_reports,
         artifacts=artifacts,
         report_markdown=_load_agent_report_markdown(final_report_path),
     )
+
+
+def _load_agent_analyst_reports(value: Any) -> list[AgentAnalystReport]:
+    if not isinstance(value, dict):
+        return []
+    reports: list[AgentAnalystReport] = []
+    for key, name in (
+        ("technical", "技术面"),
+        ("fundamental", "基本面"),
+        ("news", "新闻面"),
+        ("sentiment", "情绪面"),
+    ):
+        payload = value.get(key)
+        if not isinstance(payload, dict):
+            continue
+        reports.append(
+            AgentAnalystReport(
+                analyst_key=key,
+                analyst_name=name,
+                status=str(payload.get("status") or "partial"),
+                summary=str(payload.get("summary") or "该分析维度没有返回摘要。"),
+                supporting_points=_string_list(payload.get("supporting_points")),
+                risk_points=_string_list(payload.get("risk_points")),
+            )
+        )
+    return reports
 
 
 def _load_agent_artifacts(conn: Any, agent_run_id: int) -> tuple[list[AgentArtifactReport], str | None]:

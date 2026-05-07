@@ -28,6 +28,15 @@ class TradingAgentsAdapterTest(unittest.TestCase):
                         "```json\n"
                         '{"action":"support","confidence":0.71,"risk_level":"low",'
                         '"summary":"本地快照支持当前计划。",'
+                        '"analyst_reports":{'
+                        '"technical":{"status":"available","summary":"技术面转强",'
+                        '"supporting_points":["评分较强"],"risk_points":["高开波动"]},'
+                        '"fundamental":{"status":"partial","summary":"估值数据有限",'
+                        '"supporting_points":["市值适中"],"risk_points":["缺少财报快照"]},'
+                        '"news":{"status":"unavailable","summary":"新闻源未接入",'
+                        '"supporting_points":[],"risk_points":["不得编造新闻"]},'
+                        '"sentiment":{"status":"partial","summary":"市场情绪偏热",'
+                        '"supporting_points":["放量上涨"],"risk_points":["短线拥挤"]}},'
                         '"supporting_points":["评分较强"],'
                         '"risk_points":["注意开盘波动"]}'
                         "\n```"
@@ -67,7 +76,11 @@ class TradingAgentsAdapterTest(unittest.TestCase):
         self.assertEqual(result.risk_level, "low")
         self.assertEqual(result.supporting_points, ["评分较强"])
         self.assertEqual(result.risk_points, ["注意开盘波动"])
+        self.assertEqual(result.analyst_reports["technical"]["summary"], "技术面转强")
+        self.assertEqual(result.analyst_reports["news"]["status"], "unavailable")
         self.assertIn("# TradingAgents 本地快照复核", result.final_report)
+        self.assertIn("## 技术面", result.final_report)
+        self.assertIn("## 基本面", result.final_report)
         self.assertEqual(client_calls[0]["provider"], "deepseek")
         self.assertEqual(client_calls[0]["model"], "deepseek-v4-pro")
         self.assertIn("只允许使用下方本地数据库快照", prompt_calls[0])

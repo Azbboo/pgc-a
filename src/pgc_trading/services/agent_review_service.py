@@ -253,6 +253,25 @@ def _load_candidate(conn: sqlite3.Connection, request: ReviewDailyPickRequest) -
         )
 
     recent_bars = _load_recent_bars(conn, row["ts_code"], row["review_date"])
+    daily_basic = _load_daily_basic_snapshot(conn, row["ts_code"], row["review_date"])
+    features = _json_loads(row["features_json"], {})
+    market_summary = _market_summary(row["review_date"], recent_bars)
+    open_positions = _open_positions_count(conn, account["id"])
+    portfolio_context = {
+        "account_id": account["id"],
+        "account_key": account["account_key"],
+        "account_type": account["account_type"],
+        "max_positions": account["max_positions"],
+        "open_positions": open_positions,
+        "free_slots": max(0, int(account["max_positions"]) - open_positions),
+    }
+    source_refs = [
+        f"daily_picks:{row['daily_pick_id']}",
+        f"strategy_signals:{row['signal_id']}",
+        f"market_bars:{row['ts_code']}:{row['review_date']}",
+    ]
+    if daily_basic is not None:
+        source_refs.append(f"daily_basic_snapshots:{row['ts_code']}:{daily_basic['trade_date']}")
     return {
         "daily_pick_id": int(row["daily_pick_id"]),
         "signal_id": int(row["signal_id"]),
@@ -265,27 +284,26 @@ def _load_candidate(conn: sqlite3.Connection, request: ReviewDailyPickRequest) -
         "score": float(row["daily_pick_score"]),
         "signal_rank": row["signal_rank"],
         "selection_reason": row["selection_reason"],
-        "features": _json_loads(row["features_json"], {}),
+        "features": features,
         "raw_event": {
             "raw_event_id": row["raw_event_id"],
             "entry_date": row["entry_date"],
             "entry_time": row["entry_time"],
             "entry_price": row["entry_price"],
         },
-        "market_summary": _market_summary(row["review_date"], recent_bars),
-        "portfolio_context": {
-            "account_id": account["id"],
-            "account_key": account["account_key"],
-            "account_type": account["account_type"],
-            "max_positions": account["max_positions"],
-            "open_positions": _open_positions_count(conn, account["id"]),
-            "free_slots": max(0, int(account["max_positions"]) - _open_positions_count(conn, account["id"])),
-        },
-        "source_refs": [
-            f"daily_picks:{row['daily_pick_id']}",
-            f"strategy_signals:{row['signal_id']}",
-            f"market_bars:{row['ts_code']}:{row['review_date']}",
-        ],
+        "market_summary": market_summary,
+        "daily_basic": daily_basic,
+        "analysis_contexts": _build_analysis_contexts(
+            ts_code=row["ts_code"],
+            name=row["name"],
+            review_date=row["review_date"],
+            features=features,
+            market_summary=market_summary,
+            daily_basic=daily_basic,
+            portfolio_context=portfolio_context,
+        ),
+        "portfolio_context": portfolio_context,
+        "source_refs": source_refs,
     }
 
 
@@ -324,6 +342,33 @@ def _load_recent_bars(conn: sqlite3.Connection, ts_code: str, as_of_date: str) -
     ]
 
 
+def _load_daily_basic_snapshot(conn: sqlite3.Connection, ts_code: str, as_of_date: str) -> dict[str, Any] | None:
+    row = conn.execute(
+        """
+        SELECT
+          ts_code,
+          trade_date,
+          turnover_rate,
+          turnover_rate_f,
+          volume_ratio,
+          pe,
+          pe_ttm,
+          pb,
+          ps,
+          ps_ttm,
+          dv_ratio,
+          total_mv,
+          circ_mv
+        FROM daily_basic_snapshots
+        WHERE ts_code = ? AND trade_date <= ?
+        ORDER BY trade_date DESC
+        LIMIT 1
+        """,
+        (ts_code, as_of_date),
+    ).fetchone()
+    return dict(row) if row is not None else None
+
+
 def _market_summary(as_of_date: str, bars: list[dict[str, Any]]) -> dict[str, Any]:
     latest = bars[0] if bars else {}
     closes = [float(row["close"]) for row in reversed(bars) if row.get("close") is not None]
@@ -357,6 +402,117 @@ def _open_positions_count(conn: sqlite3.Connection, account_id: int) -> int:
     return int(row["count"])
 
 
+def _build_analysis_contexts(
+    *,
+    ts_code: str,
+    name: str,
+    review_date: str,
+    features: dict[str, Any],
+    market_summary: dict[str, Any],
+    daily_basic: dict[str, Any] | None,
+    portfolio_context: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "technical": _technical_context(features, market_summary),
+        "fundamental": _fundamental_context(ts_code, name, review_date, features, daily_basic),
+        "news": _news_context(ts_code, name, review_date),
+        "sentiment": _sentiment_context(features, market_summary, daily_basic, portfolio_context),
+    }
+
+
+def _technical_context(features: dict[str, Any], market_summary: dict[str, Any]) -> dict[str, Any]:
+    technical_keys = [
+        "feature_name",
+        "signal_passed",
+        "score",
+        "pullback_days",
+        "amount_contract_ratio",
+        "avg_amount_to_ma10",
+        "trigger_amount_to_ma10",
+        "trigger_pct_chg",
+        "bull_body",
+        "close_recover",
+        "drawdown_from_peak",
+        "entry_runup",
+        "buy_gap_from_entry",
+        "dist_ma20",
+        "range_pos_20",
+    ]
+    return {
+        "status": "available",
+        "source": "PGC strategy features and local market_bars",
+        "features": _pick_existing(features, technical_keys),
+        "market_summary": market_summary,
+    }
+
+
+def _fundamental_context(
+    ts_code: str,
+    name: str,
+    review_date: str,
+    features: dict[str, Any],
+    daily_basic: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if daily_basic is None:
+        return {
+            "status": "unavailable",
+            "source": "daily_basic_snapshots",
+            "note": f"{ts_code} {name} 在 {review_date} 前没有本地 daily_basic 记录。",
+        }
+    return {
+        "status": "partial",
+        "source": "Tushare daily_basic local cache; no income statement or balance sheet snapshot yet",
+        "valuation_liquidity": daily_basic,
+        "feature_fundamental_hints": _pick_existing(
+            features,
+            ["buy_total_mv", "buy_circ_mv", "financial_flag", "industry"],
+        ),
+        "limitations": [
+            "当前仅有估值、市值、换手率等 daily_basic 字段。",
+            "尚未接入利润表、资产负债表、现金流和公告财务摘要。",
+        ],
+    }
+
+
+def _news_context(ts_code: str, name: str, review_date: str) -> dict[str, Any]:
+    return {
+        "status": "unavailable",
+        "source": "not_configured",
+        "items": [],
+        "note": f"{ts_code} {name} 截至 {review_date} 的新闻/公告数据源尚未接入本地库；Agent 不得编造新闻。",
+    }
+
+
+def _sentiment_context(
+    features: dict[str, Any],
+    market_summary: dict[str, Any],
+    daily_basic: dict[str, Any] | None,
+    portfolio_context: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "status": "partial",
+        "source": "market-derived only; external social/news sentiment not configured",
+        "derived_signals": {
+            "recent_5d_ret": market_summary.get("recent_5d_ret"),
+            "recent_10d_ret": market_summary.get("recent_10d_ret"),
+            "trigger_pct_chg": features.get("trigger_pct_chg"),
+            "trigger_amount_to_ma10": features.get("trigger_amount_to_ma10"),
+            "turnover_rate": daily_basic.get("turnover_rate") if daily_basic else None,
+            "turnover_rate_f": daily_basic.get("turnover_rate_f") if daily_basic else None,
+            "volume_ratio": daily_basic.get("volume_ratio") if daily_basic else None,
+            "free_slots": portfolio_context.get("free_slots"),
+        },
+        "limitations": [
+            "当前情绪面只由价格、成交额、换手率等市场行为推断。",
+            "尚未接入新闻情绪、公告情绪、社媒讨论或龙虎榜席位情绪。",
+        ],
+    }
+
+
+def _pick_existing(source: dict[str, Any], keys: list[str]) -> dict[str, Any]:
+    return {key: source[key] for key in keys if key in source and source[key] is not None}
+
+
 def _build_snapshot_record(candidate: dict[str, Any]) -> dict[str, Any]:
     agent_candidate = {
         "signal_id": candidate["signal_id"],
@@ -373,6 +529,8 @@ def _build_snapshot_record(candidate: dict[str, Any]) -> dict[str, Any]:
         "features": candidate["features"],
         "raw_event": candidate["raw_event"],
         "market_summary": candidate["market_summary"],
+        "daily_basic": candidate["daily_basic"],
+        "analysis_contexts": candidate["analysis_contexts"],
         "portfolio_context": candidate["portfolio_context"],
     }
     return build_input_snapshot(agent_candidate, candidate["review_date"], candidate["source_refs"])

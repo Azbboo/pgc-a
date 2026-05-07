@@ -769,6 +769,7 @@ function renderAgent() {
 function renderAgentAdvice(advice, { expanded }) {
   const supportingPoints = listValue(advice.supporting_points);
   const riskPoints = listValue(advice.risk_points);
+  const analystReports = Array.isArray(advice.analyst_reports) ? advice.analyst_reports : [];
   const artifacts = Array.isArray(advice.artifacts) ? advice.artifacts : [];
   const summary = advice.summary || advice.note || "Agent 复核尚未接入本次复盘。";
   const quickPoints = !expanded && (supportingPoints.length || riskPoints.length)
@@ -785,6 +786,11 @@ function renderAgentAdvice(advice, { expanded }) {
         ${renderAgentPointSection("支持依据", supportingPoints, "暂无支持依据。")}
         ${renderAgentPointSection("风险提示", riskPoints, "暂无风险提示。")}
       </div>
+      ${analystReports.length ? `
+        <div class="agent-analyst-grid">
+          ${analystReports.map(renderAgentAnalystCard).join("")}
+        </div>
+      ` : ""}
       ${artifacts.length ? `
         <div class="agent-artifacts">
           <h3>复核产物</h3>
@@ -814,6 +820,34 @@ function renderAgentAdvice(advice, { expanded }) {
     ${quickPoints}
     ${detail}
     <p class="muted">Agent 只提供复核意见，不会自动发布、取消或记录成交。</p>
+  `;
+}
+
+function renderAgentAnalystCard(report) {
+  const supportingPoints = listValue(report.supporting_points);
+  const riskPoints = listValue(report.risk_points);
+  return `
+    <section class="agent-analyst-card">
+      <div class="agent-analyst-head">
+        <h3>${escapeHtml(report.analyst_name || agentAnalystText(report.analyst_key))}</h3>
+        ${chipHtml(agentAnalystStatusText(report.status), agentAnalystStatusClass(report.status))}
+      </div>
+      <p>${escapeHtml(report.summary || "该分析维度没有返回摘要。")}</p>
+      <div class="agent-analyst-points">
+        <div>
+          <span>支持</span>
+          ${supportingPoints.length
+            ? `<ul>${supportingPoints.map((point) => `<li>${escapeHtml(point)}</li>`).join("")}</ul>`
+            : `<em>暂无</em>`}
+        </div>
+        <div>
+          <span>风险</span>
+          ${riskPoints.length
+            ? `<ul>${riskPoints.map((point) => `<li>${escapeHtml(point)}</li>`).join("")}</ul>`
+            : `<em>暂无</em>`}
+        </div>
+      </div>
+    </section>
   `;
 }
 
@@ -1468,6 +1502,31 @@ function agentArtifactText(value) {
     memory_delta: "记忆变更",
     tool_trace: "工具轨迹",
   }[value] || dash(value);
+}
+
+function agentAnalystText(value) {
+  return {
+    technical: "技术面",
+    fundamental: "基本面",
+    news: "新闻面",
+    sentiment: "情绪面",
+  }[value] || dash(value);
+}
+
+function agentAnalystStatusText(value) {
+  return {
+    available: "已接入",
+    partial: "部分数据",
+    unavailable: "未接入",
+  }[value] || dash(value);
+}
+
+function agentAnalystStatusClass(value) {
+  return {
+    available: "chip-green",
+    partial: "chip-amber",
+    unavailable: "chip-neutral",
+  }[value] || "chip-neutral";
 }
 
 function severityText(value) {

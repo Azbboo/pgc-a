@@ -69,6 +69,7 @@ class TradingAgentsExecutionResult:
     summary: str
     supporting_points: list[str]
     risk_points: list[str]
+    analyst_reports: dict[str, dict[str, Any]]
     raw_decision: dict[str, Any]
     raw_state: dict[str, Any] | None = None
     final_report: str | None = None
@@ -186,6 +187,7 @@ def parse_tradingagents_output(raw_decision: Any, final_state: Any | None = None
         summary=summary,
         supporting_points=[],
         risk_points=[],
+        analyst_reports={},
         raw_decision=raw_decision_json,
         raw_state=_json_safe(final_state) if final_state is not None else None,
         final_report=decision_text,
@@ -199,6 +201,7 @@ def parse_local_snapshot_output(
 ) -> TradingAgentsExecutionResult:
     parsed, parse_error = _load_response_json(response_text)
     candidate = snapshot.get("candidate", {})
+    analyst_reports: dict[str, dict[str, Any]] = {}
     if parsed is None:
         action = _map_action(response_text)
         risk_level = _map_risk_level(action, response_text)
@@ -210,8 +213,13 @@ def parse_local_snapshot_output(
         action = _normalize_action(parsed.get("action"), response_text)
         risk_level = _normalize_risk_level(parsed.get("risk_level"), action, response_text)
         summary = _non_blank_or(parsed.get("summary"), _summary_from_output(parsed, response_text))
+        analyst_reports = _normalize_analyst_reports(parsed.get("analyst_reports"))
         supporting_points = _string_list(parsed.get("supporting_points"))
+        if not supporting_points:
+            supporting_points = _aggregate_report_points(analyst_reports, "supporting_points")
         risk_points = _string_list(parsed.get("risk_points"))
+        if not risk_points:
+            risk_points = _aggregate_report_points(analyst_reports, "risk_points")
 
     confidence = _normalize_confidence(parsed.get("confidence"))
     raw_decision = {
@@ -227,6 +235,7 @@ def parse_local_snapshot_output(
         "action": action,
         "risk_level": risk_level,
         "summary": summary,
+        "analyst_reports": analyst_reports,
         "supporting_points": supporting_points,
         "risk_points": risk_points,
         "raw_response": response_text,
@@ -241,9 +250,16 @@ def parse_local_snapshot_output(
         summary=summary,
         supporting_points=supporting_points,
         risk_points=risk_points,
+        analyst_reports=analyst_reports,
         raw_decision=raw_decision,
         raw_state={"snapshot": _json_safe(snapshot), "config": json.loads(config.to_json())},
-        final_report=_format_local_snapshot_report(summary, supporting_points, risk_points, response_text),
+        final_report=_format_local_snapshot_report(
+            summary,
+            analyst_reports,
+            supporting_points,
+            risk_points,
+            response_text,
+        ),
     )
 
 
@@ -255,6 +271,7 @@ def unavailable_result(message: str) -> TradingAgentsExecutionResult:
         summary=message,
         supporting_points=[],
         risk_points=[message],
+        analyst_reports={},
         raw_decision={
             "schema_version": "1.0",
             "agent_system": "TradingAgents",
@@ -314,6 +331,10 @@ def _build_local_snapshot_prompt(snapshot: dict[str, Any], config: TradingAgents
 只允许使用下方本地数据库快照。不要请求实时价格、新闻、基本面网页或任何外部工具。
 确定性策略和组合系统仍是事实来源；你的输出只作为复核意见，不是交易指令。
 
+请分别扮演技术面、基本面、新闻面、情绪面四个分析师，基于 snapshot.analysis_contexts
+对应分区给出分析。若某个分区没有真实数据，必须明确写出“数据源未接入/数据不足”，
+不要编造新闻、公告、社媒情绪或基本面事实。
+
 请在内部最多进行 {config.max_debate_rounds} 轮简洁的多空权衡，然后只返回一个 JSON 对象。
 除 JSON 键名、action/risk_level 枚举值、股票代码和必要指标名外，所有自然语言必须使用简体中文。
 summary、supporting_points、risk_points 必须是中文。
@@ -324,6 +345,32 @@ JSON schema:
   "confidence": 0.0,
   "risk_level": "low | medium | high | unknown",
   "summary": "一句简短中文复核摘要",
+  "analyst_reports": {{
+    "technical": {{
+      "status": "available | partial | unavailable",
+      "summary": "中文技术面结论",
+      "supporting_points": ["中文支持依据"],
+      "risk_points": ["中文风险提示"]
+    }},
+    "fundamental": {{
+      "status": "available | partial | unavailable",
+      "summary": "中文基本面结论",
+      "supporting_points": ["中文支持依据"],
+      "risk_points": ["中文风险提示"]
+    }},
+    "news": {{
+      "status": "available | partial | unavailable",
+      "summary": "中文新闻面结论",
+      "supporting_points": ["中文支持依据"],
+      "risk_points": ["中文风险提示"]
+    }},
+    "sentiment": {{
+      "status": "available | partial | unavailable",
+      "summary": "中文情绪面结论",
+      "supporting_points": ["中文支持依据"],
+      "risk_points": ["中文风险提示"]
+    }}
+  }},
   "supporting_points": ["来自快照的中文支持依据"],
   "risk_points": ["来自快照的中文风险提示"]
 }}
@@ -402,6 +449,34 @@ def _normalize_confidence(value: Any) -> float | None:
     return confidence
 
 
+def _normalize_analyst_reports(value: Any) -> dict[str, dict[str, Any]]:
+    if not isinstance(value, dict):
+        return {}
+    reports: dict[str, dict[str, Any]] = {}
+    for key in ("technical", "fundamental", "news", "sentiment"):
+        report = value.get(key)
+        if not isinstance(report, dict):
+            continue
+        status = str(report.get("status") or "partial").strip().lower()
+        if status not in {"available", "partial", "unavailable"}:
+            status = "partial"
+        reports[key] = {
+            "status": status,
+            "summary": _non_blank_or(report.get("summary"), "该分析维度没有返回摘要。"),
+            "supporting_points": _string_list(report.get("supporting_points")),
+            "risk_points": _string_list(report.get("risk_points")),
+        }
+    return reports
+
+
+def _aggregate_report_points(analyst_reports: dict[str, dict[str, Any]], field: str) -> list[str]:
+    points: list[str] = []
+    for key in ("technical", "fundamental", "news", "sentiment"):
+        report = analyst_reports.get(key, {})
+        points.extend(_string_list(report.get(field)))
+    return points[:8]
+
+
 def _string_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
@@ -415,15 +490,32 @@ def _non_blank_or(value: Any, fallback: str) -> str:
 
 def _format_local_snapshot_report(
     summary: str,
+    analyst_reports: dict[str, dict[str, Any]],
     supporting_points: list[str],
     risk_points: list[str],
     response_text: str,
 ) -> str:
     lines = ["# TradingAgents 本地快照复核", "", summary]
+    for key, title in (
+        ("technical", "技术面"),
+        ("fundamental", "基本面"),
+        ("news", "新闻面"),
+        ("sentiment", "情绪面"),
+    ):
+        report = analyst_reports.get(key)
+        if not report:
+            continue
+        lines.extend(["", f"## {title}", "", str(report.get("summary") or "无摘要。")])
+        report_supporting = _string_list(report.get("supporting_points"))
+        if report_supporting:
+            lines.extend(["", "支持依据：", *[f"- {point}" for point in report_supporting]])
+        report_risks = _string_list(report.get("risk_points"))
+        if report_risks:
+            lines.extend(["", "风险提示：", *[f"- {point}" for point in report_risks]])
     if supporting_points:
-        lines.extend(["", "## 支持依据", *[f"- {point}" for point in supporting_points]])
+        lines.extend(["", "## 综合支持依据", *[f"- {point}" for point in supporting_points]])
     if risk_points:
-        lines.extend(["", "## 风险提示", *[f"- {point}" for point in risk_points]])
+        lines.extend(["", "## 综合风险提示", *[f"- {point}" for point in risk_points]])
     lines.extend(["", "## 原始输出", response_text])
     return "\n".join(lines).strip() + "\n"
 
