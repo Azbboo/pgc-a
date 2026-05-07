@@ -308,15 +308,13 @@ pgc market refresh \
 ### 6.3 运行每日复盘
 
 ```bash
-pgc review run \
-  --as-of-date 20260430 \
-  --strategy-version cpb_6157@2026-05-03 \
-  --account paper-main \
-  --max-daily-picks 1
+pgc daily-close --date 20260430 --db-path data/pgc_trading.db --account paper-main
 ```
 
 输出重点：
 
+- `workflow_status`
+- `readiness`
 - `feature_run_id`
 - `strategy_run_id`
 - 信号数量；
@@ -324,7 +322,13 @@ pgc review run \
 - 是否生成交易计划；
 - 是否被仓位约束跳过。
 
-对应服务：`DailyReviewService.run_daily_review`
+默认是 dry-run preview，不写入事实表。确认后显式 apply：
+
+```bash
+pgc daily-close --date 20260430 --db-path data/pgc_trading.db --account paper-main --apply --operator azboo
+```
+
+对应服务：`DailyCloseWorkflowService.run_daily_close`
 
 ### 6.4 运行 Agent 复核
 
@@ -459,6 +463,32 @@ pgc report daily \
 - 账户资金摘要。
 
 对应服务：`ReportingQueryService.get_daily_report`
+
+### 6.10 纸面验收与 live 演练
+
+纸面账户进入 live 准备前必须通过 readiness gate：
+
+```bash
+pgc paper-readiness --date 20260430 --db-path data/pgc_trading.db --account paper-main --min-trades 10
+```
+
+输出重点：
+
+- `readiness`
+- 已执行 paper trades 数量；
+- 已平仓/退出流程覆盖；
+- 数据质量 blocker 数量；
+- 阻断原因或 warning。
+
+对应服务：`OperationalReadinessService.check_paper_readiness`
+
+live 账户只能做 dry-run 演练：
+
+```bash
+pgc daily-close --date 20260430 --db-path data/pgc_trading.db --account live-main --run-type live
+```
+
+不要在 M10 记录 `live-main --apply` 示例。首个 live 落库路径必须等人工批准和后续 live enablement 任务明确放行。
 
 ## 7. HTTP API 设计
 
@@ -636,6 +666,7 @@ sequenceDiagram
   participant Op as 操盘者/定时任务
   participant CLI as CLI/API
   participant Market as MarketDataService
+  participant Workflow as DailyCloseWorkflowService
   participant Review as DailyReviewService
   participant Agent as AgentReviewService
   participant Plan as PortfolioPlanningService
@@ -645,10 +676,11 @@ sequenceDiagram
   Op->>CLI: pgc market refresh --end-date S
   CLI->>Market: refresh_market_data(S)
   Market->>Store: market_fetch_run + market_bars
-  Op->>CLI: pgc review run --as-of-date S
-  CLI->>Review: run_daily_review(S, strategy_version)
+  Op->>CLI: pgc daily-close --date S --account paper-main
+  CLI->>Workflow: run_daily_close(S, strategy_version, account)
+  Workflow->>Review: run_daily_review(S, strategy_version)
   Review->>Store: feature_run + strategy_run + signals + daily_pick
-  Review->>Plan: generate_plan(account, daily_pick)
+  Workflow->>Plan: generate_plan(account, daily_pick)
   Plan->>Store: trade_plan
   opt with_agent_review
     Review->>Agent: review_daily_pick(daily_pick)
@@ -939,11 +971,12 @@ Consequences：
 
 1. `pgc raw import`
 2. `pgc market refresh`
-3. `pgc review run`
+3. `pgc daily-close`
 4. `pgc plan generate`
 5. `pgc trade record`
 6. `pgc exit evaluate`
 7. `pgc report daily`
+8. `pgc paper-readiness`
 
 第二阶段补：
 

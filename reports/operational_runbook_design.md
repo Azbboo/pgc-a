@@ -31,7 +31,7 @@ Runbook 解决的是系统上线后每天怎么稳定执行的问题。
 
 | 角色 | 职责 | 允许动作 |
 | --- | --- | --- |
-| 操盘者 | 每日复盘、确认计划、录入成交、处理退出 | `review run`、`plan publish`、`trade record`、`exit evaluate` |
+| 操盘者 | 每日复盘、确认计划、录入成交、处理退出 | `daily-close`、`paper-readiness`、`record-buy`、`record-sell`、`exits-evaluate` |
 | 研究者 | 策略分析、参数实验、失败案例归档 | 回测、研究报告、Agent 效果分析 |
 | 审计者 | 检查数据血缘、账户隔离、未来函数、操作留痕 | 只读查询、数据质量报告 |
 | 管理员 | 账户配置、策略版本启停、权限配置 | 创建账户、启停策略部署 |
@@ -218,24 +218,16 @@ pgc market refresh \
 当前 CLI v0 命令契约：
 
 ```bash
-pgc daily-close \
-  --date S \
-  --db-path data/pgc_trading.db \
-  --strategy-version cpb_6157@2026-05-03 \
-  --account paper-main
+pgc daily-close --date S --db-path data/pgc_trading.db --account paper-main
 ```
 
 默认不写库，只做 preview。确认数据质量、候选和计划结果后，再显式持久化：
 
 ```bash
-pgc daily-close \
-  --date S \
-  --db-path data/pgc_trading.db \
-  --strategy-version cpb_6157@2026-05-03 \
-  --account paper-main \
-  --apply \
-  --operator azboo
+pgc daily-close --date S --db-path data/pgc_trading.db --account paper-main --apply --operator azboo
 ```
+
+默认策略版本是当前 paper 部署版本；需要回放或验证其他版本时，才显式追加 `--strategy-version`。
 
 成功标准：
 
@@ -804,6 +796,12 @@ reports/daily/
 - 操盘者接受首版不自动下单；
 - Agent 仍为 advisory，不自动跳过。
 
+进入 live 准备前先运行纸面验收门禁：
+
+```bash
+pgc paper-readiness --date S --db-path data/pgc_trading.db --account paper-main --min-trades 10
+```
+
 启用当天：
 
 1. 创建或确认 `live-main`；
@@ -813,6 +811,14 @@ reports/daily/
 5. 运行 dry run；
 6. 人工批准 live；
 7. 从下一复盘日开始生成 live 计划。
+
+`live-main` 首次演练只能使用 dry-run，不记录为已批准的 live 落库路径：
+
+```bash
+pgc daily-close --date S --db-path data/pgc_trading.db --account live-main --run-type live
+```
+
+不要在 M10 阶段记录或执行 `live-main --apply`。实盘落库必须等纸面门禁、人工批准和后续 live enablement 任务全部完成。
 
 ## 17. 停机与暂停规则
 

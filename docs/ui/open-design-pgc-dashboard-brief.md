@@ -55,6 +55,10 @@ This is closer to a trading operations terminal than a SaaS landing page. Avoid:
 
 Use exact dates everywhere, such as `复盘日 20260504`, `计划买入 20260505`, `T+2 20260507`.
 
+## Operational Accounts
+
+Use `paper-main` as the default operator account in all first-screen examples and write flows. `live-main` may appear only in explicitly labeled rehearsal/dry-run states; the Dashboard must not expose or imply an approved live `--apply` path during M10.
+
 ## Core Screens
 
 ### 1. 每日复盘

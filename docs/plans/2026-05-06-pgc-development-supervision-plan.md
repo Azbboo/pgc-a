@@ -94,6 +94,11 @@ PGC_TEST_REDIS_PASSWORD=<local-only-secret-or-empty>
 | DEV8 Test Server Sync POC | done | DEV3, DEV7 | scripts/adapters/docs | optional MySQL/Redis sync, no secrets |
 | DEV9 HTTP API P0 | done | DEV1-DEV8 | API layer/tests | service-backed API |
 | DEV10 Dashboard P0 | done | DEV9 | frontend/API only | production Dashboard |
+| DEV11 M10 Account Catalog | done | DEV10 | seed/config/tests | paper-main/live-main account readiness |
+| DEV12 M10 Paper Smoke | done | DEV11 | CLI/workflow/tests | daily-close apply smoke |
+| DEV13 M10 Paper Readiness | done | DEV12 | readiness service/CLI/tests | paper acceptance gate |
+| DEV14 M10 Live Dry Run | done | DEV13 | planning/workflow/tests | live-main dry-run only |
+| DEV15 M10 Runbook Final Gate | done | DEV14 | runbook/contracts/docs/verification | repeatable M10 operations |
 
 ## 5. Work Packages
 
@@ -296,7 +301,7 @@ pgc report --date 2026-05-04 --db-path /private/tmp/pgc_cli.db
 
 - Accepted: `ReportingQueryService.get_daily_report` is read-only and produces report-ready data for data quality, candidate/no-candidate state, buy plan, Agent advisory placeholder, current positions, T+2/T+5 due actions, and lineage IDs.
 - Accepted: Markdown rendering uses human-facing section names and avoids snake_case database field names; JSON rendering preserves stable structured keys for API/Dashboard reuse.
-- Accepted: `pgc report daily --as-of-date YYYYMMDD --account paper-200k --format markdown|json` prints to stdout by default; `--output` writes only to an explicit path, and `--write-live-plan` is required for `reports/live_trade_plan.md/json`.
+- Accepted: `pgc report daily --as-of-date YYYYMMDD --account paper-main --format markdown|json` prints to stdout by default; `--output` writes only to an explicit path, and `--write-live-plan` is required for `reports/live_trade_plan.md/json`.
 - Accepted: report query smoke was read-only; counts for operations, data-quality events, daily picks, and trade plans were unchanged before and after rendering Markdown/JSON.
 - Quality gate during completion review: daily report + CLI focused tests passed with 10 tests; full suite passed with 98 tests; `compileall` passed; token/server-password scan had no matches; `data/pgc_trading.db` and live plan output files were not modified.
 
@@ -477,7 +482,7 @@ pgc exits-evaluate --date 2026-05-07 --db-path /private/tmp/pgc_cli.db
 **P0 scope:**
 
 - Read-only endpoints for health, daily report, data quality, account positions, and trade plans.
-- Controlled write endpoints for daily workflow review run, trade plan publish/cancel, execution recording, and exit evaluation.
+- Controlled write endpoints for the daily-close workflow, trade plan publish/cancel, execution recording, and exit evaluation.
 - Stable JSON envelopes mapped from `ServiceResult`.
 
 **Out of scope:**
@@ -507,10 +512,10 @@ pgc exits-evaluate --date 2026-05-07 --db-path /private/tmp/pgc_cli.db
 
 **DEV9C completion review (2026-05-07):**
 
-- Accepted: `src/pgc_trading/api/routes.py` now exposes controlled write adapters for review runs, trade-plan publish/cancel, trade execution recording, and exit evaluation.
+- Accepted: `src/pgc_trading/api/routes.py` now exposes controlled write adapters for daily-close workflow runs, trade-plan publish/cancel, trade execution recording, and exit evaluation.
 - Accepted: non-dry write requests are rejected unless API writes are explicitly enabled, and enabled writes require both `operator` and `idempotency_key`.
 - Accepted: write adapters create `RequestContext(source="api")` and call only `DailyCloseWorkflowService`, `PortfolioPlanningService`, `ExecutionRecordingService`, or `PositionLifecycleService`.
-- Accepted: dry-run is allowed for review runs, trade recording, and exit evaluation where the service supports it; publish/cancel reject dry-run.
+- Accepted: dry-run is allowed for daily-close workflow runs, trade recording, and exit evaluation where the service supports it; publish/cancel reject dry-run.
 - Accepted: service error codes are preserved in API envelopes, and API route modules still do not import `sqlite3` or call `connect`.
 - Quality gate during completion review: DEV9 focused API/portfolio tests passed with 25 tests and 1 expected skip; full suite passed with 138 unittest tests and 1 skip, 137 pytest tests with 1 skip and 8 subtests; `compileall` passed; secret scan and API direct-DB scan had no matches.
 
@@ -543,6 +548,21 @@ pgc exits-evaluate --date 2026-05-07 --db-path /private/tmp/pgc_cli.db
 - Accepted: Agent review is labeled as read-only advisory and is not rendered as a trading instruction.
 - Accepted: Dashboard code calls only HTTP API endpoints and does not read SQLite or local data files directly.
 - Quality gate during completion review: `node --check web/dashboard/app.js` passed; focused Dashboard/API tests passed with 24 tests and 2 expected skips; `unittest discover` passed with 143 tests and 2 skips; `pytest` passed with 141 tests, 2 skips, and 8 subtests; `compileall` passed; secret scan and Dashboard API-only scan had no matches.
+
+### DEV11-DEV15: M10 Paper Live Readiness
+
+**Priority:** P0
+
+**Goal:** Make the daily-close workflow operational for `paper-main`, prove paper readiness can be measured, and prepare a guarded `live-main` dry-run path without automatic ordering.
+
+**M10 completion review (2026-05-07):**
+
+- Accepted: account seeding and defaults use `paper-main` plus `live-main`, and account helpers remain idempotent.
+- Accepted: temp-DB daily-close smoke coverage proves `pgc daily-close --apply` can create a paper plan on a migrated seeded database.
+- Accepted: `pgc paper-readiness` exposes the paper acceptance gate, including trade count, exit coverage, blocker checks, and readiness status.
+- Accepted: `live-main` daily-close rehearsals are dry-run only; non-dry live planning remains blocked.
+- Accepted: runbook, API/CLI contracts, Dashboard brief, and this supervision board now document `paper-main`, `live-main`, `daily-close`, `paper-readiness`, and live dry-run boundaries.
+- Quality gate during M10 final review: `unittest discover` passed with 168 tests and 3 skips; `pytest -q` passed with 165 tests, 3 skips, and 8 subtests; `compileall` passed; `git diff --check` passed; broad secret scan returned only policy text, environment variable names, placeholder markers, dummy test values, and runtime argument names, with no real secret values.
 
 ## 6. Handoff Template For New Development Sessions
 
