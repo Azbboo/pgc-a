@@ -8,6 +8,7 @@ from typing import Any
 
 from pgc_trading.config import Paths
 from pgc_trading.market.calendar import is_yyyymmdd
+from pgc_trading.portfolio.sizing import plan_equal_slot_sizing
 from pgc_trading.services.common import RequestContext, ServiceError, ServiceResult
 from pgc_trading.services.daily_review_service import (
     DailyPickDTO,
@@ -235,16 +236,25 @@ class DailyCloseWorkflowService:
                 lineage={**_base_lineage(request), **readiness.lineage, **review.lineage},
             )
 
-        plan = PortfolioPlanningService(self.db_path).generate_buy_plan(
-            GenerateBuyPlanRequest(
-                account_key=request.account_key,
-                account_id=request.account_id,
-                daily_pick_id=review.data.daily_pick_id,
-                review_date=request.as_of_date,
-                planned_trade_date=next_trade_date,
-            ),
-            _child_context(ctx, request, "buy-plan"),
-        )
+        if ctx.dry_run and review.data.daily_pick_id is None:
+            plan = _preview_buy_plan(
+                self.db_path,
+                request,
+                review.data.daily_pick,
+                next_trade_date,
+                ctx,
+            )
+        else:
+            plan = PortfolioPlanningService(self.db_path).generate_buy_plan(
+                GenerateBuyPlanRequest(
+                    account_key=request.account_key,
+                    account_id=request.account_id,
+                    daily_pick_id=review.data.daily_pick_id,
+                    review_date=request.as_of_date,
+                    planned_trade_date=next_trade_date,
+                ),
+                _child_context(ctx, request, "buy-plan"),
+            )
         result_data = _workflow_result(
             request=request,
             next_trade_date=next_trade_date,
@@ -330,6 +340,63 @@ def _candidate_dto(pick: DailyPickDTO | None) -> DailyCloseCandidateDTO | None:
     )
 
 
+def _preview_buy_plan(
+    db_path: Path,
+    request: RunDailyCloseWorkflowRequest,
+    daily_pick: DailyPickDTO,
+    planned_trade_date: str,
+    ctx: RequestContext,
+) -> ServiceResult[GenerateTradePlanResult]:
+    with connect(db_path) as conn:
+        account = _load_preview_account(conn, request.account_key, request.account_id)
+        if isinstance(account, ServiceError):
+            return _preview_plan_validation_failed(ctx, account)
+
+        cash = _latest_cash(conn, account)
+        open_positions = _open_position_count(conn, account["id"])
+        price_reference = _latest_close(conn, daily_pick.ts_code, daily_pick.review_date)
+
+    sizing = plan_equal_slot_sizing(
+        cash=cash,
+        max_positions=int(account["max_positions"]),
+        open_positions=open_positions,
+        price_reference=price_reference,
+    )
+    action = "buy_next_open"
+    status = "active"
+    reason = "daily_pick_preview"
+    if sizing.free_position_slots <= 0:
+        action = "skip_max_positions"
+        status = "skipped"
+        reason = "max_positions"
+    elif (sizing.planned_cash or 0.0) <= 0 or (sizing.planned_shares or 0) <= 0:
+        action = "skip_no_cash"
+        status = "skipped"
+        reason = "no_cash_or_board_lot"
+
+    return ServiceResult(
+        status="skipped" if status == "skipped" else "success",
+        request_id=ctx.request_id,
+        data=GenerateTradePlanResult(
+            trade_plan_id=None,
+            action=action,
+            status=status,
+            reason=reason,
+            planned_trade_date=planned_trade_date,
+            planned_cash=sizing.planned_cash,
+            planned_shares=sizing.planned_shares,
+            free_position_slots=sizing.free_position_slots,
+        ),
+        lineage={
+            "account_key": account["account_key"],
+            "daily_pick_id": None,
+            "signal_id": None,
+            "review_date": daily_pick.review_date,
+            "dry_run_preview": "true",
+        },
+    )
+
+
 def _plan_dto(plan: GenerateTradePlanResult | None) -> DailyClosePlanDTO | None:
     if plan is None:
         return None
@@ -343,6 +410,122 @@ def _plan_dto(plan: GenerateTradePlanResult | None) -> DailyClosePlanDTO | None:
         planned_shares=plan.planned_shares,
         free_position_slots=plan.free_position_slots,
         idempotent=plan.idempotent,
+    )
+
+
+def _load_preview_account(
+    conn: Any,
+    account_key: str | None,
+    account_id: int | None,
+) -> dict[str, Any] | ServiceError:
+    if account_id is None and not account_key:
+        return ServiceError(code="VALIDATION_ERROR", message="account_key or account_id is required.")
+    if account_id is not None:
+        row = conn.execute(
+            """
+            SELECT id, account_key, account_type, initial_cash, max_positions, position_sizing, status
+            FROM portfolio_accounts
+            WHERE id = ?
+            """,
+            (account_id,),
+        ).fetchone()
+    else:
+        row = conn.execute(
+            """
+            SELECT id, account_key, account_type, initial_cash, max_positions, position_sizing, status
+            FROM portfolio_accounts
+            WHERE account_key = ?
+            """,
+            (account_key,),
+        ).fetchone()
+    if row is None:
+        return ServiceError(code="ACCOUNT_NOT_FOUND", message="Portfolio account was not found.")
+    if account_key and row["account_key"] != account_key:
+        return ServiceError(code="ACCOUNT_MISMATCH", message="account_key and account_id point to different accounts.")
+    if row["status"] != "active":
+        return ServiceError(code="ACCOUNT_INACTIVE", message=f"Account is not active: {row['account_key']}.")
+    if row["account_type"] != "paper":
+        return ServiceError(
+            code="UNSUPPORTED_ACCOUNT_TYPE",
+            message="Daily close dry-run buy-plan preview currently supports paper accounts only.",
+            entity_type="portfolio_account",
+            entity_id=int(row["id"]),
+            severity="blocker",
+        )
+    return dict(row)
+
+
+def _latest_cash(conn: Any, account: dict[str, Any]) -> float:
+    row = conn.execute(
+        """
+        SELECT cash
+        FROM equity_snapshots
+        WHERE account_id = ?
+        ORDER BY as_of_date DESC, id DESC
+        LIMIT 1
+        """,
+        (account["id"],),
+    ).fetchone()
+    if row is None:
+        return float(account["initial_cash"])
+    return float(row["cash"])
+
+
+def _latest_close(conn: Any, ts_code: str, as_of_date: str) -> float | None:
+    row = conn.execute(
+        """
+        SELECT COALESCE(NULLIF(adj_close, 0), close) AS close_price
+        FROM market_bars
+        WHERE ts_code = ?
+          AND trade_date <= ?
+        ORDER BY trade_date DESC
+        LIMIT 1
+        """,
+        (ts_code, as_of_date),
+    ).fetchone()
+    if row is None or row["close_price"] is None:
+        return None
+    return float(row["close_price"])
+
+
+def _open_position_count(conn: Any, account_id: int) -> int:
+    return int(
+        conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM positions
+            WHERE account_id = ?
+              AND status IN (
+                'open',
+                'waiting_t2',
+                'need_t2_decision',
+                'holding_until_t5',
+                'need_t5_exit'
+              )
+            """,
+            (account_id,),
+        ).fetchone()[0]
+    )
+
+
+def _preview_plan_validation_failed(
+    ctx: RequestContext,
+    error: ServiceError,
+) -> ServiceResult[GenerateTradePlanResult]:
+    return ServiceResult(
+        status="validation_failed",
+        request_id=ctx.request_id,
+        data=GenerateTradePlanResult(
+            trade_plan_id=None,
+            action="buy_next_open",
+            status="validation_failed",
+            reason=error.code,
+            planned_trade_date=None,
+            planned_cash=None,
+            planned_shares=None,
+            free_position_slots=0,
+        ),
+        errors=[error],
     )
 
 
