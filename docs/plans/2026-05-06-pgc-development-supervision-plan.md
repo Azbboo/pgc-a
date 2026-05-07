@@ -91,7 +91,7 @@ PGC_TEST_REDIS_PASSWORD=<local-only-secret-or-empty>
 | DEV5 Execution Recording CLI | done | DEV1, WP12 | CLI + portfolio services/tests | record buy/sell execution safely |
 | DEV6 Position Exit Decision CLI | done | DEV5 | position lifecycle/tests | T+2/T+5 review commands |
 | DEV7 Replay & Golden Regression | done | DEV2-DEV6 | tests/fixtures/replay | no-future replay gate |
-| DEV8 Test Server Sync POC | todo | DEV3, DEV7 | scripts/adapters/docs | optional MySQL/Redis sync, no secrets |
+| DEV8 Test Server Sync POC | done | DEV3, DEV7 | scripts/adapters/docs | optional MySQL/Redis sync, no secrets |
 | DEV9 HTTP API P0 | deferred | DEV1-DEV7 | API layer/tests | service-backed API |
 | DEV10 Dashboard P0 | deferred | DEV9 | frontend/API only | production Dashboard |
 
@@ -455,6 +455,14 @@ pgc exits-evaluate --date 2026-05-07 --db-path /private/tmp/pgc_cli.db
 - Missing env vars fail with clear instructions.
 - Dry-run prints target host/database without passwords.
 - Unit tests use fake clients.
+
+**DEV8 completion review (2026-05-07):**
+
+- Accepted: `scripts/sync_reports_to_test_server.py` reads MySQL/Redis configuration only from `PGC_TEST_*` environment variables and keeps local SQLite as the canonical store.
+- Accepted: dry-run validates config/report input and prints only public MySQL host/database, Redis host/port, artifact hash, and planned actions.
+- Accepted: real sync remains an optional POC path using local-only `pymysql`/`redis` dependencies; unit tests inject fake clients and do not require network access.
+- Accepted: `docs/plans/2026-05-06-test-server-sync-notes.md` documents runtime-only config, redaction expectations, target schema/keys, and the non-source-of-truth boundary.
+- Quality gate during completion review: DEV8 focused tests passed with 6 tests; full suite passed with 118 tests and 8 subtests via pytest, 118 tests via unittest discover; `compileall` passed; DEV8 secret scan had no matches.
 
 ## 6. Handoff Template For New Development Sessions
 
