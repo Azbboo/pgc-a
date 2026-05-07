@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PGC 操作台</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script defer src="./app.js"></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand-block" aria-label="PGC 操作台">
+          <div class="brand-mark">PGC</div>
+          <div>
+            <div class="brand-title">交易操作台</div>
+            <div class="brand-subtitle">复盘、计划、成交、持仓</div>
+          </div>
+        </div>
+
+        <form class="context-form" id="contextForm">
+          <label>
+            <span>账户 Key</span>
+            <input id="accountKeyInput" name="account_key" autocomplete="off" />
+          </label>
+          <label>
+            <span>账户 ID</span>
+            <input id="accountIdInput" name="account_id" inputmode="numeric" autocomplete="off" />
+          </label>
+          <label>
+            <span>复盘日</span>
+            <input id="asOfDateInput" name="as_of_date" placeholder="YYYYMMDD" autocomplete="off" />
+          </label>
+          <label class="strategy-control">
+            <span>策略版本</span>
+            <input id="strategyInput" name="strategy_version" autocomplete="off" />
+          </label>
+          <label>
+            <span>操作者</span>
+            <input id="operatorInput" name="operator" autocomplete="off" />
+          </label>
+          <label>
+            <span>API Base</span>
+            <input id="apiBaseInput" name="api_base" placeholder="同源留空" autocomplete="off" />
+          </label>
+          <label class="toggle-control" title="仅支持复盘、成交、退出评估的预演写请求">
+            <input id="dryRunInput" type="checkbox" checked />
+            <span>Dry run</span>
+          </label>
+          <button class="primary-button" type="submit">刷新</button>
+        </form>
+      </header>
+
+      <nav class="sidebar" aria-label="主导航">
+        <button class="nav-item active" type="button" data-page-button="review">
+          <span class="nav-glyph">R</span>
+          <span>每日复盘</span>
+          <b id="reviewBadge">0</b>
+        </button>
+        <button class="nav-item" type="button" data-page-button="plans">
+          <span class="nav-glyph">P</span>
+          <span>交易计划</span>
+          <b id="plansBadge">0</b>
+        </button>
+        <button class="nav-item" type="button" data-page-button="record">
+          <span class="nav-glyph">T</span>
+          <span>成交录入</span>
+          <b id="recordBadge">0</b>
+        </button>
+        <button class="nav-item" type="button" data-page-button="positions">
+          <span class="nav-glyph">H</span>
+          <span>当前持仓</span>
+          <b id="positionsBadge">0</b>
+        </button>
+        <button class="nav-item" type="button" data-page-button="quality">
+          <span class="nav-glyph">Q</span>
+          <span>数据质量</span>
+          <b id="qualityBadge">0</b>
+        </button>
+        <button class="nav-item" type="button" data-page-button="agent">
+          <span class="nav-glyph">A</span>
+          <span>Agent 复核</span>
+          <b id="agentBadge">只读</b>
+        </button>
+      </nav>
+
+      <main class="workspace">
+        <section class="status-band" aria-live="polite">
+          <div>
+            <span>账户</span>
+            <strong id="statusAccount">-</strong>
+          </div>
+          <div>
+            <span>复盘日</span>
+            <strong id="statusReviewDate">-</strong>
+          </div>
+          <div>
+            <span>下一交易日</span>
+            <strong id="statusNextDate">-</strong>
+          </div>
+          <div>
+            <span>最新行情日</span>
+            <strong id="statusMarketDate">-</strong>
+          </div>
+          <div>
+            <span>仓位容量</span>
+            <strong id="statusCapacity">-</strong>
+          </div>
+          <div class="status-quality">
+            <span>数据质量</span>
+            <strong id="statusQuality" class="chip chip-neutral">-</strong>
+          </div>
+        </section>
+
+        <div class="notice-line" id="noticeLine" hidden></div>
+
+        <section class="page active" data-page="review">
+          <div class="page-heading">
+            <div>
+              <h1>每日复盘</h1>
+              <p>首屏展示阻断、下一交易日动作、候选、持仓到期和只读 Agent 意见。</p>
+            </div>
+            <div class="toolbar">
+              <button type="button" id="runReviewButton">运行复盘</button>
+              <button type="button" id="publishReviewPlanButton">发布计划</button>
+              <button type="button" id="recordReviewPlanButton">录入成交</button>
+            </div>
+          </div>
+
+          <div class="review-grid">
+            <section class="panel next-action-panel">
+              <div class="panel-heading">
+                <h2>下一交易日动作</h2>
+                <span id="nextActionDate" class="muted">-</span>
+              </div>
+              <div id="nextActionBody" class="action-body"></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <h2>数据阻断</h2>
+                <button type="button" class="link-button" data-page-jump="quality">查看数据质量</button>
+              </div>
+              <div id="blockerList" class="compact-list"></div>
+            </section>
+          </div>
+
+          <section class="panel">
+            <div class="panel-heading">
+              <h2>复盘日候选</h2>
+              <button type="button" class="link-button" id="openLineageButton">查看血缘</button>
+            </div>
+            <div id="candidateSummary" class="candidate-summary"></div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>排名</th>
+                    <th>股票</th>
+                    <th class="num">评分</th>
+                    <th>信号 ID</th>
+                  </tr>
+                </thead>
+                <tbody id="rankedSignalsBody"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="split-panels">
+            <div class="panel">
+              <div class="panel-heading">
+                <h2>T+2 / T+5 待处理</h2>
+                <button type="button" class="link-button" data-page-jump="positions">查看持仓</button>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>股票</th>
+                      <th>买入日</th>
+                      <th>T+2</th>
+                      <th>T+5</th>
+                      <th>动作</th>
+                    </tr>
+                  </thead>
+                  <tbody id="duePositionsBody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="panel">
+              <div class="panel-heading">
+                <h2>AI 复核意见</h2>
+                <span class="chip chip-agent">仅供复核</span>
+              </div>
+              <div id="agentSummary" class="agent-summary"></div>
+            </div>
+          </section>
+        </section>
+
+        <section class="page" data-page="plans">
+          <div class="page-heading">
+            <div>
+              <h1>交易计划</h1>
+              <p>只展示服务层返回的计划；无信号不会伪装成 skipped plan。</p>
+            </div>
+            <div class="toolbar">
+              <select id="planStatusFilter" aria-label="计划状态筛选">
+                <option value="">全部状态</option>
+                <option value="draft">草稿</option>
+                <option value="active">有效</option>
+                <option value="executed">已成交</option>
+                <option value="skipped">已跳过</option>
+                <option value="cancelled">已取消</option>
+                <option value="expired">已过期</option>
+              </select>
+              <button type="button" id="reloadPlansButton">刷新计划</button>
+            </div>
+          </div>
+          <section class="panel">
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>动作</th>
+                    <th>状态</th>
+                    <th>生成日</th>
+                    <th>计划交易日</th>
+                    <th>原因</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="plansBody"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <section class="page" data-page="record">
+          <div class="page-heading">
+            <div>
+              <h1>成交录入</h1>
+              <p>active 计划才允许按计划录入；卖出可从持仓或退出计划进入。</p>
+            </div>
+          </div>
+          <div class="record-layout">
+            <section class="panel">
+              <div class="panel-heading">
+                <h2>待录入队列</h2>
+                <span class="muted">active 计划优先</span>
+              </div>
+              <div id="recordQueue" class="compact-list"></div>
+            </section>
+            <section class="panel">
+              <div class="panel-heading">
+                <h2>成交事实</h2>
+                <span id="recordModeChip" class="chip chip-neutral">未选择</span>
+              </div>
+              <form class="record-form" id="recordForm">
+                <label>
+                  <span>计划 ID</span>
+                  <input id="recordPlanId" inputmode="numeric" autocomplete="off" />
+                </label>
+                <label>
+                  <span>持仓 ID</span>
+                  <input id="recordPositionId" inputmode="numeric" autocomplete="off" />
+                </label>
+                <label>
+                  <span>方向</span>
+                  <select id="recordSide">
+                    <option value="buy">买入</option>
+                    <option value="sell">卖出</option>
+                  </select>
+                </label>
+                <label>
+                  <span>成交日期</span>
+                  <input id="recordDate" placeholder="YYYYMMDD" autocomplete="off" />
+                </label>
+                <label>
+                  <span>成交价</span>
+                  <input id="recordPrice" inputmode="decimal" autocomplete="off" />
+                </label>
+                <label>
+                  <span>股数</span>
+                  <input id="recordShares" inputmode="numeric" autocomplete="off" />
+                </label>
+                <label>
+                  <span>手续费</span>
+                  <input id="recordFee" inputmode="decimal" value="0" autocomplete="off" />
+                </label>
+                <label>
+                  <span>印花税</span>
+                  <input id="recordTax" inputmode="decimal" value="0" autocomplete="off" />
+                </label>
+                <label>
+                  <span>滑点</span>
+                  <input id="recordSlippage" inputmode="decimal" autocomplete="off" />
+                </label>
+                <div class="form-actions">
+                  <button type="button" id="clearRecordButton">清空</button>
+                  <button type="submit" class="primary-button">提交成交</button>
+                </div>
+              </form>
+            </section>
+          </div>
+        </section>
+
+        <section class="page" data-page="positions">
+          <div class="page-heading">
+            <div>
+              <h1>当前持仓</h1>
+              <p>T+2 / T+5 日期在移动端仍保留，不折叠关键风险。</p>
+            </div>
+            <div class="toolbar">
+              <button type="button" id="evaluateExitsButton">评估退出</button>
+              <button type="button" id="reloadPositionsButton">刷新持仓</button>
+            </div>
+          </div>
+          <section class="panel">
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>股票</th>
+                    <th>买入日</th>
+                    <th class="num">买入价</th>
+                    <th class="num">股数</th>
+                    <th>T+2</th>
+                    <th>T+5</th>
+                    <th>状态</th>
+                    <th class="num">收益</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="positionsBody"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <section class="page" data-page="quality">
+          <div class="page-heading">
+            <div>
+              <h1>数据质量</h1>
+              <p>blocker 始终高亮；发布计划会被阻断。</p>
+            </div>
+            <div class="toolbar">
+              <select id="qualitySeverityFilter" aria-label="数据质量严重度筛选">
+                <option value="">全部严重度</option>
+                <option value="blocker">阻断</option>
+                <option value="warning">警告</option>
+              </select>
+              <button type="button" id="reloadQualityButton">刷新事件</button>
+            </div>
+          </div>
+          <section class="panel">
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>严重度</th>
+                    <th>层</th>
+                    <th>代码</th>
+                    <th>交易日</th>
+                    <th>股票</th>
+                    <th>说明</th>
+                    <th>状态</th>
+                  </tr>
+                </thead>
+                <tbody id="qualityBody"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <section class="page" data-page="agent">
+          <div class="page-heading">
+            <div>
+              <h1>Agent 复核</h1>
+              <p>首版只读展示，不表现成交易指令。</p>
+            </div>
+          </div>
+          <section class="panel">
+            <div id="agentPageBody" class="agent-page"></div>
+          </section>
+        </section>
+      </main>
+
+      <aside class="detail-drawer" id="detailDrawer" hidden>
+        <div class="drawer-head">
+          <div>
+            <span id="drawerKicker" class="muted">详情</span>
+            <h2 id="drawerTitle">-</h2>
+          </div>
+          <button type="button" class="icon-button" id="closeDrawerButton" aria-label="关闭详情">×</button>
+        </div>
+        <div id="drawerBody" class="drawer-body"></div>
+      </aside>
+    </div>
+
+    <dialog class="confirm-dialog" id="confirmDialog">
+      <form method="dialog">
+        <h2 id="confirmTitle">确认操作</h2>
+        <p id="confirmBody">-</p>
+        <label id="confirmInputLabel" hidden>
+          <span id="confirmInputText">原因</span>
+          <input id="confirmInput" autocomplete="off" />
+        </label>
+        <div class="dialog-actions">
+          <button value="cancel">取消</button>
+          <button value="confirm" class="primary-button" id="confirmSubmit">确认</button>
+        </div>
+      </form>
+    </dialog>
+  </body>
+</html>

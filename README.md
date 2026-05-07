@@ -92,6 +92,20 @@ python3 scripts/run_live_daily_review.py
 python3 scripts/gen_gpt_image2.py --prompt-file docs/ui/open-design-pgc-dashboard-brief.md
 ```
 
+启动本地 HTTP API 与 DEV10 Dashboard P0：
+
+```bash
+python3 -m pip install -e '.[api]'
+PYTHONPATH=/Users/azboo/Desktop/Person/pgc/src PGC_API_ENABLE_WRITES=0 python3 -m uvicorn 'pgc_trading.api:create_app' --factory --host 127.0.0.1 --port 8000
+```
+
+打开：
+
+- `http://127.0.0.1:8000/dashboard`
+- `http://127.0.0.1:8000/api/docs`
+
+Dashboard 默认同源调用 `/api/*`。如果前端静态文件单独打开，可在顶部 `API Base` 填入 `http://127.0.0.1:8000`。非 dry-run 写操作仍需要 API 侧显式设置 `PGC_API_ENABLE_WRITES=1`，并在页面填写操作者。
+
 兼容旧入口：
 
 ```bash

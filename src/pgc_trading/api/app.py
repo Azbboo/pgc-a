@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from pgc_trading.api.routes import register_routes
@@ -28,6 +29,7 @@ def create_app(settings: ApiSettings | None = None, services: ApiServices | None
     app.state.settings = resolved_settings
     app.state.services = services or ApiServices()
     register_routes(app)
+    _mount_dashboard(app)
     return app
 
 
@@ -42,3 +44,24 @@ def _load_fastapi() -> Any:
             ) from exc
         raise
     return FastAPI
+
+
+def _mount_dashboard(app: Any) -> None:
+    dashboard_dir = Path(__file__).resolve().parents[3] / "web" / "dashboard"
+    index_path = dashboard_dir / "index.html"
+    if not index_path.exists():
+        return
+
+    from fastapi.responses import FileResponse
+    from fastapi.staticfiles import StaticFiles
+
+    @app.get("/dashboard", include_in_schema=False)
+    @app.get("/dashboard/", include_in_schema=False)
+    def dashboard_index() -> Any:
+        return FileResponse(index_path)
+
+    app.mount(
+        "/dashboard/assets",
+        StaticFiles(directory=dashboard_dir),
+        name="pgc_dashboard_assets",
+    )

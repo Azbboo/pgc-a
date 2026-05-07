@@ -93,7 +93,7 @@ PGC_TEST_REDIS_PASSWORD=<local-only-secret-or-empty>
 | DEV7 Replay & Golden Regression | done | DEV2-DEV6 | tests/fixtures/replay | no-future replay gate |
 | DEV8 Test Server Sync POC | done | DEV3, DEV7 | scripts/adapters/docs | optional MySQL/Redis sync, no secrets |
 | DEV9 HTTP API P0 | done | DEV1-DEV8 | API layer/tests | service-backed API |
-| DEV10 Dashboard P0 | deferred | DEV9 | frontend/API only | production Dashboard |
+| DEV10 Dashboard P0 | done | DEV9 | frontend/API only | production Dashboard |
 
 ## 5. Work Packages
 
@@ -513,6 +513,36 @@ pgc exits-evaluate --date 2026-05-07 --db-path /private/tmp/pgc_cli.db
 - Accepted: dry-run is allowed for review runs, trade recording, and exit evaluation where the service supports it; publish/cancel reject dry-run.
 - Accepted: service error codes are preserved in API envelopes, and API route modules still do not import `sqlite3` or call `connect`.
 - Quality gate during completion review: DEV9 focused API/portfolio tests passed with 25 tests and 1 expected skip; full suite passed with 138 unittest tests and 1 skip, 137 pytest tests with 1 skip and 8 subtests; `compileall` passed; secret scan and API direct-DB scan had no matches.
+
+### DEV10: Dashboard P0
+
+**Priority:** P0
+
+**Goal:** Deliver a local daily operations workstation on top of the DEV9 API, without making Dashboard a source of truth.
+
+**Files:**
+
+- Create: `web/dashboard/index.html`
+- Create: `web/dashboard/styles.css`
+- Create: `web/dashboard/app.js`
+- Create: `tests/test_dashboard_static.py`
+- Modify: `src/pgc_trading/api/app.py`
+- Modify: `README.md`
+
+**P0 scope:**
+
+- Daily review, trade plans, trade recording, current positions, data quality, and read-only Agent review views.
+- API-only client calls to `/api/daily-reviews`, `/api/trade-plans`, `/api/data-quality`, `/api/accounts/{id}/positions`, `/api/review-runs`, `/api/trades`, and `/api/exits/evaluate`.
+- Static Dashboard mounted at `/dashboard` and `/dashboard/assets` when FastAPI is available.
+
+**DEV10 completion review (2026-05-07):**
+
+- Accepted: Dashboard P0 provides the six required pages with a dense workstation shell, explicit account/date/strategy/operator context, and no marketing landing page.
+- Accepted: blocker state is visually prioritized and disables plan publishing; active plans are required before plan-based trade recording.
+- Accepted: positions keep T+2/T+5 dates visible and due positions are ordered ahead of ordinary holdings.
+- Accepted: Agent review is labeled as read-only advisory and is not rendered as a trading instruction.
+- Accepted: Dashboard code calls only HTTP API endpoints and does not read SQLite or local data files directly.
+- Quality gate during completion review: `node --check web/dashboard/app.js` passed; focused Dashboard/API tests passed with 24 tests and 2 expected skips; `unittest discover` passed with 143 tests and 2 skips; `pytest` passed with 141 tests, 2 skips, and 8 subtests; `compileall` passed; secret scan and Dashboard API-only scan had no matches.
 
 ## 6. Handoff Template For New Development Sessions
 
