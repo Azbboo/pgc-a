@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 from pgc_trading.config import AccountConfig
+from pgc_trading.storage.database import init_db, seed_account
 from pgc_trading.storage.migrate import run_migrations
 from pgc_trading.storage.seed import seed_reference_data
 from pgc_trading.strategies.cpb_6157 import PARAMS_HASH
@@ -20,6 +21,7 @@ class ReferenceSeedTest(unittest.TestCase):
             run_migrations(db_path)
 
             account = AccountConfig(
+                account_key="paper-main",
                 name="Configured Paper Account",
                 initial_cash=123456.0,
                 max_positions=4,
@@ -129,11 +131,12 @@ class ReferenceSeedTest(unittest.TestCase):
                       position_sizing,
                       status
                     FROM portfolio_accounts
+                    WHERE account_key = 'paper-main'
                     """
                 ).fetchone()
                 self.assertIsNotNone(account_row)
                 self.assertEqual(account_row[0], result.ids["portfolio_account"])
-                self.assertEqual(account_row[1], "paper-configured-paper-account")
+                self.assertEqual(account_row[1], "paper-main")
                 self.assertEqual(account_row[2], account.name)
                 self.assertEqual(account_row[3], "paper")
                 self.assertEqual(account_row[4], account.initial_cash)
@@ -145,15 +148,69 @@ class ReferenceSeedTest(unittest.TestCase):
                     conn.execute(
                         "SELECT COUNT(*) FROM portfolio_accounts WHERE account_type = 'live'"
                     ).fetchone()[0],
-                    0,
+                    1,
                 )
                 self.assertEqual(conn.execute("PRAGMA foreign_key_check").fetchall(), [])
+
+    def test_reference_seed_writes_paper_main_and_live_main_accounts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc.db"
+            run_migrations(db_path)
+
+            result = seed_reference_data(db_path)
+
+            with sqlite3.connect(db_path) as conn:
+                rows = conn.execute(
+                    """
+                    SELECT account_key, name, account_type, initial_cash, max_positions, position_sizing, status
+                    FROM portfolio_accounts
+                    ORDER BY account_key
+                    """
+                ).fetchall()
+
+            self.assertEqual(
+                [(row[0], row[2], row[4], row[5], row[6]) for row in rows],
+                [
+                    ("live-main", "live", 3, "equal_slots", "active"),
+                    ("paper-main", "paper", 3, "equal_slots", "active"),
+                ],
+            )
+            self.assertIn("portfolio_account_paper_main", result.ids)
+            self.assertIn("portfolio_account_live_main", result.ids)
+
+    def test_seed_account_writes_required_account_key(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc.db"
+            run_migrations(db_path)
+
+            account_id = seed_account(AccountConfig(account_key="paper-main"), db_path)
+
+            with sqlite3.connect(db_path) as conn:
+                row = conn.execute(
+                    "SELECT id, account_key, account_type FROM portfolio_accounts WHERE id = ?",
+                    (account_id,),
+                ).fetchone()
+            self.assertEqual(row, (account_id, "paper-main", "paper"))
+
+    def test_init_db_then_seed_account_uses_migrated_account_schema(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc.db"
+
+            init_db(db_path)
+            account_id = seed_account(AccountConfig(account_key="paper-main"), db_path)
+
+            with sqlite3.connect(db_path) as conn:
+                row = conn.execute(
+                    "SELECT id, account_key, account_type, status FROM portfolio_accounts WHERE id = ?",
+                    (account_id,),
+                ).fetchone()
+            self.assertEqual(row, (account_id, "paper-main", "paper", "active"))
 
     def test_reference_seed_is_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "pgc.db"
             run_migrations(db_path)
-            account = AccountConfig(name="paper_200k")
+            account = AccountConfig(name="paper_main")
 
             first = seed_reference_data(db_path, account)
             second = seed_reference_data(db_path, account)
@@ -176,7 +233,7 @@ class ReferenceSeedTest(unittest.TestCase):
                     "strategy_families": 1,
                     "strategy_versions": 2,
                     "parameter_sets": 2,
-                    "portfolio_accounts": 1,
+                    "portfolio_accounts": 2,
                 },
             )
 

@@ -34,11 +34,11 @@ class DataQualityServiceTest(unittest.TestCase):
                 DailyReviewReadinessRequest(
                     as_of_date=AS_OF_DATE,
                     strategy_version=STRATEGY_VERSION,
-                    account_key="paper-200k",
+                    account_key="paper-main",
                 ),
                 RequestContext(
                     request_id="req-clean",
-                    idempotency_key="dq:paper-200k:20260504",
+                    idempotency_key="dq:paper-main:20260504",
                     operator="tester",
                 ),
             )
@@ -80,7 +80,7 @@ class DataQualityServiceTest(unittest.TestCase):
                 DailyReviewReadinessRequest(
                     as_of_date=AS_OF_DATE,
                     strategy_version=STRATEGY_VERSION,
-                    account_key="paper-200k",
+                    account_key="paper-main",
                 ),
                 RequestContext(request_id="req-calendar"),
             )
@@ -123,7 +123,7 @@ class DataQualityServiceTest(unittest.TestCase):
                 DailyReviewReadinessRequest(
                     as_of_date=AS_OF_DATE,
                     strategy_version=STRATEGY_VERSION,
-                    account_key="paper-200k",
+                    account_key="paper-main",
                 ),
                 RequestContext(request_id="req-market"),
             )
@@ -199,7 +199,7 @@ class DataQualityServiceTest(unittest.TestCase):
                 DailyReviewReadinessRequest(
                     as_of_date=AS_OF_DATE,
                     strategy_version=STRATEGY_VERSION,
-                    account_key="paper-200k",
+                    account_key="paper-main",
                 ),
                 RequestContext(request_id="req-warning"),
             )

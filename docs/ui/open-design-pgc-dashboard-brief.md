@@ -73,7 +73,7 @@ Layout:
 
 Required visible data:
 
-- account: `paper-200k`;
+- account: `paper-main`;
 - account type: `paper`;
 - review date: `20260504`;
 - latest market date: `20260504`;
@@ -278,7 +278,7 @@ Use this sample state in the prototype:
 ```json
 {
   "account": {
-    "account_key": "paper-200k",
+    "account_key": "paper-main",
     "account_type": "paper",
     "initial_cash": 200000,
     "max_positions": 3,

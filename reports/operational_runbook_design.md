@@ -222,7 +222,7 @@ pgc daily-close \
   --date S \
   --db-path data/pgc_trading.db \
   --strategy-version cpb_6157@2026-05-03 \
-  --account paper-200k
+  --account paper-main
 ```
 
 默认不写库，只做 preview。确认数据质量、候选和计划结果后，再显式持久化：
@@ -232,7 +232,7 @@ pgc daily-close \
   --date S \
   --db-path data/pgc_trading.db \
   --strategy-version cpb_6157@2026-05-03 \
-  --account paper-200k \
+  --account paper-main \
   --apply \
   --operator azboo
 ```

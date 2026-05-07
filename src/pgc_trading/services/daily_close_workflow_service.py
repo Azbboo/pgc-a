@@ -30,7 +30,7 @@ from pgc_trading.storage.invariant_checks import InvariantReport, check_database
 from pgc_trading.strategies.cpb_6157 import STRATEGY_VERSION
 
 
-DEFAULT_ACCOUNT_KEY = "paper-200k"
+DEFAULT_ACCOUNT_KEY = "paper-main"
 
 
 @dataclass(frozen=True)

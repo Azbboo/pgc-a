@@ -30,6 +30,15 @@ STRATEGY_FAMILY_NAME = "Contracting Pullback"
 STRATEGY_FAMILY_DESCRIPTION = (
     "PGC pool contraction pullback with bullish-candle confirmation."
 )
+DEFAULT_LIVE_ACCOUNT = AccountConfig(
+    account_key="live-main",
+    name="Live Main",
+    account_type="live",
+    initial_cash=200000.0,
+    max_positions=3,
+    position_sizing="equal_slots",
+    status="active",
+)
 
 
 @dataclass(frozen=True)
@@ -51,8 +60,6 @@ def seed_reference_data(
     """Seed idempotent reference rows required after DDL migrations."""
 
     path = db_path or Paths().db_path
-    account = account_config or AccountConfig()
-
     with connect_for_migration(path) as conn:
         family_id = _seed_strategy_family(conn)
         cpb_6157_version_id = _seed_strategy_version(
@@ -83,7 +90,7 @@ def seed_reference_data(
             CPB_V2_PARAMS.canonical_json(),
             CPB_V2_PARAMS_HASH,
         )
-        account_id = _seed_paper_account(conn, account)
+        account_ids, account_result_ids = _seed_account_catalog(conn, account_config)
 
     return ReferenceSeedResult(
         db_path=path,
@@ -95,7 +102,8 @@ def seed_reference_data(
             "parameter_set_cpb_6157": cpb_6157_parameter_set_id,
             "strategy_version_cpb_v2": cpb_v2_version_id,
             "parameter_set_cpb_v2": cpb_v2_parameter_set_id,
-            "portfolio_account": account_id,
+            "portfolio_account": account_ids["paper-main"],
+            **account_result_ids,
         },
     )
 
@@ -206,8 +214,29 @@ def _seed_parameter_set(
     )
 
 
-def _seed_paper_account(conn: sqlite3.Connection, account: AccountConfig) -> int:
-    account_key = _paper_account_key(account)
+def _seed_account_catalog(
+    conn: sqlite3.Connection,
+    account_config: AccountConfig | None,
+) -> tuple[dict[str, int], dict[str, int]]:
+    accounts = {
+        _account_key(AccountConfig()): AccountConfig(),
+        _account_key(DEFAULT_LIVE_ACCOUNT): DEFAULT_LIVE_ACCOUNT,
+    }
+    if account_config is not None:
+        accounts[_account_key(account_config)] = account_config
+
+    account_ids: dict[str, int] = {}
+    result_ids: dict[str, int] = {}
+    for account in accounts.values():
+        account_key = _account_key(account)
+        account_id = _seed_portfolio_account(conn, account)
+        account_ids[account_key] = account_id
+        result_ids[f"portfolio_account_{_result_key(account_key)}"] = account_id
+    return account_ids, result_ids
+
+
+def _seed_portfolio_account(conn: sqlite3.Connection, account: AccountConfig) -> int:
+    account_key = _account_key(account)
     conn.execute(
         """
         INSERT INTO portfolio_accounts
@@ -221,7 +250,7 @@ def _seed_paper_account(conn: sqlite3.Connection, account: AccountConfig) -> int
             status
           )
         VALUES
-          (?, ?, 'paper', ?, ?, ?, 'active')
+          (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(account_key) DO UPDATE SET
           name = excluded.name,
           account_type = excluded.account_type,
@@ -233,9 +262,11 @@ def _seed_paper_account(conn: sqlite3.Connection, account: AccountConfig) -> int
         (
             account_key,
             account.name,
+            account.account_type,
             account.initial_cash,
             account.max_positions,
             account.position_sizing,
+            account.status,
         ),
     )
     return _single_id(
@@ -245,17 +276,21 @@ def _seed_paper_account(conn: sqlite3.Connection, account: AccountConfig) -> int
     )
 
 
-def _paper_account_key(account: AccountConfig) -> str:
-    configured_key = getattr(account, "account_key", None)
-    if configured_key:
-        return str(configured_key)
+def _account_key(account: AccountConfig) -> str:
+    if account.account_key:
+        return str(account.account_key)
 
     slug = re.sub(r"[^a-z0-9]+", "-", account.name.lower()).strip("-")
     if not slug:
-        return "paper-account"
-    if slug.startswith("paper"):
+        return f"{account.account_type}-account"
+    if slug == account.account_type or slug.startswith(f"{account.account_type}-"):
         return slug
-    return f"paper-{slug}"
+    return f"{account.account_type}-{slug}"
+
+
+def _result_key(account_key: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "_", account_key.lower()).strip("_")
+    return slug or "account"
 
 
 def _single_id(

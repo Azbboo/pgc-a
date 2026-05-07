@@ -23,10 +23,13 @@ class StrategyConfig:
 
 @dataclass(frozen=True)
 class AccountConfig:
-    name: str = "paper_200k"
+    account_key: str | None = "paper-main"
+    name: str = "Paper Main"
+    account_type: str = "paper"
     initial_cash: float = 200000.0
     max_positions: int = 3
     position_sizing: str = "equal_slots"
+    status: str = "active"
 
 
 @dataclass(frozen=True)

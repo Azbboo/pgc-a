@@ -107,11 +107,16 @@ CREATE TABLE IF NOT EXISTS agent_decisions (
 
 CREATE TABLE IF NOT EXISTS portfolio_accounts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL UNIQUE,
-  account_type TEXT NOT NULL DEFAULT 'paper',
-  initial_cash REAL NOT NULL,
-  max_positions INTEGER NOT NULL,
-  position_sizing TEXT NOT NULL DEFAULT 'equal_slots',
+  account_key TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  account_type TEXT NOT NULL
+    CHECK (account_type IN ('backtest', 'paper', 'live')),
+  initial_cash REAL NOT NULL CHECK (initial_cash >= 0),
+  max_positions INTEGER NOT NULL CHECK (max_positions >= 0),
+  position_sizing TEXT NOT NULL DEFAULT 'equal_slots'
+    CHECK (position_sizing IN ('equal_slots', 'fixed_cash', 'manual')),
+  status TEXT NOT NULL DEFAULT 'active'
+    CHECK (status IN ('active', 'paused', 'closed')),
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 

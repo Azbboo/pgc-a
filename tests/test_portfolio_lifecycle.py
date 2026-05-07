@@ -24,7 +24,7 @@ from pgc_trading.storage.migrate import run_migrations
 from pgc_trading.storage.seed import seed_reference_data
 
 
-ACCOUNT_KEY = "paper-200k"
+ACCOUNT_KEY = "paper-main"
 AS_OF_DATE = "20260504"
 BUY_DATE = "20260505"
 T2_DATE = "20260507"

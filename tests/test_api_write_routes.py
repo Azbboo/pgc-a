@@ -220,7 +220,7 @@ class ApiWriteRoutesTest(unittest.TestCase):
             publish_response,
             trade_plan_id=42,
             payload={
-                "account_key": "paper-200k",
+                "account_key": "paper-main",
                 "operator": "tester",
                 "idempotency_key": "api:publish:42",
             },
@@ -242,7 +242,7 @@ class ApiWriteRoutesTest(unittest.TestCase):
         self.assertEqual(cancel_response.status_code, 200)
         publish_call, cancel_call = _FakePortfolioService.calls
         self.assertEqual(publish_call[0], "publish")
-        self.assertEqual(publish_call[2].account_key, "paper-200k")
+        self.assertEqual(publish_call[2].account_key, "paper-main")
         self.assertEqual(publish_call[3].source, "api")
         self.assertEqual(publish_call[3].idempotency_key, "api:publish:42")
         self.assertEqual(cancel_call[0], "cancel")
@@ -264,7 +264,7 @@ class ApiWriteRoutesTest(unittest.TestCase):
                 "executed_date": "2026-05-05",
                 "executed_price": 10.5,
                 "shares": 1000,
-                "account_key": "paper-200k",
+                "account_key": "paper-main",
                 "operator": "tester",
                 "idempotency_key": "api:trade:7",
             },
@@ -308,7 +308,7 @@ class ApiWriteRoutesTest(unittest.TestCase):
                 "executed_date": "20260505",
                 "executed_price": 10.5,
                 "shares": 1000,
-                "account_key": "paper-200k",
+                "account_key": "paper-main",
                 "operator": "tester",
                 "idempotency_key": "api:trade:account-mismatch",
             },
@@ -326,7 +326,7 @@ class ApiWriteRoutesTest(unittest.TestCase):
             response,
             payload={
                 "as_of_date": "2026-05-07",
-                "account_key": "paper-200k",
+                "account_key": "paper-main",
                 "generate_sell_plans": False,
                 "operator": "tester",
                 "idempotency_key": "api:exits:20260507",

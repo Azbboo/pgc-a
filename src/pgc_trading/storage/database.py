@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from pathlib import Path
 
@@ -23,32 +24,48 @@ def connect(db_path: Path | None = None) -> sqlite3.Connection:
 
 def init_db(db_path: Path | None = None) -> Path:
     path = db_path or Paths().db_path
-    with connect(path) as conn:
-        conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
-        _migrate(conn)
     run_migrations(path)
     return path
 
 
-def _has_column(conn: sqlite3.Connection, table: str, column: str) -> bool:
-    return any(row["name"] == column for row in conn.execute(f"PRAGMA table_info({table})").fetchall())
-
-
-def _migrate(conn: sqlite3.Connection) -> None:
-    if not _has_column(conn, "trades", "agent_decision_id"):
-        conn.execute("ALTER TABLE trades ADD COLUMN agent_decision_id INTEGER REFERENCES agent_decisions(id)")
-
-
 def seed_account(config: AccountConfig | None = None, db_path: Path | None = None) -> int:
     account = config or AccountConfig()
+    account_key = _account_key(account)
     with connect(db_path) as conn:
         conn.execute(
             """
-            INSERT OR IGNORE INTO portfolio_accounts
-              (name, account_type, initial_cash, max_positions, position_sizing)
-            VALUES (?, 'paper', ?, ?, ?)
+            INSERT INTO portfolio_accounts
+              (account_key, name, account_type, initial_cash, max_positions, position_sizing, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(account_key) DO UPDATE SET
+              name = excluded.name,
+              account_type = excluded.account_type,
+              initial_cash = excluded.initial_cash,
+              max_positions = excluded.max_positions,
+              position_sizing = excluded.position_sizing,
+              status = excluded.status
             """,
-            (account.name, account.initial_cash, account.max_positions, account.position_sizing),
+            (
+                account_key,
+                account.name,
+                account.account_type,
+                account.initial_cash,
+                account.max_positions,
+                account.position_sizing,
+                account.status,
+            ),
         )
-        row = conn.execute("SELECT id FROM portfolio_accounts WHERE name = ?", (account.name,)).fetchone()
+        row = conn.execute("SELECT id FROM portfolio_accounts WHERE account_key = ?", (account_key,)).fetchone()
     return int(row["id"])
+
+
+def _account_key(account: AccountConfig) -> str:
+    if account.account_key:
+        return str(account.account_key)
+
+    slug = re.sub(r"[^a-z0-9]+", "-", account.name.lower()).strip("-")
+    if not slug:
+        return f"{account.account_type}-account"
+    if slug == account.account_type or slug.startswith(f"{account.account_type}-"):
+        return slug
+    return f"{account.account_type}-{slug}"
