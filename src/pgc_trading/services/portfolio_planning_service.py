@@ -59,6 +59,23 @@ class CancelTradePlanRequest:
 
 
 @dataclass(frozen=True)
+class ListTradePlansRequest:
+    account_key: str | None = None
+    account_id: int | None = None
+    status: str | None = None
+    action: str | None = None
+    as_of_date: str | None = None
+    planned_trade_date: str | None = None
+    limit: int = 100
+
+
+@dataclass(frozen=True)
+class ListTradePlansResult:
+    account_id: int | None
+    trade_plans: list["TradePlanDTO"]
+
+
+@dataclass(frozen=True)
 class GenerateTradePlanResult:
     trade_plan_id: int | None
     action: str
@@ -111,6 +128,66 @@ class PortfolioPlanningService:
 
     def __init__(self, db_path: Path | None = None):
         self.db_path = db_path or Paths().db_path
+
+    def list_trade_plans(
+        self,
+        request: ListTradePlansRequest,
+        ctx: RequestContext,
+    ) -> ServiceResult[ListTradePlansResult]:
+        errors = _validate_list_trade_plans_request(request)
+        if errors:
+            return ServiceResult(
+                status="validation_failed",
+                request_id=ctx.request_id,
+                data=ListTradePlansResult(account_id=request.account_id, trade_plans=[]),
+                errors=errors,
+            )
+
+        with connect(self.db_path) as conn:
+            account = _resolve_account(conn, request.account_key, request.account_id)
+            if isinstance(account, ServiceError):
+                return ServiceResult(
+                    status="validation_failed",
+                    request_id=ctx.request_id,
+                    data=ListTradePlansResult(account_id=request.account_id, trade_plans=[]),
+                    errors=[account],
+                )
+
+            clauses = ["account_id = ?"]
+            params: list[object] = [account.id]
+            if request.status is not None:
+                clauses.append("status = ?")
+                params.append(request.status)
+            if request.action is not None:
+                clauses.append("action = ?")
+                params.append(request.action)
+            if request.as_of_date is not None:
+                clauses.append("as_of_date = ?")
+                params.append(request.as_of_date)
+            if request.planned_trade_date is not None:
+                clauses.append("planned_trade_date = ?")
+                params.append(request.planned_trade_date)
+
+            rows = conn.execute(
+                f"""
+                SELECT *
+                FROM trade_plans
+                WHERE {' AND '.join(clauses)}
+                ORDER BY planned_trade_date DESC, id DESC
+                LIMIT ?
+                """,
+                tuple([*params, request.limit]),
+            ).fetchall()
+
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data=ListTradePlansResult(
+                account_id=account.id,
+                trade_plans=[_trade_plan_dto(row) for row in rows],
+            ),
+            lineage={"account_id": account.id},
+        )
 
     def generate_buy_plan(
         self,
@@ -927,6 +1004,48 @@ def _trade_plan_dto(row: sqlite3.Row) -> TradePlanDTO:
         reason=row["reason"],
         cancel_reason=row["cancel_reason"],
     )
+
+
+def _validate_list_trade_plans_request(request: ListTradePlansRequest) -> list[ServiceError]:
+    errors: list[ServiceError] = []
+    if request.account_id is None and not request.account_key:
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="account_key or account_id is required."))
+    if request.account_id is not None and request.account_id <= 0:
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="account_id must be positive."))
+    if request.account_key is not None and not request.account_key.strip():
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="account_key cannot be blank when provided."))
+    if request.limit <= 0:
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="limit must be positive."))
+    if request.limit > 500:
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="limit must be 500 or less."))
+    if request.status is not None and request.status not in {
+        "draft",
+        "active",
+        "executed",
+        "skipped",
+        "cancelled",
+        "expired",
+        "superseded",
+    }:
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="status is invalid."))
+    if request.action is not None and request.action not in {
+        "buy_next_open",
+        "skip_no_cash",
+        "skip_max_positions",
+        "skip_agent_risk",
+        "skip_manual",
+        "hold",
+        "sell_t2_take_profit",
+        "sell_t2_stop_loss",
+        "sell_t5_timeout",
+        "manual_review",
+    }:
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="action is invalid."))
+    if request.as_of_date is not None and not is_yyyymmdd(request.as_of_date):
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="as_of_date must use YYYYMMDD format."))
+    if request.planned_trade_date is not None and not is_yyyymmdd(request.planned_trade_date):
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="planned_trade_date must use YYYYMMDD format."))
+    return errors
 
 
 def _plan_result_from_row(row: sqlite3.Row, *, idempotent: bool) -> GenerateTradePlanResult:

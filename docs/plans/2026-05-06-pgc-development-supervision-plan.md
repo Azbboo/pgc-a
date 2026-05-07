@@ -92,7 +92,7 @@ PGC_TEST_REDIS_PASSWORD=<local-only-secret-or-empty>
 | DEV6 Position Exit Decision CLI | done | DEV5 | position lifecycle/tests | T+2/T+5 review commands |
 | DEV7 Replay & Golden Regression | done | DEV2-DEV6 | tests/fixtures/replay | no-future replay gate |
 | DEV8 Test Server Sync POC | done | DEV3, DEV7 | scripts/adapters/docs | optional MySQL/Redis sync, no secrets |
-| DEV9 HTTP API P0 | ready | DEV1-DEV8 | API layer/tests | service-backed API |
+| DEV9 HTTP API P0 | in_progress | DEV1-DEV8 | API layer/tests | service-backed API |
 | DEV10 Dashboard P0 | deferred | DEV9 | frontend/API only | production Dashboard |
 
 ## 5. Work Packages
@@ -494,6 +494,16 @@ pgc exits-evaluate --date 2026-05-07 --db-path /private/tmp/pgc_cli.db
 - Non-dry write operations require `operator` and idempotency where supported.
 - Write endpoints can be disabled by environment for local safety.
 - API tests use temp DBs or fake services and do not touch `data/pgc_trading.db`.
+
+**DEV9A-B completion review (2026-05-07):**
+
+- Accepted: `docs/adr/2026-05-07-dev9-api-technology.md` records the FastAPI decision, optional `.[api]` dependency approach, and fallback behavior when FastAPI is not installed.
+- Accepted: `pyproject.toml` adds package metadata with no base runtime dependencies and optional API/test extras.
+- Accepted: `src/pgc_trading/api/` adds an import-safe app factory, settings, service factory wiring, stable response envelope, HTTP status mapping, and read-only route adapters.
+- Accepted: read endpoints for health, daily reviews, data quality, account positions, and trade plans call only service/query boundaries; API route modules do not import `sqlite3` or call `connect`.
+- Accepted: `PortfolioPlanningService.list_trade_plans` provides the required read-only trade-plan query behind the service layer and enforces account scoping.
+- Quality gate during completion review: DEV9A-B focused tests passed with 17 tests and 1 expected skip; full suite passed with 130 unittest tests and 1 skip, 129 pytest tests with 1 skip and 8 subtests; `compileall` passed; secret scan had no matches.
+- Remaining DEV9 work: DEV9C controlled write endpoints and write-disabled-by-default behavior.
 
 ## 6. Handoff Template For New Development Sessions
 

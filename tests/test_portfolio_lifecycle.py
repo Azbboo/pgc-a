@@ -13,6 +13,7 @@ from pgc_trading.services.execution_recording_service import (
 )
 from pgc_trading.services.portfolio_planning_service import (
     GenerateBuyPlanRequest,
+    ListTradePlansRequest,
     PortfolioPlanningService,
 )
 from pgc_trading.services.position_lifecycle_service import (
@@ -222,6 +223,42 @@ class PortfolioLifecycleServiceTest(unittest.TestCase):
             with sqlite3.connect(db_path) as conn:
                 self.assertEqual(self._count(conn, "trades"), 0)
                 self.assertEqual(self._count(conn, "positions"), 0)
+
+    def test_list_trade_plans_is_read_only_and_account_scoped(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._migrated_seeded_db(tmp)
+            plan_id = self._ready_buy_plan(db_path)
+            with sqlite3.connect(db_path) as conn:
+                other = conn.execute(
+                    """
+                    INSERT INTO portfolio_accounts
+                      (account_key, name, account_type, initial_cash, max_positions, position_sizing)
+                    VALUES
+                      ('paper-other', 'Other Paper', 'paper', 100000, 3, 'equal_slots')
+                    """
+                )
+                conn.execute(
+                    """
+                    INSERT INTO trade_plans
+                      (account_id, as_of_date, planned_trade_date, planned_buy_date, action, reason, plan_json, status)
+                    VALUES
+                      (?, ?, ?, ?, 'buy_next_open', 'other account plan', '{}', 'active')
+                    """,
+                    (int(other.lastrowid), AS_OF_DATE, BUY_DATE, BUY_DATE),
+                )
+
+            result = PortfolioPlanningService(db_path).list_trade_plans(
+                ListTradePlansRequest(account_key=ACCOUNT_KEY, status="active", as_of_date=AS_OF_DATE),
+                RequestContext(request_id="req-list-plans", source="api", dry_run=True),
+            )
+
+            self.assertEqual(result.status, "success")
+            self.assertEqual(result.data.account_id, 1)
+            self.assertEqual([plan.id for plan in result.data.trade_plans], [plan_id])
+            self.assertEqual(result.data.trade_plans[0].action, "buy_next_open")
+            self.assertEqual(result.lineage["account_id"], 1)
+            with sqlite3.connect(db_path) as conn:
+                self.assertEqual(self._count(conn, "trade_plans"), 2)
 
     def _migrated_seeded_db(self, tmp: str) -> Path:
         db_path = Path(tmp) / "pgc.db"
