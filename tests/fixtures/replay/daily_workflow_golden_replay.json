@@ -1,0 +1,300 @@
+{
+  "case_id": "cpb_v2_daily_workflow_20260504",
+  "review_date": "20260504",
+  "strategy_version": "cpb_v2@2026-05-06",
+  "calendar": [
+    {
+      "cal_date": "20260501",
+      "is_open": 1,
+      "pretrade_date": "20260430"
+    },
+    {
+      "cal_date": "20260504",
+      "is_open": 1,
+      "pretrade_date": "20260501"
+    },
+    {
+      "cal_date": "20260505",
+      "is_open": 1,
+      "pretrade_date": "20260504"
+    },
+    {
+      "cal_date": "20260506",
+      "is_open": 1,
+      "pretrade_date": "20260505"
+    }
+  ],
+  "raw_events": [
+    {
+      "id": 1,
+      "ts_code": "000002.SZ",
+      "code": "000002",
+      "name": "V2 Short Golden",
+      "entry_date": "20260424",
+      "entry_time": "15:00",
+      "entry_price": 10.0
+    },
+    {
+      "id": 2,
+      "ts_code": "000003.SZ",
+      "code": "000003",
+      "name": "V2 Elastic Golden",
+      "entry_date": "20260424",
+      "entry_time": "15:00",
+      "entry_price": 25.0
+    },
+    {
+      "id": 99,
+      "ts_code": "000099.SZ",
+      "code": "000099",
+      "name": "Future Poison Candidate",
+      "entry_date": "20260505",
+      "entry_time": "15:00",
+      "entry_price": 80.0
+    }
+  ],
+  "market_bars": {
+    "000002.SZ": [
+      {
+        "trade_date": "20260424",
+        "open": 9.6,
+        "high": 9.8,
+        "low": 9.5,
+        "close": 9.7,
+        "amount": 950.0
+      },
+      {
+        "trade_date": "20260427",
+        "open": 10.0,
+        "high": 10.2,
+        "low": 9.9,
+        "close": 10.0,
+        "amount": 1000.0
+      },
+      {
+        "trade_date": "20260428",
+        "open": 10.8,
+        "high": 11.2,
+        "low": 10.7,
+        "close": 11.0,
+        "amount": 1200.0
+      },
+      {
+        "trade_date": "20260429",
+        "open": 10.6,
+        "high": 10.7,
+        "low": 10.4,
+        "close": 10.5,
+        "amount": 1000.0
+      },
+      {
+        "trade_date": "20260430",
+        "open": 10.3,
+        "high": 10.4,
+        "low": 9.95,
+        "close": 10.0,
+        "amount": 800.0
+      },
+      {
+        "trade_date": "20260501",
+        "open": 9.8,
+        "high": 9.85,
+        "low": 9.55,
+        "close": 9.65,
+        "amount": 700.0
+      },
+      {
+        "trade_date": "20260504",
+        "open": 9.7,
+        "high": 10.0,
+        "low": 9.6,
+        "close": 9.9,
+        "amount": 900.0
+      },
+      {
+        "trade_date": "20260506",
+        "open": 99.0,
+        "high": 110.0,
+        "low": 90.0,
+        "close": 105.0,
+        "amount": 999999.0
+      }
+    ],
+    "000003.SZ": [
+      {
+        "trade_date": "20260424",
+        "open": 24.0,
+        "high": 24.5,
+        "low": 23.75,
+        "close": 24.25,
+        "amount": 950.0
+      },
+      {
+        "trade_date": "20260427",
+        "open": 25.0,
+        "high": 25.5,
+        "low": 24.75,
+        "close": 25.0,
+        "amount": 1000.0
+      },
+      {
+        "trade_date": "20260428",
+        "open": 27.0,
+        "high": 28.0,
+        "low": 26.75,
+        "close": 27.5,
+        "amount": 1200.0
+      },
+      {
+        "trade_date": "20260429",
+        "open": 26.5,
+        "high": 26.75,
+        "low": 26.0,
+        "close": 26.25,
+        "amount": 1000.0
+      },
+      {
+        "trade_date": "20260430",
+        "open": 25.75,
+        "high": 26.0,
+        "low": 24.875,
+        "close": 25.0,
+        "amount": 800.0
+      },
+      {
+        "trade_date": "20260501",
+        "open": 24.5,
+        "high": 24.625,
+        "low": 23.875,
+        "close": 24.125,
+        "amount": 500.0
+      },
+      {
+        "trade_date": "20260504",
+        "open": 24.25,
+        "high": 25.0,
+        "low": 24.0,
+        "close": 24.75,
+        "amount": 900.0
+      },
+      {
+        "trade_date": "20260506",
+        "open": 120.0,
+        "high": 130.0,
+        "low": 110.0,
+        "close": 125.0,
+        "amount": 999999.0
+      }
+    ],
+    "000099.SZ": [
+      {
+        "trade_date": "20260505",
+        "open": 80.0,
+        "high": 88.0,
+        "low": 79.0,
+        "close": 87.0,
+        "amount": 999999.0
+      }
+    ]
+  },
+  "context_snapshots": [
+    {
+      "raw_event_id": 1,
+      "ts_code": "000002.SZ",
+      "review_date": "20260504",
+      "feature_version": "big_winner_potential.v1",
+      "features": {
+        "industry": "食品饮料",
+        "bigwin_score": 80.0,
+        "gap_from_trigger_close": 0.01,
+        "future_return_20d": 0.42
+      }
+    },
+    {
+      "raw_event_id": 2,
+      "ts_code": "000003.SZ",
+      "review_date": "20260504",
+      "feature_version": "big_winner_potential.v1",
+      "features": {
+        "industry": "软件服务",
+        "bigwin_score": 80.0,
+        "gap_from_trigger_close": 0.01,
+        "future_return_20d": 0.88
+      }
+    },
+    {
+      "raw_event_id": 2,
+      "ts_code": "000003.SZ",
+      "review_date": "20260506",
+      "feature_version": "big_winner_potential.v1",
+      "features": {
+        "industry": "证券",
+        "bigwin_score": 0.0,
+        "gap_from_trigger_close": 0.5,
+        "future_return_20d": -0.99
+      }
+    }
+  ],
+  "expected": {
+    "status": "success",
+    "signals_count": 2,
+    "signals": [
+      {
+        "ts_code": "000003.SZ",
+        "signal_rank": 1,
+        "signal_status": "daily_pick",
+        "planned_buy_date": "20260505",
+        "score": 123.6018,
+        "feature_version": "contracting_pullback.cpb_v2_inputs.v1",
+        "input_hash": "25de9327e1a14d87757a3c563aa9ae40536fe995335cb33530988a4646a1e9d9",
+        "latest_bar_date": "20260504",
+        "context_source_review_date": "20260504",
+        "context_source_feature_version": "big_winner_potential.v1",
+        "observation_sleeve": true,
+        "short_sleeve_weight": 0.7,
+        "observation_sleeve_weight": 0.3
+      },
+      {
+        "ts_code": "000002.SZ",
+        "signal_rank": 2,
+        "signal_status": "candidate",
+        "planned_buy_date": "20260505",
+        "score": 109.8518,
+        "feature_version": "contracting_pullback.cpb_v2_inputs.v1",
+        "input_hash": "cf167055ba9de59452a80579269ea03336037f56875b90eea88e59d85a5ea6c6",
+        "latest_bar_date": "20260504",
+        "context_source_review_date": "20260504",
+        "context_source_feature_version": "big_winner_potential.v1",
+        "observation_sleeve": false,
+        "short_sleeve_weight": 1.0,
+        "observation_sleeve_weight": 0.0
+      }
+    ],
+    "selected_candidate": {
+      "ts_code": "000003.SZ",
+      "name": "V2 Elastic Golden",
+      "review_date": "20260504",
+      "planned_buy_date": "20260505",
+      "score": 123.6018,
+      "signal_rank": 1,
+      "selection_reason": "highest_score_rank_1: 123.6018",
+      "feature_version": "contracting_pullback.cpb_v2_inputs.v1",
+      "input_hash": "25de9327e1a14d87757a3c563aa9ae40536fe995335cb33530988a4646a1e9d9"
+    },
+    "no_future_proof": {
+      "feature_run_as_of_date": "20260504",
+      "planned_buy_date": "20260505",
+      "latest_bar_date": "20260504",
+      "context_source_review_date": "20260504",
+      "snapshot_ts_codes": [
+        "000002.SZ",
+        "000003.SZ"
+      ],
+      "signal_ts_codes": [
+        "000003.SZ",
+        "000002.SZ"
+      ],
+      "forbidden_feature_tokens_absent": true
+    }
+  }
+}

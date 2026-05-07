@@ -90,7 +90,7 @@ PGC_TEST_REDIS_PASSWORD=<local-only-secret-or-empty>
 | DEV4 Tushare Runtime Adapter Hardening | done | WP10 | market adapter/config/tests | env-driven real fetch guardrails |
 | DEV5 Execution Recording CLI | done | DEV1, WP12 | CLI + portfolio services/tests | record buy/sell execution safely |
 | DEV6 Position Exit Decision CLI | done | DEV5 | position lifecycle/tests | T+2/T+5 review commands |
-| DEV7 Replay & Golden Regression | todo | DEV2-DEV6 | tests/fixtures/replay | no-future replay gate |
+| DEV7 Replay & Golden Regression | done | DEV2-DEV6 | tests/fixtures/replay | no-future replay gate |
 | DEV8 Test Server Sync POC | todo | DEV3, DEV7 | scripts/adapters/docs | optional MySQL/Redis sync, no secrets |
 | DEV9 HTTP API P0 | deferred | DEV1-DEV7 | API layer/tests | service-backed API |
 | DEV10 Dashboard P0 | deferred | DEV9 | frontend/API only | production Dashboard |
@@ -416,6 +416,14 @@ pgc exits-evaluate --date 2026-05-07 --db-path /private/tmp/pgc_cli.db
 - Replay uses only data visible by the review date.
 - Golden result includes selected candidate, planned date, and no-future proof fields.
 - Changing strategy inputs changes hash or fails test.
+
+**DEV7 completion review (2026-05-07):**
+
+- Accepted: `tests/test_daily_workflow_replay.py` now replays a seeded CPB V2 daily workflow from `tests/fixtures/replay/daily_workflow_golden_replay.json`.
+- Accepted: golden output pins selected candidate `000003.SZ`, planned buy date `20260505`, ranked signals, feature input hashes, and no-future proof fields.
+- Accepted: fixture includes future market bars, a future raw event, a future context snapshot, and future-label context fields; replay output remains capped to review date `20260504`.
+- Accepted: visible strategy input mutation changes the selected candidate snapshot hash and breaks the golden comparison.
+- Quality gate during completion review: DEV7 focused tests passed with 2 tests; CPB V2/daily review related tests passed with 26 tests; full suite passed with 112 tests via both pytest and unittest; `compileall` passed.
 
 ### DEV8: Test Server Sync POC
 
