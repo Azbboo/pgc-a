@@ -18,8 +18,8 @@ class DashboardStaticTest(unittest.TestCase):
 
         self.assertTrue((DASHBOARD_DIR / "styles.css").exists())
         self.assertTrue((DASHBOARD_DIR / "app.js").exists())
-        self.assertIn('href="./styles.css"', index)
-        self.assertIn('src="./app.js"', index)
+        self.assertIn('href="./assets/styles.css"', index)
+        self.assertIn('src="./assets/app.js"', index)
 
     def test_dashboard_covers_p0_pages(self) -> None:
         source = "\n".join(
@@ -96,6 +96,8 @@ class DashboardStaticTest(unittest.TestCase):
 
         self.assertIn('const DEFAULT_ACCOUNT_KEY = "paper-main"', script)
         self.assertIn('const LEGACY_DEFAULT_ACCOUNT_KEY = "paper-200k"', script)
+        self.assertIn('const DEFAULT_API_BASE = window.location.pathname.startsWith("/pgc/") ? "/pgc" : ""', script)
+        self.assertIn('apiBase: localStorage.getItem("pgc.dashboard.apiBase") || DEFAULT_API_BASE', script)
         self.assertIn("accountKey: dashboardAccountKey()", script)
         self.assertIn("localStorage.setItem(\"pgc.dashboard.accountKey\", DEFAULT_ACCOUNT_KEY)", script)
         self.assertIn("function renderOpeningExitQueue()", script)

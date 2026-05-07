@@ -1,10 +1,11 @@
 const DEFAULT_STRATEGY_VERSION = "cpb_6157@2026-05-03";
 const DEFAULT_ACCOUNT_KEY = "paper-main";
 const LEGACY_DEFAULT_ACCOUNT_KEY = "paper-200k";
+const DEFAULT_API_BASE = window.location.pathname.startsWith("/pgc/") ? "/pgc" : "";
 const CANCEL_REASON_CHOICES = ["高开过大", "停牌/不可交易", "重大利空", "人工跳过"];
 
 const state = {
-  apiBase: localStorage.getItem("pgc.dashboard.apiBase") || "",
+  apiBase: localStorage.getItem("pgc.dashboard.apiBase") || DEFAULT_API_BASE,
   accountKey: dashboardAccountKey(),
   accountId: localStorage.getItem("pgc.dashboard.accountId") || "",
   asOfDate: localStorage.getItem("pgc.dashboard.asOfDate") || localDateCompact(),
