@@ -29,6 +29,10 @@ from pgc_trading.services.execution_recording_service import (
     RecordPositionSellRequest,
     RecordTradeRequest,
 )
+from pgc_trading.services.operational_readiness_service import (
+    OperationalReadinessService,
+    PaperReadinessRequest,
+)
 from pgc_trading.services.position_lifecycle_service import (
     EvaluateExitsRequest,
     ListPositionsRequest,
@@ -42,6 +46,7 @@ CloseServiceFactory = Callable[[Path], DailyCloseWorkflowService]
 ReportServiceFactory = Callable[[Path], ReportingQueryService]
 ExecutionServiceFactory = Callable[[Path], ExecutionRecordingService]
 PositionServiceFactory = Callable[[Path], PositionLifecycleService]
+OperationalReadinessServiceFactory = Callable[[Path], OperationalReadinessService]
 
 
 @dataclass(frozen=True)
@@ -51,6 +56,7 @@ class CommandServices:
     report_service_factory: ReportServiceFactory = ReportingQueryService
     execution_service_factory: ExecutionServiceFactory = ExecutionRecordingService
     position_service_factory: PositionServiceFactory = PositionLifecycleService
+    operational_readiness_service_factory: OperationalReadinessServiceFactory = OperationalReadinessService
 
 
 class PgcArgumentParser(argparse.ArgumentParser):
@@ -229,6 +235,23 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
     _add_lifecycle_context_arguments(exits_evaluate)
     _add_db_path_argument(exits_evaluate)
     exits_evaluate.set_defaults(handler=_run_exits_evaluate)
+
+    paper_readiness = subparsers.add_parser(
+        "paper-readiness",
+        help="check whether the paper account can enter live-preparation work",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    _add_date_argument(paper_readiness)
+    _add_account_arguments(paper_readiness)
+    paper_readiness.add_argument(
+        "--min-trades",
+        type=_positive_int,
+        default=10,
+        help="minimum executed paper trades required to pass",
+    )
+    _add_db_path_argument(paper_readiness)
+    paper_readiness.set_defaults(handler=_run_paper_readiness)
 
     return parser
 
@@ -450,6 +473,38 @@ def _run_exits_evaluate(args: argparse.Namespace, stdout: TextIO, services: Comm
         return 1
 
     _write_exit_evaluation_result(stdout, args.command, as_of_date, db_path, result)
+    return 0 if result.ok else 1
+
+
+def _run_paper_readiness(args: argparse.Namespace, stdout: TextIO, services: CommandServices) -> int:
+    db_path = _normalized_db_path(args.db_path)
+    as_of_date = args.date
+
+    if not db_path.exists():
+        _write_routed_message(
+            stdout,
+            args.command,
+            as_of_date,
+            db_path,
+            "database not found; paper readiness gate was not run and no writes were performed",
+        )
+        return 1
+
+    service = services.operational_readiness_service_factory(db_path)
+    request = PaperReadinessRequest(
+        as_of_date=as_of_date,
+        account_key=args.account_key,
+        account_id=args.account_id,
+        min_trades=args.min_trades,
+    )
+    ctx = RequestContext(request_id="cli-paper-readiness", dry_run=True, operator="cli", source="cli")
+    try:
+        result = service.check_paper_readiness(request, ctx)
+    except sqlite3.OperationalError as exc:
+        stdout.write(f"paper-readiness failed for {as_of_date}: database is not initialized or is incompatible: {exc}\n")
+        return 1
+
+    _write_paper_readiness_result(stdout, args.command, as_of_date, db_path, result)
     return 0 if result.ok else 1
 
 
@@ -808,6 +863,28 @@ def _write_exit_evaluation_result(
             stdout.write(f"- position_id={skipped.position_id} reason={skipped.reason}\n")
 
     stdout.write("sell trades recorded by this command: 0\n")
+
+
+def _write_paper_readiness_result(
+    stdout: TextIO,
+    command: str,
+    date: str,
+    db_path: Path,
+    result: ServiceResult[object],
+) -> None:
+    _write_routed_message(stdout, command, date, db_path, f"service returned {result.status}")
+    _write_warnings_and_errors(stdout, result)
+    data = result.data
+    if data is None:
+        return
+
+    stdout.write(f"readiness={getattr(data, 'readiness', 'n/a')}\n")
+    stdout.write(f"trades_count={getattr(data, 'trades_count', 0)}\n")
+    stdout.write(f"open_positions_count={getattr(data, 'open_positions_count', 0)}\n")
+    stdout.write(f"due_exit_positions_count={getattr(data, 'due_exit_positions_count', 0)}\n")
+    stdout.write(f"open_blockers_count={getattr(data, 'open_blockers_count', 0)}\n")
+    invariant_ok = bool(getattr(data, "invariant_ok", False))
+    stdout.write(f"invariant_ok={str(invariant_ok).lower()}\n")
 
 
 def _write_warnings_and_errors(stdout: TextIO, result: ServiceResult[object]) -> None:

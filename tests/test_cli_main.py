@@ -84,10 +84,38 @@ class _UnexpectedReviewService:
         raise AssertionError(f"review service should not be built for missing db: {db_path}")
 
 
+@dataclass(frozen=True)
+class _FakeReadinessData:
+    account_key: str = "paper-main"
+    as_of_date: str = "20260507"
+    readiness: str = "pass"
+    trades_count: int = 10
+    open_positions_count: int = 0
+    due_exit_positions_count: int = 0
+    open_blockers_count: int = 0
+    invariant_ok: bool = True
+
+
+class _FakeReadinessService:
+    calls: list[tuple[Path, object, RequestContext]] = []
+
+    def __init__(self, db_path: Path):
+        self.db_path = db_path
+
+    def check_paper_readiness(self, request, ctx: RequestContext) -> ServiceResult[_FakeReadinessData]:
+        self.calls.append((self.db_path, request, ctx))
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data=_FakeReadinessData(as_of_date=request.as_of_date),
+        )
+
+
 class CliMainTest(unittest.TestCase):
     def setUp(self) -> None:
         _FakeReviewService.calls = []
         _FakeCloseService.calls = []
+        _FakeReadinessService.calls = []
 
     def test_help_lists_command_surface(self) -> None:
         stdout = io.StringIO()
@@ -105,6 +133,7 @@ class CliMainTest(unittest.TestCase):
             "record-sell",
             "positions",
             "exits-evaluate",
+            "paper-readiness",
         ]:
             self.assertIn(command, output)
 
@@ -216,6 +245,45 @@ class CliMainTest(unittest.TestCase):
             self.assertFalse(db_path.exists())
             self.assertIn("database not found", stdout.getvalue())
             self.assertIn("20260504", stdout.getvalue())
+
+    def test_paper_readiness_routes_to_service_and_prints_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc_readiness.db"
+            db_path.touch()
+            stdout = io.StringIO()
+            code = main(
+                [
+                    "paper-readiness",
+                    "--date",
+                    "2026-05-07",
+                    "--account",
+                    "paper-main",
+                    "--min-trades",
+                    "12",
+                    "--db-path",
+                    str(db_path),
+                ],
+                stdout=stdout,
+                services=CommandServices(operational_readiness_service_factory=_FakeReadinessService),
+            )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(len(_FakeReadinessService.calls), 1)
+        called_db_path, request, ctx = _FakeReadinessService.calls[0]
+        self.assertEqual(called_db_path, db_path)
+        self.assertEqual(request.as_of_date, "20260507")
+        self.assertEqual(request.account_key, "paper-main")
+        self.assertEqual(request.min_trades, 12)
+        self.assertTrue(ctx.dry_run)
+        self.assertEqual(ctx.operator, "cli")
+        output = stdout.getvalue()
+        self.assertIn("service returned success", output)
+        self.assertIn("readiness=pass", output)
+        self.assertIn("trades_count=10", output)
+        self.assertIn("open_positions_count=0", output)
+        self.assertIn("due_exit_positions_count=0", output)
+        self.assertIn("open_blockers_count=0", output)
+        self.assertIn("invariant_ok=true", output)
 
     def test_report_command_routes_as_noop(self) -> None:
         stdout = io.StringIO()
