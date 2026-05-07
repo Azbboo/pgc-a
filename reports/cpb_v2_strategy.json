@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-06T14:06:20.604315+00:00",
+  "generated_at": "2026-05-07T09:02:30.407714+00:00",
   "outputs": {
     "trades": "/Users/azboo/Desktop/Person/pgc/data/cpb_v2_strategy_trades.csv",
     "current": "/Users/azboo/Desktop/Person/pgc/data/cpb_v2_current_plan.csv",
@@ -8,47 +8,47 @@
   "summary": [
     {
       "group": "V1全部CPB",
-      "ret_n": 48,
-      "ret_win_rate": 0.625,
-      "ret_mean": 0.0144,
-      "ret_median": 0.0246,
-      "ret_p25": -0.0453,
-      "ret_p75": 0.0623,
+      "ret_n": 45,
+      "ret_win_rate": 0.6889,
+      "ret_mean": 0.0347,
+      "ret_median": 0.0465,
+      "ret_p25": -0.043,
+      "ret_p75": 0.0847,
       "ret_min": -0.127,
-      "ret_max": 0.1534
+      "ret_max": 0.2494
     },
     {
       "group": "V2过滤后",
-      "ret_n": 35,
-      "ret_win_rate": 0.8,
-      "ret_mean": 0.0327,
-      "ret_median": 0.038,
-      "ret_p25": 0.0085,
-      "ret_p75": 0.0663,
+      "ret_n": 36,
+      "ret_win_rate": 0.75,
+      "ret_mean": 0.0437,
+      "ret_median": 0.0469,
+      "ret_p25": 0.0012,
+      "ret_p75": 0.0873,
       "ret_min": -0.0997,
-      "ret_max": 0.134
+      "ret_max": 0.2494
     },
     {
       "group": "V2短线仓",
-      "ret_n": 29,
-      "ret_win_rate": 0.7931,
-      "ret_mean": 0.0329,
-      "ret_median": 0.038,
-      "ret_p25": 0.0025,
-      "ret_p75": 0.0764,
+      "ret_n": 31,
+      "ret_win_rate": 0.7097,
+      "ret_mean": 0.039,
+      "ret_median": 0.0408,
+      "ret_p25": -0.0225,
+      "ret_p75": 0.0865,
       "ret_min": -0.0997,
-      "ret_max": 0.134
+      "ret_max": 0.2494
     },
     {
       "group": "V2含观察仓",
-      "ret_n": 6,
-      "ret_win_rate": 0.8333,
-      "ret_mean": 0.0317,
-      "ret_median": 0.0387,
-      "ret_p25": 0.0186,
-      "ret_p75": 0.0547,
-      "ret_min": -0.0381,
-      "ret_max": 0.0791
+      "ret_n": 5,
+      "ret_win_rate": 1.0,
+      "ret_mean": 0.0726,
+      "ret_median": 0.0563,
+      "ret_p25": 0.05,
+      "ret_p75": 0.0869,
+      "ret_min": 0.0156,
+      "ret_max": 0.1539
     }
   ],
   "current": [

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-07T08:58:14+00:00",
+  "generated_at": "2026-05-07T09:02:37+00:00",
   "review_date": "20260507",
   "next_trade_date": "20260508",
   "variant_id": "cpb_6157",
@@ -64,9 +64,9 @@
       "max_chase_price": 14.02,
       "no_buy_above": 14.3,
       "financial_flag": false,
-      "swing_watch": false,
+      "swing_watch": true,
       "v2_action": "优先买点",
-      "position_plan": "短线仓或不做"
+      "position_plan": "不追高成交后:70%短线+30%观察"
     },
     {
       "ts_code": "300250.SZ",
