@@ -561,6 +561,7 @@ class CliMainTest(unittest.TestCase):
         self.assertEqual(called_db_path, db_path)
         self.assertEqual(request.daily_pick_id, 1)
         self.assertEqual(request.account_key, "paper-main")
+        self.assertEqual(request.mode, "local_snapshot_mode")
         self.assertFalse(request.online_tools)
         self.assertEqual(request.llm_provider, "deepseek")
         self.assertEqual(request.deep_think_llm, "deepseek-v4-pro")
@@ -593,6 +594,8 @@ class CliMainTest(unittest.TestCase):
                     "--apply",
                     "--operator",
                     "azboo",
+                    "--mode",
+                    "external_graph_mode",
                     "--online-tools",
                     "--llm-provider",
                     "openai",
@@ -613,6 +616,7 @@ class CliMainTest(unittest.TestCase):
         _, request, ctx = _FakeAgentReviewService.calls[0]
         self.assertFalse(ctx.dry_run)
         self.assertEqual(ctx.operator, "azboo")
+        self.assertEqual(request.mode, "external_graph_mode")
         self.assertTrue(request.online_tools)
         self.assertEqual(request.llm_provider, "openai")
         self.assertEqual(request.deep_think_llm, "gpt-5.4")

@@ -87,6 +87,16 @@ class TradingAgentsRunner:
         config: TradingAgentsRunConfig,
         paths: TradingAgentsPaths,
     ) -> TradingAgentsExecutionResult:
+        if config.mode == "local_snapshot_mode":
+            return self._run_local_snapshot_review(snapshot, config)
+        return self._run_external_graph(snapshot, config, paths)
+
+    def _run_external_graph(
+        self,
+        snapshot: dict[str, Any],
+        config: TradingAgentsRunConfig,
+        paths: TradingAgentsPaths,
+    ) -> TradingAgentsExecutionResult:
         try:
             graph_module = importlib.import_module("tradingagents.graph.trading_graph")
             default_config_module = importlib.import_module("tradingagents.default_config")
@@ -118,6 +128,27 @@ class TradingAgentsRunner:
         graph = graph_cls(analysts, config=default_config, debug=False)
         final_state, raw_decision = graph.propagate(ticker, as_of_date)
         return parse_tradingagents_output(raw_decision, final_state)
+
+    def _run_local_snapshot_review(
+        self,
+        snapshot: dict[str, Any],
+        config: TradingAgentsRunConfig,
+    ) -> TradingAgentsExecutionResult:
+        try:
+            llm_clients_module = importlib.import_module("tradingagents.llm_clients")
+        except ModuleNotFoundError as exc:
+            raise TradingAgentsUnavailable(
+                "optional package 'tradingagents' is not installed; install TauricResearch/TradingAgents to run external advisory"
+            ) from exc
+
+        create_llm_client = getattr(llm_clients_module, "create_llm_client")
+        client = create_llm_client(
+            provider=config.llm_provider,
+            model=config.deep_think_llm,
+            base_url=None,
+        )
+        response = client.get_llm().invoke(_build_local_snapshot_prompt(snapshot, config))
+        return parse_local_snapshot_output(_response_text(response), snapshot, config)
 
 
 def build_input_snapshot(candidate: dict, as_of_date: str, source_refs: list[str]) -> dict:
@@ -158,6 +189,61 @@ def parse_tradingagents_output(raw_decision: Any, final_state: Any | None = None
         raw_decision=raw_decision_json,
         raw_state=_json_safe(final_state) if final_state is not None else None,
         final_report=decision_text,
+    )
+
+
+def parse_local_snapshot_output(
+    response_text: str,
+    snapshot: dict[str, Any],
+    config: TradingAgentsRunConfig,
+) -> TradingAgentsExecutionResult:
+    parsed, parse_error = _load_response_json(response_text)
+    candidate = snapshot.get("candidate", {})
+    if parsed is None:
+        action = _map_action(response_text)
+        risk_level = _map_risk_level(action, response_text)
+        summary = _summary_from_output({}, response_text)
+        supporting_points: list[str] = []
+        risk_points = [parse_error] if parse_error else []
+        parsed = {}
+    else:
+        action = _normalize_action(parsed.get("action"), response_text)
+        risk_level = _normalize_risk_level(parsed.get("risk_level"), action, response_text)
+        summary = _non_blank_or(parsed.get("summary"), _summary_from_output(parsed, response_text))
+        supporting_points = _string_list(parsed.get("supporting_points"))
+        risk_points = _string_list(parsed.get("risk_points"))
+
+    confidence = _normalize_confidence(parsed.get("confidence"))
+    raw_decision = {
+        "schema_version": "1.0",
+        "agent_system": config.agent_system,
+        "mode": config.mode,
+        "llm_provider": config.llm_provider,
+        "deep_think_llm": config.deep_think_llm,
+        "quick_think_llm": config.quick_think_llm,
+        "max_debate_rounds": config.max_debate_rounds,
+        "max_risk_discuss_rounds": config.max_risk_discuss_rounds,
+        "ticker": candidate.get("ts_code"),
+        "action": action,
+        "risk_level": risk_level,
+        "summary": summary,
+        "supporting_points": supporting_points,
+        "risk_points": risk_points,
+        "raw_response": response_text,
+    }
+    if parse_error:
+        raw_decision["parse_error"] = parse_error
+
+    return TradingAgentsExecutionResult(
+        action=action,
+        confidence=confidence,
+        risk_level=risk_level,
+        summary=summary,
+        supporting_points=supporting_points,
+        risk_points=risk_points,
+        raw_decision=raw_decision,
+        raw_state={"snapshot": _json_safe(snapshot), "config": json.loads(config.to_json())},
+        final_report=_format_local_snapshot_report(summary, supporting_points, risk_points, response_text),
     )
 
 
@@ -219,6 +305,125 @@ def _summary_from_output(raw_decision: Any, decision_text: str) -> str:
             return str(summary)
     compact = " ".join(decision_text.split())
     return compact[:240] if compact else "TradingAgents returned no readable advisory."
+
+
+def _build_local_snapshot_prompt(snapshot: dict[str, Any], config: TradingAgentsRunConfig) -> str:
+    snapshot_json = json.dumps(snapshot, ensure_ascii=False, sort_keys=True, indent=2)
+    return f"""You are the TradingAgents advisory layer for a paper-trading workflow.
+
+Use only the supplied local database snapshot. Do not request live prices, news,
+fundamentals, web pages, or external tools. The deterministic strategy and
+portfolio system remain the source of truth; your output is advisory only.
+
+Weigh a bull case and bear case for up to {config.max_debate_rounds} concise
+rounds internally, then return only one JSON object with this schema:
+{{
+  "action": "support | caution | reject | no_opinion",
+  "confidence": 0.0,
+  "risk_level": "low | medium | high | unknown",
+  "summary": "one short advisory summary",
+  "supporting_points": ["concise evidence from the snapshot"],
+  "risk_points": ["concise risks from the snapshot"]
+}}
+
+Snapshot:
+{snapshot_json}
+"""
+
+
+def _response_text(response: Any) -> str:
+    content = getattr(response, "content", response)
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                parts.append(str(item.get("text", "")))
+            elif isinstance(item, str):
+                parts.append(item)
+        return "\n".join(part for part in parts if part).strip()
+    return str(content).strip()
+
+
+def _load_response_json(response_text: str) -> tuple[dict[str, Any] | None, str | None]:
+    stripped = _strip_code_fence(response_text)
+    try:
+        loaded = json.loads(stripped)
+    except json.JSONDecodeError:
+        start = stripped.find("{")
+        end = stripped.rfind("}")
+        if start == -1 or end <= start:
+            return None, "TradingAgents local snapshot response was not JSON."
+        try:
+            loaded = json.loads(stripped[start : end + 1])
+        except json.JSONDecodeError as exc:
+            return None, f"TradingAgents local snapshot response JSON could not be parsed: {exc}"
+    if not isinstance(loaded, dict):
+        return None, "TradingAgents local snapshot response JSON was not an object."
+    return loaded, None
+
+
+def _strip_code_fence(value: str) -> str:
+    stripped = value.strip()
+    if not stripped.startswith("```"):
+        return stripped
+    lines = stripped.splitlines()
+    if lines and lines[0].strip().startswith("```"):
+        lines = lines[1:]
+    if lines and lines[-1].strip().startswith("```"):
+        lines = lines[:-1]
+    return "\n".join(lines).strip()
+
+
+def _normalize_action(value: Any, fallback_text: str) -> str:
+    action = str(value or "").strip().lower()
+    if action in {"support", "caution", "reject", "no_opinion"}:
+        return action
+    return _map_action(fallback_text)
+
+
+def _normalize_risk_level(value: Any, action: str, fallback_text: str) -> str:
+    risk_level = str(value or "").strip().lower()
+    if risk_level in {"low", "medium", "high", "unknown"}:
+        return risk_level
+    return _map_risk_level(action, fallback_text)
+
+
+def _normalize_confidence(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        confidence = float(value)
+    except (TypeError, ValueError):
+        return None
+    if confidence < 0 or confidence > 1:
+        return None
+    return confidence
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _non_blank_or(value: Any, fallback: str) -> str:
+    normalized = str(value or "").strip()
+    return normalized if normalized else fallback
+
+
+def _format_local_snapshot_report(
+    summary: str,
+    supporting_points: list[str],
+    risk_points: list[str],
+    response_text: str,
+) -> str:
+    lines = ["# TradingAgents Local Snapshot Advisory", "", summary]
+    if supporting_points:
+        lines.extend(["", "## Supporting Points", *[f"- {point}" for point in supporting_points]])
+    if risk_points:
+        lines.extend(["", "## Risk Points", *[f"- {point}" for point in risk_points]])
+    lines.extend(["", "## Raw Response", response_text])
+    return "\n".join(lines).strip() + "\n"
 
 
 def _json_safe(value: Any) -> Any:

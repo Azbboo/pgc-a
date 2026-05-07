@@ -317,6 +317,12 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
         help="allow external TradingAgents tools to fetch online data if the optional package is installed",
     )
     agent_review.add_argument(
+        "--mode",
+        choices=["local_snapshot_mode", "external_graph_mode"],
+        default="local_snapshot_mode",
+        help="TradingAgents execution mode; local_snapshot_mode uses PGC database snapshots only",
+    )
+    agent_review.add_argument(
         "--llm-provider",
         default="deepseek",
         help="TradingAgents LLM provider, for example deepseek, openai, google, anthropic, qwen",
@@ -685,6 +691,7 @@ def _run_agent_review(args: argparse.Namespace, stdout: TextIO, services: Comman
         daily_pick_id=args.daily_pick_id,
         account_key=args.account_key,
         account_id=args.account_id,
+        mode=args.mode,
         online_tools=args.online_tools,
         llm_provider=args.llm_provider,
         deep_think_llm=args.deep_think_llm,
