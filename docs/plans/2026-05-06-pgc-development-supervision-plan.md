@@ -88,7 +88,7 @@ PGC_TEST_REDIS_PASSWORD=<local-only-secret-or-empty>
 | DEV2 DailyCloseWorkflowService | done | WP8-WP12 | services/workflow/tests | one-call daily close orchestration |
 | DEV3 Daily Review Report Output | done | DEV2 | reporting/templates/tests | Markdown/JSON daily report |
 | DEV4 Tushare Runtime Adapter Hardening | done | WP10 | market adapter/config/tests | env-driven real fetch guardrails |
-| DEV5 Execution Recording CLI | todo | DEV1, WP12 | CLI + portfolio services/tests | record buy/sell execution safely |
+| DEV5 Execution Recording CLI | done | DEV1, WP12 | CLI + portfolio services/tests | record buy/sell execution safely |
 | DEV6 Position Exit Decision CLI | todo | DEV5 | position lifecycle/tests | T+2/T+5 review commands |
 | DEV7 Replay & Golden Regression | todo | DEV2-DEV6 | tests/fixtures/replay | no-future replay gate |
 | DEV8 Test Server Sync POC | todo | DEV3, DEV7 | scripts/adapters/docs | optional MySQL/Redis sync, no secrets |
@@ -359,6 +359,14 @@ pgc record-sell --position-id 88 --date 2026-05-07 --price 10.92 --shares 6600 -
 - Sell execution reduces/closes position via service layer.
 - Invalid plan or share count fails safely.
 - Account isolation is enforced.
+
+**DEV5 completion review (2026-05-07):**
+
+- Accepted: `pgc record-buy` now calls `ExecutionRecordingService.record_trade` with a `RecordTradeRequest`; the CLI does not write trade, position, or equity tables directly.
+- Accepted: `pgc record-sell` now calls `ExecutionRecordingService.record_position_sell` with a `RecordPositionSellRequest`; direct sell-by-position enforces account ownership, open-position status, and full-share sell constraint.
+- Accepted: buy execution creates a trade, position, plan execution state, and equity snapshot; sell execution closes the position and records a sell trade.
+- Accepted: invalid plan IDs and invalid A-share board-lot share counts fail without creating trades or positions; account mismatch blocks sell execution.
+- Quality gate during completion review: DEV5 focused tests passed with 17 tests; full suite passed with 108 tests; `compileall` passed; token/server-password and common secret scans had no matches; `data/pgc_trading.db` and live plan output files were not modified.
 
 ### DEV6: Position Exit Decision CLI
 
