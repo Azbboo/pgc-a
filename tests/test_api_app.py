@@ -50,6 +50,16 @@ class ApiAppTest(unittest.TestCase):
         self.assertEqual(payload["status"], "ok")
         self.assertTrue(payload["writes_enabled"])
 
+    def test_openapi_schema_builds_when_fastapi_is_available(self) -> None:
+        if importlib.util.find_spec("fastapi") is None:
+            self.skipTest("FastAPI is not installed in this environment")
+
+        app = create_app(ApiSettings(db_path=Path("/tmp/pgc.db"), enable_writes=False))
+        schema = app.openapi()
+
+        self.assertIn("/api/health", schema["paths"])
+        self.assertIn("/api/daily-reviews/{as_of_date}", schema["paths"])
+
     def test_service_result_envelope_preserves_contract_shape(self) -> None:
         result = ServiceResult(
             status="validation_failed",
