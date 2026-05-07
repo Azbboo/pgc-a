@@ -101,6 +101,7 @@ class TradingAgentsRunner:
                 "project_dir": str(paths.results_dir),
                 "results_dir": str(paths.results_dir),
                 "data_cache_dir": str(paths.cache_dir),
+                "memory_log_path": str(paths.memory_log_path),
                 "online_tools": config.online_tools,
                 "deep_think_llm": config.deep_think_llm,
                 "quick_think_llm": config.quick_think_llm,
