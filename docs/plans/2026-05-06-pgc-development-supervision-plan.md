@@ -92,7 +92,7 @@ PGC_TEST_REDIS_PASSWORD=<local-only-secret-or-empty>
 | DEV6 Position Exit Decision CLI | done | DEV5 | position lifecycle/tests | T+2/T+5 review commands |
 | DEV7 Replay & Golden Regression | done | DEV2-DEV6 | tests/fixtures/replay | no-future replay gate |
 | DEV8 Test Server Sync POC | done | DEV3, DEV7 | scripts/adapters/docs | optional MySQL/Redis sync, no secrets |
-| DEV9 HTTP API P0 | deferred | DEV1-DEV7 | API layer/tests | service-backed API |
+| DEV9 HTTP API P0 | ready | DEV1-DEV8 | API layer/tests | service-backed API |
 | DEV10 Dashboard P0 | deferred | DEV9 | frontend/API only | production Dashboard |
 
 ## 5. Work Packages
@@ -463,6 +463,37 @@ pgc exits-evaluate --date 2026-05-07 --db-path /private/tmp/pgc_cli.db
 - Accepted: real sync remains an optional POC path using local-only `pymysql`/`redis` dependencies; unit tests inject fake clients and do not require network access.
 - Accepted: `docs/plans/2026-05-06-test-server-sync-notes.md` documents runtime-only config, redaction expectations, target schema/keys, and the non-source-of-truth boundary.
 - Quality gate during completion review: DEV8 focused tests passed with 6 tests; full suite passed with 118 tests and 8 subtests via pytest, 118 tests via unittest discover; `compileall` passed; DEV8 secret scan had no matches.
+
+### DEV9: HTTP API P0
+
+**Priority:** P1
+
+**Goal:** Add a service-backed HTTP API for the future Dashboard without making the API or Dashboard a source of truth.
+
+**Read first:** `docs/plans/2026-05-07-dev9-http-api-p0-boundary.md`
+
+**First checkpoint:** API technology ADR and app skeleton. Do not implement business routes until dependency management and framework choice are explicit.
+
+**P0 scope:**
+
+- Read-only endpoints for health, daily report, data quality, account positions, and trade plans.
+- Controlled write endpoints for daily workflow review run, trade plan publish/cancel, execution recording, and exit evaluation.
+- Stable JSON envelopes mapped from `ServiceResult`.
+
+**Out of scope:**
+
+- No Dashboard implementation.
+- No production deployment.
+- No direct SQLite reads or writes in route handlers.
+- No auth system beyond local/dev guardrails and write-disable switch.
+
+**Acceptance criteria:**
+
+- API routes call only application services or reporting query services.
+- Account selection is explicit.
+- Non-dry write operations require `operator` and idempotency where supported.
+- Write endpoints can be disabled by environment for local safety.
+- API tests use temp DBs or fake services and do not touch `data/pgc_trading.db`.
 
 ## 6. Handoff Template For New Development Sessions
 
