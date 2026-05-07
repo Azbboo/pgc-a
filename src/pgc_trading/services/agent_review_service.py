@@ -29,10 +29,11 @@ class ReviewDailyPickRequest:
     account_key: str | None = None
     account_id: int | None = None
     mode: str = "local_snapshot_mode"
+    llm_provider: str = "deepseek"
     online_tools: bool = False
-    deep_think_llm: str = "gpt-5.4"
-    quick_think_llm: str = "gpt-5.4-mini"
-    max_debate_rounds: int = 1
+    deep_think_llm: str = "deepseek-v4-pro"
+    quick_think_llm: str = "deepseek-v4-pro"
+    max_debate_rounds: int = 3
     max_risk_discuss_rounds: int = 1
 
 
@@ -380,6 +381,7 @@ def _build_snapshot_record(candidate: dict[str, Any]) -> dict[str, Any]:
 def _build_config(request: ReviewDailyPickRequest) -> TradingAgentsRunConfig:
     return TradingAgentsRunConfig(
         mode=request.mode,
+        llm_provider=request.llm_provider,
         online_tools=request.online_tools,
         deep_think_llm=request.deep_think_llm,
         quick_think_llm=request.quick_think_llm,

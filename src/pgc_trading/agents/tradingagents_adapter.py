@@ -45,10 +45,11 @@ class TradingAgentsRunConfig:
     agent_system: str = "TradingAgents"
     agent_version: str = "external"
     mode: str = "local_snapshot_mode"
+    llm_provider: str = "deepseek"
     online_tools: bool = False
-    deep_think_llm: str = "gpt-5.4"
-    quick_think_llm: str = "gpt-5.4-mini"
-    max_debate_rounds: int = 1
+    deep_think_llm: str = "deepseek-v4-pro"
+    quick_think_llm: str = "deepseek-v4-pro"
+    max_debate_rounds: int = 3
     max_risk_discuss_rounds: int = 1
 
     def to_json(self) -> str:
@@ -102,6 +103,7 @@ class TradingAgentsRunner:
                 "results_dir": str(paths.results_dir),
                 "data_cache_dir": str(paths.cache_dir),
                 "memory_log_path": str(paths.memory_log_path),
+                "llm_provider": config.llm_provider,
                 "online_tools": config.online_tools,
                 "deep_think_llm": config.deep_think_llm,
                 "quick_think_llm": config.quick_think_llm,

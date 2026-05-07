@@ -102,6 +102,10 @@ class AgentReviewServiceTest(unittest.TestCase):
             self.assertEqual(snapshot["candidate"]["ts_code"], "000001.SZ")
             self.assertEqual(snapshot["candidate"]["portfolio_context"]["account_key"], "paper-main")
             self.assertFalse(config.online_tools)
+            self.assertEqual(config.llm_provider, "deepseek")
+            self.assertEqual(config.deep_think_llm, "deepseek-v4-pro")
+            self.assertEqual(config.quick_think_llm, "deepseek-v4-pro")
+            self.assertEqual(config.max_debate_rounds, 3)
             self.assertTrue(str(paths.results_dir).startswith(str(root)))
             self.assertTrue(result.data.artifact_paths)
             for artifact_path in result.data.artifact_paths:

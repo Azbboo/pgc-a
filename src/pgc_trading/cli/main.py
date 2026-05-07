@@ -316,6 +316,33 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
         action="store_true",
         help="allow external TradingAgents tools to fetch online data if the optional package is installed",
     )
+    agent_review.add_argument(
+        "--llm-provider",
+        default="deepseek",
+        help="TradingAgents LLM provider, for example deepseek, openai, google, anthropic, qwen",
+    )
+    agent_review.add_argument(
+        "--deep-think-llm",
+        default="deepseek-v4-pro",
+        help="TradingAgents model for complex reasoning",
+    )
+    agent_review.add_argument(
+        "--quick-think-llm",
+        default="deepseek-v4-pro",
+        help="TradingAgents model for quick tasks",
+    )
+    agent_review.add_argument(
+        "--max-debate-rounds",
+        type=_positive_int,
+        default=3,
+        help="TradingAgents bull/bear debate rounds",
+    )
+    agent_review.add_argument(
+        "--max-risk-discuss-rounds",
+        type=_positive_int,
+        default=1,
+        help="TradingAgents risk discussion rounds",
+    )
     _add_lifecycle_context_arguments(agent_review)
     _add_db_path_argument(agent_review)
     agent_review.set_defaults(handler=_run_agent_review)
@@ -659,6 +686,11 @@ def _run_agent_review(args: argparse.Namespace, stdout: TextIO, services: Comman
         account_key=args.account_key,
         account_id=args.account_id,
         online_tools=args.online_tools,
+        llm_provider=args.llm_provider,
+        deep_think_llm=args.deep_think_llm,
+        quick_think_llm=args.quick_think_llm,
+        max_debate_rounds=args.max_debate_rounds,
+        max_risk_discuss_rounds=args.max_risk_discuss_rounds,
     )
     ctx = RequestContext(
         request_id="cli-agent-review",

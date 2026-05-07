@@ -562,6 +562,10 @@ class CliMainTest(unittest.TestCase):
         self.assertEqual(request.daily_pick_id, 1)
         self.assertEqual(request.account_key, "paper-main")
         self.assertFalse(request.online_tools)
+        self.assertEqual(request.llm_provider, "deepseek")
+        self.assertEqual(request.deep_think_llm, "deepseek-v4-pro")
+        self.assertEqual(request.quick_think_llm, "deepseek-v4-pro")
+        self.assertEqual(request.max_debate_rounds, 3)
         self.assertTrue(ctx.dry_run)
         self.assertEqual(ctx.request_id, "cli-agent-review")
         self.assertEqual(ctx.operator, "cli")
@@ -590,6 +594,16 @@ class CliMainTest(unittest.TestCase):
                     "--operator",
                     "azboo",
                     "--online-tools",
+                    "--llm-provider",
+                    "openai",
+                    "--deep-think-llm",
+                    "gpt-5.4",
+                    "--quick-think-llm",
+                    "gpt-5.4-mini",
+                    "--max-debate-rounds",
+                    "2",
+                    "--max-risk-discuss-rounds",
+                    "2",
                 ],
                 stdout=stdout,
                 services=CommandServices(agent_review_service_factory=_FakeAgentReviewService),
@@ -600,6 +614,11 @@ class CliMainTest(unittest.TestCase):
         self.assertFalse(ctx.dry_run)
         self.assertEqual(ctx.operator, "azboo")
         self.assertTrue(request.online_tools)
+        self.assertEqual(request.llm_provider, "openai")
+        self.assertEqual(request.deep_think_llm, "gpt-5.4")
+        self.assertEqual(request.quick_think_llm, "gpt-5.4-mini")
+        self.assertEqual(request.max_debate_rounds, 2)
+        self.assertEqual(request.max_risk_discuss_rounds, 2)
 
     def test_agent_review_missing_db_fails_without_creating_database(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
