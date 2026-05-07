@@ -27,9 +27,9 @@ class TradingAgentsAdapterTest(unittest.TestCase):
                     content=(
                         "```json\n"
                         '{"action":"support","confidence":0.71,"risk_level":"low",'
-                        '"summary":"Local snapshot supports the plan.",'
-                        '"supporting_points":["score is strong"],'
-                        '"risk_points":["watch the open"]}'
+                        '"summary":"本地快照支持当前计划。",'
+                        '"supporting_points":["评分较强"],'
+                        '"risk_points":["注意开盘波动"]}'
                         "\n```"
                     )
                 )
@@ -65,11 +65,13 @@ class TradingAgentsAdapterTest(unittest.TestCase):
         self.assertEqual(result.action, "support")
         self.assertEqual(result.confidence, 0.71)
         self.assertEqual(result.risk_level, "low")
-        self.assertEqual(result.supporting_points, ["score is strong"])
-        self.assertEqual(result.risk_points, ["watch the open"])
+        self.assertEqual(result.supporting_points, ["评分较强"])
+        self.assertEqual(result.risk_points, ["注意开盘波动"])
+        self.assertIn("# TradingAgents 本地快照复核", result.final_report)
         self.assertEqual(client_calls[0]["provider"], "deepseek")
         self.assertEqual(client_calls[0]["model"], "deepseek-v4-pro")
-        self.assertIn("Use only the supplied local database snapshot", prompt_calls[0])
+        self.assertIn("只允许使用下方本地数据库快照", prompt_calls[0])
+        self.assertIn("所有自然语言必须使用简体中文", prompt_calls[0])
         self.assertIn('"ts_code": "000001.SZ"', prompt_calls[0])
         self.assertNotIn("tradingagents.graph.trading_graph", imported_modules)
 
@@ -83,7 +85,7 @@ class TradingAgentsAdapterTest(unittest.TestCase):
         self.assertEqual(result.action, "caution")
         self.assertEqual(result.risk_level, "medium")
         self.assertEqual(result.confidence, None)
-        self.assertIn("not JSON", result.risk_points[0])
+        self.assertIn("没有返回 JSON", result.risk_points[0])
         self.assertIn("parse_error", result.raw_decision)
 
 

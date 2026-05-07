@@ -304,29 +304,31 @@ def _summary_from_output(raw_decision: Any, decision_text: str) -> str:
         if summary:
             return str(summary)
     compact = " ".join(decision_text.split())
-    return compact[:240] if compact else "TradingAgents returned no readable advisory."
+    return compact[:240] if compact else "TradingAgents 未返回可读复核意见。"
 
 
 def _build_local_snapshot_prompt(snapshot: dict[str, Any], config: TradingAgentsRunConfig) -> str:
     snapshot_json = json.dumps(snapshot, ensure_ascii=False, sort_keys=True, indent=2)
-    return f"""You are the TradingAgents advisory layer for a paper-trading workflow.
+    return f"""你是纸面交易系统中的 TradingAgents 复核层。
 
-Use only the supplied local database snapshot. Do not request live prices, news,
-fundamentals, web pages, or external tools. The deterministic strategy and
-portfolio system remain the source of truth; your output is advisory only.
+只允许使用下方本地数据库快照。不要请求实时价格、新闻、基本面网页或任何外部工具。
+确定性策略和组合系统仍是事实来源；你的输出只作为复核意见，不是交易指令。
 
-Weigh a bull case and bear case for up to {config.max_debate_rounds} concise
-rounds internally, then return only one JSON object with this schema:
+请在内部最多进行 {config.max_debate_rounds} 轮简洁的多空权衡，然后只返回一个 JSON 对象。
+除 JSON 键名、action/risk_level 枚举值、股票代码和必要指标名外，所有自然语言必须使用简体中文。
+summary、supporting_points、risk_points 必须是中文。
+
+JSON schema:
 {{
   "action": "support | caution | reject | no_opinion",
   "confidence": 0.0,
   "risk_level": "low | medium | high | unknown",
-  "summary": "one short advisory summary",
-  "supporting_points": ["concise evidence from the snapshot"],
-  "risk_points": ["concise risks from the snapshot"]
+  "summary": "一句简短中文复核摘要",
+  "supporting_points": ["来自快照的中文支持依据"],
+  "risk_points": ["来自快照的中文风险提示"]
 }}
 
-Snapshot:
+本地快照:
 {snapshot_json}
 """
 
@@ -352,13 +354,13 @@ def _load_response_json(response_text: str) -> tuple[dict[str, Any] | None, str 
         start = stripped.find("{")
         end = stripped.rfind("}")
         if start == -1 or end <= start:
-            return None, "TradingAgents local snapshot response was not JSON."
+            return None, "TradingAgents 本地快照复核没有返回 JSON。"
         try:
             loaded = json.loads(stripped[start : end + 1])
         except json.JSONDecodeError as exc:
-            return None, f"TradingAgents local snapshot response JSON could not be parsed: {exc}"
+            return None, f"TradingAgents 本地快照复核 JSON 解析失败：{exc}"
     if not isinstance(loaded, dict):
-        return None, "TradingAgents local snapshot response JSON was not an object."
+        return None, "TradingAgents 本地快照复核 JSON 不是对象。"
     return loaded, None
 
 
@@ -417,12 +419,12 @@ def _format_local_snapshot_report(
     risk_points: list[str],
     response_text: str,
 ) -> str:
-    lines = ["# TradingAgents Local Snapshot Advisory", "", summary]
+    lines = ["# TradingAgents 本地快照复核", "", summary]
     if supporting_points:
-        lines.extend(["", "## Supporting Points", *[f"- {point}" for point in supporting_points]])
+        lines.extend(["", "## 支持依据", *[f"- {point}" for point in supporting_points]])
     if risk_points:
-        lines.extend(["", "## Risk Points", *[f"- {point}" for point in risk_points]])
-    lines.extend(["", "## Raw Response", response_text])
+        lines.extend(["", "## 风险提示", *[f"- {point}" for point in risk_points]])
+    lines.extend(["", "## 原始输出", response_text])
     return "\n".join(lines).strip() + "\n"
 
 
