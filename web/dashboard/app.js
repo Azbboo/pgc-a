@@ -756,20 +756,76 @@ function renderDuePositions() {
 
 function renderAgent() {
   const advice = state.report?.agent_advice;
-  const html = advice
+  if (!advice) {
+    const html = emptyState("暂无 Agent 复核数据。");
+    els.agentSummary.innerHTML = html;
+    els.agentPageBody.innerHTML = html;
+    return;
+  }
+  els.agentSummary.innerHTML = renderAgentAdvice(advice, { expanded: false });
+  els.agentPageBody.innerHTML = renderAgentAdvice(advice, { expanded: true });
+}
+
+function renderAgentAdvice(advice, { expanded }) {
+  const supportingPoints = listValue(advice.supporting_points);
+  const riskPoints = listValue(advice.risk_points);
+  const artifacts = Array.isArray(advice.artifacts) ? advice.artifacts : [];
+  const summary = advice.summary || advice.note || "Agent 复核尚未接入本次复盘。";
+  const quickPoints = !expanded && (supportingPoints.length || riskPoints.length)
     ? `
-      <div class="action-meta">
-        <div class="metric"><span>运行状态</span><strong>${statusText(advice.status)}</strong></div>
-        <div class="metric"><span>意见</span><strong>${agentActionText(advice.action)}</strong></div>
-        <div class="metric"><span>风险等级</span><strong>${riskText(advice.risk_level)}</strong></div>
-        <div class="metric"><span>置信度</span><strong>${advice.confidence == null ? "-" : numberText(advice.confidence, 2)}</strong></div>
+      <div class="agent-quick-points">
+        ${supportingPoints[0] ? `<p><span>支持</span>${escapeHtml(supportingPoints[0])}</p>` : ""}
+        ${riskPoints[0] ? `<p><span>风险</span>${escapeHtml(riskPoints[0])}</p>` : ""}
       </div>
-      <p>${escapeHtml(advice.summary || advice.note || "Agent 复核尚未接入本次复盘。")}</p>
-      <p class="muted">Agent 只提供复核意见，不会自动发布、取消或记录成交。</p>
     `
-    : emptyState("暂无 Agent 复核数据。");
-  els.agentSummary.innerHTML = html;
-  els.agentPageBody.innerHTML = html;
+    : "";
+  const detail = expanded
+    ? `
+      <div class="agent-detail-grid">
+        ${renderAgentPointSection("支持依据", supportingPoints, "暂无支持依据。")}
+        ${renderAgentPointSection("风险提示", riskPoints, "暂无风险提示。")}
+      </div>
+      ${artifacts.length ? `
+        <div class="agent-artifacts">
+          <h3>复核产物</h3>
+          <div class="agent-artifact-list">
+            ${artifacts.map((artifact) => `
+              <span>${escapeHtml(agentArtifactText(artifact.artifact_type))} #${dash(artifact.artifact_id)}</span>
+            `).join("")}
+          </div>
+        </div>
+      ` : ""}
+      ${advice.report_markdown ? `
+        <details class="agent-report">
+          <summary>原始报告</summary>
+          <pre>${escapeHtml(advice.report_markdown)}</pre>
+        </details>
+      ` : ""}
+    `
+    : "";
+  return `
+    <div class="action-meta">
+      <div class="metric"><span>运行状态</span><strong>${statusText(advice.status)}</strong></div>
+      <div class="metric"><span>意见</span><strong>${agentActionText(advice.action)}</strong></div>
+      <div class="metric"><span>风险等级</span><strong>${riskText(advice.risk_level)}</strong></div>
+      <div class="metric"><span>置信度</span><strong>${advice.confidence == null ? "-" : numberText(advice.confidence, 2)}</strong></div>
+    </div>
+    <p class="agent-summary-text">${escapeHtml(summary)}</p>
+    ${quickPoints}
+    ${detail}
+    <p class="muted">Agent 只提供复核意见，不会自动发布、取消或记录成交。</p>
+  `;
+}
+
+function renderAgentPointSection(title, points, emptyText) {
+  return `
+    <section class="agent-point-section">
+      <h3>${escapeHtml(title)}</h3>
+      ${points.length
+        ? `<ul>${points.map((point) => `<li>${escapeHtml(point)}</li>`).join("")}</ul>`
+        : `<p class="muted">${escapeHtml(emptyText)}</p>`}
+    </section>
+  `;
 }
 
 function renderPlans() {
@@ -1403,6 +1459,17 @@ function riskText(value) {
   }[value] || dash(value);
 }
 
+function agentArtifactText(value) {
+  return {
+    decision_json: "决策 JSON",
+    raw_state: "运行状态",
+    final_report: "复核报告",
+    debug_log: "调试日志",
+    memory_delta: "记忆变更",
+    tool_trace: "工具轨迹",
+  }[value] || dash(value);
+}
+
 function severityText(value) {
   return {
     blocker: "阻断",
@@ -1532,6 +1599,10 @@ function percent(value) {
 
 function dash(value) {
   return value == null || value === "" ? "-" : String(value);
+}
+
+function listValue(value) {
+  return Array.isArray(value) ? value.filter((item) => item != null && String(item).trim() !== "").map(String) : [];
 }
 
 function parseOptionalInt(value) {

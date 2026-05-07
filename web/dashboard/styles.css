@@ -483,6 +483,115 @@ td {
   font-variant-numeric: tabular-nums;
 }
 
+.agent-summary-text {
+  margin: 12px 0 0;
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.agent-quick-points {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.agent-quick-points p {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 8px;
+  margin: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+  line-height: 20px;
+}
+
+.agent-quick-points span {
+  color: var(--agent);
+  font-weight: 700;
+}
+
+.agent-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.agent-point-section {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+
+.agent-point-section h3,
+.agent-artifacts h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.agent-point-section ul {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.agent-point-section li {
+  line-height: 20px;
+}
+
+.agent-artifacts {
+  margin-top: 14px;
+}
+
+.agent-artifact-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.agent-artifact-list span {
+  padding: 4px 8px;
+  border: 1px solid #c7d2fe;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: var(--agent);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.agent-report {
+  margin-top: 14px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.agent-report summary {
+  padding: 9px 10px;
+  cursor: pointer;
+  color: var(--agent);
+  font-weight: 700;
+}
+
+.agent-report pre {
+  max-height: 420px;
+  margin: 0;
+  overflow: auto;
+  padding: 12px;
+  border-top: 1px solid var(--line);
+  background: #0f172a;
+  color: #e5e7eb;
+  font-size: 12px;
+  line-height: 18px;
+  white-space: pre-wrap;
+}
+
 .execution-plan-card {
   display: grid;
   gap: 10px;
@@ -846,6 +955,10 @@ td {
     grid-template-columns: repeat(2, minmax(120px, 1fr));
   }
 
+  .agent-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
   .record-form {
     grid-template-columns: 1fr;
   }
@@ -859,7 +972,8 @@ td {
 @media (max-width: 520px) {
   .context-form,
   .status-band,
-  .action-meta {
+  .action-meta,
+  .agent-quick-points p {
     grid-template-columns: 1fr;
   }
 

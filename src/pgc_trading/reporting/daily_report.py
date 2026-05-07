@@ -103,6 +103,13 @@ class BuyPlanReport:
 
 
 @dataclass(frozen=True)
+class AgentArtifactReport:
+    artifact_id: int
+    artifact_type: str
+    content_hash: str | None
+
+
+@dataclass(frozen=True)
 class AgentAdviceReport:
     agent_run_id: int | None
     agent_decision_id: int | None
@@ -112,6 +119,10 @@ class AgentAdviceReport:
     confidence: float | None
     summary: str | None
     note: str
+    supporting_points: list[str] = field(default_factory=list)
+    risk_points: list[str] = field(default_factory=list)
+    artifacts: list[AgentArtifactReport] = field(default_factory=list)
+    report_markdown: str | None = None
 
 
 @dataclass(frozen=True)
@@ -326,6 +337,12 @@ def render_daily_report_markdown(report: DailyReport) -> str:
             "- 提醒：Agent 只提供复核意见，不会自动改变交易计划。",
         ]
     )
+    if report.agent_advice.supporting_points:
+        lines.extend(["", "支持依据："])
+        lines.extend(f"- {point}" for point in report.agent_advice.supporting_points)
+    if report.agent_advice.risk_points:
+        lines.extend(["", "风险提示："])
+        lines.extend(f"- {point}" for point in report.agent_advice.risk_points)
 
     lines.extend(["", "## 当前持仓处理", ""])
     if not report.positions:
@@ -616,7 +633,10 @@ def _load_agent_advice(conn: Any, candidate: CandidateReport | None) -> AgentAdv
           ad.action,
           ad.risk_level,
           ad.confidence,
-          ad.summary
+          ad.summary,
+          ad.supporting_points_json,
+          ad.risk_points_json,
+          ad.raw_decision_json
         FROM agent_runs ar
         LEFT JOIN agent_decisions ad ON ad.agent_run_id = ar.id
         WHERE ar.daily_pick_id = ?
@@ -628,6 +648,14 @@ def _load_agent_advice(conn: Any, candidate: CandidateReport | None) -> AgentAdv
     if row is None:
         return placeholder
     status = row["status"]
+    raw_decision = _loads_json_object(row["raw_decision_json"])
+    supporting_points = _loads_json_list(row["supporting_points_json"])
+    if not supporting_points:
+        supporting_points = _string_list(raw_decision.get("supporting_points"))
+    risk_points = _loads_json_list(row["risk_points_json"])
+    if not risk_points:
+        risk_points = _string_list(raw_decision.get("risk_points"))
+    artifacts, final_report_path = _load_agent_artifacts(conn, int(row["agent_run_id"]))
     return AgentAdviceReport(
         agent_run_id=int(row["agent_run_id"]),
         agent_decision_id=_optional_int(row["agent_decision_id"]),
@@ -637,7 +665,52 @@ def _load_agent_advice(conn: Any, candidate: CandidateReport | None) -> AgentAdv
         confidence=_optional_float(row["confidence"]),
         summary=row["summary"] or row["error_message"],
         note="Agent 复核失败，需人工复核。" if status == "failed" else "Agent 复核仅作参考。",
+        supporting_points=supporting_points,
+        risk_points=risk_points,
+        artifacts=artifacts,
+        report_markdown=_load_agent_report_markdown(final_report_path),
     )
+
+
+def _load_agent_artifacts(conn: Any, agent_run_id: int) -> tuple[list[AgentArtifactReport], str | None]:
+    rows = conn.execute(
+        """
+        SELECT id, artifact_type, path, content_hash
+        FROM agent_artifacts
+        WHERE agent_run_id = ?
+        ORDER BY
+          CASE artifact_type
+            WHEN 'decision_json' THEN 1
+            WHEN 'raw_state' THEN 2
+            WHEN 'final_report' THEN 3
+            ELSE 9
+          END,
+          id
+        """,
+        (agent_run_id,),
+    ).fetchall()
+    artifacts = [
+        AgentArtifactReport(
+            artifact_id=int(row["id"]),
+            artifact_type=row["artifact_type"],
+            content_hash=row["content_hash"],
+        )
+        for row in rows
+    ]
+    final_report_path = next((row["path"] for row in rows if row["artifact_type"] == "final_report"), None)
+    return artifacts, final_report_path
+
+
+def _load_agent_report_markdown(final_report_path: str | None) -> str | None:
+    if not final_report_path:
+        return None
+    path = Path(final_report_path)
+    try:
+        if not path.is_file() or path.stat().st_size > 64_000:
+            return None
+        return path.read_text(encoding="utf-8")
+    except OSError:
+        return None
 
 
 def _load_positions(conn: Any, as_of_date: str, account_id: int | None) -> list[PositionReport]:
@@ -816,6 +889,22 @@ def _loads_json_object(payload: str | None) -> dict[str, Any]:
     except (TypeError, json.JSONDecodeError):
         return {}
     return loaded if isinstance(loaded, dict) else {}
+
+
+def _loads_json_list(payload: str | None) -> list[str]:
+    if not payload:
+        return []
+    try:
+        loaded = json.loads(payload)
+    except (TypeError, json.JSONDecodeError):
+        return []
+    return _string_list(loaded)
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
 
 
 def _optional_int(value: object) -> int | None:

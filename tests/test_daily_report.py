@@ -63,6 +63,37 @@ class DailyReportTest(unittest.TestCase):
             self.assertIn("data_quality", payload)
             self.assertIn("lineage", payload)
 
+    def test_report_includes_agent_points_and_report_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._plan_ready_db(tmp)
+            report_path = Path(tmp) / "agent_report.md"
+            report_path.write_text("# Agent Report\n\nDetailed advisory.\n", encoding="utf-8")
+            with sqlite3.connect(db_path) as conn:
+                self._insert_agent_review(conn, report_path)
+
+            result = ReportingQueryService(db_path).get_daily_report(
+                DailyReportRequest(as_of_date=AS_OF_DATE, account_key=ACCOUNT_KEY),
+                RequestContext(request_id="req-report-agent"),
+            )
+
+            self.assertEqual(result.status, "success")
+            advice = result.data.agent_advice
+            self.assertEqual(advice.status, "completed")
+            self.assertEqual(advice.action, "support")
+            self.assertEqual(advice.supporting_points, ["score is strong", "portfolio has room"])
+            self.assertEqual(advice.risk_points, ["gap risk"])
+            self.assertEqual(advice.report_markdown, "# Agent Report\n\nDetailed advisory.\n")
+            self.assertEqual([artifact.artifact_type for artifact in advice.artifacts], ["decision_json", "final_report"])
+
+            markdown = render_daily_report_markdown(result.data)
+            self.assertIn("支持依据", markdown)
+            self.assertIn("score is strong", markdown)
+            self.assertIn("风险提示", markdown)
+            payload = json.loads(render_daily_report_json(result.data))
+            self.assertEqual(payload["agent_advice"]["supporting_points"], ["score is strong", "portfolio has room"])
+            self.assertEqual(payload["agent_advice"]["artifacts"][1]["artifact_type"], "final_report")
+            self.assertNotIn("path", payload["agent_advice"]["artifacts"][1])
+
     def test_report_surfaces_explicit_no_candidate_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = self._migrated_seeded_db(tmp)
@@ -217,6 +248,53 @@ class DailyReportTest(unittest.TestCase):
                 close=close,
                 amount=amount,
             )
+
+    def _insert_agent_review(self, conn: sqlite3.Connection, report_path: Path) -> None:
+        daily_pick = conn.execute("SELECT id, signal_id, review_date FROM daily_picks LIMIT 1").fetchone()
+        snapshot_id = conn.execute(
+            """
+            INSERT INTO input_snapshots
+              (snapshot_type, as_of_date, signal_id, daily_pick_id, source_refs_json, payload_json, content_hash)
+            VALUES
+              ('tradingagents_candidate_review', ?, ?, ?, '[]', '{}', 'agent-report-test')
+            """,
+            (daily_pick[2], daily_pick[1], daily_pick[0]),
+        ).lastrowid
+        run_id = conn.execute(
+            """
+            INSERT INTO agent_runs
+              (agent_system, agent_version, signal_id, daily_pick_id, input_snapshot_id, as_of_date, config_json, config_hash, status)
+            VALUES
+              ('TradingAgents', 'external', ?, ?, ?, ?, '{}', 'agent-config-test', 'completed')
+            """,
+            (daily_pick[1], daily_pick[0], snapshot_id, daily_pick[2]),
+        ).lastrowid
+        conn.execute(
+            """
+            INSERT INTO agent_decisions
+              (agent_run_id, signal_id, daily_pick_id, action, confidence, risk_level, summary, supporting_points_json, risk_points_json, raw_decision_json)
+            VALUES
+              (?, ?, ?, 'support', 0.75, 'medium', 'Agent supports the plan.', ?, ?, ?)
+            """,
+            (
+                run_id,
+                daily_pick[1],
+                daily_pick[0],
+                json.dumps(["score is strong", "portfolio has room"], ensure_ascii=False),
+                json.dumps(["gap risk"], ensure_ascii=False),
+                json.dumps({"supporting_points": ["fallback"], "risk_points": ["fallback"]}, ensure_ascii=False),
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO agent_artifacts
+              (agent_run_id, artifact_type, path, content_hash)
+            VALUES
+              (?, 'decision_json', ?, 'decision-hash'),
+              (?, 'final_report', ?, 'report-hash')
+            """,
+            (run_id, str(report_path.with_suffix(".json")), run_id, str(report_path)),
+        )
 
     def _insert_market_bar(
         self,
