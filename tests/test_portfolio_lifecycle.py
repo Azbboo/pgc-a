@@ -66,6 +66,48 @@ class PortfolioLifecycleServiceTest(unittest.TestCase):
                 self.assertEqual(plan[1], "buy_next_open")
                 self.assertEqual(json.loads(plan[2])["planned_shares"], 6600)
 
+    def test_live_buy_plan_dry_run_previews_without_persisting_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._migrated_seeded_db(tmp)
+            with sqlite3.connect(db_path) as conn:
+                self._insert_calendar(conn)
+                self._insert_daily_pick(conn)
+
+            result = PortfolioPlanningService(db_path).generate_buy_plan(
+                GenerateBuyPlanRequest(account_key="live-main", review_date=AS_OF_DATE),
+                RequestContext(request_id="req-live-plan-dry", dry_run=True, operator="tester"),
+            )
+
+            self.assertEqual(result.status, "success")
+            self.assertIsNone(result.data.trade_plan_id)
+            self.assertEqual(result.data.action, "buy_next_open")
+            self.assertEqual(result.data.status, "active")
+            self.assertEqual(result.data.planned_trade_date, BUY_DATE)
+            self.assertEqual(result.data.planned_shares, 6600)
+            with sqlite3.connect(db_path) as conn:
+                self.assertEqual(self._count(conn, "trade_plans"), 0)
+                self.assertEqual(self._count(conn, "trades"), 0)
+                self.assertEqual(self._count(conn, "positions"), 0)
+
+    def test_live_buy_plan_apply_is_blocked(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._migrated_seeded_db(tmp)
+            with sqlite3.connect(db_path) as conn:
+                self._insert_calendar(conn)
+                self._insert_daily_pick(conn)
+
+            result = PortfolioPlanningService(db_path).generate_buy_plan(
+                GenerateBuyPlanRequest(account_key="live-main", review_date=AS_OF_DATE),
+                RequestContext(request_id="req-live-plan-apply", operator="tester"),
+            )
+
+            self.assertEqual(result.status, "validation_failed")
+            self.assertEqual(result.errors[0].code, "LIVE_PLAN_APPLY_DISABLED")
+            with sqlite3.connect(db_path) as conn:
+                self.assertEqual(self._count(conn, "trade_plans"), 0)
+                self.assertEqual(self._count(conn, "trades"), 0)
+                self.assertEqual(self._count(conn, "positions"), 0)
+
     def test_record_buy_trade_creates_position_with_trade_calendar_t2_t5(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = self._migrated_seeded_db(tmp)

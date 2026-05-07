@@ -131,6 +131,56 @@ class DailyCloseWorkflowServiceTest(unittest.TestCase):
                 self.assertEqual(count_rows(conn, "trades"), 0)
                 self.assertEqual(count_rows(conn, "positions"), 0)
 
+    def test_live_main_dry_run_builds_non_persisted_plan_preview(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = migrated_seeded_daily_close_db(tmp)
+            with sqlite3.connect(db_path) as conn:
+                insert_open_calendar(conn)
+                insert_contracting_pullback_case(conn, "000001.SZ", "Live Dry Pick", 1.0)
+
+            result = DailyCloseWorkflowService(db_path).run_daily_close(
+                RunDailyCloseWorkflowRequest(as_of_date=AS_OF_DATE, account_key="live-main", run_type="live"),
+                RequestContext(request_id="req-live-dry", dry_run=True, operator="tester"),
+            )
+
+            self.assertEqual(result.status, "success")
+            self.assertEqual(result.data.workflow_status, "plan_ready")
+            self.assertEqual(result.data.next_trade_date, BUY_DATE)
+            self.assertIsNotNone(result.data.buy_plan)
+            self.assertIsNone(result.data.buy_plan.trade_plan_id)
+            self.assertEqual(result.data.buy_plan.action, "buy_next_open")
+            self.assertEqual(result.data.buy_plan.status, "active")
+
+            with sqlite3.connect(db_path) as conn:
+                self.assertEqual(count_rows(conn, "strategy_runs"), 0)
+                self.assertEqual(count_rows(conn, "daily_picks"), 0)
+                self.assertEqual(count_rows(conn, "trade_plans"), 0)
+                self.assertEqual(count_rows(conn, "trades"), 0)
+                self.assertEqual(count_rows(conn, "positions"), 0)
+
+    def test_live_main_apply_is_blocked_until_explicit_live_enablement(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = migrated_seeded_daily_close_db(tmp)
+            with sqlite3.connect(db_path) as conn:
+                insert_open_calendar(conn)
+                insert_contracting_pullback_case(conn, "000001.SZ", "Live Apply Pick", 1.0)
+
+            result = DailyCloseWorkflowService(db_path).run_daily_close(
+                RunDailyCloseWorkflowRequest(as_of_date=AS_OF_DATE, account_key="live-main", run_type="live"),
+                RequestContext(request_id="req-live-apply", dry_run=False, operator="tester"),
+            )
+
+            self.assertEqual(result.status, "blocked")
+            self.assertEqual(result.data.workflow_status, "live_apply_disabled")
+            self.assertEqual(result.errors[0].code, "LIVE_PLAN_APPLY_DISABLED")
+
+            with sqlite3.connect(db_path) as conn:
+                self.assertEqual(count_rows(conn, "strategy_runs"), 0)
+                self.assertEqual(count_rows(conn, "daily_picks"), 0)
+                self.assertEqual(count_rows(conn, "trade_plans"), 0)
+                self.assertEqual(count_rows(conn, "trades"), 0)
+                self.assertEqual(count_rows(conn, "positions"), 0)
+
     def test_rerun_returns_existing_review_and_buy_plan(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = migrated_seeded_daily_close_db(tmp)

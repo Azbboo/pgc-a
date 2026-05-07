@@ -416,7 +416,12 @@ def _generate_buy_plan_in_tx(
     *,
     write: bool,
 ) -> ServiceResult[GenerateTradePlanResult]:
-    account = _resolve_account(conn, request.account_key, request.account_id)
+    account = _resolve_account(
+        conn,
+        request.account_key,
+        request.account_id,
+        allow_live_dry_run=ctx.dry_run,
+    )
     if isinstance(account, ServiceError):
         return _validation_failed(ctx, _empty_plan_result(BUY_PLAN_ACTION), [account])
 
@@ -681,6 +686,8 @@ def _resolve_account(
     conn: sqlite3.Connection,
     account_key: str | None,
     account_id: int | None,
+    *,
+    allow_live_dry_run: bool = False,
 ) -> _Account | ServiceError:
     if account_id is None and not account_key:
         return ServiceError(code="VALIDATION_ERROR", message="account_key or account_id is required.")
@@ -708,12 +715,22 @@ def _resolve_account(
         return ServiceError(code="ACCOUNT_MISMATCH", message="account_key and account_id point to different accounts.")
     if row["status"] != "active":
         return ServiceError(code="ACCOUNT_INACTIVE", message=f"Account is not active: {row['account_key']}.")
+    if row["account_type"] == "live" and allow_live_dry_run:
+        return _Account(
+            id=int(row["id"]),
+            account_key=row["account_key"],
+            account_type=row["account_type"],
+            initial_cash=float(row["initial_cash"]),
+            max_positions=int(row["max_positions"]),
+            position_sizing=row["position_sizing"],
+        )
     if row["account_type"] != "paper":
         return ServiceError(
-            code="UNSUPPORTED_ACCOUNT_TYPE",
-            message="WP12 portfolio skeleton supports paper accounts only.",
+            code="LIVE_PLAN_APPLY_DISABLED" if row["account_type"] == "live" else "UNSUPPORTED_ACCOUNT_TYPE",
+            message="Live account planning is dry-run only until live enablement is approved.",
             entity_type="portfolio_account",
             entity_id=int(row["id"]),
+            severity="blocker",
         )
     return _Account(
         id=int(row["id"]),

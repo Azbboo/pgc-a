@@ -109,6 +109,16 @@ class DailyCloseWorkflowService:
                 errors=validation_errors,
             )
 
+        live_apply_error = _live_apply_disabled(self.db_path, request, ctx)
+        if live_apply_error is not None:
+            return ServiceResult(
+                status="blocked",
+                request_id=ctx.request_id,
+                data=_empty_result(request, workflow_status="live_apply_disabled"),
+                errors=[live_apply_error],
+                lineage=_base_lineage(request),
+            )
+
         invariant_report = check_database(self.db_path)
         if not invariant_report.ok:
             errors = _invariant_errors(invariant_report)
@@ -348,7 +358,12 @@ def _preview_buy_plan(
     ctx: RequestContext,
 ) -> ServiceResult[GenerateTradePlanResult]:
     with connect(db_path) as conn:
-        account = _load_preview_account(conn, request.account_key, request.account_id)
+        account = _load_preview_account(
+            conn,
+            request.account_key,
+            request.account_id,
+            allow_live_dry_run=ctx.dry_run,
+        )
         if isinstance(account, ServiceError):
             return _preview_plan_validation_failed(ctx, account)
 
@@ -417,6 +432,8 @@ def _load_preview_account(
     conn: Any,
     account_key: str | None,
     account_id: int | None,
+    *,
+    allow_live_dry_run: bool = False,
 ) -> dict[str, Any] | ServiceError:
     if account_id is None and not account_key:
         return ServiceError(code="VALIDATION_ERROR", message="account_key or account_id is required.")
@@ -444,14 +461,68 @@ def _load_preview_account(
         return ServiceError(code="ACCOUNT_MISMATCH", message="account_key and account_id point to different accounts.")
     if row["status"] != "active":
         return ServiceError(code="ACCOUNT_INACTIVE", message=f"Account is not active: {row['account_key']}.")
+    if row["account_type"] == "live" and allow_live_dry_run:
+        return dict(row)
     if row["account_type"] != "paper":
         return ServiceError(
-            code="UNSUPPORTED_ACCOUNT_TYPE",
-            message="Daily close dry-run buy-plan preview currently supports paper accounts only.",
+            code="LIVE_PLAN_APPLY_DISABLED" if row["account_type"] == "live" else "UNSUPPORTED_ACCOUNT_TYPE",
+            message="Live account planning is dry-run only until live enablement is approved.",
             entity_type="portfolio_account",
             entity_id=int(row["id"]),
             severity="blocker",
         )
+    return dict(row)
+
+
+def _live_apply_disabled(
+    db_path: Path,
+    request: RunDailyCloseWorkflowRequest,
+    ctx: RequestContext,
+) -> ServiceError | None:
+    if ctx.dry_run:
+        return None
+    with connect(db_path) as conn:
+        row = _load_account_row(conn, request.account_key, request.account_id)
+    if row is None or row["account_type"] != "live":
+        return None
+    return ServiceError(
+        code="LIVE_PLAN_APPLY_DISABLED",
+        message="Live account planning is dry-run only until live enablement is approved.",
+        entity_type="portfolio_account",
+        entity_id=int(row["id"]),
+        severity="blocker",
+    )
+
+
+def _load_account_row(
+    conn: Any,
+    account_key: str | None,
+    account_id: int | None,
+) -> dict[str, Any] | None:
+    if account_id is None and not account_key:
+        return None
+    if account_id is not None:
+        row = conn.execute(
+            """
+            SELECT id, account_key, account_type
+            FROM portfolio_accounts
+            WHERE id = ?
+            """,
+            (account_id,),
+        ).fetchone()
+    else:
+        row = conn.execute(
+            """
+            SELECT id, account_key, account_type
+            FROM portfolio_accounts
+            WHERE account_key = ?
+            """,
+            (account_key,),
+        ).fetchone()
+    if row is None:
+        return None
+    if account_key and row["account_key"] != account_key:
+        return None
     return dict(row)
 
 

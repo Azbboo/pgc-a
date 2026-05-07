@@ -169,6 +169,29 @@ class ApiWriteRoutesTest(unittest.TestCase):
         self.assertIsNone(ctx.operator)
         self.assertIsNone(ctx.idempotency_key)
 
+    def test_live_dry_run_review_is_routed_without_write_enablement(self) -> None:
+        response = _Response()
+
+        payload = run_review_run(
+            self.disabled,
+            self.services,
+            response,
+            payload={
+                "as_of_date": "2026-05-04",
+                "account_key": "live-main",
+                "run_type": "live",
+                "dry_run": True,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["data"], {"as_of_date": "20260504", "dry_run": True})
+        _, request, ctx = _FakeWorkflowService.calls[0]
+        self.assertEqual(request.account_key, "live-main")
+        self.assertEqual(request.run_type, "live")
+        self.assertTrue(ctx.dry_run)
+        self.assertEqual(ctx.source, "api")
+
     def test_non_dry_write_requires_operator_and_idempotency_key(self) -> None:
         response = _Response()
 
