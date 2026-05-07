@@ -20,17 +20,24 @@ from pgc_trading.reporting.daily_report import (
 from pgc_trading.services.common import RequestContext, ServiceResult
 from pgc_trading.services.daily_close_workflow_service import DEFAULT_ACCOUNT_KEY
 from pgc_trading.services.daily_review_service import DailyReviewService, RunDailyReviewRequest
+from pgc_trading.services.execution_recording_service import (
+    ExecutionRecordingService,
+    RecordPositionSellRequest,
+    RecordTradeRequest,
+)
 from pgc_trading.strategies.cpb_6157 import STRATEGY_VERSION
 
 
 ReviewServiceFactory = Callable[[Path], DailyReviewService]
 ReportServiceFactory = Callable[[Path], ReportingQueryService]
+ExecutionServiceFactory = Callable[[Path], ExecutionRecordingService]
 
 
 @dataclass(frozen=True)
 class CommandServices:
     review_service_factory: ReviewServiceFactory = DailyReviewService
     report_service_factory: ReportServiceFactory = ReportingQueryService
+    execution_service_factory: ExecutionServiceFactory = ExecutionRecordingService
 
 
 class PgcArgumentParser(argparse.ArgumentParser):
@@ -131,8 +138,9 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
     _add_date_argument(record_buy)
     record_buy.add_argument("--price", type=_positive_float, required=True)
     record_buy.add_argument("--shares", type=_positive_int, required=True)
+    _add_execution_common_arguments(record_buy)
     _add_db_path_argument(record_buy)
-    record_buy.set_defaults(handler=_run_placeholder)
+    record_buy.set_defaults(handler=_run_record_buy)
 
     record_sell = subparsers.add_parser(
         "record-sell",
@@ -144,8 +152,9 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
     _add_date_argument(record_sell)
     record_sell.add_argument("--price", type=_positive_float, required=True)
     record_sell.add_argument("--shares", type=_positive_int, required=True)
+    _add_execution_common_arguments(record_sell)
     _add_db_path_argument(record_sell)
-    record_sell.set_defaults(handler=_run_placeholder)
+    record_sell.set_defaults(handler=_run_record_sell)
 
     positions = subparsers.add_parser(
         "positions",
@@ -207,6 +216,79 @@ def _run_placeholder(args: argparse.Namespace, stdout: TextIO, services: Command
         "service implementation pending; no writes were performed",
     )
     return 0
+
+
+def _run_record_buy(args: argparse.Namespace, stdout: TextIO, services: CommandServices) -> int:
+    db_path = _normalized_db_path(args.db_path)
+    executed_date = args.date
+
+    if not db_path.exists():
+        _write_routed_message(
+            stdout,
+            args.command,
+            executed_date,
+            db_path,
+            "database not found; execution service was not run and no writes were performed",
+        )
+        return 1
+
+    service = services.execution_service_factory(db_path)
+    request = RecordTradeRequest(
+        trade_plan_id=args.plan_id,
+        side="buy",
+        executed_date=executed_date,
+        executed_price=args.price,
+        shares=args.shares,
+        account_key=args.account_key,
+        account_id=args.account_id,
+        fee=args.fee,
+        tax=args.tax,
+        source=args.source,
+    )
+    try:
+        result = service.record_trade(request, _execution_context(args, "record-buy"))
+    except sqlite3.OperationalError as exc:
+        stdout.write(f"record-buy failed for {executed_date}: database is not initialized or is incompatible: {exc}\n")
+        return 1
+
+    _write_service_result(stdout, args.command, executed_date, db_path, result)
+    return 0 if result.ok else 1
+
+
+def _run_record_sell(args: argparse.Namespace, stdout: TextIO, services: CommandServices) -> int:
+    db_path = _normalized_db_path(args.db_path)
+    executed_date = args.date
+
+    if not db_path.exists():
+        _write_routed_message(
+            stdout,
+            args.command,
+            executed_date,
+            db_path,
+            "database not found; execution service was not run and no writes were performed",
+        )
+        return 1
+
+    service = services.execution_service_factory(db_path)
+    request = RecordPositionSellRequest(
+        position_id=args.position_id,
+        executed_date=executed_date,
+        executed_price=args.price,
+        shares=args.shares,
+        account_key=args.account_key,
+        account_id=args.account_id,
+        fee=args.fee,
+        tax=args.tax,
+        source=args.source,
+    )
+    try:
+        result = service.record_position_sell(request, _execution_context(args, "record-sell"))
+    except sqlite3.OperationalError as exc:
+        stdout.write(f"record-sell failed for {executed_date}: database is not initialized or is incompatible: {exc}\n")
+        return 1
+
+    _write_service_result(stdout, args.command, executed_date, db_path, result)
+    return 0 if result.ok else 1
 
 
 def _run_report(args: argparse.Namespace, stdout: TextIO, services: CommandServices) -> int:
@@ -293,6 +375,21 @@ def _add_db_path_argument(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_execution_common_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--account", dest="account_key", default=DEFAULT_ACCOUNT_KEY, help="portfolio account key")
+    parser.add_argument("--account-id", type=_positive_int, help="portfolio account id")
+    parser.add_argument("--fee", type=_non_negative_float, default=0.0, help="execution fee")
+    parser.add_argument("--tax", type=_non_negative_float, default=0.0, help="execution tax")
+    parser.add_argument(
+        "--source",
+        choices=["manual", "paper_model", "model", "broker_import", "correction"],
+        default="manual",
+        help="trade execution source",
+    )
+    parser.add_argument("--operator", default="cli", help="operator name for audit fields")
+    parser.add_argument("--idempotency-key", help="optional idempotency key for audit logging")
+
+
 def _parse_iso_date(value: str) -> str:
     try:
         parsed = datetime.strptime(value, "%Y-%m-%d")
@@ -333,6 +430,25 @@ def _positive_float(value: str) -> float:
     if parsed <= 0:
         raise argparse.ArgumentTypeError(f"value must be greater than zero: {value!r}")
     return parsed
+
+
+def _non_negative_float(value: str) -> float:
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"invalid number {value!r}") from exc
+    if parsed < 0:
+        raise argparse.ArgumentTypeError(f"value must be zero or greater: {value!r}")
+    return parsed
+
+
+def _execution_context(args: argparse.Namespace, command: str) -> RequestContext:
+    return RequestContext(
+        request_id=f"cli-{command}",
+        idempotency_key=args.idempotency_key,
+        operator=args.operator,
+        source=args.source,
+    )
 
 
 def _normalized_db_path(db_path: Path) -> Path:

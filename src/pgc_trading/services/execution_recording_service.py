@@ -43,6 +43,20 @@ class RecordTradeRequest:
 
 
 @dataclass(frozen=True)
+class RecordPositionSellRequest:
+    position_id: int
+    executed_date: str
+    executed_price: float
+    shares: int
+    account_key: str | None = None
+    account_id: int | None = None
+    fee: float = 0.0
+    tax: float = 0.0
+    source: str = "manual"
+    slippage: float | None = None
+
+
+@dataclass(frozen=True)
 class RecordTradeResult:
     trade_id: int | None
     position_id: int | None
@@ -81,6 +95,36 @@ class ExecutionRecordingService:
             try:
                 operation_id = _reserve_operation(conn, request, ctx)
                 result = _record_trade_in_tx(conn, request, ctx, write=True)
+                _write_record_trade_event(conn, result, ctx)
+                _finish_operation(conn, operation_id, result)
+                conn.commit()
+                return result
+            except Exception:
+                conn.rollback()
+                raise
+
+    def record_position_sell(
+        self,
+        request: RecordPositionSellRequest,
+        ctx: RequestContext,
+    ) -> ServiceResult[RecordTradeResult]:
+        errors = _validate_record_position_sell_request(request)
+        if errors:
+            return ServiceResult(
+                status="validation_failed",
+                request_id=ctx.request_id,
+                data=_empty_record_result(),
+                errors=errors,
+            )
+
+        with connect(self.db_path) as conn:
+            if ctx.dry_run:
+                return _record_position_sell_in_tx(conn, request, ctx, write=False)
+
+            conn.execute("BEGIN")
+            try:
+                operation_id = _reserve_position_sell_operation(conn, request, ctx)
+                result = _record_position_sell_in_tx(conn, request, ctx, write=True)
                 _write_record_trade_event(conn, result, ctx)
                 _finish_operation(conn, operation_id, result)
                 conn.commit()
@@ -159,6 +203,85 @@ def _record_trade_in_tx(
     if not is_sell_action(plan["action"]):
         return _validation_failed(ctx, [_plan_side_error(request.trade_plan_id, "sell")])
     return _record_sell_trade(conn, request, ctx, account, plan, write=write)
+
+
+def _record_position_sell_in_tx(
+    conn: sqlite3.Connection,
+    request: RecordPositionSellRequest,
+    ctx: RequestContext,
+    *,
+    write: bool,
+) -> ServiceResult[RecordTradeResult]:
+    account = _resolve_account(conn, request.account_key, request.account_id)
+    if isinstance(account, ServiceError):
+        return _validation_failed(ctx, [account])
+    if not trade_source_allowed_for_account(account.account_type, request.source):
+        return _validation_failed(
+            ctx,
+            [
+                ServiceError(
+                    code="INVALID_TRADE_SOURCE",
+                    message=f"Trade source {request.source!r} is not allowed for {account.account_type} accounts.",
+                )
+            ],
+        )
+
+    position = _load_position_for_direct_sell(conn, request.position_id)
+    if isinstance(position, ServiceError):
+        return _validation_failed(ctx, [position])
+    if int(position["account_id"]) != account.id:
+        return _validation_failed(ctx, [_position_account_mismatch_error(request.position_id)])
+    if request.shares != int(position["shares"]):
+        return _validation_failed(
+            ctx,
+            [
+                ServiceError(
+                    code="PARTIAL_SELL_NOT_SUPPORTED",
+                    message="WP12 skeleton requires full-share sell trades.",
+                    entity_type="position",
+                    entity_id=int(position["id"]),
+                )
+            ],
+        )
+
+    amount = request.executed_price * request.shares
+    cash_before = _latest_cash(conn, account)
+    cash_after = cash_before + amount - request.fee - request.tax
+
+    trade_id = None
+    equity_snapshot_id = None
+    if write:
+        trade_id = _insert_position_sell_trade(conn, request, account.id, position, amount)
+        conn.execute(
+            """
+            UPDATE positions
+            SET status = 'closed',
+                exit_trade_id = ?,
+                closed_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (trade_id, int(position["id"])),
+        )
+        _mark_position_exit_decisions_executed(conn, int(position["id"]), trade_id)
+        equity_snapshot_id = _upsert_equity_snapshot(conn, account, request.executed_date, cash_after)
+
+    return ServiceResult(
+        status="success",
+        request_id=ctx.request_id,
+        data=RecordTradeResult(
+            trade_id=trade_id,
+            position_id=int(position["id"]),
+            equity_snapshot_id=equity_snapshot_id,
+            position_status="closed",
+            cash_after=cash_after,
+        ),
+        created_ids=_created_ids(trade_id, int(position["id"]), equity_snapshot_id),
+        lineage={
+            "account_id": account.id,
+            "position_id": int(position["id"]),
+            "signal_id": int(position["signal_id"]) if position["signal_id"] is not None else None,
+        },
+    )
 
 
 def _record_buy_trade(
@@ -334,6 +457,21 @@ def _validate_record_trade_request(request: RecordTradeRequest) -> list[ServiceE
     return errors
 
 
+def _validate_record_position_sell_request(request: RecordPositionSellRequest) -> list[ServiceError]:
+    errors: list[ServiceError] = []
+    if request.position_id <= 0:
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="position_id must be positive."))
+    if not is_yyyymmdd(request.executed_date):
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="executed_date must use YYYYMMDD format."))
+    if request.executed_price <= 0:
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="executed_price must be positive."))
+    if request.shares <= 0 or request.shares % 100 != 0:
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="shares must be a positive A-share board lot."))
+    if request.fee < 0 or request.tax < 0:
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="fee and tax cannot be negative."))
+    return errors
+
+
 def _load_signal(conn: sqlite3.Connection, signal_id: int | None) -> sqlite3.Row | ServiceError:
     if signal_id is None:
         return ServiceError(code="SIGNAL_NOT_FOUND", message="Trade plan has no signal_id.")
@@ -347,6 +485,25 @@ def _load_signal(conn: sqlite3.Connection, signal_id: int | None) -> sqlite3.Row
             message=f"Signal was not found: {signal_id}.",
             entity_type="strategy_signal",
             entity_id=int(signal_id),
+        )
+    return row
+
+
+def _load_position_for_direct_sell(conn: sqlite3.Connection, position_id: int) -> sqlite3.Row | ServiceError:
+    row = conn.execute("SELECT * FROM positions WHERE id = ?", (position_id,)).fetchone()
+    if row is None:
+        return ServiceError(
+            code="POSITION_NOT_FOUND",
+            message=f"Position was not found: {position_id}.",
+            entity_type="position",
+            entity_id=position_id,
+        )
+    if row["status"] not in OPEN_POSITION_STATUSES:
+        return ServiceError(
+            code="POSITION_NOT_OPEN",
+            message=f"Position is not open: {row['status']}.",
+            entity_type="position",
+            entity_id=int(row["id"]),
         )
     return row
 
@@ -465,6 +622,56 @@ def _insert_trade(
     return int(cursor.lastrowid)
 
 
+def _insert_position_sell_trade(
+    conn: sqlite3.Connection,
+    request: RecordPositionSellRequest,
+    account_id: int,
+    position: sqlite3.Row,
+    amount: float,
+) -> int:
+    cursor = conn.execute(
+        """
+        INSERT INTO trades
+          (
+            account_id,
+            trade_plan_id,
+            signal_id,
+            agent_decision_id,
+            ts_code,
+            name,
+            side,
+            planned_date,
+            executed_date,
+            executed_price,
+            amount,
+            shares,
+            fee,
+            tax,
+            slippage,
+            status,
+            source
+          )
+        VALUES
+          (?, NULL, ?, NULL, ?, ?, 'sell', NULL, ?, ?, ?, ?, ?, ?, ?, 'executed', ?)
+        """,
+        (
+            account_id,
+            position["signal_id"],
+            position["ts_code"],
+            position["name"],
+            request.executed_date,
+            request.executed_price,
+            amount,
+            request.shares,
+            request.fee,
+            request.tax,
+            request.slippage,
+            request.source,
+        ),
+    )
+    return int(cursor.lastrowid)
+
+
 def _insert_position(
     conn: sqlite3.Connection,
     *,
@@ -543,6 +750,24 @@ def _mark_exit_decision_executed(
         WHERE generated_trade_plan_id = ?
         """,
         (trade_id, generated_trade_plan_id),
+    )
+
+
+def _mark_position_exit_decisions_executed(
+    conn: sqlite3.Connection,
+    position_id: int,
+    trade_id: int,
+) -> None:
+    conn.execute(
+        """
+        UPDATE exit_decisions
+        SET decision = 'executed',
+            executed_exit_trade_id = ?
+        WHERE position_id = ?
+          AND executed_exit_trade_id IS NULL
+          AND decision <> 'executed'
+        """,
+        (trade_id, position_id),
     )
 
 
@@ -680,6 +905,15 @@ def _account_mismatch_error(trade_plan_id: int) -> ServiceError:
     )
 
 
+def _position_account_mismatch_error(position_id: int) -> ServiceError:
+    return ServiceError(
+        code="ACCOUNT_MISMATCH",
+        message="Position belongs to a different account.",
+        entity_type="position",
+        entity_id=position_id,
+    )
+
+
 def _plan_side_error(trade_plan_id: int, side: str) -> ServiceError:
     return ServiceError(
         code="PLAN_SIDE_MISMATCH",
@@ -744,6 +978,74 @@ def _reserve_operation(
           )
         VALUES
           (?, ?, 'trade_record', ?, ?, 'started', ?, ?)
+        """,
+        (
+            ctx.idempotency_key,
+            ctx.request_id,
+            request.account_id,
+            request.executed_date,
+            request_json,
+            ctx.operator,
+        ),
+    )
+    return int(cursor.lastrowid)
+
+
+def _reserve_position_sell_operation(
+    conn: sqlite3.Connection,
+    request: RecordPositionSellRequest,
+    ctx: RequestContext,
+) -> int | None:
+    if not ctx.idempotency_key:
+        return None
+    request_json = _json_dumps({"request": request, "dry_run": ctx.dry_run})
+    existing = conn.execute(
+        "SELECT id FROM operation_requests WHERE idempotency_key = ?",
+        (ctx.idempotency_key,),
+    ).fetchone()
+    if existing is not None:
+        conn.execute(
+            """
+            UPDATE operation_requests
+            SET request_id = ?,
+                operation_type = 'position_sell_record',
+                account_id = ?,
+                as_of_date = ?,
+                status = 'started',
+                request_json = ?,
+                response_json = NULL,
+                error_code = NULL,
+                error_message = NULL,
+                operator = ?,
+                started_at = CURRENT_TIMESTAMP,
+                finished_at = NULL
+            WHERE id = ?
+            """,
+            (
+                ctx.request_id,
+                request.account_id,
+                request.executed_date,
+                request_json,
+                ctx.operator,
+                existing["id"],
+            ),
+        )
+        return int(existing["id"])
+    cursor = conn.execute(
+        """
+        INSERT INTO operation_requests
+          (
+            idempotency_key,
+            request_id,
+            operation_type,
+            account_id,
+            as_of_date,
+            status,
+            request_json,
+            operator
+          )
+        VALUES
+          (?, ?, 'position_sell_record', ?, ?, 'started', ?, ?)
         """,
         (
             ctx.idempotency_key,

@@ -99,32 +99,6 @@ class CliMainTest(unittest.TestCase):
     def test_future_commands_have_routing(self) -> None:
         cases = [
             ["plan", "--date", "2026-05-04", "--db-path", "/private/tmp/pgc_cli.db"],
-            [
-                "record-buy",
-                "--plan-id",
-                "101",
-                "--date",
-                "2026-05-05",
-                "--price",
-                "10.50",
-                "--shares",
-                "6600",
-                "--db-path",
-                "/private/tmp/pgc_cli.db",
-            ],
-            [
-                "record-sell",
-                "--position-id",
-                "88",
-                "--date",
-                "2026-05-07",
-                "--price",
-                "10.92",
-                "--shares",
-                "6600",
-                "--db-path",
-                "/private/tmp/pgc_cli.db",
-            ],
             ["positions", "--date", "2026-05-07", "--db-path", "/private/tmp/pgc_cli.db"],
         ]
 
@@ -135,6 +109,31 @@ class CliMainTest(unittest.TestCase):
                 self.assertEqual(code, 0)
                 self.assertIn(f"{argv[0]} command routed", stdout.getvalue())
                 self.assertIn("no writes were performed", stdout.getvalue())
+
+    def test_record_command_missing_db_fails_without_creating_database(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "missing.db"
+            stdout = io.StringIO()
+            code = main(
+                [
+                    "record-buy",
+                    "--plan-id",
+                    "101",
+                    "--date",
+                    "2026-05-05",
+                    "--price",
+                    "10.50",
+                    "--shares",
+                    "6600",
+                    "--db-path",
+                    str(db_path),
+                ],
+                stdout=stdout,
+            )
+
+            self.assertEqual(code, 1)
+            self.assertFalse(db_path.exists())
+            self.assertIn("database not found", stdout.getvalue())
 
     def test_invalid_date_exits_nonzero_with_clear_message(self) -> None:
         stdout = io.StringIO()
