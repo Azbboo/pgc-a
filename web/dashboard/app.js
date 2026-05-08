@@ -99,6 +99,9 @@ function cacheElements() {
     "duePositionsBody",
     "agentSummary",
     "agentPageBody",
+    "openCandidateDetailButton",
+    "openAgentDetailInlineButton",
+    "openAgentDetailButton",
     "openLineageButton",
     "planStatusFilter",
     "reloadPlansButton",
@@ -128,6 +131,9 @@ function cacheElements() {
     "detailDrawer",
     "drawerKicker",
     "drawerTitle",
+    "drawerSubtitle",
+    "drawerMeta",
+    "drawerActions",
     "drawerBody",
     "closeDrawerButton",
     "confirmDialog",
@@ -189,6 +195,10 @@ function bindEvents() {
   els.recordForm.addEventListener("change", setRecordFormState);
   els.clearRecordButton.addEventListener("click", clearRecordForm);
   els.closeDrawerButton.addEventListener("click", closeDrawer);
+  els.drawerActions.addEventListener("click", onDrawerActionClick);
+  els.openCandidateDetailButton.addEventListener("click", openCandidateDrawer);
+  els.openAgentDetailInlineButton.addEventListener("click", openAgentDrawer);
+  els.openAgentDetailButton.addEventListener("click", openAgentDrawer);
 
   els.preOpenChecklist.addEventListener("change", onPreOpenChecklistChange);
   els.openingPlanBody.addEventListener("click", onPlansTableClick);
@@ -197,6 +207,7 @@ function bindEvents() {
   els.plansBody.addEventListener("click", onPlansTableClick);
   els.recordQueue.addEventListener("click", onRecordQueueClick);
   els.positionsBody.addEventListener("click", onPositionsTableClick);
+  els.qualityBody.addEventListener("click", onQualityTableClick);
   els.openingWorkflowGuide.addEventListener("click", onWorkflowGuideClick);
 }
 
@@ -1148,26 +1159,24 @@ function renderBlockers() {
 function renderCandidate() {
   const candidate = state.report?.candidate;
   if (!candidate) {
+    els.openCandidateDetailButton.disabled = true;
     els.candidateSummary.innerHTML = emptyState(`无候选：${reasonText(state.report?.no_candidate_reason)}`);
     els.rankedSignalsBody.innerHTML = emptyRow(4, "没有候选明细。");
     return;
   }
-  const features = candidate.features || {};
+  els.openCandidateDetailButton.disabled = false;
   els.candidateSummary.innerHTML = `
-    <div class="action-meta">
+    <div class="action-meta action-meta--summary">
       <div class="metric"><span>股票</span><strong>${escapeHtml(candidate.ts_code)} ${escapeHtml(candidate.name)}</strong></div>
       <div class="metric"><span>评分</span><strong>${numberText(candidate.score, 4)}</strong></div>
       <div class="metric"><span>计划买入日</span><strong>${displayDate(candidate.planned_buy_date)}</strong></div>
       <div class="metric"><span>胜出信号数</span><strong>${dash(candidate.selected_over_signal_count)}</strong></div>
-      <div class="metric"><span>回撤幅度</span><strong>${percent(features.drawdown_from_peak)}</strong></div>
-      <div class="metric"><span>缩量比</span><strong>${numberText(features.amount_contract_ratio, 2)}</strong></div>
-      <div class="metric"><span>阳线实体</span><strong>${percent(features.bull_body)}</strong></div>
-      <div class="metric"><span>血缘</span><strong>信号 ${candidate.signal_id}</strong></div>
     </div>
+    <p class="summary-footnote">主体只保留候选摘要；特征、血缘和 ranked signals 在详情面板查看。</p>
   `;
   const rows = candidate.ranked_signals || [];
   els.rankedSignalsBody.innerHTML = rows.length
-    ? rows.map((signal) => `
+    ? rows.slice(0, 5).map((signal) => `
       <tr>
         <td>${dash(signal.signal_rank)}</td>
         <td>${escapeHtml(signal.ts_code)} ${escapeHtml(signal.name)}</td>
@@ -1199,10 +1208,20 @@ function renderAgent() {
     const html = emptyState("TradingAgents 未运行或不可用；本页只展示系统复盘原始数据。");
     els.agentSummary.innerHTML = html;
     els.agentPageBody.innerHTML = html;
+    els.openAgentDetailInlineButton.disabled = true;
+    els.openAgentDetailButton.disabled = true;
     return;
   }
+  els.openAgentDetailInlineButton.disabled = false;
+  els.openAgentDetailButton.disabled = false;
   els.agentSummary.innerHTML = renderAgentAdvice(advice, { expanded: false });
-  els.agentPageBody.innerHTML = renderAgentAdvice(advice, { expanded: true });
+  els.agentPageBody.innerHTML = `
+    ${renderAgentAdvice(advice, { expanded: false })}
+    <div class="drawer-entry-row">
+      <button type="button" class="primary-button" data-agent-drawer-open>打开统一详情面板</button>
+    </div>
+  `;
+  els.agentPageBody.querySelector("[data-agent-drawer-open]")?.addEventListener("click", openAgentDrawer);
 }
 
 function renderAgentAdvice(advice, { expanded }) {
@@ -1479,9 +1498,12 @@ function renderQuality() {
         <td>${escapeHtml(event.ts_code || "-")}</td>
         <td>${escapeHtml(event.message)}</td>
         <td>${statusText(event.status)}</td>
+        <td>
+          <button type="button" data-quality-action="detail" data-quality-id="${event.id}">详情</button>
+        </td>
       </tr>
     `).join("")
-    : emptyRow(8, "当前筛选下没有 open 数据质量事件。");
+    : emptyRow(9, "当前筛选下没有 open 数据质量事件。");
 }
 
 function renderBadges() {
@@ -1565,6 +1587,32 @@ function onPositionsTableClick(event) {
   if (button.dataset.positionAction === "sell") selectPosition(position, { openRecordPage: true });
 }
 
+function onQualityTableClick(event) {
+  const button = event.target.closest("button[data-quality-action]");
+  if (!button) return;
+  const qualityEvent = findQualityEvent(Number(button.dataset.qualityId));
+  if (qualityEvent) openQualityEventDrawer(qualityEvent);
+}
+
+function onDrawerActionClick(event) {
+  const button = event.target.closest("button[data-drawer-action]");
+  if (!button) return;
+  const action = button.dataset.drawerAction;
+  const planId = Number(button.dataset.planId);
+  const positionId = Number(button.dataset.positionId);
+  const plan = planId ? selectedRecordPlan(planId) : null;
+  const position = positionId ? findPosition(positionId) : null;
+
+  if (action === "page" && button.dataset.page) setActivePage(button.dataset.page);
+  if (action === "lineage") openLineageDrawer();
+  if (action === "candidate") openCandidateDrawer();
+  if (action === "agent") openAgentDrawer();
+  if (action === "record-plan" && plan) selectPlan(plan, { openRecordPage: true });
+  if (action === "publish-plan" && planId) publishPlan(planId);
+  if (action === "cancel-plan" && planId) cancelPlan(planId);
+  if (action === "record-position" && position) selectPosition(position, { openRecordPage: true });
+}
+
 function selectPlan(plan, options = {}) {
   state.selectedPlan = plan;
   if (options.openRecordPage) {
@@ -1573,23 +1621,44 @@ function selectPlan(plan, options = {}) {
     setActivePage("record");
     return;
   }
-  openDrawer("交易计划", `计划 ${plan.id}`, [
-    ["计划 ID", plan.id],
-    ["账户 ID", plan.account_id],
-    ["股票", planStockText(plan)],
-    ["动作", actionText(plan.action)],
-    ["状态", statusText(plan.status)],
-    ["生成日", displayDate(plan.as_of_date)],
-    ["计划交易日", displayDate(planTradeDate(plan))],
-    ["计划股数", integerText(plannedShares(plan))],
-    ["计划资金", money(plannedCash(plan))],
-    ["入选记录", dash(planDailyPickId(plan))],
-    ["信号记录", dash(planSignalId(plan))],
-    ["操作者", dash(plan.operator)],
-    ["创建时间", dash(plan.created_at)],
-    ["原因", reasonText(plan.reason)],
-    ["取消原因", plan.cancel_reason || "-"],
-  ]);
+  const recordLockReason = recordLockReasonForPlanAction(plan);
+  openDetailDrawer({
+    kicker: "交易计划",
+    title: `计划 ${plan.id} · ${planStockText(plan)}`,
+    subtitle: "计划、信号、成交入口在统一详情面板中核对；计划不是成交事实。",
+    meta: [
+      [statusText(plan.status), statusClass(plan.status)],
+      [actionText(plan.action), actionClass(plan.action)],
+      [`交易日 ${displayDate(planTradeDate(plan))}`, "chip-neutral"],
+    ],
+    actions: [
+      { label: "录入成交", action: "record-plan", planId: plan.id, primary: true, disabled: Boolean(recordLockReason), title: recordLockReason || "按该计划录入成交" },
+      { label: "发布计划", action: "publish-plan", planId: plan.id, disabled: hasBlockingQuality() || plan.status !== "draft" },
+      { label: "取消计划", action: "cancel-plan", planId: plan.id, disabled: !["draft", "active"].includes(plan.status) },
+    ],
+    sections: [
+      detailSection("摘要", detailMetrics([
+        ["计划 ID", plan.id],
+        ["股票", planStockText(plan)],
+        ["计划股数", integerText(plannedShares(plan))],
+        ["计划资金", money(plannedCash(plan))],
+      ])),
+      detailSection("计划边界", detailRows([
+        ["账户 ID", plan.account_id],
+        ["生成日", displayDate(plan.as_of_date)],
+        ["计划交易日", displayDate(planTradeDate(plan))],
+        ["操作者", dash(plan.operator)],
+        ["创建时间", dash(plan.created_at)],
+      ])),
+      detailSection("血缘与原因", detailRows([
+        ["入选记录", dash(planDailyPickId(plan))],
+        ["信号记录", dash(planSignalId(plan))],
+        ["原因", reasonText(plan.reason)],
+        ["取消原因", plan.cancel_reason || "-"],
+        ["录入锁定", recordLockReason || "无"],
+      ])),
+    ],
+  });
 }
 
 function selectPosition(position, options = {}) {
@@ -1600,20 +1669,41 @@ function selectPosition(position, options = {}) {
     setActivePage("record");
     return;
   }
-  openDrawer("持仓", `${position.ts_code} ${position.name}`, [
-    ["持仓 ID", position.position_id],
-    ["账户 ID", position.account_id],
-    ["买入日", displayDate(position.buy_date)],
-    ["买入价", numberText(position.buy_price, 2)],
-    ["股数", integerText(position.shares)],
-    ["T+2", displayDate(position.planned_t2_date)],
-    ["T+5", displayDate(position.planned_t5_date)],
-    ["最新行情日", displayDate(position.latest_trade_date)],
-    ["最近收盘价", positionLatestCloseNote(position)],
-    ["收益", percent(position.unrealized_ret)],
-    ["状态", statusText(position.status)],
-    ["到期阶段", dueText(position.due_stage)],
-  ]);
+  const returnChipClass = position.unrealized_ret == null ? "chip-neutral" : Number(position.unrealized_ret) >= 0 ? "chip-green" : "chip-red";
+  openDetailDrawer({
+    kicker: "持仓",
+    title: `${position.ts_code} ${position.name}`,
+    subtitle: "持仓详情只展示账本与行情派生状态；卖出仍需人工成交事实。",
+    meta: [
+      [statusText(position.status), statusClass(position.status)],
+      [dueText(position.due_stage || position.action_due), dueClass(position.due_stage || position.action_due)],
+      [`收益 ${percent(position.unrealized_ret)}`, returnChipClass],
+    ],
+    actions: [
+      { label: "卖出录入", action: "record-position", positionId: position.position_id, primary: true },
+      { label: "查看持仓页", action: "page", page: "positions" },
+    ],
+    sections: [
+      detailSection("摘要", detailMetrics([
+        ["持仓 ID", position.position_id],
+        ["股数", integerText(position.shares)],
+        ["买入价", numberText(position.buy_price, 2)],
+        ["收益", percent(position.unrealized_ret)],
+      ])),
+      detailSection("生命周期", detailRows([
+        ["账户 ID", position.account_id],
+        ["买入日", displayDate(position.buy_date)],
+        ["T+2", displayDate(position.planned_t2_date)],
+        ["T+5", displayDate(position.planned_t5_date)],
+        ["到期阶段", dueText(position.due_stage || position.action_due)],
+      ])),
+      detailSection("行情边界", detailRows([
+        ["最新行情日", displayDate(position.latest_trade_date)],
+        ["最近收盘价", positionLatestCloseNote(position)],
+        ["状态", statusText(position.status)],
+      ])),
+    ],
+  });
 }
 
 function fillRecordFromPlan(plan) {
@@ -1680,32 +1770,197 @@ function openLineageDrawer() {
     openDrawer("数据血缘", "暂无血缘", [["状态", "复盘报告未返回 lineage"]]);
     return;
   }
-  openDrawer("数据血缘", `复盘日 ${displayDate(state.report.as_of_date)}`, [
-    ["特征运行", dash(lineage.feature_run_id)],
-    ["策略运行", dash(lineage.strategy_run_id)],
-    ["行情抓取", dash(lineage.market_fetch_run_id)],
-    ["入选记录", dash(lineage.daily_pick_id)],
-    ["信号记录", dash(lineage.signal_id)],
-    ["计划记录", dash(lineage.trade_plan_id)],
-    ["Agent 运行", dash(lineage.agent_run_id)],
-    ["Agent 意见", dash(lineage.agent_decision_id)],
-    ["质量事件", (lineage.data_quality_event_ids || []).join(", ") || "-"],
-  ]);
+  openDetailDrawer({
+    kicker: "数据血缘",
+    title: `复盘日 ${displayDate(state.report.as_of_date)}`,
+    subtitle: "血缘只解释本次复盘来源，不作为交易事实源。",
+    meta: [
+      [`策略 ${dash(lineage.strategy_run_id)}`, "chip-blue"],
+      [`信号 ${dash(lineage.signal_id)}`, "chip-neutral"],
+      [`计划 ${dash(lineage.trade_plan_id)}`, "chip-neutral"],
+    ],
+    actions: [
+      { label: "候选详情", action: "candidate" },
+      { label: "Agent 详情", action: "agent" },
+    ],
+    sections: [
+      detailSection("运行链路", detailRows([
+        ["特征运行", dash(lineage.feature_run_id)],
+        ["策略运行", dash(lineage.strategy_run_id)],
+        ["行情抓取", dash(lineage.market_fetch_run_id)],
+      ])),
+      detailSection("业务记录", detailRows([
+        ["入选记录", dash(lineage.daily_pick_id)],
+        ["信号记录", dash(lineage.signal_id)],
+        ["计划记录", dash(lineage.trade_plan_id)],
+        ["Agent 运行", dash(lineage.agent_run_id)],
+        ["Agent 意见", dash(lineage.agent_decision_id)],
+        ["质量事件", (lineage.data_quality_event_ids || []).join(", ") || "-"],
+      ])),
+    ],
+  });
+}
+
+function openCandidateDrawer() {
+  const candidate = state.report?.candidate;
+  if (!candidate) {
+    openDrawer("候选详情", "暂无候选", [["状态", `无候选：${reasonText(state.report?.no_candidate_reason)}`]]);
+    return;
+  }
+  const features = candidate.features || {};
+  const featureRows = Object.entries(features).map(([key, value]) => [featureLabel(key), featureValue(key, value)]);
+  const signals = candidate.ranked_signals || [];
+  openDetailDrawer({
+    kicker: "候选详情",
+    title: `${candidate.ts_code} ${candidate.name}`,
+    subtitle: "候选是策略信号，不等于交易计划或已成交持仓。",
+    meta: [
+      [`评分 ${numberText(candidate.score, 4)}`, "chip-blue"],
+      [`计划买入 ${displayDate(candidate.planned_buy_date)}`, "chip-neutral"],
+      [`信号 ${dash(candidate.signal_id)}`, "chip-neutral"],
+    ],
+    actions: [
+      { label: "查看血缘", action: "lineage" },
+      { label: "交易计划", action: "page", page: "plans" },
+    ],
+    sections: [
+      detailSection("候选摘要", detailMetrics([
+        ["复盘日", displayDate(candidate.review_date || state.report?.as_of_date)],
+        ["计划买入日", displayDate(candidate.planned_buy_date)],
+        ["胜出信号数", dash(candidate.selected_over_signal_count)],
+        ["入选原因", reasonText(candidate.selection_reason)],
+      ])),
+      detailSection("策略特征", featureRows.length ? detailRows(featureRows) : emptyState("候选未返回特征快照。")),
+      detailSection("Ranked signals", signals.length ? detailRows(signals.map((signal) => [
+        `#${dash(signal.signal_rank)} ${signal.ts_code} ${signal.name}`,
+        `评分 ${numberText(signal.score, 4)} / 信号 ${dash(signal.signal_id)}`,
+      ])) : emptyState("没有 ranked signals。")),
+    ],
+  });
+}
+
+function openQualityEventDrawer(event) {
+  openDetailDrawer({
+    kicker: "数据质量事件",
+    title: `${event.event_code || "QUALITY_EVENT"} #${event.id}`,
+    subtitle: "质量事件只解释数据状态；blocker 会阻断计划发布和成交录入。",
+    meta: [
+      [severityText(event.severity), severityClass(event.severity)],
+      [statusText(event.status), statusClass(event.status)],
+      [`交易日 ${displayDate(event.trade_date)}`, "chip-neutral"],
+    ],
+    actions: [
+      { label: "数据质量页", action: "page", page: "quality" },
+    ],
+    sections: [
+      detailSection("事件摘要", detailRows([
+        ["事件 ID", event.id],
+        ["层级", event.layer],
+        ["代码", event.event_code],
+        ["严重度", severityText(event.severity)],
+        ["状态", statusText(event.status)],
+      ])),
+      detailSection("影响对象", detailRows([
+        ["交易日", displayDate(event.trade_date)],
+        ["股票", event.ts_code || "-"],
+        ["说明", event.message || "-"],
+      ])),
+    ],
+  });
+}
+
+function openAgentDrawer() {
+  const advice = state.report?.agent_advice;
+  if (!advice) {
+    openDrawer("Agent 详情", "暂无复核输出", [["状态", "TradingAgents 未运行或不可用"]]);
+    return;
+  }
+  openDetailDrawer({
+    kicker: "Agent 详情",
+    title: "TradingAgents 中文复核报告",
+    subtitle: "Agent 只读 advisory，不自动发布、取消、记录成交或向券商执行。",
+    meta: [
+      [agentRunStatusText(advice.status), agentRunStatusClass(advice.status)],
+      [agentActionText(advice.action), "chip-agent"],
+      [riskText(advice.risk_level), riskClass(advice.risk_level)],
+    ],
+    actions: [
+      { label: "查看血缘", action: "lineage" },
+      { label: "每日复盘", action: "page", page: "review" },
+    ],
+    sections: [
+      detailSection("复核详情", renderAgentAdvice(advice, { expanded: true })),
+    ],
+  });
 }
 
 function openDrawer(kicker, title, rows) {
+  openDetailDrawer({
+    kicker,
+    title,
+    sections: [
+      detailSection("详情", detailRows(rows)),
+    ],
+  });
+}
+
+function openDetailDrawer({ kicker, title, subtitle = "", meta = [], actions = [], sections = [] }) {
   els.drawerKicker.textContent = kicker;
   els.drawerTitle.textContent = title;
-  els.drawerBody.innerHTML = `
-    <dl class="kv">
+  els.drawerSubtitle.textContent = subtitle;
+  els.drawerSubtitle.hidden = !subtitle;
+  els.drawerMeta.hidden = meta.length === 0;
+  els.drawerMeta.innerHTML = meta.map(([label, className]) => chipHtml(label, className)).join("");
+  els.drawerActions.hidden = actions.length === 0;
+  els.drawerActions.innerHTML = actions.map(drawerActionButton).join("");
+  els.drawerBody.innerHTML = sections.join("") || emptyState("没有可展示的详情。");
+  els.detailDrawer.hidden = false;
+}
+
+function drawerActionButton(action) {
+  const attrs = [
+    `data-drawer-action="${escapeHtml(action.action)}"`,
+    action.planId ? `data-plan-id="${escapeHtml(action.planId)}"` : "",
+    action.positionId ? `data-position-id="${escapeHtml(action.positionId)}"` : "",
+    action.page ? `data-page="${escapeHtml(action.page)}"` : "",
+    action.title ? `title="${escapeHtml(action.title)}"` : "",
+    action.disabled ? "disabled" : "",
+  ].filter(Boolean).join(" ");
+  return `<button type="button" ${attrs} class="${action.primary ? "primary-button" : ""}">${escapeHtml(action.label)}</button>`;
+}
+
+function detailSection(title, bodyHtml) {
+  return `
+    <section class="drawer-section">
+      <h3>${escapeHtml(title)}</h3>
+      ${bodyHtml}
+    </section>
+  `;
+}
+
+function detailRows(rows) {
+  return `
+    <dl class="kv detail-kv">
       ${rows.map(([key, value]) => `<dt>${escapeHtml(key)}</dt><dd>${escapeHtml(String(value ?? "-"))}</dd>`).join("")}
     </dl>
   `;
-  els.detailDrawer.hidden = false;
+}
+
+function detailMetrics(items) {
+  return `
+    <div class="drawer-metrics">
+      ${items.map(([label, value]) => `
+        <div class="drawer-metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value ?? "-"))}</strong></div>
+      `).join("")}
+    </div>
+  `;
 }
 
 function closeDrawer() {
   els.detailDrawer.hidden = true;
+  els.drawerBody.innerHTML = "";
+  els.drawerActions.innerHTML = "";
+  els.drawerMeta.innerHTML = "";
 }
 
 function setActivePage(page) {
@@ -1909,6 +2164,10 @@ function findPlan(id) {
 
 function findPosition(id) {
   return state.positions.find((position) => Number(position.position_id) === Number(id));
+}
+
+function findQualityEvent(id) {
+  return state.qualityEvents.find((event) => Number(event.id) === Number(id));
 }
 
 function positionPriceIsStale(position) {
@@ -2351,6 +2610,36 @@ function riskText(value) {
     high: "高",
     unknown: "未知",
   }[value] || dash(value);
+}
+
+function riskClass(value) {
+  return {
+    low: "chip-green",
+    medium: "chip-amber",
+    high: "chip-red",
+    unknown: "chip-neutral",
+  }[value] || "chip-neutral";
+}
+
+function featureLabel(key) {
+  return {
+    drawdown_from_peak: "回撤幅度",
+    amount_contract_ratio: "缩量比",
+    bull_body: "阳线实体",
+    avg_amount_to_ma10: "回调均额/10日均额",
+    trigger_amount_to_ma10: "确认日成交额/10日均额",
+    pullback_days: "回调天数",
+    entry_runup: "入池后涨幅",
+    entry_price: "入池价",
+    trigger_close: "复盘日收盘",
+  }[key] || key;
+}
+
+function featureValue(key, value) {
+  if (value == null || value === "") return "-";
+  if (["drawdown_from_peak", "bull_body", "entry_runup"].includes(key)) return percent(value);
+  if (typeof value === "number") return numberText(value, 4);
+  return String(value);
 }
 
 function agentArtifactText(value) {

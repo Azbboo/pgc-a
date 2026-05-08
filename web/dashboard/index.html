@@ -4,8 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>PGC 操作台</title>
-    <link rel="stylesheet" href="/dashboard/assets/styles.css?v=20260508-m17-ops-flow-1" />
-    <script defer src="/dashboard/assets/app.js?v=20260508-m17-ops-flow-1"></script>
+    <link rel="stylesheet" href="/dashboard/assets/styles.css?v=20260508-m21-drawer-1" />
+    <script defer src="/dashboard/assets/app.js?v=20260508-m21-drawer-1"></script>
   </head>
   <body>
     <div class="app-shell">
@@ -284,7 +284,10 @@
           <section class="panel">
             <div class="panel-heading">
               <h2>复盘日候选</h2>
-              <button type="button" class="link-button" id="openLineageButton">查看血缘</button>
+              <div class="panel-heading-actions">
+                <button type="button" class="link-button" id="openCandidateDetailButton">候选详情</button>
+                <button type="button" class="link-button" id="openLineageButton">查看血缘</button>
+              </div>
             </div>
             <div id="candidateSummary" class="candidate-summary"></div>
             <div class="table-wrap">
@@ -326,7 +329,10 @@
             <div class="panel">
               <div class="panel-heading">
                 <h2>AI 复核意见</h2>
-                <span class="chip chip-agent">仅供复核</span>
+                <div class="panel-heading-actions">
+                  <span class="chip chip-agent">仅供复核</span>
+                  <button type="button" class="link-button" id="openAgentDetailInlineButton">Agent 详情</button>
+                </div>
               </div>
               <div id="agentSummary" class="agent-summary"></div>
             </div>
@@ -509,6 +515,7 @@
                     <th>股票</th>
                     <th>说明</th>
                     <th>状态</th>
+                    <th>操作</th>
                   </tr>
                 </thead>
                 <tbody id="qualityBody"></tbody>
@@ -523,6 +530,9 @@
               <h1>Agent 复核</h1>
               <p>首版只读展示，不表现成交易指令。</p>
             </div>
+            <div class="toolbar">
+              <button type="button" id="openAgentDetailButton">打开 Agent 详情</button>
+            </div>
           </div>
           <section class="panel">
             <div id="agentPageBody" class="agent-page"></div>
@@ -530,14 +540,17 @@
         </section>
       </main>
 
-      <aside class="detail-drawer" id="detailDrawer" hidden>
+      <aside class="detail-drawer" id="detailDrawer" role="dialog" aria-labelledby="drawerTitle" aria-modal="false" hidden>
         <div class="drawer-head">
-          <div>
+          <div class="drawer-title-stack">
             <span id="drawerKicker" class="muted">详情</span>
             <h2 id="drawerTitle">-</h2>
+            <p id="drawerSubtitle" class="drawer-subtitle"></p>
           </div>
           <button type="button" class="icon-button" id="closeDrawerButton" aria-label="关闭详情">×</button>
         </div>
+        <div id="drawerMeta" class="drawer-meta"></div>
+        <div id="drawerActions" class="drawer-actions"></div>
         <div id="drawerBody" class="drawer-body"></div>
       </aside>
     </div>

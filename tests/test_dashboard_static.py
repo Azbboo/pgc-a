@@ -109,6 +109,51 @@ class DashboardStaticTest(unittest.TestCase):
         self.assertIn('data-guidance-action="${escapeHtml(action.action)}"', source)
         self.assertIn(".execution-command-center", source)
 
+    def test_dashboard_m21_detail_drawer_entries_are_visible(self) -> None:
+        source = "\n".join(
+            [
+                (DASHBOARD_DIR / "index.html").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "styles.css").read_text(encoding="utf-8"),
+            ]
+        )
+
+        for label in [
+            'role="dialog"',
+            'id="drawerSubtitle"',
+            'id="drawerMeta"',
+            'id="drawerActions"',
+            'id="openCandidateDetailButton"',
+            'id="openAgentDetailInlineButton"',
+            'id="openAgentDetailButton"',
+            'id="openLineageButton"',
+            'data-plan-action="detail"',
+            'data-position-action="detail"',
+            'data-quality-action="detail"',
+            "候选详情",
+            "Agent 详情",
+            "统一详情面板",
+            "主体只保留候选摘要",
+        ]:
+            self.assertIn(label, source)
+        for fn_name in [
+            "function openDetailDrawer",
+            "function detailSection",
+            "function detailRows",
+            "function detailMetrics",
+            "function openCandidateDrawer",
+            "function openQualityEventDrawer",
+            "function openAgentDrawer",
+            "function onQualityTableClick",
+            "function onDrawerActionClick",
+        ]:
+            self.assertIn(fn_name, source)
+        self.assertIn('data-drawer-action="${escapeHtml(action.action)}"', source)
+        self.assertIn(".drawer-section", source)
+        self.assertIn(".drawer-metrics", source)
+        self.assertNotIn("priority-lane", source)
+        self.assertNotIn("priorityLane", source)
+
     def test_dashboard_review_history_controls_are_visible(self) -> None:
         source = "\n".join(
             [
