@@ -141,6 +141,8 @@ API 非 dry-run 写操作仍需要 `PGC_API_ENABLE_WRITES=1`、`operator`、`ide
 
 `agent review` is advisory only. Without `--apply` it builds a dry-run preview and writes nothing. With `--apply` it writes only `input_snapshots`, `agent_runs`, `agent_artifacts`, and `agent_decisions`; it never creates trades, positions, or broker orders. The external TauricResearch/TradingAgents package is optional: if it is not installed, the run is recorded as `skipped` with `no_opinion` instead of breaking the paper workflow.
 
+M14C adds cached external-data enrichment for Agent snapshots. `local_snapshot_mode` can include rows from `agent_external_items` and diagnostic provider rows from `market_diagnostic_bars`, but only when their dates are on or before the review date. These rows are stored as input snapshot context and `source_refs`; they remain advisory and do not update strategy signals, trade plans, trades, positions, or production readiness gates.
+
 兼容旧入口：
 
 ```bash

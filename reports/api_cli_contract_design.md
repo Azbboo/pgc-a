@@ -355,6 +355,8 @@ pgc agent review \
 
 对应服务：`AgentReviewService.review_daily_pick`
 
+M14C 外部资料边界：Agent 输入快照可以携带 `agent_external_items` 中 `published_date <= review_date` 的已落库摘要，以及 `market_diagnostic_bars` 中 `trade_date <= review_date` 的诊断行情引用。CLI/API 不允许把这些资料写回信号、计划、成交、持仓或 readiness gate。
+
 ### 6.5 生成交易计划
 
 ```bash
@@ -861,6 +863,7 @@ sequenceDiagram
 - `daily_pick` 是否存在；
 - `input_snapshot` 是否不含未来字段；
 - `source_refs` 是否可追溯；
+- 外部资料是否只来自 `agent_external_items` / `market_diagnostic_bars` 且日期不晚于复核日；
 - Agent 配置 hash 是否生成；
 - artifact 目录是否可写。
 

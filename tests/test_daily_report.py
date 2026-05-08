@@ -105,6 +105,10 @@ class DailyReportTest(unittest.TestCase):
             self.assertEqual(advice.action, "support")
             self.assertEqual(advice.supporting_points, ["score is strong", "portfolio has room"])
             self.assertEqual(advice.risk_points, ["gap risk"])
+            self.assertEqual(
+                advice.source_refs,
+                ["agent_external_items:42", "market_diagnostic_bars:yfinance:000001.SZ:20260504"],
+            )
             self.assertEqual([report.analyst_key for report in advice.analyst_reports], ["technical", "fundamental"])
             self.assertEqual(advice.analyst_reports[0].summary, "技术面转强。")
             self.assertEqual(advice.report_markdown, "# Agent Report\n\nDetailed advisory.\n")
@@ -116,6 +120,7 @@ class DailyReportTest(unittest.TestCase):
             self.assertIn("风险提示", markdown)
             payload = json.loads(render_daily_report_json(result.data))
             self.assertEqual(payload["agent_advice"]["supporting_points"], ["score is strong", "portfolio has room"])
+            self.assertEqual(payload["agent_advice"]["source_refs"][0], "agent_external_items:42")
             self.assertEqual(payload["agent_advice"]["analyst_reports"][1]["analyst_name"], "基本面")
             self.assertEqual(payload["agent_advice"]["artifacts"][1]["artifact_type"], "final_report")
             self.assertNotIn("path", payload["agent_advice"]["artifacts"][1])
@@ -282,9 +287,17 @@ class DailyReportTest(unittest.TestCase):
             INSERT INTO input_snapshots
               (snapshot_type, as_of_date, signal_id, daily_pick_id, source_refs_json, payload_json, content_hash)
             VALUES
-              ('tradingagents_candidate_review', ?, ?, ?, '[]', '{}', 'agent-report-test')
+              ('tradingagents_candidate_review', ?, ?, ?, ?, '{}', 'agent-report-test')
             """,
-            (daily_pick[2], daily_pick[1], daily_pick[0]),
+            (
+                daily_pick[2],
+                daily_pick[1],
+                daily_pick[0],
+                json.dumps(
+                    ["agent_external_items:42", "market_diagnostic_bars:yfinance:000001.SZ:20260504"],
+                    ensure_ascii=False,
+                ),
+            ),
         ).lastrowid
         run_id = conn.execute(
             """

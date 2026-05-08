@@ -63,6 +63,7 @@ class DashboardStaticTest(unittest.TestCase):
         )
 
         for label in [
+            "执行准备",
             "执行日主动计划",
             "开盘检查清单",
             "未停牌 / 可交易",
@@ -71,8 +72,15 @@ class DashboardStaticTest(unittest.TestCase):
             "现金 / 仓位已核对",
             "计划日是执行日",
             "数据质量 blocker",
+            "录入锁定原因",
         ]:
             self.assertIn(label, source)
+        self.assertIn('id="openingReadinessSummary"', source)
+        self.assertIn("function openingReadiness", source)
+        self.assertIn("function openingRecordReady", source)
+        self.assertIn("function manualPreOpenChecksComplete", source)
+        self.assertIn("function resetPreOpenChecks", source)
+        self.assertIn("function preOpenContextKey", source)
 
     def test_dashboard_review_history_controls_are_visible(self) -> None:
         source = "\n".join(
@@ -92,11 +100,47 @@ class DashboardStaticTest(unittest.TestCase):
         ]:
             self.assertIn(label, source)
         self.assertIn("/api/daily-reviews?", source)
+        self.assertIn('params.set("before_date", state.asOfDate)', source)
         self.assertIn("function setReviewDate", source)
         self.assertIn("function offsetBusinessDate", source)
         self.assertIn("function loadReviewHistory", source)
         self.assertIn("function renderReviewHistory", source)
+        self.assertIn("function renderReviewHistoryBadges", source)
+        self.assertIn("function reviewRunStatusText", source)
+        self.assertIn("function displayTimestamp", source)
+        self.assertIn("history-badges", source)
+        self.assertIn("复盘完成", source)
+        self.assertIn("创建 ${displayTimestamp(item.created_at)}", source)
         self.assertIn("els.reviewDateInput.value = dateInputValue(state.asOfDate)", source)
+
+    def test_dashboard_agent_report_display_is_chinese_and_traceable(self) -> None:
+        source = "\n".join(
+            [
+                (DASHBOARD_DIR / "index.html").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "styles.css").read_text(encoding="utf-8"),
+            ]
+        )
+
+        for label in [
+            "TradingAgents 输出",
+            "系统复盘原始数据",
+            "中文复核报告",
+            "来源边界 source_refs",
+            "未接入/数据不足",
+            "技术面",
+            "基本面",
+            "新闻面",
+            "情绪面",
+            "不会自动发布、取消或记录成交，也不会向券商执行",
+        ]:
+            self.assertIn(label, source)
+        self.assertIn("function renderAgentSourceRefs", source)
+        self.assertIn("function normalizedAgentAnalystReports", source)
+        self.assertIn("agent_external_items:", source)
+        self.assertIn("market_diagnostic_bars:", source)
+        self.assertIn("advice.source_refs", source)
+        self.assertIn("agent-source-boundary", source)
 
     def test_dashboard_p1_cancel_and_execution_guardrails_are_visible(self) -> None:
         source = "\n".join(
@@ -112,9 +156,18 @@ class DashboardStaticTest(unittest.TestCase):
         self.assertIn("此操作不支持 dry run", source)
         self.assertIn("Dashboard 不会向券商下单", source)
         self.assertIn("不会记录卖出成交", source)
+        self.assertIn("成交价和股数必须来自实际成交", source)
+        self.assertIn("成交日期必须与计划交易日", source)
+        self.assertIn("该计划方向必须为", source)
+        self.assertIn("股数必须是 100 的整数倍", source)
+        self.assertIn("开盘检查未完成", source)
+        self.assertIn('id="recordValidationPanel"', source)
         self.assertIn('id="recordDate" type="date"', source)
         self.assertIn("会自动带出计划 ID、方向、成交日期、股数和参考价", source)
         self.assertIn("function planReferencePrice", source)
+        self.assertIn("function recordFormIssues", source)
+        self.assertIn("recordForm.addEventListener(\"input\", setRecordFormState)", source)
+        self.assertIn("recordBlockers.length > 0", source)
         self.assertIn("dateInputValue(recordDate)", source)
         self.assertIn("closeDrawer();\n    setActivePage(\"record\")", source)
         self.assertIn("成交录入 dry run 成功，未写入持仓", source)
@@ -142,7 +195,9 @@ class DashboardStaticTest(unittest.TestCase):
         self.assertIn("function renderOpeningExitQueue()", script)
         self.assertIn("const due = duePositions();", script)
         self.assertIn("function isExitDuePosition", script)
-        self.assertIn("const canRecord = isActive && matchesExecutionDay && !hasBlockingQuality();", script)
+        self.assertIn("const canRecord = !lockReason;", script)
+        self.assertIn("function recordLockReasonForPlan", script)
+        self.assertIn("function recordLockReasonForPlanAction", script)
 
     def test_dashboard_guardrails_are_visible_in_client(self) -> None:
         script = (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8")

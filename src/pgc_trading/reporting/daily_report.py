@@ -175,6 +175,7 @@ class AgentAdviceReport:
     note: str
     supporting_points: list[str] = field(default_factory=list)
     risk_points: list[str] = field(default_factory=list)
+    source_refs: list[str] = field(default_factory=list)
     analyst_reports: list[AgentAnalystReport] = field(default_factory=list)
     artifacts: list[AgentArtifactReport] = field(default_factory=list)
     report_markdown: str | None = None
@@ -873,9 +874,11 @@ def _load_agent_advice(conn: Any, candidate: CandidateReport | None) -> AgentAdv
           ad.summary,
           ad.supporting_points_json,
           ad.risk_points_json,
-          ad.raw_decision_json
+          ad.raw_decision_json,
+          ins.source_refs_json
         FROM agent_runs ar
         LEFT JOIN agent_decisions ad ON ad.agent_run_id = ar.id
+        LEFT JOIN input_snapshots ins ON ins.id = ar.input_snapshot_id
         WHERE ar.daily_pick_id = ?
         ORDER BY ar.id DESC
         LIMIT 1
@@ -892,6 +895,7 @@ def _load_agent_advice(conn: Any, candidate: CandidateReport | None) -> AgentAdv
     risk_points = _loads_json_list(row["risk_points_json"])
     if not risk_points:
         risk_points = _string_list(raw_decision.get("risk_points"))
+    source_refs = _loads_json_list(row["source_refs_json"])
     analyst_reports = _load_agent_analyst_reports(raw_decision.get("analyst_reports"))
     artifacts, final_report_path = _load_agent_artifacts(conn, int(row["agent_run_id"]))
     return AgentAdviceReport(
@@ -905,6 +909,7 @@ def _load_agent_advice(conn: Any, candidate: CandidateReport | None) -> AgentAdv
         note="Agent 复核失败，需人工复核。" if status == "failed" else "Agent 复核仅作参考。",
         supporting_points=supporting_points,
         risk_points=risk_points,
+        source_refs=source_refs,
         analyst_reports=analyst_reports,
         artifacts=artifacts,
         report_markdown=_load_agent_report_markdown(final_report_path),

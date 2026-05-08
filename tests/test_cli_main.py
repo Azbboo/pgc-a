@@ -191,6 +191,42 @@ class _UnexpectedAgentReviewService:
         raise AssertionError(f"agent review service should not be built for missing db: {db_path}")
 
 
+@dataclass(frozen=True)
+class _FakeExternalDataImportData:
+    row_count: int = 2
+    valid_count: int = 2
+    invalid_count: int = 0
+    would_insert_count: int = 2
+    would_update_count: int = 0
+    inserted_count: int = 0
+    updated_count: int = 0
+    agent_external_item_ids: list[int] = field(default_factory=list)
+    invalid_records: list[object] = field(default_factory=list)
+
+
+class _FakeAgentExternalDataService:
+    calls: list[tuple[Path, object, RequestContext]] = []
+
+    def __init__(self, db_path: Path):
+        self.db_path = db_path
+
+    def import_external_data(self, request, ctx: RequestContext) -> ServiceResult[_FakeExternalDataImportData]:
+        self.calls.append((self.db_path, request, ctx))
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data=_FakeExternalDataImportData(
+                inserted_count=0 if ctx.dry_run else 2,
+                agent_external_item_ids=[] if ctx.dry_run else [1, 2],
+            ),
+        )
+
+
+class _UnexpectedAgentExternalDataService:
+    def __init__(self, db_path: Path):
+        raise AssertionError(f"agent external data service should not be built for missing db: {db_path}")
+
+
 class CliMainTest(unittest.TestCase):
     def setUp(self) -> None:
         _FakeReviewService.calls = []
@@ -198,6 +234,7 @@ class CliMainTest(unittest.TestCase):
         _FakePlanningService.calls = []
         _FakeReadinessService.calls = []
         _FakeAgentReviewService.calls = []
+        _FakeAgentExternalDataService.calls = []
 
     def test_help_lists_command_surface(self) -> None:
         stdout = io.StringIO()
@@ -672,6 +709,108 @@ class CliMainTest(unittest.TestCase):
             self.assertFalse(db_path.exists())
             self.assertIn("database not found", stdout.getvalue())
             self.assertIn("daily-pick-id=1", stdout.getvalue())
+
+    def test_agent_external_data_import_routes_to_service_with_dry_run_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc_agent_external.db"
+            db_path.touch()
+            source_file = Path(tmp) / "external_items.json"
+            source_file.write_text("[]", encoding="utf-8")
+            stdout = io.StringIO()
+            code = main(
+                [
+                    "agent",
+                    "external-data",
+                    "import",
+                    "--file",
+                    str(source_file),
+                    "--db-path",
+                    str(db_path),
+                ],
+                stdout=stdout,
+                services=CommandServices(
+                    agent_external_data_service_factory=_FakeAgentExternalDataService,
+                ),
+            )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(len(_FakeAgentExternalDataService.calls), 1)
+        called_db_path, request, ctx = _FakeAgentExternalDataService.calls[0]
+        self.assertEqual(called_db_path, db_path)
+        self.assertEqual(request.source_file, source_file)
+        self.assertTrue(ctx.dry_run)
+        self.assertEqual(ctx.request_id, "cli-agent-external-data-import")
+        self.assertEqual(ctx.operator, "cli")
+        self.assertEqual(ctx.source, "cli")
+        output = stdout.getvalue()
+        self.assertIn("agent external-data import command routed", output)
+        self.assertIn("service returned success", output)
+        self.assertIn("external_data_import=rows=2 valid=2 invalid=0", output)
+        self.assertIn("would_insert=2", output)
+        self.assertIn("inserted=0", output)
+
+    def test_agent_external_data_import_apply_mode_uses_write_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc_agent_external_apply.db"
+            db_path.touch()
+            source_file = Path(tmp) / "external_items.json"
+            source_file.write_text("[]", encoding="utf-8")
+            stdout = io.StringIO()
+            code = main(
+                [
+                    "agent",
+                    "external-data",
+                    "import",
+                    "--file",
+                    str(source_file),
+                    "--db-path",
+                    str(db_path),
+                    "--apply",
+                    "--operator",
+                    "azboo",
+                    "--idempotency-key",
+                    "external-data:test",
+                ],
+                stdout=stdout,
+                services=CommandServices(
+                    agent_external_data_service_factory=_FakeAgentExternalDataService,
+                ),
+            )
+
+        self.assertEqual(code, 0)
+        _, request, ctx = _FakeAgentExternalDataService.calls[0]
+        self.assertEqual(request.source_file, source_file)
+        self.assertFalse(ctx.dry_run)
+        self.assertEqual(ctx.operator, "azboo")
+        self.assertEqual(ctx.idempotency_key, "external-data:test")
+        self.assertIn("inserted=2", stdout.getvalue())
+
+    def test_agent_external_data_import_missing_db_fails_without_creating_database(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "missing.db"
+            source_file = Path(tmp) / "external_items.json"
+            source_file.write_text("[]", encoding="utf-8")
+            stdout = io.StringIO()
+            code = main(
+                [
+                    "agent",
+                    "external-data",
+                    "import",
+                    "--file",
+                    str(source_file),
+                    "--db-path",
+                    str(db_path),
+                ],
+                stdout=stdout,
+                services=CommandServices(
+                    agent_external_data_service_factory=_UnexpectedAgentExternalDataService,
+                ),
+            )
+
+            self.assertEqual(code, 1)
+            self.assertFalse(db_path.exists())
+            self.assertIn("database not found", stdout.getvalue())
+            self.assertIn("external_items.json", stdout.getvalue())
 
     def test_report_command_routes_as_noop(self) -> None:
         stdout = io.StringIO()

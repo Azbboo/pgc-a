@@ -5,6 +5,12 @@ const DEFAULT_API_BASE = window.location.pathname.startsWith("/pgc/") ? "/pgc" :
 const DEFAULT_OPERATOR = "azboo";
 const CANCEL_REASON_CHOICES = ["高开过大", "停牌/不可交易", "重大利空", "人工跳过"];
 const DRY_RUN_DEFAULT_VERSION = "20260508-live-writes-1";
+const AGENT_ANALYST_SECTIONS = [
+  ["technical", "技术面"],
+  ["fundamental", "基本面"],
+  ["news", "新闻面"],
+  ["sentiment", "情绪面"],
+];
 
 const state = {
   apiBase: localStorage.getItem("pgc.dashboard.apiBase") || DEFAULT_API_BASE,
@@ -54,6 +60,7 @@ function cacheElements() {
     "executionBadge",
     "reloadExecutionButton",
     "executionEvaluateExitsButton",
+    "openingReadinessSummary",
     "openingBlockerChip",
     "openingPlanBody",
     "preOpenChecklist",
@@ -106,6 +113,7 @@ function cacheElements() {
     "recordTax",
     "recordSlippage",
     "recordPrefillHint",
+    "recordValidationPanel",
     "recordModeChip",
     "clearRecordButton",
     "submitRecordButton",
@@ -175,6 +183,8 @@ function bindEvents() {
   els.reloadQualityButton.addEventListener("click", loadQualityAndRender);
   els.qualitySeverityFilter.addEventListener("change", loadQualityAndRender);
   els.recordForm.addEventListener("submit", submitTradeRecord);
+  els.recordForm.addEventListener("input", setRecordFormState);
+  els.recordForm.addEventListener("change", setRecordFormState);
   els.clearRecordButton.addEventListener("click", clearRecordForm);
   els.closeDrawerButton.addEventListener("click", closeDrawer);
 
@@ -199,6 +209,7 @@ function syncFormFromState() {
 }
 
 function readContextForm() {
+  const previousPreOpenContext = preOpenContextKey();
   state.apiBase = els.apiBaseInput.value.trim().replace(/\/$/, "");
   state.accountKey = els.accountKeyInput.value.trim();
   state.accountId = els.accountIdInput.value.trim();
@@ -206,6 +217,7 @@ function readContextForm() {
   state.strategyVersion = els.strategyInput.value.trim() || DEFAULT_STRATEGY_VERSION;
   state.operator = els.operatorInput.value.trim();
   state.dryRun = els.dryRunInput.checked;
+  if (preOpenContextKey() !== previousPreOpenContext) resetPreOpenChecks();
   syncFormFromState();
 }
 
@@ -236,6 +248,7 @@ async function setReviewDate(value) {
   }
   if (nextDate === state.asOfDate) return;
   state.asOfDate = nextDate;
+  resetPreOpenChecks();
   syncFormFromState();
   persistContext();
   setActivePage("review");
@@ -274,6 +287,7 @@ async function loadReviewHistory() {
   const params = new URLSearchParams();
   params.set("strategy_version", state.strategyVersion);
   params.set("limit", "20");
+  params.set("before_date", state.asOfDate);
   const accountId = resolvedAccountId();
   if (accountId) {
     params.set("account_id", accountId);
@@ -446,6 +460,10 @@ async function cancelPlan(tradePlanId) {
 async function submitTradeRecord(event) {
   event.preventDefault();
   await runWithNotice(async () => {
+    const recordBlockers = recordFormIssues().filter((issue) => issue.severity === "blocker");
+    if (recordBlockers.length) {
+      throw new Error(recordBlockers.map((issue) => issue.text).join("；"));
+    }
     const tradePlanId = parseOptionalInt(els.recordPlanId.value);
     const positionId = parseOptionalInt(els.recordPositionId.value);
     if (tradePlanId && positionId) {
@@ -545,11 +563,13 @@ function renderOpeningExecution() {
   const activePlans = executionPlans.filter((plan) => plan.status === "active");
   const visiblePlans = executionPlans.length ? executionPlans : activeBuyPlans();
   const executionDay = executionDate();
+  const readiness = openingReadiness(activePlans, executionDay, blocked);
 
   executionPlanPanel.classList.toggle("blocked", blocked);
   executionPlanPanel.classList.toggle("idle", !blocked && activePlans.length === 0);
   els.openingBlockerChip.textContent = blocked ? "数据阻断" : activePlans.length ? "可执行" : "无 active 买入计划";
   els.openingBlockerChip.className = `chip ${blocked ? "chip-red" : activePlans.length ? "chip-green" : "chip-neutral"}`;
+  renderOpeningReadinessSummary(readiness);
 
   if (blocked) {
     const blockers = blockingEvents().slice(0, 2).map((item) => escapeHtml(item.message || item.code || "数据阻断")).join("；");
@@ -572,15 +592,40 @@ function renderOpeningExecution() {
     els.openingPlanBody.innerHTML = emptyState(`没有计划交易日为 ${displayDate(executionDay)} 的 active 买入计划。`);
   }
 
-  renderPreOpenChecklist(activePlans, executionDay, blocked);
+  renderPreOpenChecklist(activePlans, executionDay, blocked, readiness);
   renderOpeningCancelQueue();
   renderOpeningExitQueue();
+}
+
+function renderOpeningReadinessSummary(readiness) {
+  const items = [
+    ["数据质量", readiness.blocked ? `${readiness.blockerCount} blocker` : "可交易", readiness.blocked ? "danger" : "ready"],
+    ["当日 active 计划", readiness.hasExecutionPlan ? `${readiness.matchingActiveCount} 个` : "缺失", readiness.hasExecutionPlan ? "ready" : "idle"],
+    ["开盘检查", `${readiness.checkedCount}/${readiness.totalChecks}`, readiness.manualComplete && readiness.hasExecutionPlan ? "ready" : "waiting"],
+    ["买入录入", readiness.ready ? "可录入" : "锁定", readiness.ready ? "ready" : "locked"],
+  ];
+  els.openingReadinessSummary.innerHTML = `
+    <div class="readiness-title">
+      <span>执行准备</span>
+      ${chipHtml(readiness.ready ? "全部就绪" : readiness.lockReason, readiness.ready ? "chip-green" : readiness.blocked ? "chip-red" : "chip-amber")}
+    </div>
+    <div class="readiness-steps">
+      ${items.map(([label, value, tone]) => `
+        <div class="readiness-step readiness-step--${tone}">
+          <span>${escapeHtml(label)}</span>
+          <strong>${escapeHtml(value)}</strong>
+        </div>
+      `).join("")}
+    </div>
+    <p>录入锁定原因：${escapeHtml(readiness.ready ? "无，仍需按实际成交价和股数核对后提交。" : readiness.lockReason)}</p>
+  `;
 }
 
 function openingPlanCard(plan, executionDay) {
   const isActive = plan.status === "active";
   const matchesExecutionDay = planTradeDate(plan) === executionDay;
-  const canRecord = isActive && matchesExecutionDay && !hasBlockingQuality();
+  const lockReason = recordLockReasonForPlan(plan, executionDay);
+  const canRecord = !lockReason;
   const canCancel = ["draft", "active"].includes(plan.status);
   return `
     <div class="execution-plan-card">
@@ -599,16 +644,17 @@ function openingPlanCard(plan, executionDay) {
         ["计划资金", money(plannedCash(plan))],
       ])}
       <div class="row-actions">
-        <button type="button" data-plan-action="record" data-plan-id="${plan.id}" ${canRecord ? "" : "disabled"}>录入买入成交</button>
+        <button type="button" data-plan-action="record" data-plan-id="${plan.id}" title="${escapeHtml(lockReason || "按该 active 计划录入人工买入成交")}" ${canRecord ? "" : "disabled"}>录入买入成交</button>
         <button type="button" data-plan-action="cancel" data-plan-id="${plan.id}" ${canCancel ? "" : "disabled"}>取消计划</button>
         <button type="button" data-plan-action="detail" data-plan-id="${plan.id}">详情</button>
       </div>
+      ${lockReason ? `<p class="plan-lock-note">录入锁定：${escapeHtml(lockReason)}</p>` : ""}
     </div>
   `;
 }
 
-function renderPreOpenChecklist(activePlans, executionDay, blocked) {
-  const hasExecutionPlan = activePlans.some((plan) => planTradeDate(plan) === executionDay);
+function renderPreOpenChecklist(activePlans, executionDay, blocked, readiness = openingReadiness(activePlans, executionDay, blocked)) {
+  const hasExecutionPlan = readiness.hasExecutionPlan;
   const items = [
     ["notSuspended", "未停牌 / 可交易", state.preOpenChecks.notSuspended, false],
     ["noMajorBadNews", "无重大利空", state.preOpenChecks.noMajorBadNews, false],
@@ -622,9 +668,8 @@ function renderPreOpenChecklist(activePlans, executionDay, blocked) {
       <span>${escapeHtml(label)}</span>
     </label>
   `).join("");
-  const checkedCount = items.filter(([, , checked]) => checked).length;
-  els.preOpenChecklistState.textContent = `${checkedCount}/${items.length} 已确认`;
-  els.preOpenChecklistState.className = `chip ${!blocked && checkedCount === items.length ? "chip-green" : "chip-amber"}`;
+  els.preOpenChecklistState.textContent = readiness.ready ? `${readiness.checkedCount}/${readiness.totalChecks} 可录入` : `${readiness.checkedCount}/${readiness.totalChecks} 待确认`;
+  els.preOpenChecklistState.className = `chip ${readiness.ready ? "chip-green" : blocked ? "chip-red" : "chip-amber"}`;
 }
 
 function renderOpeningCancelQueue() {
@@ -662,7 +707,8 @@ function onPreOpenChecklistChange(event) {
   const key = input.dataset.preopenCheck;
   if (Object.prototype.hasOwnProperty.call(state.preOpenChecks, key)) {
     state.preOpenChecks[key] = input.checked;
-    renderPreOpenChecklist(todaysBuyPlans().filter((plan) => plan.status === "active"), executionDate(), hasBlockingQuality());
+    renderOpeningExecution();
+    setRecordFormState();
   }
 }
 
@@ -691,22 +737,28 @@ function renderReview() {
 
 function renderReviewHistory() {
   const items = state.reviewHistory || [];
-  els.reviewHistoryState.textContent = items.length ? `${items.length} 条` : "无记录";
+  els.reviewHistoryState.textContent = items.length
+    ? `截至 ${displayDate(state.asOfDate)} · ${items.length} 条`
+    : `截至 ${displayDate(state.asOfDate)} · 无记录`;
   els.reviewHistoryList.innerHTML = items.length
     ? items.map((item) => {
       const selected = item.review_date === state.asOfDate;
+      const meta = reviewHistoryMetaText(item);
       return `
         <button type="button" class="history-list-row ${selected ? "active" : ""}" data-review-date="${item.review_date}">
           <span class="history-date">${displayDate(item.review_date)}</span>
           <span class="history-main">
             <strong>${escapeHtml(reviewHistoryTitle(item))}</strong>
             <em>${escapeHtml(reviewHistorySubtext(item))}</em>
+            ${meta ? `<span class="history-meta">${escapeHtml(meta)}</span>` : ""}
           </span>
-          ${chipHtml(reviewHistoryStatusText(item), reviewHistoryStatusClass(item))}
+          <span class="history-badges">
+            ${renderReviewHistoryBadges(item)}
+          </span>
         </button>
       `;
     }).join("")
-    : emptyState("尚无复盘历史；运行复盘后会出现在这里。");
+    : emptyState(`截至 ${displayDate(state.asOfDate)} 尚无复盘历史；运行复盘后会出现在这里。`);
 }
 
 function renderNextAction() {
@@ -866,7 +918,7 @@ function renderDuePositions() {
 function renderAgent() {
   const advice = state.report?.agent_advice;
   if (!advice) {
-    const html = emptyState("暂无 Agent 复核数据。");
+    const html = emptyState("TradingAgents 未运行或不可用；本页只展示系统复盘原始数据。");
     els.agentSummary.innerHTML = html;
     els.agentPageBody.innerHTML = html;
     return;
@@ -878,9 +930,11 @@ function renderAgent() {
 function renderAgentAdvice(advice, { expanded }) {
   const supportingPoints = listValue(advice.supporting_points);
   const riskPoints = listValue(advice.risk_points);
-  const analystReports = Array.isArray(advice.analyst_reports) ? advice.analyst_reports : [];
+  const analystReports = normalizedAgentAnalystReports(advice);
   const artifacts = Array.isArray(advice.artifacts) ? advice.artifacts : [];
-  const summary = advice.summary || advice.note || "Agent 复核尚未接入本次复盘。";
+  const sourceRefs = listValue(advice.source_refs);
+  const unavailable = agentAdviceUnavailable(advice);
+  const summary = advice.summary || advice.note || agentUnavailableText(advice);
   const quickPoints = !expanded && (supportingPoints.length || riskPoints.length)
     ? `
       <div class="agent-quick-points">
@@ -891,15 +945,15 @@ function renderAgentAdvice(advice, { expanded }) {
     : "";
   const detail = expanded
     ? `
+      ${unavailable ? emptyState(agentUnavailableText(advice)) : ""}
       <div class="agent-detail-grid">
         ${renderAgentPointSection("支持依据", supportingPoints, "暂无支持依据。")}
         ${renderAgentPointSection("风险提示", riskPoints, "暂无风险提示。")}
       </div>
-      ${analystReports.length ? `
-        <div class="agent-analyst-grid">
-          ${analystReports.map(renderAgentAnalystCard).join("")}
-        </div>
-      ` : ""}
+      <div class="agent-analyst-grid">
+        ${analystReports.map(renderAgentAnalystCard).join("")}
+      </div>
+      ${renderAgentSourceRefs(sourceRefs)}
       ${artifacts.length ? `
         <div class="agent-artifacts">
           <h3>复核产物</h3>
@@ -919,29 +973,44 @@ function renderAgentAdvice(advice, { expanded }) {
     `
     : "";
   return `
-    <div class="action-meta">
-      <div class="metric"><span>运行状态</span><strong>${statusText(advice.status)}</strong></div>
-      <div class="metric"><span>意见</span><strong>${agentActionText(advice.action)}</strong></div>
-      <div class="metric"><span>风险等级</span><strong>${riskText(advice.risk_level)}</strong></div>
-      <div class="metric"><span>置信度</span><strong>${advice.confidence == null ? "-" : numberText(advice.confidence, 2)}</strong></div>
+    <div class="agent-report-card ${unavailable ? "agent-report-card--empty" : ""}">
+      <div class="agent-report-head">
+        <div>
+          <span class="agent-kicker">TradingAgents 输出</span>
+          <h3>${unavailable ? "未返回可用复核意见" : "中文复核报告"}</h3>
+        </div>
+        ${chipHtml("只读 advisory", "chip-agent")}
+      </div>
+      <div class="agent-source-boundary" aria-label="Agent 来源边界">
+        <span>TradingAgents 输出：意见、置信度、风险和分析摘要</span>
+        <span>系统复盘原始数据：候选、计划、数据质量和成交事实</span>
+      </div>
+      <div class="action-meta agent-report-metrics">
+        <div class="metric"><span>运行状态</span><strong>${agentRunStatusText(advice.status)}</strong></div>
+        <div class="metric"><span>意见</span><strong>${agentActionText(advice.action)}</strong></div>
+        <div class="metric"><span>风险等级</span><strong>${riskText(advice.risk_level)}</strong></div>
+        <div class="metric"><span>置信度</span><strong>${advice.confidence == null ? "-" : numberText(advice.confidence, 2)}</strong></div>
+      </div>
+      <p class="agent-summary-text">${escapeHtml(summary)}</p>
+      ${!expanded ? renderAgentSourceRefs(sourceRefs, { compact: true }) : ""}
+      ${quickPoints}
+      ${detail}
+      <p class="muted">Agent 只提供复核意见，不会自动发布、取消或记录成交，也不会向券商执行。</p>
     </div>
-    <p class="agent-summary-text">${escapeHtml(summary)}</p>
-    ${quickPoints}
-    ${detail}
-    <p class="muted">Agent 只提供复核意见，不会自动发布、取消或记录成交。</p>
   `;
 }
 
 function renderAgentAnalystCard(report) {
   const supportingPoints = listValue(report.supporting_points);
   const riskPoints = listValue(report.risk_points);
+  const summary = report.summary || "未接入/数据不足。";
   return `
     <section class="agent-analyst-card">
       <div class="agent-analyst-head">
         <h3>${escapeHtml(report.analyst_name || agentAnalystText(report.analyst_key))}</h3>
         ${chipHtml(agentAnalystStatusText(report.status), agentAnalystStatusClass(report.status))}
       </div>
-      <p>${escapeHtml(report.summary || "该分析维度没有返回摘要。")}</p>
+      <p>${escapeHtml(summary)}</p>
       <div class="agent-analyst-points">
         <div>
           <span>支持</span>
@@ -958,6 +1027,71 @@ function renderAgentAnalystCard(report) {
       </div>
     </section>
   `;
+}
+
+function normalizedAgentAnalystReports(advice) {
+  const reports = Array.isArray(advice.analyst_reports) ? advice.analyst_reports : [];
+  const byKey = Object.fromEntries(
+    reports
+      .filter((report) => report && report.analyst_key)
+      .map((report) => [report.analyst_key, report])
+  );
+  return AGENT_ANALYST_SECTIONS.map(([key, name]) => {
+    const report = byKey[key];
+    if (report) {
+      return { ...report, analyst_key: key, analyst_name: report.analyst_name || name };
+    }
+    return {
+      analyst_key: key,
+      analyst_name: name,
+      status: "unavailable",
+      summary: "未接入/数据不足。",
+      supporting_points: [],
+      risk_points: [],
+    };
+  });
+}
+
+function renderAgentSourceRefs(sourceRefs, { compact = false } = {}) {
+  const visibleRefs = compact ? sourceRefs.slice(0, 4) : sourceRefs;
+  const moreCount = sourceRefs.length - visibleRefs.length;
+  return `
+    <section class="agent-source-refs">
+      <div class="agent-source-refs__head">
+        <span>来源边界 source_refs</span>
+        ${chipHtml(sourceRefs.length ? `${sourceRefs.length} 个来源` : "未接入/数据不足", sourceRefs.length ? "chip-blue" : "chip-neutral")}
+      </div>
+      ${visibleRefs.length ? `
+        <div class="agent-source-ref-list">
+          ${visibleRefs.map((ref) => chipHtml(sourceRefText(ref), sourceRefClass(ref))).join("")}
+          ${moreCount > 0 ? chipHtml(`+${moreCount}`, "chip-neutral") : ""}
+        </div>
+      ` : `<p class="muted">未接入/数据不足：没有可展示的 TradingAgents 输入来源，不能补写或猜测外部资料。</p>`}
+    </section>
+  `;
+}
+
+function agentAdviceUnavailable(advice) {
+  return !advice.agent_run_id || ["not_run", "skipped", "unavailable"].includes(advice.status);
+}
+
+function agentUnavailableText(advice) {
+  if (advice.status === "failed") return advice.note || "TradingAgents 复核失败，需人工复核。";
+  if (advice.status === "skipped") return advice.note || "TradingAgents 已跳过；未产生可展示的 Agent 输出。";
+  return advice.note || "TradingAgents 未运行或不可用；未产生可展示的 Agent 输出。";
+}
+
+function sourceRefText(ref) {
+  const text = String(ref || "").trim();
+  return text || "未接入/数据不足";
+}
+
+function sourceRefClass(ref) {
+  const text = String(ref || "");
+  if (text.startsWith("agent_external_items:")) return "chip-indigo";
+  if (text.startsWith("market_diagnostic_bars:")) return "chip-amber";
+  if (text.startsWith("market_bars:") || text.startsWith("daily_basic_snapshots:")) return "chip-blue";
+  return "chip-neutral";
 }
 
 function renderAgentPointSection(title, points, emptyText) {
@@ -978,7 +1112,8 @@ function renderPlans() {
     ? plans.map((plan) => {
       const canPublish = !blocked && plan.status === "draft";
       const canCancel = ["draft", "active"].includes(plan.status);
-      const canRecord = !blocked && plan.status === "active";
+      const recordLockReason = recordLockReasonForPlanAction(plan);
+      const canRecord = !recordLockReason;
       return `
         <tr>
           <td>${plan.id}</td>
@@ -994,7 +1129,7 @@ function renderPlans() {
             <div class="row-actions">
               <button type="button" data-plan-action="detail" data-plan-id="${plan.id}">详情</button>
               <button type="button" data-plan-action="publish" data-plan-id="${plan.id}" ${canPublish ? "" : "disabled"}>发布</button>
-              <button type="button" data-plan-action="record" data-plan-id="${plan.id}" ${canRecord ? "" : "disabled"}>成交</button>
+              <button type="button" data-plan-action="record" data-plan-id="${plan.id}" title="${escapeHtml(recordLockReason || "录入成交")}" ${canRecord ? "" : "disabled"}>成交</button>
               <button type="button" data-plan-action="cancel" data-plan-id="${plan.id}" ${canCancel ? "" : "disabled"}>取消</button>
             </div>
           </td>
@@ -1008,13 +1143,16 @@ function renderPlans() {
 function renderRecordQueue() {
   const activePlans = state.tradePlans.filter((plan) => plan.status === "active");
   const due = duePositions();
-  const planRows = activePlans.map((plan) => `
-    <div class="list-row">
-      ${chipHtml(actionText(plan.action), actionClass(plan.action))}
-      <span>计划 ${plan.id} / ${escapeHtml(planStockText(plan))} / 交易日 ${displayDate(planTradeDate(plan))} / 股数 ${integerText(plannedShares(plan))}</span>
-      <button type="button" data-record-plan-id="${plan.id}" ${hasBlockingQuality() ? "disabled" : ""}>录入</button>
-    </div>
-  `);
+  const planRows = activePlans.map((plan) => {
+    const lockReason = recordLockReasonForPlanAction(plan);
+    return `
+      <div class="list-row">
+        ${chipHtml(actionText(plan.action), actionClass(plan.action))}
+        <span>计划 ${plan.id} / ${escapeHtml(planStockText(plan))} / 交易日 ${displayDate(planTradeDate(plan))} / 股数 ${integerText(plannedShares(plan))}${lockReason ? ` / 锁定：${escapeHtml(lockReason)}` : ""}</span>
+        <button type="button" data-record-plan-id="${plan.id}" title="${escapeHtml(lockReason || "录入成交")}" ${lockReason ? "disabled" : ""}>录入</button>
+      </div>
+    `;
+  });
   const positionRows = due.map((position) => `
     <div class="list-row">
       ${chipHtml(dueText(position.action_due || position.due_stage), dueClass(position.action_due || position.due_stage))}
@@ -1338,6 +1476,66 @@ function hasBlockingQuality() {
   return state.report?.data_quality?.readiness === "blocker" || blockingEvents().length > 0;
 }
 
+function openingReadiness(activePlans, executionDay, blocked = hasBlockingQuality()) {
+  const matchingActivePlans = activePlans.filter((plan) => planTradeDate(plan) === executionDay);
+  const manualComplete = manualPreOpenChecksComplete();
+  const hasExecutionPlan = matchingActivePlans.length > 0;
+  const checkedCount = Object.values(state.preOpenChecks).filter(Boolean).length + (hasExecutionPlan ? 1 : 0);
+  const totalChecks = Object.keys(state.preOpenChecks).length + 1;
+  let lockReason = "";
+  if (blocked) {
+    lockReason = "数据质量 blocker 未处理";
+  } else if (!hasExecutionPlan) {
+    lockReason = "没有计划交易日匹配执行日的 active 买入计划";
+  } else if (!manualComplete) {
+    lockReason = "开盘检查未完成";
+  }
+  return {
+    ready: !lockReason,
+    lockReason,
+    blocked,
+    blockerCount: blockingEvents().length,
+    hasExecutionPlan,
+    matchingActiveCount: matchingActivePlans.length,
+    manualComplete,
+    checkedCount,
+    totalChecks,
+  };
+}
+
+function manualPreOpenChecksComplete() {
+  return Object.values(state.preOpenChecks).every(Boolean);
+}
+
+function resetPreOpenChecks() {
+  for (const key of Object.keys(state.preOpenChecks)) {
+    state.preOpenChecks[key] = false;
+  }
+}
+
+function preOpenContextKey() {
+  return [state.accountKey, state.accountId, state.asOfDate, state.strategyVersion].join("|");
+}
+
+function openingRecordReady(activePlans, executionDay, blocked = hasBlockingQuality()) {
+  return openingReadiness(activePlans, executionDay, blocked).ready;
+}
+
+function recordLockReasonForPlan(plan, executionDay) {
+  if (hasBlockingQuality()) return "数据质量 blocker 未处理";
+  if (plan.status !== "active") return "计划不是 active";
+  if (planTradeDate(plan) !== executionDay) return "计划交易日与执行日不一致";
+  if (!manualPreOpenChecksComplete()) return "开盘检查未完成";
+  return "";
+}
+
+function recordLockReasonForPlanAction(plan, executionDay = executionDate()) {
+  if (isBuyPlan(plan)) return recordLockReasonForPlan(plan, executionDay);
+  if (hasBlockingQuality()) return "数据质量 blocker 未处理";
+  if (plan.status !== "active") return "计划不是 active";
+  return "";
+}
+
 function blockingEvents() {
   const envelopeErrors = (state.reportEnvelope?.errors || []).filter((error) => {
     return error.severity === "blocker" || error.code === "VALIDATION_ERROR";
@@ -1486,9 +1684,117 @@ function isBuyPlan(plan) {
 }
 
 function setRecordFormState() {
-  const planId = Number(String(els.recordPlanId.value || "").trim());
-  const plan = Number.isFinite(planId) && planId > 0 ? findPlan(planId) : null;
-  els.submitRecordButton.disabled = Boolean(plan && hasBlockingQuality());
+  const issues = recordFormIssues();
+  const recordBlockers = issues.filter((issue) => issue.severity === "blocker");
+  els.submitRecordButton.disabled = recordBlockers.length > 0;
+  renderRecordValidationPanel(issues);
+}
+
+function renderRecordValidationPanel(issues) {
+  if (!els.recordValidationPanel) return;
+  const tone = issues.some((issue) => issue.severity === "blocker")
+    ? "blocked"
+    : issues.some((issue) => issue.severity === "warning")
+      ? "warning"
+      : "ready";
+  els.recordValidationPanel.className = `validation-panel validation-panel--${tone}`;
+  els.recordValidationPanel.innerHTML = `
+    <strong>${tone === "ready" ? "成交录入校验通过" : tone === "warning" ? "成交录入提示" : "成交录入暂不可提交"}</strong>
+    <ul>
+      ${(issues.length ? issues : [{ severity: "ok", text: "成交价和股数必须来自实际成交；提交只记录事实，不会触发券商下单。" }])
+        .map((issue) => `<li>${escapeHtml(issue.text)}</li>`)
+        .join("")}
+    </ul>
+  `;
+}
+
+function recordFormIssues() {
+  const issues = [];
+  const tradePlanId = positiveIntegerOrNull(els.recordPlanId.value);
+  const positionId = positiveIntegerOrNull(els.recordPositionId.value);
+  const plan = tradePlanId ? selectedRecordPlan(tradePlanId) : null;
+  const position = positionId ? findPosition(positionId) : null;
+  const side = els.recordSide.value;
+  const recordDate = normalizeDate(els.recordDate.value);
+  const price = positiveNumberOrNull(els.recordPrice.value);
+  const shares = positiveIntegerOrNull(els.recordShares.value);
+
+  if (tradePlanId && positionId) {
+    issues.push({ severity: "blocker", text: "计划 ID 和持仓 ID 只能填写一个。" });
+  } else if (!tradePlanId && !positionId) {
+    issues.push({ severity: "blocker", text: "请先从待录入队列选择 active 计划或待卖出持仓。" });
+  }
+
+  if (tradePlanId) {
+    if (!plan) {
+      issues.push({ severity: "blocker", text: "计划未在当前账户计划列表中，请刷新或重新选择。" });
+    } else {
+      const expectedSide = actionIsSell(plan.action) ? "sell" : "buy";
+      const expectedSideText = expectedSide === "buy" ? "买入" : "卖出";
+      const planDate = planTradeDate(plan);
+      if (plan.status !== "active") {
+        issues.push({ severity: "blocker", text: "只有 active 计划可以录入成交。" });
+      }
+      if (side !== expectedSide) {
+        issues.push({ severity: "blocker", text: `该计划方向必须为${expectedSideText}。` });
+      }
+      if (/^\d{8}$/.test(recordDate) && planDate && recordDate !== planDate) {
+        issues.push({ severity: "blocker", text: `成交日期必须与计划交易日 ${displayDate(planDate)} 一致。` });
+      }
+      if (isBuyPlan(plan)) {
+        const lockReason = recordLockReasonForPlan(plan, executionDate());
+        if (lockReason) issues.push({ severity: "blocker", text: lockReason });
+      }
+      if (!plannedShares(plan)) {
+        issues.push({ severity: "warning", text: "计划没有返回计划股数，提交前请人工核对股数。" });
+      }
+    }
+  }
+
+  if (positionId) {
+    if (!position) {
+      issues.push({ severity: "blocker", text: "持仓未在当前账户持仓列表中，请刷新或重新选择。" });
+    }
+    if (side !== "sell") {
+      issues.push({ severity: "blocker", text: "按持仓录入时方向必须为卖出。" });
+    }
+    if (position && /^\d{8}$/.test(recordDate)) {
+      const buyDate = normalizeDate(position.buy_date);
+      if (/^\d{8}$/.test(buyDate) && recordDate < buyDate) {
+        issues.push({ severity: "blocker", text: `卖出成交日期不能早于买入日 ${displayDate(buyDate)}。` });
+      }
+    }
+  }
+
+  if (!/^\d{8}$/.test(recordDate)) {
+    issues.push({ severity: "blocker", text: "成交日期必须是有效日期。" });
+  }
+  if (price == null) {
+    issues.push({ severity: "blocker", text: "成交价必须大于 0，且来自实际成交。" });
+  }
+  if (shares == null) {
+    issues.push({ severity: "blocker", text: "股数必须是正整数，且来自实际成交。" });
+  } else if (shares % 100 !== 0) {
+    issues.push({ severity: "blocker", text: "股数必须是 100 的整数倍，与服务端 A 股整手校验一致。" });
+  }
+  if (!nonNegativeOptionalNumber(els.recordFee.value)) {
+    issues.push({ severity: "blocker", text: "手续费必须为空或大于等于 0。" });
+  }
+  if (!nonNegativeOptionalNumber(els.recordTax.value)) {
+    issues.push({ severity: "blocker", text: "印花税必须为空或大于等于 0。" });
+  }
+  return issues;
+}
+
+function selectedRecordPlan(id) {
+  if (state.selectedPlan && Number(state.selectedPlan.id) === Number(id)) return state.selectedPlan;
+  const plan = findPlan(id);
+  if (plan) return plan;
+  const reportPlan = state.report?.buy_plan;
+  if (reportPlan && Number(reportPlan.trade_plan_id || reportPlan.id) === Number(id)) {
+    return planFromReport(reportPlan);
+  }
+  return null;
 }
 
 function setBusy(value) {
@@ -1805,20 +2111,90 @@ function reviewHistorySubtext(item) {
   return parts.join(" / ");
 }
 
-function reviewHistoryStatusText(item) {
-  if (Number(item.blocker_count || 0) > 0) return `${item.blocker_count} blocker`;
-  if (item.trade_plan_status) return statusText(item.trade_plan_status);
-  if (item.daily_pick_id) return "有候选";
-  if (Number(item.warning_count || 0) > 0) return "警告";
-  return "无候选";
+function reviewHistoryMetaText(item) {
+  const parts = [];
+  if (item.created_at) parts.push(`创建 ${displayTimestamp(item.created_at)}`);
+  if (Number(item.blocker_count || 0) > 0) parts.push(`${integerText(item.blocker_count)} blocker`);
+  if (Number(item.warning_count || 0) > 0) parts.push(`${integerText(item.warning_count)} warning`);
+  if (item.agent_status) parts.push(`Agent ${agentRunStatusText(item.agent_status)}`);
+  return parts.join(" / ");
 }
 
-function reviewHistoryStatusClass(item) {
-  if (Number(item.blocker_count || 0) > 0) return "chip-red";
-  if (item.trade_plan_status) return statusClass(item.trade_plan_status);
-  if (item.daily_pick_id) return "chip-blue";
-  if (Number(item.warning_count || 0) > 0) return "chip-amber";
-  return "chip-neutral";
+function renderReviewHistoryBadges(item) {
+  const chips = [chipHtml(reviewRunStatusText(item.review_status), reviewRunStatusClass(item.review_status))];
+  if (item.trade_plan_status) {
+    chips.push(chipHtml(statusText(item.trade_plan_status), statusClass(item.trade_plan_status)));
+  }
+  if (item.agent_status) {
+    chips.push(chipHtml(`Agent ${agentRunStatusText(item.agent_status)}`, agentRunStatusClass(item.agent_status)));
+  }
+  if (Number(item.blocker_count || 0) > 0) {
+    chips.push(chipHtml(`${integerText(item.blocker_count)} blocker`, "chip-red"));
+  } else if (Number(item.warning_count || 0) > 0) {
+    chips.push(chipHtml(`${integerText(item.warning_count)} warning`, "chip-amber"));
+  } else if (item.daily_pick_id) {
+    chips.push(chipHtml("有候选", "chip-blue"));
+  } else {
+    chips.push(chipHtml("无候选", "chip-neutral"));
+  }
+  return chips.join("");
+}
+
+function reviewRunStatusText(value) {
+  return {
+    completed: "复盘完成",
+    blocked: "复盘阻断",
+    failed: "复盘失败",
+    skipped: "复盘跳过",
+    running: "复盘运行中",
+    planned: "复盘待定",
+    success: "复盘成功",
+  }[value] || dash(value);
+}
+
+function reviewRunStatusClass(value) {
+  return {
+    completed: "chip-green",
+    success: "chip-green",
+    blocked: "chip-red",
+    failed: "chip-red",
+    skipped: "chip-neutral",
+    running: "chip-amber",
+    planned: "chip-neutral",
+  }[value] || "chip-neutral";
+}
+
+function agentRunStatusText(value) {
+  return {
+    completed: "已完成",
+    failed: "失败",
+    skipped: "跳过",
+    running: "运行中",
+    planned: "待定",
+    not_run: "未运行",
+    unavailable: "不可用",
+    success: "已完成",
+  }[value] || dash(value);
+}
+
+function agentRunStatusClass(value) {
+  return {
+    completed: "chip-indigo",
+    success: "chip-indigo",
+    failed: "chip-red",
+    skipped: "chip-neutral",
+    running: "chip-amber",
+    planned: "chip-neutral",
+    not_run: "chip-neutral",
+    unavailable: "chip-neutral",
+  }[value] || "chip-neutral";
+}
+
+function displayTimestamp(value) {
+  if (value == null || value === "") return "-";
+  const text = String(value).trim().replace("T", " ").replace("Z", "");
+  if (text.length >= 16) return text.slice(0, 16);
+  return text;
 }
 
 function qualityClass(value) {
@@ -1926,6 +2302,27 @@ function listValue(value) {
 function parseOptionalInt(value) {
   const text = String(value || "").trim();
   return text ? integerValue(text, "整数") : null;
+}
+
+function positiveIntegerOrNull(value) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  const number = Number(text);
+  return Number.isInteger(number) && number > 0 ? number : null;
+}
+
+function positiveNumberOrNull(value) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  const number = Number(text);
+  return Number.isFinite(number) && number > 0 ? number : null;
+}
+
+function nonNegativeOptionalNumber(value) {
+  const text = String(value || "").trim();
+  if (!text) return true;
+  const number = Number(text);
+  return Number.isFinite(number) && number >= 0;
 }
 
 function integerValue(value, label) {

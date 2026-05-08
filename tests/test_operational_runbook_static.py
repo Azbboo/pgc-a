@@ -1,0 +1,64 @@
+from __future__ import annotations
+
+import shutil
+import subprocess
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+RUNBOOK = ROOT / "reports" / "operational_runbook_design.md"
+BACKUP_SCRIPT = ROOT / "scripts" / "backup_remote_pgc_db.sh"
+RESTORE_SCRIPT = ROOT / "scripts" / "restore_remote_pgc_db.sh"
+
+
+class OperationalRunbookStaticTest(unittest.TestCase):
+    def test_m15a_runbook_documents_backup_restore_and_health_gate(self) -> None:
+        source = RUNBOOK.read_text(encoding="utf-8")
+
+        for text in [
+            "scripts/backup_remote_pgc_db.sh",
+            "scripts/restore_remote_pgc_db.sh",
+            "/opt/pgc/data/pgc_trading.db",
+            "/opt/pgc/backups/pgc_trading-YYYYMMDD-HHMMSS.db",
+            "systemctl restart pgc-api.service",
+            "/api/health",
+            "writes_enabled=true",
+            "PGC_API_ENABLE_WRITES=1",
+            "dry-run trade smoke",
+            "operator",
+        ]:
+            self.assertIn(text, source)
+
+    def test_m15a_remote_db_scripts_are_guarded_and_parseable(self) -> None:
+        for script in [BACKUP_SCRIPT, RESTORE_SCRIPT]:
+            self.assertTrue(script.exists(), f"missing {script}")
+            source = script.read_text(encoding="utf-8")
+            self.assertIn("root@150.158.121.150", source)
+            self.assertIn("/opt/pgc/data/pgc_trading.db", source)
+            self.assertIn("/opt/pgc/backups", source)
+            self.assertIn("--help", source)
+            self.assertNotIn("rm -rf", source)
+            self.assertNotIn("rm -f", source)
+
+        backup_source = BACKUP_SCRIPT.read_text(encoding="utf-8")
+        self.assertIn('sqlite3 "$db_path" ".backup $backup_path"', backup_source)
+
+        restore_source = RESTORE_SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("Usage: restore_remote_pgc_db.sh BACKUP_PATH", restore_source)
+        self.assertIn('REMOTE_SERVICE="${PGC_REMOTE_SERVICE:-pgc-api.service}"', restore_source)
+        self.assertIn('"$backup_dir"/*.db', restore_source)
+        self.assertIn("backup path must not be the target database path", restore_source)
+        self.assertIn('systemctl stop "$service"', restore_source)
+        self.assertIn('systemctl restart "$service"', restore_source)
+        self.assertIn("/api/health", restore_source)
+
+        bash = shutil.which("bash")
+        if bash is None:
+            self.skipTest("bash is not installed")
+        for script in [BACKUP_SCRIPT, RESTORE_SCRIPT]:
+            subprocess.run([bash, "-n", str(script)], check=True)
+
+
+if __name__ == "__main__":
+    unittest.main()

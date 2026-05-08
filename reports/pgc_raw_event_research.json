@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-02T16:44:12.889Z",
+  "generated_at": "2026-05-08T12:08:16.769Z",
   "input_path": "/Users/azboo/Desktop/Person/pgc/data/pgc_pool.json",
   "methodology": {
     "raw_fields_used": [
@@ -30,15 +30,23 @@
     "rule": "Only entry facts are used. Existing score, reason, status, industry, and post-entry performance fields are ignored."
   },
   "data_quality": {
-    "rows": 232,
+    "rows": 244,
     "entry_date_min": "2025-11-10",
-    "entry_date_max": "2026-04-30",
-    "unique_ts_code": 231,
+    "entry_date_max": "2026-05-08",
+    "unique_ts_code": 241,
     "duplicate_exact_events": 0,
     "weekend_entries": [],
     "repeated_ts_code_events": [
       {
         "ts_code": "002548.SZ",
+        "count": 2
+      },
+      {
+        "ts_code": "600610.SH",
+        "count": 2
+      },
+      {
+        "ts_code": "002716.SZ",
         "count": 2
       }
     ],
@@ -53,190 +61,195 @@
   },
   "raw_statistics": {
     "entry_price": {
-      "n": 232,
+      "n": 244,
       "min": 1.91,
       "p25": 7.63,
-      "median": 15.09,
-      "p75": 26.46,
+      "median": 15.03,
+      "p75": 26.52,
       "max": 450.86,
-      "mean": 25.49
+      "mean": 25.98
     },
     "entry_month": [
       {
         "key": "202511",
         "count": 83,
-        "pct": 35.8
+        "pct": 34
       },
       {
         "key": "202603",
         "count": 59,
-        "pct": 25.4
+        "pct": 24.2
       },
       {
         "key": "202604",
         "count": 90,
-        "pct": 38.8
+        "pct": 36.9
+      },
+      {
+        "key": "202605",
+        "count": 12,
+        "pct": 4.9
       }
     ],
     "entry_weekday": [
       {
         "key": "Thu",
         "count": 55,
-        "pct": 23.7
+        "pct": 22.5
       },
       {
         "key": "Wed",
-        "count": 49,
-        "pct": 21.1
+        "count": 54,
+        "pct": 22.1
       },
       {
         "key": "Fri",
-        "count": 44,
-        "pct": 19
+        "count": 51,
+        "pct": 20.9
       },
       {
         "key": "Tue",
         "count": 44,
-        "pct": 19
+        "pct": 18
       },
       {
         "key": "Mon",
         "count": 40,
-        "pct": 17.2
+        "pct": 16.4
       }
     ],
     "entry_date_top20": [
       {
         "key": "20251111",
         "count": 7,
-        "pct": 3
+        "pct": 2.9
       },
       {
         "key": "20251121",
         "count": 7,
-        "pct": 3
+        "pct": 2.9
       },
       {
         "key": "20251127",
         "count": 7,
-        "pct": 3
+        "pct": 2.9
+      },
+      {
+        "key": "20260508",
+        "count": 7,
+        "pct": 2.9
       },
       {
         "key": "20251117",
         "count": 6,
-        "pct": 2.6
+        "pct": 2.5
       },
       {
         "key": "20251119",
         "count": 6,
-        "pct": 2.6
+        "pct": 2.5
       },
       {
         "key": "20260317",
         "count": 6,
-        "pct": 2.6
+        "pct": 2.5
       },
       {
         "key": "20260319",
         "count": 6,
-        "pct": 2.6
+        "pct": 2.5
       },
       {
         "key": "20260330",
         "count": 6,
-        "pct": 2.6
+        "pct": 2.5
       },
       {
         "key": "20260402",
         "count": 6,
-        "pct": 2.6
+        "pct": 2.5
       },
       {
         "key": "20260409",
         "count": 6,
-        "pct": 2.6
+        "pct": 2.5
       },
       {
         "key": "20251110",
         "count": 5,
-        "pct": 2.2
+        "pct": 2
       },
       {
         "key": "20251112",
         "count": 5,
-        "pct": 2.2
+        "pct": 2
       },
       {
         "key": "20251113",
         "count": 5,
-        "pct": 2.2
+        "pct": 2
       },
       {
         "key": "20251114",
         "count": 5,
-        "pct": 2.2
+        "pct": 2
       },
       {
         "key": "20251118",
         "count": 5,
-        "pct": 2.2
+        "pct": 2
       },
       {
         "key": "20251120",
         "count": 5,
-        "pct": 2.2
+        "pct": 2
       },
       {
         "key": "20251124",
         "count": 5,
-        "pct": 2.2
+        "pct": 2
       },
       {
         "key": "20251125",
         "count": 5,
-        "pct": 2.2
+        "pct": 2
       },
       {
         "key": "20251126",
         "count": 5,
-        "pct": 2.2
-      },
-      {
-        "key": "20251128",
-        "count": 5,
-        "pct": 2.2
+        "pct": 2
       }
     ],
     "price_bucket": [
       {
         "key": "10-20",
-        "count": 71,
-        "pct": 30.6
+        "count": 74,
+        "pct": 30.3
       },
       {
         "key": "20-50",
-        "count": 56,
-        "pct": 24.1
+        "count": 58,
+        "pct": 23.8
       },
       {
         "key": "5-10",
-        "count": 54,
-        "pct": 23.3
+        "count": 56,
+        "pct": 23
       },
       {
         "key": "<5",
-        "count": 26,
-        "pct": 11.2
+        "count": 28,
+        "pct": 11.5
       },
       {
         "key": "50-100",
-        "count": 17,
-        "pct": 7.3
+        "count": 18,
+        "pct": 7.4
       },
       {
         "key": ">=100",
-        "count": 8,
-        "pct": 3.4
+        "count": 10,
+        "pct": 4.1
       }
     ]
   },

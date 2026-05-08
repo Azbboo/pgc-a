@@ -17,6 +17,7 @@ class PortfolioAgentSchemaMigrationsTest(unittest.TestCase):
             self.assertIn("007_agent", result.applied)
             self.assertIn("008_portfolio", result.applied)
             self.assertIn("009_research_views", result.applied)
+            self.assertIn("011_agent_external_data", result.applied)
 
             with sqlite3.connect(db_path) as conn:
                 conn.execute("PRAGMA foreign_keys = ON")
@@ -27,6 +28,7 @@ class PortfolioAgentSchemaMigrationsTest(unittest.TestCase):
                 self.assertIn("agent_runs", tables)
                 self.assertIn("agent_artifacts", tables)
                 self.assertIn("agent_decisions", tables)
+                self.assertIn("agent_external_items", tables)
                 self.assertIn("trade_plans", tables)
                 self.assertIn("trades", tables)
                 self.assertIn("positions", tables)
@@ -101,6 +103,66 @@ class PortfolioAgentSchemaMigrationsTest(unittest.TestCase):
                 agent_columns = self._columns(conn, "agent_decisions")
                 self.assertFalse(
                     agent_columns
+                    & {"account_id", "trade_plan_id", "trade_id", "position_id", "exit_decision_id"}
+                )
+                self.assertEqual(conn.execute("PRAGMA foreign_key_check").fetchall(), [])
+
+    def test_agent_external_items_contracts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc.db"
+            run_migrations(db_path)
+
+            with sqlite3.connect(db_path) as conn:
+                conn.execute("PRAGMA foreign_keys = ON")
+                conn.execute(
+                    """
+                    INSERT INTO agent_external_items
+                      (
+                        ts_code,
+                        published_date,
+                        item_type,
+                        provider,
+                        title,
+                        summary,
+                        sentiment,
+                        importance,
+                        source_hash
+                      )
+                    VALUES
+                      ('000001.SZ', '20260504', 'announcement', 'manual', '公告摘要', '无重大利空。', 'neutral', 'medium', 'manual:000001:20260504')
+                    """
+                )
+                with self.assertRaises(sqlite3.IntegrityError):
+                    conn.execute(
+                        """
+                        INSERT INTO agent_external_items
+                          (ts_code, published_date, item_type, provider, title, summary, source_hash)
+                        VALUES
+                          ('000001.SZ', '20260504', 'rumor', 'manual', '传闻', '未验证传闻。', 'manual:bad-type')
+                        """
+                    )
+                with self.assertRaises(sqlite3.IntegrityError):
+                    conn.execute(
+                        """
+                        INSERT INTO agent_external_items
+                          (ts_code, published_date, item_type, provider, title, summary, source_hash)
+                        VALUES
+                          ('000001.SZ', '20260504', 'news', 'manual', '重复来源', '重复摘要。', 'manual:000001:20260504')
+                        """
+                    )
+                with self.assertRaises(sqlite3.IntegrityError):
+                    conn.execute(
+                        """
+                        INSERT INTO agent_external_items
+                          (ts_code, published_date, item_type, provider, title, summary, source_hash)
+                        VALUES
+                          ('000001.SZ', '2026-05-04', 'news', 'manual', '日期格式错误', '日期必须使用 YYYYMMDD。', 'manual:bad-date')
+                        """
+                    )
+
+                item_columns = self._columns(conn, "agent_external_items")
+                self.assertFalse(
+                    item_columns
                     & {"account_id", "trade_plan_id", "trade_id", "position_id", "exit_decision_id"}
                 )
                 self.assertEqual(conn.execute("PRAGMA foreign_key_check").fetchall(), [])

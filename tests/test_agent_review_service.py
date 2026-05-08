@@ -136,6 +136,47 @@ class AgentReviewServiceTest(unittest.TestCase):
                 self.assertEqual(conn.execute("SELECT COUNT(*) FROM agent_artifacts").fetchone()[0], 3)
                 self.assertEqual(operation["status"], "success")
 
+    def test_apply_enriches_snapshot_with_cached_external_agent_data(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = self._build_db(root)
+            with sqlite3.connect(db_path) as conn:
+                self._insert_cached_external_agent_data(conn)
+            runner = _FakeTradingAgentsRunner()
+            service = AgentReviewService(db_path, runner=runner, paths=self._paths(root))
+
+            result = service.review_daily_pick(
+                ReviewDailyPickRequest(daily_pick_id=1, account_key="paper-main"),
+                RequestContext(
+                    request_id="test-agent-external",
+                    idempotency_key="agent-review:test:external",
+                    dry_run=False,
+                    operator="tester",
+                    source="test",
+                ),
+            )
+
+            self.assertTrue(result.ok)
+            snapshot = runner.calls[0][0]
+            source_refs = snapshot["source_refs"]
+            self.assertIn("agent_external_items:1", source_refs)
+            self.assertIn("agent_external_items:2", source_refs)
+            self.assertNotIn("agent_external_items:3", source_refs)
+            self.assertIn("market_diagnostic_bars:yfinance:000001.SZ:20260504", source_refs)
+
+            contexts = snapshot["candidate"]["analysis_contexts"]
+            self.assertEqual(contexts["news"]["status"], "available")
+            self.assertEqual(contexts["news"]["items"][0]["title"], "盘后公告摘要")
+            self.assertEqual(contexts["fundamental"]["status"], "partial")
+            self.assertEqual(contexts["fundamental"]["external_items"][0]["title"], "财务摘要")
+            self.assertEqual(contexts["sentiment"]["external_items"][0]["sentiment"], "neutral")
+            diagnostics = contexts["technical"]["external_market_diagnostics"]
+            self.assertEqual(diagnostics["status"], "partial")
+            self.assertEqual(diagnostics["providers"][0]["provider"], "yfinance")
+            self.assertNotIn("badprovider", {item["provider"] for item in diagnostics["providers"]})
+            self.assertEqual(diagnostics["providers"][0]["last_trade_date"], "20260504")
+            self.assertEqual(snapshot["candidate"]["external_data"]["items"]["status"], "available")
+
     def test_unavailable_tradingagents_records_skipped_no_opinion(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -283,6 +324,40 @@ class AgentReviewServiceTest(unittest.TestCase):
               (ts_code, trade_date, open, high, low, close, vol, amount, provider)
             VALUES
               ('000001.SZ', '20260504', 10.0, 10.8, 9.9, 10.5, 100000, 1050000, 'test')
+            """
+        )
+
+    def _insert_cached_external_agent_data(self, conn: sqlite3.Connection) -> None:
+        conn.execute(
+            """
+            INSERT INTO market_diagnostic_bars
+              (ts_code, trade_date, provider, open, high, low, close, vol, amount)
+            VALUES
+              ('000001.SZ', '20260503', 'yfinance', 9.8, 10.4, 9.7, 10.1, 120000, NULL),
+              ('000001.SZ', '20260504', 'yfinance', 10.0, 10.7, 9.9, 10.4, 130000, NULL),
+              ('000001.SZ', '20260505', 'yfinance', 10.5, 10.9, 10.2, 10.8, 140000, NULL),
+              ('000001.SZ', '2026-12-31', 'badprovider', 11.0, 11.5, 10.8, 11.2, 150000, NULL)
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO agent_external_items
+              (
+                ts_code,
+                published_date,
+                item_type,
+                provider,
+                title,
+                summary,
+                sentiment,
+                importance,
+                metadata_json,
+                source_hash
+              )
+            VALUES
+              ('000001.SZ', '20260504', 'announcement', 'manual', '盘后公告摘要', '公告摘要未发现重大利空。', 'neutral', 'medium', '{"source":"fixture"}', 'manual:announcement:000001:20260504'),
+              ('000001.SZ', '20260503', 'fundamental', 'manual', '财务摘要', '估值和市值处于可观察区间。', 'neutral', 'low', '{"source":"fixture"}', 'manual:fundamental:000001:20260503'),
+              ('000001.SZ', '20260505', 'news', 'manual', '未来新闻摘要', '这条新闻晚于复核日，不能进入快照。', 'negative', 'high', '{"source":"fixture"}', 'manual:news:000001:20260505')
             """
         )
 

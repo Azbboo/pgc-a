@@ -17,6 +17,10 @@ from pgc_trading.reporting.daily_report import (
     render_daily_report_json,
     render_daily_report_markdown,
 )
+from pgc_trading.services.agent_external_data_service import (
+    AgentExternalDataService,
+    ImportAgentExternalDataRequest,
+)
 from pgc_trading.services.agent_review_service import AgentReviewService, ReviewDailyPickRequest
 from pgc_trading.services.common import RequestContext, ServiceResult
 from pgc_trading.services.daily_close_workflow_service import (
@@ -55,6 +59,7 @@ PositionServiceFactory = Callable[[Path], PositionLifecycleService]
 OperationalReadinessServiceFactory = Callable[[Path], OperationalReadinessService]
 PlanningServiceFactory = Callable[[Path], PortfolioPlanningService]
 AgentReviewServiceFactory = Callable[[Path], AgentReviewService]
+AgentExternalDataServiceFactory = Callable[[Path], AgentExternalDataService]
 
 
 @dataclass(frozen=True)
@@ -67,6 +72,7 @@ class CommandServices:
     operational_readiness_service_factory: OperationalReadinessServiceFactory = OperationalReadinessService
     planning_service_factory: PlanningServiceFactory = PortfolioPlanningService
     agent_review_service_factory: AgentReviewServiceFactory = AgentReviewService
+    agent_external_data_service_factory: AgentExternalDataServiceFactory = AgentExternalDataService
 
 
 class PgcArgumentParser(argparse.ArgumentParser):
@@ -356,6 +362,32 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
     _add_lifecycle_context_arguments(agent_review)
     _add_db_path_argument(agent_review)
     agent_review.set_defaults(handler=_run_agent_review)
+
+    agent_external_data = agent_subparsers.add_parser(
+        "external-data",
+        help="import cached external advisory data for Agent snapshots",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    external_data_subparsers = agent_external_data.add_subparsers(
+        dest="agent_external_data_command",
+        metavar="external-data-command",
+    )
+    external_data_import = external_data_subparsers.add_parser(
+        "import",
+        help="preview or apply a JSON import into agent_external_items",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    external_data_import.add_argument("--file", dest="source_file", type=Path, required=True)
+    external_data_import.add_argument(
+        "--apply",
+        action="store_true",
+        help="write agent_external_items instead of running a dry-run preview",
+    )
+    _add_lifecycle_context_arguments(external_data_import)
+    _add_db_path_argument(external_data_import)
+    external_data_import.set_defaults(handler=_run_agent_external_data_import)
 
     return parser
 
@@ -724,6 +756,47 @@ def _run_agent_review(args: argparse.Namespace, stdout: TextIO, services: Comman
         return 1
 
     _write_agent_review_result(stdout, command, args.daily_pick_id, db_path, result)
+    return 0 if result.ok else 1
+
+
+def _run_agent_external_data_import(
+    args: argparse.Namespace,
+    stdout: TextIO,
+    services: CommandServices,
+) -> int:
+    db_path = _normalized_db_path(args.db_path)
+    source_file = _normalized_db_path(args.source_file)
+    command = "agent external-data import"
+
+    if not db_path.exists():
+        _write_routed_message(
+            stdout,
+            command,
+            f"file={source_file}",
+            db_path,
+            "database not found; external data import service was not run and no writes were performed",
+        )
+        return 1
+
+    service = services.agent_external_data_service_factory(db_path)
+    request = ImportAgentExternalDataRequest(source_file=source_file)
+    ctx = RequestContext(
+        request_id="cli-agent-external-data-import",
+        idempotency_key=args.idempotency_key,
+        dry_run=not args.apply,
+        operator=args.operator,
+        source="cli",
+    )
+    try:
+        result = service.import_external_data(request, ctx)
+    except sqlite3.OperationalError as exc:
+        stdout.write(
+            f"agent external-data import failed for file={source_file}: "
+            f"database is not initialized or is incompatible: {exc}\n"
+        )
+        return 1
+
+    _write_agent_external_data_import_result(stdout, command, source_file, db_path, result)
     return 0 if result.ok else 1
 
 
@@ -1218,6 +1291,49 @@ def _write_agent_review_result(
         stdout.write("artifacts:\n")
         for path in artifact_paths:
             stdout.write(f"- {path}\n")
+
+
+def _write_agent_external_data_import_result(
+    stdout: TextIO,
+    command: str,
+    source_file: Path,
+    db_path: Path,
+    result: ServiceResult[object],
+) -> None:
+    _write_routed_message(
+        stdout,
+        command,
+        f"file={source_file}",
+        db_path,
+        f"service returned {result.status}",
+    )
+    _write_warnings_and_errors(stdout, result)
+    data = result.data
+    if data is None:
+        return
+
+    stdout.write(
+        "external_data_import="
+        f"rows={getattr(data, 'row_count', 0)} "
+        f"valid={getattr(data, 'valid_count', 0)} "
+        f"invalid={getattr(data, 'invalid_count', 0)} "
+        f"would_insert={getattr(data, 'would_insert_count', 0)} "
+        f"would_update={getattr(data, 'would_update_count', 0)} "
+        f"inserted={getattr(data, 'inserted_count', 0)} "
+        f"updated={getattr(data, 'updated_count', 0)}\n"
+    )
+    invalid_records = getattr(data, "invalid_records", [])
+    if invalid_records:
+        stdout.write("invalid_records:\n")
+        for issue in invalid_records:
+            field = getattr(issue, "field", None) or "record"
+            stdout.write(
+                "- "
+                f"record={getattr(issue, 'index', 'n/a')} "
+                f"field={field} "
+                f"code={getattr(issue, 'code', 'n/a')} "
+                f"message={getattr(issue, 'message', 'n/a')}\n"
+            )
 
 
 def _write_warnings_and_errors(stdout: TextIO, result: ServiceResult[object]) -> None:

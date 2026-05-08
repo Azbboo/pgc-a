@@ -195,3 +195,19 @@ M14B 按最小接入范围完成：
 - Tushare 仍是默认和生产主 provider；
 - yfinance 不能进入 daily readiness gate 或 T+2/T+5 日期推导；
 - 真实 Yahoo smoke 仍需人工通过环境开关单独执行，不进入默认测试套件。
+
+## M14C 实施结果
+
+M14C 将外部资料增强限定在 Agent advisory 输入快照内：
+
+- 新增 `agent_external_items` 表，保存已脱敏、已摘要的新闻、公告、基本面、情绪、风险或研究资料；
+- `AgentReviewService` 会读取 `published_date <= review_date` 的外部资料，按 `news/fundamental/sentiment` 分区写入 `analysis_contexts`；
+- `AgentReviewService` 会读取 `market_diagnostic_bars` 中 `trade_date <= review_date` 的诊断行情，作为技术面外部交叉检查；
+- 每条外部资料和诊断行情都会进入 `input_snapshots.source_refs_json`，保证复核结论可追溯；
+- 未来日期资料不会进入快照，外部资料也不会写入 strategy、plan、trade、position 或 readiness gate。
+
+保留限制：
+
+- M14C 不实现实时网页/新闻抓取器，只消费已经落库的摘要；
+- yfinance 诊断行情仍是非生产资料，只能帮助 Agent 复核，不能替代 Tushare；
+- Agent 输出仍保持 advisory，不自动取消计划、不自动调仓。

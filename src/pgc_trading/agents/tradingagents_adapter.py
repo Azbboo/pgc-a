@@ -330,6 +330,7 @@ def _build_local_snapshot_prompt(snapshot: dict[str, Any], config: TradingAgents
 
 只允许使用下方本地数据库快照。不要请求实时价格、新闻、基本面网页或任何外部工具。
 确定性策略和组合系统仍是事实来源；你的输出只作为复核意见，不是交易指令。
+快照里的 external_data 和 analysis_contexts 是已落库资料；可以引用，但不得补写未提供事实。
 
 请分别扮演技术面、基本面、新闻面、情绪面四个分析师，基于 snapshot.analysis_contexts
 对应分区给出分析。若某个分区没有真实数据，必须明确写出“数据源未接入/数据不足”，

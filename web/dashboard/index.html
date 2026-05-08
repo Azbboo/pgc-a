@@ -190,6 +190,8 @@
             </div>
           </div>
 
+          <section class="execution-readiness-strip" id="openingReadinessSummary" aria-live="polite"></section>
+
           <div class="execution-grid">
             <section class="panel execution-plan-panel">
               <div class="panel-heading">
@@ -394,6 +396,7 @@
 	              <form class="record-form" id="recordForm">
 	                <p class="execution-advisory">仅记录人工纸面成交；Dashboard 不会向券商下单。</p>
 	                <p id="recordPrefillHint" class="record-prefill-hint">从待录入队列选择计划后，会自动带出计划 ID、方向、成交日期、股数和参考价。</p>
+                  <div id="recordValidationPanel" class="validation-panel" aria-live="polite"></div>
 	                <label>
 	                  <span>计划 ID</span>
 	                  <input id="recordPlanId" type="number" inputmode="numeric" autocomplete="off" />

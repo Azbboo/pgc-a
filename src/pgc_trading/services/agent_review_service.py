@@ -254,6 +254,8 @@ def _load_candidate(conn: sqlite3.Connection, request: ReviewDailyPickRequest) -
 
     recent_bars = _load_recent_bars(conn, row["ts_code"], row["review_date"])
     daily_basic = _load_daily_basic_snapshot(conn, row["ts_code"], row["review_date"])
+    diagnostic_market = _load_diagnostic_market_context(conn, row["ts_code"], row["review_date"])
+    external_items = _load_external_items(conn, row["ts_code"], row["review_date"])
     features = _json_loads(row["features_json"], {})
     market_summary = _market_summary(row["review_date"], recent_bars)
     open_positions = _open_positions_count(conn, account["id"])
@@ -272,6 +274,8 @@ def _load_candidate(conn: sqlite3.Connection, request: ReviewDailyPickRequest) -
     ]
     if daily_basic is not None:
         source_refs.append(f"daily_basic_snapshots:{row['ts_code']}:{daily_basic['trade_date']}")
+    source_refs.extend(_diagnostic_market_refs(row["ts_code"], diagnostic_market))
+    source_refs.extend(f"agent_external_items:{item['id']}" for item in external_items)
     return {
         "daily_pick_id": int(row["daily_pick_id"]),
         "signal_id": int(row["signal_id"]),
@@ -293,6 +297,10 @@ def _load_candidate(conn: sqlite3.Connection, request: ReviewDailyPickRequest) -
         },
         "market_summary": market_summary,
         "daily_basic": daily_basic,
+        "external_data": {
+            "market_diagnostics": diagnostic_market,
+            "items": _external_items_context(external_items),
+        },
         "analysis_contexts": _build_analysis_contexts(
             ts_code=row["ts_code"],
             name=row["name"],
@@ -300,6 +308,8 @@ def _load_candidate(conn: sqlite3.Connection, request: ReviewDailyPickRequest) -
             features=features,
             market_summary=market_summary,
             daily_basic=daily_basic,
+            diagnostic_market=diagnostic_market,
+            external_items=external_items,
             portfolio_context=portfolio_context,
         ),
         "portfolio_context": portfolio_context,
@@ -369,6 +379,105 @@ def _load_daily_basic_snapshot(conn: sqlite3.Connection, ts_code: str, as_of_dat
     return dict(row) if row is not None else None
 
 
+def _load_diagnostic_market_context(
+    conn: sqlite3.Connection,
+    ts_code: str,
+    as_of_date: str,
+) -> dict[str, Any]:
+    rows = [
+        dict(row)
+        for row in conn.execute(
+            """
+            SELECT
+              provider,
+              trade_date,
+              open,
+              high,
+              low,
+              close,
+              vol,
+              amount,
+              adj_factor,
+              adj_open,
+              adj_high,
+              adj_low,
+              adj_close
+            FROM market_diagnostic_bars
+            WHERE ts_code = ?
+              AND trade_date <= ?
+              AND length(trade_date) = 8
+              AND trade_date NOT GLOB '*[^0-9]*'
+            ORDER BY provider, trade_date DESC
+            LIMIT 80
+            """,
+            (ts_code, as_of_date),
+        ).fetchall()
+    ]
+    providers: list[dict[str, Any]] = []
+    for provider in sorted({str(row["provider"]) for row in rows}):
+        provider_rows = [row for row in rows if row["provider"] == provider][:10]
+        chronological = list(reversed(provider_rows))
+        closes = [float(row["close"]) for row in chronological if row.get("close") is not None]
+        latest = provider_rows[0] if provider_rows else {}
+        providers.append(
+            {
+                "provider": provider,
+                "status": "partial",
+                "last_trade_date": latest.get("trade_date"),
+                "last_close": latest.get("close"),
+                "recent_5d_ret": _window_ret(closes, 5),
+                "recent_10d_ret": _window_ret(closes, 10),
+                "recent_bars": chronological,
+                "limitations": [
+                    "该数据来自隔离诊断表，仅用于 Agent 复核对照。",
+                    "不得替代 Tushare 生产行情、交易日历或 readiness gate。",
+                ],
+            }
+        )
+    return {
+        "status": "partial" if providers else "unavailable",
+        "source": "market_diagnostic_bars",
+        "providers": providers,
+        "limitations": [
+            "诊断行情可能来自非官方或实验性 provider。",
+            "Agent 只能把它作为外部交叉检查，不得覆盖策略事实来源。",
+        ],
+    }
+
+
+def _load_external_items(conn: sqlite3.Connection, ts_code: str, as_of_date: str) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT
+          id,
+          ts_code,
+          published_date,
+          item_type,
+          provider,
+          title,
+          summary,
+          url,
+          sentiment,
+          importance,
+          metadata_json
+        FROM agent_external_items
+        WHERE ts_code = ?
+          AND published_date <= ?
+          AND length(published_date) = 8
+          AND published_date NOT GLOB '*[^0-9]*'
+        ORDER BY published_date DESC, id DESC
+        LIMIT 20
+        """,
+        (ts_code, as_of_date),
+    ).fetchall()
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        item["metadata"] = _json_loads(item.pop("metadata_json"), {})
+        items.append(item)
+    return items
+
+
 def _market_summary(as_of_date: str, bars: list[dict[str, Any]]) -> dict[str, Any]:
     latest = bars[0] if bars else {}
     closes = [float(row["close"]) for row in reversed(bars) if row.get("close") is not None]
@@ -410,17 +519,23 @@ def _build_analysis_contexts(
     features: dict[str, Any],
     market_summary: dict[str, Any],
     daily_basic: dict[str, Any] | None,
+    diagnostic_market: dict[str, Any],
+    external_items: list[dict[str, Any]],
     portfolio_context: dict[str, Any],
 ) -> dict[str, Any]:
     return {
-        "technical": _technical_context(features, market_summary),
-        "fundamental": _fundamental_context(ts_code, name, review_date, features, daily_basic),
-        "news": _news_context(ts_code, name, review_date),
-        "sentiment": _sentiment_context(features, market_summary, daily_basic, portfolio_context),
+        "technical": _technical_context(features, market_summary, diagnostic_market),
+        "fundamental": _fundamental_context(ts_code, name, review_date, features, daily_basic, external_items),
+        "news": _news_context(ts_code, name, review_date, external_items),
+        "sentiment": _sentiment_context(features, market_summary, daily_basic, portfolio_context, external_items),
     }
 
 
-def _technical_context(features: dict[str, Any], market_summary: dict[str, Any]) -> dict[str, Any]:
+def _technical_context(
+    features: dict[str, Any],
+    market_summary: dict[str, Any],
+    diagnostic_market: dict[str, Any],
+) -> dict[str, Any]:
     technical_keys = [
         "feature_name",
         "signal_passed",
@@ -443,6 +558,7 @@ def _technical_context(features: dict[str, Any], market_summary: dict[str, Any])
         "source": "PGC strategy features and local market_bars",
         "features": _pick_existing(features, technical_keys),
         "market_summary": market_summary,
+        "external_market_diagnostics": diagnostic_market,
     }
 
 
@@ -452,8 +568,21 @@ def _fundamental_context(
     review_date: str,
     features: dict[str, Any],
     daily_basic: dict[str, Any] | None,
+    external_items: list[dict[str, Any]],
 ) -> dict[str, Any]:
+    fundamental_items = _items_by_type(external_items, {"fundamental", "research_note"})
     if daily_basic is None:
+        if fundamental_items:
+            return {
+                "status": "partial",
+                "source": "agent_external_items local cache",
+                "external_items": fundamental_items,
+                "note": f"{ts_code} {name} 在 {review_date} 前没有本地 daily_basic 记录；仅有外部摘要可供复核。",
+                "limitations": [
+                    "外部摘要不等同于完整财报快照。",
+                    "Agent 不得把摘要当作已验证财务报表。",
+                ],
+            }
         return {
             "status": "unavailable",
             "source": "daily_basic_snapshots",
@@ -467,6 +596,7 @@ def _fundamental_context(
             features,
             ["buy_total_mv", "buy_circ_mv", "financial_flag", "industry"],
         ),
+        "external_items": fundamental_items,
         "limitations": [
             "当前仅有估值、市值、换手率等 daily_basic 字段。",
             "尚未接入利润表、资产负债表、现金流和公告财务摘要。",
@@ -474,7 +604,24 @@ def _fundamental_context(
     }
 
 
-def _news_context(ts_code: str, name: str, review_date: str) -> dict[str, Any]:
+def _news_context(
+    ts_code: str,
+    name: str,
+    review_date: str,
+    external_items: list[dict[str, Any]],
+) -> dict[str, Any]:
+    news_items = _items_by_type(external_items, {"news", "announcement", "risk_note"})
+    if news_items:
+        return {
+            "status": "available",
+            "source": "agent_external_items local cache",
+            "items": news_items,
+            "note": f"{ts_code} {name} 截至 {review_date} 有已落库外部新闻/公告摘要；Agent 只能引用这些摘要。",
+            "limitations": [
+                "未落库的实时新闻、公告或社媒内容不可引用。",
+                "外部摘要只作风险复核，不改变策略信号。",
+            ],
+        }
     return {
         "status": "unavailable",
         "source": "not_configured",
@@ -488,10 +635,16 @@ def _sentiment_context(
     market_summary: dict[str, Any],
     daily_basic: dict[str, Any] | None,
     portfolio_context: dict[str, Any],
+    external_items: list[dict[str, Any]],
 ) -> dict[str, Any]:
+    sentiment_items = _items_by_type(external_items, {"sentiment", "news", "announcement", "risk_note"})
     return {
         "status": "partial",
-        "source": "market-derived only; external social/news sentiment not configured",
+        "source": (
+            "market-derived plus agent_external_items local cache"
+            if sentiment_items
+            else "market-derived only; external social/news sentiment not configured"
+        ),
         "derived_signals": {
             "recent_5d_ret": market_summary.get("recent_5d_ret"),
             "recent_10d_ret": market_summary.get("recent_10d_ret"),
@@ -502,15 +655,56 @@ def _sentiment_context(
             "volume_ratio": daily_basic.get("volume_ratio") if daily_basic else None,
             "free_slots": portfolio_context.get("free_slots"),
         },
+        "external_items": sentiment_items,
         "limitations": [
             "当前情绪面只由价格、成交额、换手率等市场行为推断。",
-            "尚未接入新闻情绪、公告情绪、社媒讨论或龙虎榜席位情绪。",
+            "未落库的新闻情绪、公告情绪、社媒讨论或龙虎榜席位情绪不可引用。",
         ],
     }
 
 
 def _pick_existing(source: dict[str, Any], keys: list[str]) -> dict[str, Any]:
     return {key: source[key] for key in keys if key in source and source[key] is not None}
+
+
+def _items_by_type(items: list[dict[str, Any]], item_types: set[str]) -> list[dict[str, Any]]:
+    return [_agent_external_item_view(item) for item in items if item.get("item_type") in item_types]
+
+
+def _agent_external_item_view(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": item["id"],
+        "published_date": item["published_date"],
+        "item_type": item["item_type"],
+        "provider": item["provider"],
+        "title": item["title"],
+        "summary": item["summary"],
+        "url": item.get("url"),
+        "sentiment": item.get("sentiment", "unknown"),
+        "importance": item.get("importance", "unknown"),
+        "metadata": item.get("metadata", {}),
+    }
+
+
+def _external_items_context(items: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "status": "available" if items else "unavailable",
+        "source": "agent_external_items",
+        "items": [_agent_external_item_view(item) for item in items],
+        "limitations": [
+            "外部资料必须先落库为摘要，Agent 不得自行扩展到未提供网页或实时源。",
+            "外部资料只用于 advisory 复核，不会写入策略信号或组合账本。",
+        ],
+    }
+
+
+def _diagnostic_market_refs(ts_code: str, diagnostic_market: dict[str, Any]) -> list[str]:
+    refs: list[str] = []
+    for provider in diagnostic_market.get("providers", []):
+        last_trade_date = provider.get("last_trade_date")
+        if last_trade_date:
+            refs.append(f"market_diagnostic_bars:{provider.get('provider')}:{ts_code}:{last_trade_date}")
+    return refs
 
 
 def _build_snapshot_record(candidate: dict[str, Any]) -> dict[str, Any]:
@@ -530,6 +724,7 @@ def _build_snapshot_record(candidate: dict[str, Any]) -> dict[str, Any]:
         "raw_event": candidate["raw_event"],
         "market_summary": candidate["market_summary"],
         "daily_basic": candidate["daily_basic"],
+        "external_data": candidate["external_data"],
         "analysis_contexts": candidate["analysis_contexts"],
         "portfolio_context": candidate["portfolio_context"],
     }
