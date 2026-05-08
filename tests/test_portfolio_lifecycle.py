@@ -18,6 +18,7 @@ from pgc_trading.services.portfolio_planning_service import (
 )
 from pgc_trading.services.position_lifecycle_service import (
     EvaluateExitsRequest,
+    ListPositionsRequest,
     PositionLifecycleService,
 )
 from pgc_trading.storage.invariant_checks import check_database
@@ -66,6 +67,35 @@ class PortfolioLifecycleServiceTest(unittest.TestCase):
                 self.assertEqual(plan[0], "active")
                 self.assertEqual(plan[1], "buy_next_open")
                 self.assertEqual(json.loads(plan[2])["planned_shares"], 6600)
+
+    def test_generate_buy_plan_sizes_against_unadjusted_close_not_adj_close(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._migrated_seeded_db(tmp)
+            with sqlite3.connect(db_path) as conn:
+                self._insert_calendar(conn)
+                self._insert_daily_pick(conn)
+                conn.execute(
+                    """
+                    UPDATE market_bars
+                    SET adj_open = open * 3.8621,
+                        adj_high = high * 3.8621,
+                        adj_low = low * 3.8621,
+                        adj_close = close * 3.8621
+                    WHERE ts_code = '000001.SZ'
+                    """
+                )
+
+            result = PortfolioPlanningService(db_path).generate_buy_plan(
+                GenerateBuyPlanRequest(account_key=ACCOUNT_KEY, review_date=AS_OF_DATE),
+                RequestContext(request_id="req-plan-unadjusted", operator="tester"),
+            )
+
+            self.assertEqual(result.status, "success")
+            self.assertEqual(result.data.planned_shares, 6600)
+            with sqlite3.connect(db_path) as conn:
+                payload = json.loads(conn.execute("SELECT plan_json FROM trade_plans").fetchone()[0])
+                self.assertEqual(payload["price_reference"], 10.0)
+                self.assertEqual(payload["planned_shares"], 6600)
 
     def test_live_buy_plan_dry_run_previews_without_persisting_plan(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -292,6 +322,39 @@ class PortfolioLifecycleServiceTest(unittest.TestCase):
                 self.assertEqual(position_status, "closed")
                 trade_sides = conn.execute("SELECT side FROM trades ORDER BY id").fetchall()
                 self.assertEqual(trade_sides, [("buy",), ("sell",)])
+
+    def test_exit_evaluation_uses_unadjusted_close_for_position_returns(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._migrated_seeded_db(tmp)
+            buy_plan_id = self._ready_buy_plan(db_path)
+            self._record_buy(db_path, buy_plan_id)
+            with sqlite3.connect(db_path) as conn:
+                self._insert_market_bar(conn, "000001.SZ", T2_DATE, close=10.4)
+                conn.execute(
+                    """
+                    UPDATE market_bars
+                    SET adj_open = open * 3.8621,
+                        adj_high = high * 3.8621,
+                        adj_low = low * 3.8621,
+                        adj_close = close * 3.8621
+                    WHERE ts_code = '000001.SZ' AND trade_date = ?
+                    """,
+                    (T2_DATE,),
+            )
+
+            positions = PositionLifecycleService(db_path).list_positions(
+                ListPositionsRequest(account_key=ACCOUNT_KEY, as_of_date=T2_DATE),
+                RequestContext(request_id="req-list-unadjusted", operator="tester"),
+            )
+            exits = PositionLifecycleService(db_path).evaluate_exits(
+                EvaluateExitsRequest(account_key=ACCOUNT_KEY, as_of_date=T2_DATE),
+                RequestContext(request_id="req-exit-unadjusted", operator="tester"),
+            )
+
+            self.assertEqual(positions.data.positions[0].latest_close, 10.4)
+            self.assertAlmostEqual(positions.data.positions[0].unrealized_ret or 0.0, 0.04, places=6)
+            self.assertEqual(exits.status, "success")
+            self.assertEqual(len(exits.data.generated_trade_plan_ids), 1)
 
     def test_t2_middle_holds_until_t5_timeout_plan(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

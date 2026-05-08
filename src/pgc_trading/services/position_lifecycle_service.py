@@ -381,7 +381,7 @@ def _load_positions_for_review(
         SELECT
           p.*,
           mb.trade_date AS latest_trade_date,
-          COALESCE(NULLIF(mb.adj_close, 0), mb.close) AS latest_close
+          mb.close AS latest_close
         FROM positions p
         LEFT JOIN market_bars mb
           ON mb.ts_code = p.ts_code
@@ -472,7 +472,7 @@ def _existing_exit_decision(
 def _close_on_date(conn: sqlite3.Connection, ts_code: str, trade_date: str) -> float | None:
     row = conn.execute(
         """
-        SELECT COALESCE(NULLIF(adj_close, 0), close) AS close_price
+        SELECT close AS close_price
         FROM market_bars
         WHERE ts_code = ?
           AND trade_date = ?

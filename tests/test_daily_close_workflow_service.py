@@ -101,6 +101,36 @@ class DailyCloseWorkflowServiceTest(unittest.TestCase):
                 self.assertEqual(count_rows(conn, "trades"), 0)
                 self.assertEqual(count_rows(conn, "positions"), 0)
 
+    def test_buy_plan_preview_uses_unadjusted_close_not_adj_close(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = migrated_seeded_daily_close_db(tmp)
+            with sqlite3.connect(db_path) as conn:
+                insert_open_calendar(conn)
+                insert_contracting_pullback_case(conn, "000001.SZ", "Workflow Pick", 1.0)
+                conn.execute(
+                    """
+                    UPDATE market_bars
+                    SET adj_open = open * 3.8621,
+                        adj_high = high * 3.8621,
+                        adj_low = low * 3.8621,
+                        adj_close = close * 3.8621
+                    WHERE ts_code = '000001.SZ'
+                    """
+                )
+
+            result = DailyCloseWorkflowService(db_path).run_daily_close(
+                RunDailyCloseWorkflowRequest(as_of_date=AS_OF_DATE, account_key=ACCOUNT_KEY),
+                RequestContext(
+                    request_id="req-close-plan-unadjusted",
+                    idempotency_key=f"daily-close:unadjusted:{tmp}",
+                    operator="tester",
+                ),
+            )
+
+            self.assertEqual(result.status, "success")
+            self.assertIsNotNone(result.data.buy_plan)
+            self.assertEqual(result.data.buy_plan.planned_shares, 6700)
+
     def test_dry_run_previews_candidate_and_buy_plan_without_writes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = migrated_seeded_daily_close_db(tmp)

@@ -547,7 +547,7 @@ def _latest_cash(conn: Any, account: dict[str, Any]) -> float:
 def _latest_close(conn: Any, ts_code: str, as_of_date: str) -> float | None:
     row = conn.execute(
         """
-        SELECT COALESCE(NULLIF(adj_close, 0), close) AS close_price
+        SELECT close AS close_price
         FROM market_bars
         WHERE ts_code = ?
           AND trade_date <= ?
