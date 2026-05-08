@@ -23,6 +23,7 @@ env/
 
 # Local data, market cache, databases, and generated trading artifacts
 data/
+.pgc-release/
 
 # Generated migration/run reports
 reports/migrations/
