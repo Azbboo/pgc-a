@@ -52,10 +52,13 @@ def _mount_dashboard(app: Any) -> None:
     if not index_path.exists():
         return
 
-    from fastapi.responses import FileResponse
+    from fastapi.responses import FileResponse, RedirectResponse
     from fastapi.staticfiles import StaticFiles
 
     @app.get("/dashboard", include_in_schema=False)
+    def dashboard_index_redirect() -> Any:
+        return RedirectResponse(url="/dashboard/", status_code=307)
+
     @app.get("/dashboard/", include_in_schema=False)
     def dashboard_index() -> Any:
         return FileResponse(index_path)

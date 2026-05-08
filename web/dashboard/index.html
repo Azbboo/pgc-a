@@ -4,116 +4,175 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>PGC 操作台</title>
-    <link rel="stylesheet" href="./assets/styles.css" />
-    <script defer src="./assets/app.js"></script>
+    <link rel="stylesheet" href="/dashboard/assets/styles.css?v=20260508-live-writes-2" />
+    <script defer src="/dashboard/assets/app.js?v=20260508-live-writes-2"></script>
   </head>
   <body>
     <div class="app-shell">
-      <header class="topbar">
-        <div class="brand-block" aria-label="PGC 操作台">
+      <aside class="sidebar">
+        <div class="sidebar-brand" aria-label="PGC 操作台">
           <div class="brand-mark">PGC</div>
           <div>
             <div class="brand-title">交易操作台</div>
-            <div class="brand-subtitle">复盘、计划、成交、持仓</div>
+            <div class="brand-subtitle">复盘 / 计划 / 成交 / 持仓</div>
           </div>
         </div>
 
-        <form class="context-form" id="contextForm">
-          <label>
-            <span>账户 Key</span>
-            <input id="accountKeyInput" name="account_key" autocomplete="off" />
-          </label>
-          <label>
-            <span>账户 ID</span>
-            <input id="accountIdInput" name="account_id" inputmode="numeric" autocomplete="off" />
-          </label>
-          <label>
-            <span>复盘日</span>
-            <input id="asOfDateInput" name="as_of_date" placeholder="YYYYMMDD" autocomplete="off" />
-          </label>
-          <label class="strategy-control">
-            <span>策略版本</span>
-            <input id="strategyInput" name="strategy_version" autocomplete="off" />
-          </label>
-          <label>
-            <span>操作者</span>
-            <input id="operatorInput" name="operator" autocomplete="off" />
-          </label>
-          <label>
-            <span>API Base</span>
-            <input id="apiBaseInput" name="api_base" placeholder="同源留空" autocomplete="off" />
-          </label>
-          <label class="toggle-control" title="仅支持复盘、成交、退出评估的预演写请求">
-            <input id="dryRunInput" type="checkbox" checked />
-            <span>Dry run</span>
-          </label>
-          <button class="primary-button" type="submit">刷新</button>
-        </form>
-      </header>
+        <nav class="sidebar-nav" aria-label="主导航">
+          <button class="nav-item active" type="button" data-page-button="execution">
+            <span class="nav-glyph">
+              <img src="/dashboard/assets/icon-tasks.svg" alt="" aria-hidden="true" />
+            </span>
+            <span>开盘执行</span>
+            <b id="executionBadge">0</b>
+          </button>
+          <button class="nav-item" type="button" data-page-button="review">
+            <span class="nav-glyph">
+              <img src="/dashboard/assets/icon-pie.svg" alt="" aria-hidden="true" />
+            </span>
+            <span>每日复盘</span>
+            <b id="reviewBadge">0</b>
+          </button>
+          <button class="nav-item" type="button" data-page-button="plans">
+            <span class="nav-glyph">
+              <img src="/dashboard/assets/icon-office-bag.svg" alt="" aria-hidden="true" />
+            </span>
+            <span>交易计划</span>
+            <b id="plansBadge">0</b>
+          </button>
+          <button class="nav-item" type="button" data-page-button="record">
+            <span class="nav-glyph">
+              <img src="/dashboard/assets/icon-mailbox.svg" alt="" aria-hidden="true" />
+            </span>
+            <span>成交录入</span>
+            <b id="recordBadge">0</b>
+          </button>
+          <button class="nav-item" type="button" data-page-button="positions">
+            <span class="nav-glyph">
+              <img src="/dashboard/assets/icon-briefcase.svg" alt="" aria-hidden="true" />
+            </span>
+            <span>当前持仓</span>
+            <b id="positionsBadge">0</b>
+          </button>
+          <button class="nav-item" type="button" data-page-button="quality">
+            <span class="nav-glyph">
+              <img src="/dashboard/assets/icon-connect.svg" alt="" aria-hidden="true" />
+            </span>
+            <span>数据质量</span>
+            <b id="qualityBadge">0</b>
+          </button>
+          <button class="nav-item" type="button" data-page-button="agent">
+            <span class="nav-glyph">
+              <img src="/dashboard/assets/icon-user-male.svg" alt="" aria-hidden="true" />
+            </span>
+            <span>Agent 复核</span>
+            <b id="agentBadge">只读</b>
+          </button>
+        </nav>
 
-      <nav class="sidebar" aria-label="主导航">
-        <button class="nav-item active" type="button" data-page-button="execution">
-          <span class="nav-glyph">X</span>
-          <span>开盘执行</span>
-          <b id="executionBadge">0</b>
-        </button>
-        <button class="nav-item" type="button" data-page-button="review">
-          <span class="nav-glyph">R</span>
-          <span>每日复盘</span>
-          <b id="reviewBadge">0</b>
-        </button>
-        <button class="nav-item" type="button" data-page-button="plans">
-          <span class="nav-glyph">P</span>
-          <span>交易计划</span>
-          <b id="plansBadge">0</b>
-        </button>
-        <button class="nav-item" type="button" data-page-button="record">
-          <span class="nav-glyph">T</span>
-          <span>成交录入</span>
-          <b id="recordBadge">0</b>
-        </button>
-        <button class="nav-item" type="button" data-page-button="positions">
-          <span class="nav-glyph">H</span>
-          <span>当前持仓</span>
-          <b id="positionsBadge">0</b>
-        </button>
-        <button class="nav-item" type="button" data-page-button="quality">
-          <span class="nav-glyph">Q</span>
-          <span>数据质量</span>
-          <b id="qualityBadge">0</b>
-        </button>
-        <button class="nav-item" type="button" data-page-button="agent">
-          <span class="nav-glyph">A</span>
-          <span>Agent 复核</span>
-          <b id="agentBadge">只读</b>
-        </button>
-      </nav>
+        <section class="sidebar-card context-store" aria-label="页面上下文">
+          <div class="sidebar-card__head">
+            <h2>页面上下文</h2>
+            <span class="chip chip-blue">可调整</span>
+          </div>
+          <form class="context-form" id="contextForm">
+            <label>
+              <span>账户 Key</span>
+              <input id="accountKeyInput" name="account_key" autocomplete="off" />
+            </label>
+            <label>
+              <span>账户 ID</span>
+              <input id="accountIdInput" name="account_id" inputmode="numeric" autocomplete="off" />
+            </label>
+            <label>
+              <span>复盘日</span>
+              <input id="asOfDateInput" name="as_of_date" placeholder="YYYYMMDD" autocomplete="off" />
+            </label>
+            <label>
+              <span>策略版本</span>
+              <input id="strategyInput" name="strategy_version" autocomplete="off" />
+            </label>
+            <label>
+              <span>操作者</span>
+              <input id="operatorInput" name="operator" autocomplete="off" />
+            </label>
+            <label>
+              <span>API Base</span>
+              <input id="apiBaseInput" name="api_base" placeholder="同源留空" autocomplete="off" />
+            </label>
+            <label class="field--toggle">
+              <input id="dryRunInput" type="checkbox" checked />
+              <span>Dry run</span>
+            </label>
+            <p class="context-help">开盘执行通常使用上一交易日作为复盘日；执行日取该复盘日的下一交易日。</p>
+            <button class="primary-button field--submit" type="submit">刷新上下文</button>
+          </form>
+        </section>
+
+        <div class="sidebar-profile" aria-label="当前模式">
+          <span class="sidebar-profile__avatar">PG</span>
+          <div>
+            <strong>Paper Console</strong>
+            <span>Dry run ready</span>
+          </div>
+        </div>
+      </aside>
 
       <main class="workspace">
         <section class="status-band" aria-live="polite">
-          <div>
-            <span>账户</span>
-            <strong id="statusAccount">-</strong>
+          <div class="status-card status-card--account">
+            <span class="status-card__icon">
+              <img src="/dashboard/assets/icon-user-male.svg" alt="" aria-hidden="true" />
+            </span>
+            <div class="status-card__body">
+              <span>账户</span>
+              <strong id="statusAccount">-</strong>
+            </div>
           </div>
-          <div>
-            <span>复盘日</span>
-            <strong id="statusReviewDate">-</strong>
+          <div class="status-card status-card--review">
+            <span class="status-card__icon">
+              <img src="/dashboard/assets/icon-briefcase.svg" alt="" aria-hidden="true" />
+            </span>
+            <div class="status-card__body">
+              <span>复盘日</span>
+              <strong id="statusReviewDate">-</strong>
+            </div>
           </div>
-          <div>
-            <span>下一交易日</span>
-            <strong id="statusNextDate">-</strong>
+          <div class="status-card status-card--next">
+            <span class="status-card__icon">
+              <img src="/dashboard/assets/icon-mailbox.svg" alt="" aria-hidden="true" />
+            </span>
+            <div class="status-card__body">
+              <span>执行日</span>
+              <strong id="statusNextDate">-</strong>
+            </div>
           </div>
-          <div>
-            <span>最新行情日</span>
-            <strong id="statusMarketDate">-</strong>
+          <div class="status-card status-card--market">
+            <span class="status-card__icon">
+              <img src="/dashboard/assets/icon-favorites.svg" alt="" aria-hidden="true" />
+            </span>
+            <div class="status-card__body">
+              <span>最新行情日</span>
+              <strong id="statusMarketDate">-</strong>
+            </div>
           </div>
-          <div>
-            <span>仓位容量</span>
-            <strong id="statusCapacity">-</strong>
+          <div class="status-card status-card--capacity">
+            <span class="status-card__icon">
+              <img src="/dashboard/assets/icon-speech-bubble.svg" alt="" aria-hidden="true" />
+            </span>
+            <div class="status-card__body">
+              <span>仓位容量</span>
+              <strong id="statusCapacity">-</strong>
+            </div>
           </div>
-          <div class="status-quality">
-            <span>数据质量</span>
-            <strong id="statusQuality" class="chip chip-neutral">-</strong>
+          <div class="status-card status-card--quality">
+            <span class="status-card__icon">
+              <img src="/dashboard/assets/icon-connect.svg" alt="" aria-hidden="true" />
+            </span>
+            <div class="status-card__body">
+              <span>数据质量</span>
+              <strong id="statusQuality" class="chip chip-neutral">-</strong>
+            </div>
           </div>
         </section>
 
@@ -123,7 +182,7 @@
           <div class="page-heading">
             <div>
               <h1>开盘执行</h1>
-              <p>按计划日扫描 active 买入计划，先完成开盘检查，再记录人工纸面成交。</p>
+              <p>使用复盘日生成的下一交易日计划，先完成开盘检查，再记录人工纸面成交。</p>
             </div>
             <div class="toolbar">
               <button type="button" id="executionEvaluateExitsButton">评估退出：生成决策/计划</button>
@@ -134,7 +193,7 @@
           <div class="execution-grid">
             <section class="panel execution-plan-panel">
               <div class="panel-heading">
-                <h2>今日主动计划</h2>
+                <h2>执行日主动计划</h2>
                 <span id="openingBlockerChip" class="chip chip-neutral">-</span>
               </div>
               <div id="openingPlanBody" class="execution-plan-body"></div>
@@ -171,14 +230,34 @@
           <div class="page-heading">
             <div>
               <h1>每日复盘</h1>
-              <p>首屏展示阻断、下一交易日动作、候选、持仓到期和只读 Agent 意见。</p>
+              <p>按复盘日生成或查看下一交易日动作、候选、持仓到期和只读 Agent 意见。</p>
             </div>
             <div class="toolbar">
+              <div class="review-history-control" aria-label="复盘历史">
+                <button type="button" id="reviewPrevDateButton">上一复盘日</button>
+                <label class="review-date-field">
+                  <span>复盘日</span>
+                  <input id="reviewDateInput" type="date" autocomplete="off" />
+                </label>
+                <button type="button" id="reviewApplyDateButton">查看</button>
+                <button type="button" id="reviewNextDateButton">下一复盘日</button>
+              </div>
               <button type="button" id="runReviewButton">运行复盘</button>
               <button type="button" id="publishReviewPlanButton">发布计划</button>
-              <button type="button" id="recordReviewPlanButton">录入成交</button>
+              <button type="button" id="recordReviewPlanButton">去成交录入</button>
             </div>
           </div>
+
+          <section class="panel review-history-panel">
+            <div class="panel-heading">
+              <h2>复盘历史列表</h2>
+              <div class="panel-heading-actions">
+                <span id="reviewHistoryState" class="muted">-</span>
+                <button type="button" class="link-button" id="reloadReviewHistoryButton">刷新历史</button>
+              </div>
+            </div>
+            <div id="reviewHistoryList" class="review-history-list" aria-label="复盘历史列表"></div>
+          </section>
 
           <div class="review-grid">
             <section class="panel next-action-panel">
@@ -311,17 +390,18 @@
               <div class="panel-heading">
                 <h2>成交事实</h2>
                 <span id="recordModeChip" class="chip chip-neutral">未选择</span>
-              </div>
-              <form class="record-form" id="recordForm">
-                <p class="execution-advisory">仅记录人工纸面成交；Dashboard 不会向券商下单。</p>
-                <label>
-                  <span>计划 ID</span>
-                  <input id="recordPlanId" inputmode="numeric" autocomplete="off" />
-                </label>
-                <label>
-                  <span>持仓 ID</span>
-                  <input id="recordPositionId" inputmode="numeric" autocomplete="off" />
-                </label>
+	              </div>
+	              <form class="record-form" id="recordForm">
+	                <p class="execution-advisory">仅记录人工纸面成交；Dashboard 不会向券商下单。</p>
+	                <p id="recordPrefillHint" class="record-prefill-hint">从待录入队列选择计划后，会自动带出计划 ID、方向、成交日期、股数和参考价。</p>
+	                <label>
+	                  <span>计划 ID</span>
+	                  <input id="recordPlanId" type="number" inputmode="numeric" autocomplete="off" />
+	                </label>
+	                <label>
+	                  <span>持仓 ID</span>
+	                  <input id="recordPositionId" type="number" inputmode="numeric" autocomplete="off" />
+	                </label>
                 <label>
                   <span>方向</span>
                   <select id="recordSide">
@@ -329,30 +409,30 @@
                     <option value="sell">卖出</option>
                   </select>
                 </label>
-                <label>
-                  <span>成交日期</span>
-                  <input id="recordDate" placeholder="YYYYMMDD" autocomplete="off" />
-                </label>
-                <label>
-                  <span>成交价</span>
-                  <input id="recordPrice" inputmode="decimal" autocomplete="off" />
-                </label>
-                <label>
-                  <span>股数</span>
-                  <input id="recordShares" inputmode="numeric" autocomplete="off" />
-                </label>
-                <label>
-                  <span>手续费</span>
-                  <input id="recordFee" inputmode="decimal" value="0" autocomplete="off" />
-                </label>
-                <label>
-                  <span>印花税</span>
-                  <input id="recordTax" inputmode="decimal" value="0" autocomplete="off" />
-                </label>
-                <label>
-                  <span>滑点</span>
-                  <input id="recordSlippage" inputmode="decimal" autocomplete="off" />
-                </label>
+	                <label>
+	                  <span>成交日期</span>
+	                  <input id="recordDate" type="date" autocomplete="off" />
+	                </label>
+	                <label>
+	                  <span>成交价</span>
+	                  <input id="recordPrice" type="number" inputmode="decimal" step="0.0001" min="0" autocomplete="off" />
+	                </label>
+	                <label>
+	                  <span>股数</span>
+	                  <input id="recordShares" type="number" inputmode="numeric" step="1" min="1" autocomplete="off" />
+	                </label>
+	                <label>
+	                  <span>手续费</span>
+	                  <input id="recordFee" type="number" inputmode="decimal" step="0.01" min="0" value="0" autocomplete="off" />
+	                </label>
+	                <label>
+	                  <span>印花税</span>
+	                  <input id="recordTax" type="number" inputmode="decimal" step="0.01" min="0" value="0" autocomplete="off" />
+	                </label>
+	                <label>
+	                  <span>滑点</span>
+	                  <input id="recordSlippage" type="number" inputmode="decimal" step="0.0001" autocomplete="off" />
+	                </label>
                 <div class="form-actions">
                   <button type="button" id="clearRecordButton">清空</button>
                   <button type="submit" class="primary-button" id="submitRecordButton">提交成交</button>

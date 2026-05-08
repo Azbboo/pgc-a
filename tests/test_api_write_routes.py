@@ -316,6 +316,7 @@ class ApiWriteRoutesTest(unittest.TestCase):
                 "planned_trade_date": "2026-05-05",
                 "operator": "tester",
                 "idempotency_key": "api:plan:11",
+                "allow_live_writes": True,
             },
         )
 
@@ -329,6 +330,7 @@ class ApiWriteRoutesTest(unittest.TestCase):
         self.assertEqual(call[3].operator, "tester")
         self.assertEqual(call[3].idempotency_key, "api:plan:11")
         self.assertFalse(call[3].dry_run)
+        self.assertTrue(call[3].allow_live_writes)
 
     def test_publish_and_cancel_pass_write_context_to_service(self) -> None:
         publish_response = _Response()
@@ -387,6 +389,7 @@ class ApiWriteRoutesTest(unittest.TestCase):
                 "account_key": "paper-main",
                 "operator": "tester",
                 "idempotency_key": "api:trade:7",
+                "allow_live_writes": True,
             },
         )
         record_trade_execution(
@@ -410,10 +413,35 @@ class ApiWriteRoutesTest(unittest.TestCase):
         self.assertEqual(plan_call[2].side, "buy")
         self.assertEqual(plan_call[3].source, "api")
         self.assertEqual(plan_call[3].idempotency_key, "api:trade:7")
+        self.assertTrue(plan_call[3].allow_live_writes)
         self.assertEqual(position_call[0], "position_sell")
         self.assertEqual(position_call[2].position_id, 8)
         self.assertEqual(position_call[2].executed_date, "20260507")
         self.assertEqual(position_call[2].account_id, 1)
+
+    def test_trade_endpoint_maps_dashboard_source_to_manual_trade_source(self) -> None:
+        response = _Response()
+
+        record_trade_execution(
+            self.disabled,
+            self.services,
+            response,
+            payload={
+                "trade_plan_id": 7,
+                "side": "buy",
+                "executed_date": "20260505",
+                "executed_price": 10.5,
+                "shares": 1000,
+                "account_key": "paper-main",
+                "source": "dashboard",
+                "dry_run": True,
+            },
+        )
+
+        plan_call = _FakeExecutionService.calls[0]
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(plan_call[0], "trade_plan")
+        self.assertEqual(plan_call[2].source, "manual")
 
     def test_trade_endpoint_preserves_service_error_codes(self) -> None:
         response = _Response()

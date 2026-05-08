@@ -10,6 +10,7 @@ from pathlib import Path
 from pgc_trading.cli.main import main
 from pgc_trading.reporting.daily_report import (
     DailyReportRequest,
+    DailyReviewHistoryRequest,
     ReportingQueryService,
     render_daily_report_json,
     render_daily_report_markdown,
@@ -62,6 +63,28 @@ class DailyReportTest(unittest.TestCase):
             self.assertEqual(payload["candidate"]["daily_pick_id"], result.data.candidate.daily_pick_id)
             self.assertIn("data_quality", payload)
             self.assertIn("lineage", payload)
+
+    def test_review_history_lists_latest_runs_with_pick_plan_and_no_candidate_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._plan_ready_db(tmp)
+            with sqlite3.connect(db_path) as conn:
+                self._insert_no_candidate_review_run(conn, "20260506")
+
+            result = ReportingQueryService(db_path).list_daily_review_history(
+                DailyReviewHistoryRequest(account_key=ACCOUNT_KEY, limit=10),
+                RequestContext(request_id="req-review-history"),
+            )
+
+            self.assertEqual(result.status, "success")
+            self.assertIsNotNone(result.data)
+            self.assertEqual([item.review_date for item in result.data.items], ["20260506", AS_OF_DATE])
+            self.assertEqual(result.data.account.account_key, ACCOUNT_KEY)
+            self.assertIsNone(result.data.items[0].daily_pick_id)
+            self.assertEqual(result.data.items[0].signals_count, 0)
+            self.assertEqual(result.data.items[0].warning_count, 1)
+            self.assertEqual(result.data.items[1].ts_code, "000001.SZ")
+            self.assertEqual(result.data.items[1].trade_plan_status, "active")
+            self.assertEqual(result.data.items[1].next_trade_date, BUY_DATE)
 
     def test_report_includes_agent_points_and_report_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -317,6 +340,40 @@ class DailyReportTest(unittest.TestCase):
               (?, 'final_report', ?, 'report-hash')
             """,
             (run_id, str(report_path.with_suffix(".json")), run_id, str(report_path)),
+        )
+
+    def _insert_no_candidate_review_run(self, conn: sqlite3.Connection, review_date: str) -> None:
+        strategy = conn.execute(
+            """
+            SELECT id, strategy_key, strategy_version, params_hash
+            FROM strategy_versions
+            WHERE strategy_version = ?
+            """,
+            ("cpb_6157@2026-05-03",),
+        ).fetchone()
+        conn.execute(
+            """
+            INSERT INTO strategy_runs
+              (strategy_version_id, strategy_key, strategy_version, as_of_date, params_json, params_hash, status)
+            VALUES
+              (?, ?, ?, ?, '{}', ?, 'completed')
+            """,
+            (
+                strategy[0],
+                strategy[1],
+                strategy[2],
+                review_date,
+                strategy[3],
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO data_quality_events
+              (layer, severity, event_code, trade_date, message)
+            VALUES
+              ('market', 'warning', 'HISTORY_TEST_WARNING', ?, 'history warning')
+            """,
+            (review_date,),
         )
 
     def _insert_market_bar(

@@ -133,7 +133,12 @@ class PositionLifecycleService:
             )
 
         with connect(self.db_path) as conn:
-            account = _resolve_account(conn, request.account_key, request.account_id)
+            account = _resolve_account(
+                conn,
+                request.account_key,
+                request.account_id,
+                allow_live_dry_run=True,
+            )
             if isinstance(account, ServiceError):
                 return ServiceResult(
                     status="validation_failed",
@@ -195,7 +200,15 @@ class PositionLifecycleService:
                 errors=[ServiceError(code="VALIDATION_ERROR", message="as_of_date must use YYYYMMDD format.")],
             )
         with connect(self.db_path) as conn:
-            account = _resolve_account(conn, request.account_key, request.account_id)
+            account = _resolve_account(
+                conn,
+                request.account_key,
+                request.account_id,
+                allow_live_dry_run=ctx.dry_run,
+                allow_live_writes=ctx.allow_live_writes,
+                live_block_code="LIVE_EXIT_EVALUATION_DISABLED",
+                live_block_message="Live exit evaluation writes require explicit live write enablement.",
+            )
             if isinstance(account, ServiceError):
                 return ServiceResult(
                     status="validation_failed",
@@ -243,7 +256,15 @@ def _evaluate_exits_in_tx(
     *,
     write: bool,
 ) -> ServiceResult[EvaluateExitsResult]:
-    account = _resolve_account(conn, request.account_key, request.account_id)
+    account = _resolve_account(
+        conn,
+        request.account_key,
+        request.account_id,
+        allow_live_dry_run=ctx.dry_run,
+        allow_live_writes=ctx.allow_live_writes,
+        live_block_code="LIVE_EXIT_EVALUATION_DISABLED",
+        live_block_message="Live exit evaluation writes require explicit live write enablement.",
+    )
     if isinstance(account, ServiceError):
         return ServiceResult(
             status="validation_failed",

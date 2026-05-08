@@ -201,7 +201,8 @@ flowchart TB
   "request_id": "req_20260503_000001",
   "idempotency_key": "daily-review:paper-main:20260430:cpb_6157@2026-05-03",
   "dry_run": false,
-  "operator": "azboo"
+  "operator": "azboo",
+  "allow_live_writes": false
 }
 ```
 
@@ -213,6 +214,7 @@ flowchart TB
 | `idempotency_key` | 写操作建议必填 | 防止重复点击或重复定时任务写出两份计划 |
 | `dry_run` | 否 | 只校验和预览，不落库 |
 | `operator` | 实盘写操作必填 | 人工操作人或任务名 |
+| `allow_live_writes` | live 非 dry-run 写入必填 true | 显式允许 live 账本写入；不代表自动下单 |
 
 ### 响应通用信封
 
@@ -258,6 +260,9 @@ flowchart TB
 | `STRATEGY_VERSION_NOT_FOUND` | 策略版本不存在 | 检查策略治理表 |
 | `ACCOUNT_NOT_FOUND` | 账户不存在 | 创建或选择账户 |
 | `ACCOUNT_TYPE_MISMATCH` | 账户类型不匹配 | 禁止混用 backtest/paper/live |
+| `LIVE_PLAN_APPLY_DISABLED` | live 计划写入未显式授权 | 确认人工批准后带 `allow_live_writes`/`--allow-live-writes` |
+| `LIVE_EXECUTION_DISABLED` | live 成交录入未显式授权 | 确认成交事实后显式授权写入 |
+| `LIVE_EXIT_EVALUATION_DISABLED` | live 退出评估写入未显式授权 | 确认 live 账本写入授权 |
 | `NO_FREE_POSITION_SLOT` | 仓位已满 | 生成跳过计划 |
 | `PLAN_ALREADY_EXECUTED` | 计划已执行 | 禁止重复成交 |
 | `PLAN_EXPIRED` | 计划已过期 | 生成过期事件或人工处理 |
@@ -493,6 +498,25 @@ pgc daily-close --date 20260430 --db-path data/pgc_trading.db --account live-mai
 
 不要在 M10 记录 `live-main --apply` 示例。首个 live 落库路径必须等人工批准和后续 live enablement 任务明确放行。
 
+### 6.11 M11 真实成交闭环
+
+M11 放行的是 live 账本写入，不是自动下单。所有真实成交仍来自人工确认或券商导入。
+
+```bash
+pgc daily-close --date 20260430 --db-path data/pgc_trading.db --account live-main --run-type live --apply --operator azboo --allow-live-writes
+pgc record-buy --plan-id 29 --account live-main --date 2026-05-06 --price 23.40 --shares 2800 --fee 5.00 --source broker_import --operator azboo --allow-live-writes
+pgc exits-evaluate --date 20260508 --db-path data/pgc_trading.db --account live-main --operator azboo --allow-live-writes
+pgc record-sell --position-id 35 --account live-main --date 2026-05-08 --price 24.20 --shares 2800 --fee 5.00 --tax 67.76 --source broker_import --operator azboo --allow-live-writes
+```
+
+M11 验收要点：
+
+- 未带 `--allow-live-writes` 的 live 非 dry-run 写入继续失败；
+- `source=model` 和 `source=paper_model` 不能写入 live 成交；
+- 买入成交后才创建持仓，卖出成交后才关闭持仓；
+- `trades.slippage` 在有计划参考价时按真实成交价自动计算；
+- API live 写入除 `PGC_API_ENABLE_WRITES=1`、`operator`、`idempotency_key` 外，还必须传 `"allow_live_writes": true`。
+
 ## 7. HTTP API 设计
 
 首版可以先不开发 Web API，但契约先按 REST 风格固定，未来 Dashboard 直接复用。
@@ -603,7 +627,8 @@ pgc daily-close --date 20260430 --db-path data/pgc_trading.db --account live-mai
     "position_status": "waiting_t2",
     "planned_t2_date": "20260508",
     "planned_t5_date": "20260513",
-    "cash_after": 134475.0
+    "cash_after": 134475.0,
+    "slippage": 0.0043
   },
   "created_ids": {
     "trade_id": 51,
@@ -627,6 +652,7 @@ pgc daily-close --date 20260430 --db-path data/pgc_trading.db --account live-mai
   "account_key": "paper-main",
   "as_of_date": "20260508",
   "dry_run": false,
+  "operator": "azboo",
   "idempotency_key": "exit-eval:paper-main:20260508"
 }
 ```

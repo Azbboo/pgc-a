@@ -194,6 +194,14 @@ pgc market refresh \
 - `daily_basic` 缺失但首版策略不依赖；
 - Agent 外部资讯不可用。
 
+M14B 允许通过显式 `provider=yfinance` 做实验性历史日线 OHLCV 诊断，但它不能作为 Step 3 的生产替代路径：
+
+- 不写 fake `daily_basic`，不提供成交额等价字段；
+- 日线 OHLCV 只写 `market_diagnostic_bars`，不覆盖生产 `market_bars`；
+- 不刷新 `trade_calendar`，T+2/T+5 推导仍必须来自 Tushare 日历；
+- Yahoo/yfinance 网络失败必须作为行情 provider 错误显式暴露，不能静默继续；
+- yfinance 数据仅用于研究对账或备用诊断，不进入生产 readiness gate。
+
 ### Step 4: 数据质量门禁
 
 运行每日复盘前必须检查：
@@ -844,6 +852,34 @@ pgc daily-close --date S --db-path data/pgc_trading.db --account live-main --run
 ```
 
 不要在 M10 阶段记录或执行 `live-main --apply`。实盘落库必须等纸面门禁、人工批准和后续 live enablement 任务全部完成。
+
+### M11 真实成交闭环启用口径
+
+M11 只启用人工确认后的 live 账本闭环，不启用自动下单。进入此模式前必须已经通过 `paper-readiness`，并完成人工批准。
+
+默认行为仍然安全阻断：
+
+- `live-main` 非 dry-run 计划写入没有显式授权时返回 `LIVE_PLAN_APPLY_DISABLED`；
+- live 成交录入没有显式授权时返回 `LIVE_EXECUTION_DISABLED`；
+- live 退出评估写入没有显式授权时返回 `LIVE_EXIT_EVALUATION_DISABLED`；
+- live 成交来源只能是 `manual` 或 `broker_import`，不能使用 `model` 或 `paper_model`。
+
+CLI live 写入必须显式附加 `--allow-live-writes`，且仍然只是记录真实成交事实：
+
+```bash
+pgc daily-close --date S --db-path data/pgc_trading.db --account live-main --run-type live --apply --operator azboo --allow-live-writes
+pgc record-buy --plan-id PLAN_ID --date T --price PRICE --shares SHARES --db-path data/pgc_trading.db --account live-main --source broker_import --operator azboo --allow-live-writes
+pgc exits-evaluate --date S --db-path data/pgc_trading.db --account live-main --operator azboo --allow-live-writes
+pgc record-sell --position-id POSITION_ID --date T --price PRICE --shares SHARES --db-path data/pgc_trading.db --account live-main --source broker_import --operator azboo --allow-live-writes
+```
+
+API live 写入必须同时满足：
+
+- 服务启动时 `PGC_API_ENABLE_WRITES=1`；
+- 请求体包含 `operator` 和 `idempotency_key`；
+- 请求体包含 `"allow_live_writes": true`。
+
+M11 不改变成交事实边界：成交价、股数、手续费、印花税必须来自人工确认或券商导入；系统可以计算并记录相对计划参考价的滑点，但不能用策略计划价替代真实成交价。
 
 ## 17. 停机与暂停规则
 

@@ -181,6 +181,39 @@ class DailyCloseWorkflowServiceTest(unittest.TestCase):
                 self.assertEqual(count_rows(conn, "trades"), 0)
                 self.assertEqual(count_rows(conn, "positions"), 0)
 
+    def test_live_main_apply_with_explicit_enablement_creates_plan_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = migrated_seeded_daily_close_db(tmp)
+            with sqlite3.connect(db_path) as conn:
+                insert_open_calendar(conn)
+                insert_contracting_pullback_case(conn, "000001.SZ", "Live Enabled Pick", 1.0)
+
+            result = DailyCloseWorkflowService(db_path).run_daily_close(
+                RunDailyCloseWorkflowRequest(as_of_date=AS_OF_DATE, account_key="live-main", run_type="live"),
+                RequestContext(
+                    request_id="req-live-apply-enabled",
+                    dry_run=False,
+                    operator="tester",
+                    allow_live_writes=True,
+                ),
+            )
+
+            self.assertEqual(result.status, "success")
+            self.assertEqual(result.data.workflow_status, "plan_ready")
+            self.assertIsNotNone(result.data.buy_plan)
+            self.assertIsNotNone(result.data.buy_plan.trade_plan_id)
+            with sqlite3.connect(db_path) as conn:
+                plan = conn.execute(
+                    """
+                    SELECT pa.account_key, tp.action, tp.status
+                    FROM trade_plans tp
+                    JOIN portfolio_accounts pa ON pa.id = tp.account_id
+                    """
+                ).fetchone()
+                self.assertEqual(plan, ("live-main", "buy_next_open", "active"))
+                self.assertEqual(count_rows(conn, "trades"), 0)
+                self.assertEqual(count_rows(conn, "positions"), 0)
+
     def test_rerun_returns_existing_review_and_buy_plan(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = migrated_seeded_daily_close_db(tmp)

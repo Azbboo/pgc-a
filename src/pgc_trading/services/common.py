@@ -16,6 +16,7 @@ class RequestContext:
     dry_run: bool = False
     operator: str | None = None
     source: str = "cli"
+    allow_live_writes: bool = False
 
 
 @dataclass(frozen=True)
@@ -49,4 +50,3 @@ class ServiceResult(Generic[T]):
     @property
     def ok(self) -> bool:
         return self.status in {"success", "partial_success", "skipped"}
-

@@ -2,20 +2,23 @@ const DEFAULT_STRATEGY_VERSION = "cpb_6157@2026-05-03";
 const DEFAULT_ACCOUNT_KEY = "paper-main";
 const LEGACY_DEFAULT_ACCOUNT_KEY = "paper-200k";
 const DEFAULT_API_BASE = window.location.pathname.startsWith("/pgc/") ? "/pgc" : "";
+const DEFAULT_OPERATOR = "azboo";
 const CANCEL_REASON_CHOICES = ["高开过大", "停牌/不可交易", "重大利空", "人工跳过"];
+const DRY_RUN_DEFAULT_VERSION = "20260508-live-writes-1";
 
 const state = {
   apiBase: localStorage.getItem("pgc.dashboard.apiBase") || DEFAULT_API_BASE,
   accountKey: dashboardAccountKey(),
   accountId: localStorage.getItem("pgc.dashboard.accountId") || "",
-  asOfDate: localStorage.getItem("pgc.dashboard.asOfDate") || localDateCompact(),
+  asOfDate: localStorage.getItem("pgc.dashboard.asOfDate") || defaultReviewDate(),
   strategyVersion: localStorage.getItem("pgc.dashboard.strategyVersion") || DEFAULT_STRATEGY_VERSION,
-  operator: localStorage.getItem("pgc.dashboard.operator") || "",
-  dryRun: localStorage.getItem("pgc.dashboard.dryRun") !== "false",
+  operator: dashboardOperator(),
+  dryRun: dashboardDryRun(),
   activePage: "execution",
   busy: false,
   report: null,
   reportEnvelope: null,
+  reviewHistory: [],
   tradePlans: [],
   positions: [],
   qualityEvents: [],
@@ -72,6 +75,13 @@ function cacheElements() {
     "runReviewButton",
     "publishReviewPlanButton",
     "recordReviewPlanButton",
+    "reviewDateInput",
+    "reviewPrevDateButton",
+    "reviewNextDateButton",
+    "reviewApplyDateButton",
+    "reviewHistoryState",
+    "reloadReviewHistoryButton",
+    "reviewHistoryList",
     "nextActionDate",
     "nextActionBody",
     "blockerList",
@@ -95,6 +105,7 @@ function cacheElements() {
     "recordFee",
     "recordTax",
     "recordSlippage",
+    "recordPrefillHint",
     "recordModeChip",
     "clearRecordButton",
     "submitRecordButton",
@@ -139,6 +150,12 @@ function bindEvents() {
   });
 
   els.runReviewButton.addEventListener("click", runReview);
+  els.reviewApplyDateButton.addEventListener("click", applyReviewDateInput);
+  els.reviewDateInput.addEventListener("change", applyReviewDateInput);
+  els.reviewPrevDateButton.addEventListener("click", () => shiftReviewDate(-1));
+  els.reviewNextDateButton.addEventListener("click", () => shiftReviewDate(1));
+  els.reloadReviewHistoryButton.addEventListener("click", loadReviewHistoryAndRender);
+  els.reviewHistoryList.addEventListener("click", onReviewHistoryClick);
   els.reloadExecutionButton.addEventListener("click", refreshAll);
   els.executionEvaluateExitsButton.addEventListener("click", evaluateExits);
   els.publishReviewPlanButton.addEventListener("click", () => {
@@ -175,6 +192,7 @@ function syncFormFromState() {
   els.accountKeyInput.value = state.accountKey;
   els.accountIdInput.value = state.accountId;
   els.asOfDateInput.value = state.asOfDate;
+  els.reviewDateInput.value = dateInputValue(state.asOfDate);
   els.strategyInput.value = state.strategyVersion;
   els.operatorInput.value = state.operator;
   els.dryRunInput.checked = state.dryRun;
@@ -201,12 +219,35 @@ function persistContext() {
   localStorage.setItem("pgc.dashboard.dryRun", String(state.dryRun));
 }
 
-async function refreshAll() {
+async function applyReviewDateInput() {
+  await setReviewDate(els.reviewDateInput.value);
+}
+
+async function shiftReviewDate(offset) {
+  await setReviewDate(offsetBusinessDate(state.asOfDate, offset));
+}
+
+async function setReviewDate(value) {
+  const nextDate = normalizeDate(value);
+  if (!/^\d{8}$/.test(nextDate)) {
+    showNotice("复盘日需要选择有效日期。");
+    syncFormFromState();
+    return;
+  }
+  if (nextDate === state.asOfDate) return;
+  state.asOfDate = nextDate;
+  syncFormFromState();
+  persistContext();
+  setActivePage("review");
+  await refreshAll();
+}
+
+async function refreshAll(options = {}) {
   setBusy(true);
-  showNotice("");
+  if (!options.keepNotice) showNotice("");
   try {
     await loadDailyReport();
-    await Promise.all([loadPlans(), loadQuality(), loadPositions()]);
+    await Promise.all([loadPlans(), loadQuality(), loadPositions(), loadReviewHistory()]);
     renderAll();
   } catch (error) {
     showNotice(error.message || String(error));
@@ -227,6 +268,26 @@ async function loadDailyReport() {
   const envelope = await apiRequest(`/api/daily-reviews/${state.asOfDate}?${params.toString()}`);
   state.reportEnvelope = envelope;
   state.report = envelope.data || null;
+}
+
+async function loadReviewHistory() {
+  const params = new URLSearchParams();
+  params.set("strategy_version", state.strategyVersion);
+  params.set("limit", "20");
+  const accountId = resolvedAccountId();
+  if (accountId) {
+    params.set("account_id", accountId);
+  } else if (state.accountKey) {
+    params.set("account_key", state.accountKey);
+  } else {
+    state.reviewHistory = [];
+    return;
+  }
+  const envelope = await apiRequest(`/api/daily-reviews?${params.toString()}`);
+  if (envelope.status !== "success") {
+    throw new Error(errorMessages(envelope).join("；") || "无法读取复盘历史列表。");
+  }
+  state.reviewHistory = envelope.data?.items || [];
 }
 
 async function loadPlans() {
@@ -293,6 +354,13 @@ async function loadPositionsAndRender() {
   });
 }
 
+async function loadReviewHistoryAndRender() {
+  await runWithNotice(async () => {
+    await loadReviewHistory();
+    renderReviewHistory();
+  });
+}
+
 async function runWithNotice(task) {
   setBusy(true);
   showNotice("");
@@ -322,8 +390,8 @@ async function runReview() {
       if (!ok.confirmed) return;
     }
     const envelope = await apiRequest("/api/review-runs", { method: "POST", body: payload });
-    handleMutationEnvelope(envelope, "复盘请求已完成");
-    await refreshAll();
+    handleMutationEnvelope(envelope, mutationSuccessText("复盘请求已完成", "复盘 dry run 成功，未写入复盘结果。"));
+    await refreshAll({ keepNotice: true });
   });
 }
 
@@ -344,7 +412,7 @@ async function publishPlan(tradePlanId) {
       body: payload,
     });
     handleMutationEnvelope(envelope, "计划发布请求已完成");
-    await refreshAll();
+    await refreshAll({ keepNotice: true });
   });
 }
 
@@ -371,7 +439,7 @@ async function cancelPlan(tradePlanId) {
       body: payload,
     });
     handleMutationEnvelope(envelope, "计划取消请求已完成");
-    await refreshAll();
+    await refreshAll({ keepNotice: true });
   });
 }
 
@@ -405,7 +473,7 @@ async function submitTradeRecord(event) {
       fee: optionalNumber(els.recordFee.value) ?? 0,
       tax: optionalNumber(els.recordTax.value) ?? 0,
       slippage: optionalNumber(els.recordSlippage.value),
-      source: "dashboard",
+      source: "manual",
       ...selectedAccountPayload(),
     });
     if (!state.dryRun) {
@@ -416,9 +484,12 @@ async function submitTradeRecord(event) {
       if (!ok.confirmed) return;
     }
     const envelope = await apiRequest("/api/trades", { method: "POST", body: payload });
-    handleMutationEnvelope(envelope, "成交录入请求已完成");
+    handleMutationEnvelope(envelope, mutationSuccessText(
+      "成交录入请求已完成，持仓和计划状态已刷新。",
+      "成交录入 dry run 成功，未写入持仓；关闭 Dry run 且服务端开启写入后才会落库。",
+    ));
     clearRecordForm();
-    await refreshAll();
+    await refreshAll({ keepNotice: true });
   });
 }
 
@@ -437,8 +508,8 @@ async function evaluateExits() {
       if (!ok.confirmed) return;
     }
     const envelope = await apiRequest("/api/exits/evaluate", { method: "POST", body: payload });
-    handleMutationEnvelope(envelope, "退出评估请求已完成");
-    await refreshAll();
+    handleMutationEnvelope(envelope, mutationSuccessText("退出评估请求已完成", "退出评估 dry run 成功，未写入退出决策/计划。"));
+    await refreshAll({ keepNotice: true });
   });
 }
 
@@ -450,9 +521,14 @@ function handleMutationEnvelope(envelope, successText) {
   showNotice(successText, "ok");
 }
 
+function mutationSuccessText(writeText, dryRunText) {
+  return state.dryRun ? dryRunText : writeText;
+}
+
 function renderAll() {
   renderOpeningExecution();
   renderStatusBand();
+  renderReviewHistory();
   renderReview();
   renderPlans();
   renderRecordQueue();
@@ -465,8 +541,9 @@ function renderAll() {
 function renderOpeningExecution() {
   const blocked = hasBlockingQuality();
   const executionPlanPanel = document.querySelector(".execution-plan-panel");
-  const activePlans = todaysBuyPlans().filter((plan) => plan.status === "active");
-  const visiblePlans = todaysBuyPlans().length ? todaysBuyPlans() : activeBuyPlans();
+  const executionPlans = todaysBuyPlans();
+  const activePlans = executionPlans.filter((plan) => plan.status === "active");
+  const visiblePlans = executionPlans.length ? executionPlans : activeBuyPlans();
   const executionDay = executionDate();
 
   executionPlanPanel.classList.toggle("blocked", blocked);
@@ -487,7 +564,10 @@ function renderOpeningExecution() {
       ])}
     `;
   } else if (visiblePlans.length) {
-    els.openingPlanBody.innerHTML = visiblePlans.map((plan) => openingPlanCard(plan, executionDay)).join("");
+    const advisory = executionPlans.length
+      ? ""
+      : `<p class="execution-advisory">没有计划交易日匹配执行日 ${displayDate(executionDay)} 的买入计划；下方仅展示其他未完成计划，录入按钮已锁定。</p>`;
+    els.openingPlanBody.innerHTML = `${advisory}${visiblePlans.map((plan) => openingPlanCard(plan, executionDay)).join("")}`;
   } else {
     els.openingPlanBody.innerHTML = emptyState(`没有计划交易日为 ${displayDate(executionDay)} 的 active 买入计划。`);
   }
@@ -499,7 +579,8 @@ function renderOpeningExecution() {
 
 function openingPlanCard(plan, executionDay) {
   const isActive = plan.status === "active";
-  const canRecord = isActive && !hasBlockingQuality();
+  const matchesExecutionDay = planTradeDate(plan) === executionDay;
+  const canRecord = isActive && matchesExecutionDay && !hasBlockingQuality();
   const canCancel = ["draft", "active"].includes(plan.status);
   return `
     <div class="execution-plan-card">
@@ -510,8 +591,10 @@ function openingPlanCard(plan, executionDay) {
       ${actionMetrics([
         ["计划 ID", dash(plan.id)],
         ["动作", actionText(plan.action)],
+        ["复盘日", displayDate(plan.as_of_date || state.report?.as_of_date || state.asOfDate)],
+        ["执行日", displayDate(executionDay)],
         ["计划交易日", displayDate(planTradeDate(plan))],
-        ["执行日匹配", planTradeDate(plan) === executionDay ? "是" : "否"],
+        ["执行日匹配", matchesExecutionDay ? "是" : "否"],
         ["计划股数", integerText(plannedShares(plan))],
         ["计划资金", money(plannedCash(plan))],
       ])}
@@ -606,13 +689,33 @@ function renderReview() {
   renderAgent();
 }
 
+function renderReviewHistory() {
+  const items = state.reviewHistory || [];
+  els.reviewHistoryState.textContent = items.length ? `${items.length} 条` : "无记录";
+  els.reviewHistoryList.innerHTML = items.length
+    ? items.map((item) => {
+      const selected = item.review_date === state.asOfDate;
+      return `
+        <button type="button" class="history-list-row ${selected ? "active" : ""}" data-review-date="${item.review_date}">
+          <span class="history-date">${displayDate(item.review_date)}</span>
+          <span class="history-main">
+            <strong>${escapeHtml(reviewHistoryTitle(item))}</strong>
+            <em>${escapeHtml(reviewHistorySubtext(item))}</em>
+          </span>
+          ${chipHtml(reviewHistoryStatusText(item), reviewHistoryStatusClass(item))}
+        </button>
+      `;
+    }).join("")
+    : emptyState("尚无复盘历史；运行复盘后会出现在这里。");
+}
+
 function renderNextAction() {
   const report = state.report;
   const panel = document.querySelector(".next-action-panel");
   const plan = report?.buy_plan;
   const candidate = report?.candidate;
   const blocked = hasBlockingQuality();
-  els.nextActionDate.textContent = `下一交易日 ${displayDate(report?.next_trade_date)}`;
+  els.nextActionDate.textContent = `复盘日 ${displayDate(report?.as_of_date || state.asOfDate)} / 执行日 ${displayDate(report?.next_trade_date)}`;
   panel.classList.toggle("blocked", blocked);
   panel.classList.toggle("no-action", !blocked && !plan && !candidate);
 
@@ -677,6 +780,12 @@ function renderNextAction() {
     `;
   }
   setReviewButtons();
+}
+
+function onReviewHistoryClick(event) {
+  const button = event.target.closest("button[data-review-date]");
+  if (!button) return;
+  setReviewDate(button.dataset.reviewDate);
 }
 
 function setReviewButtons() {
@@ -1009,6 +1118,12 @@ function onPositionsTableClick(event) {
 
 function selectPlan(plan, options = {}) {
   state.selectedPlan = plan;
+  if (options.openRecordPage) {
+    fillRecordFromPlan(plan);
+    closeDrawer();
+    setActivePage("record");
+    return;
+  }
   openDrawer("交易计划", `计划 ${plan.id}`, [
     ["计划 ID", plan.id],
     ["账户 ID", plan.account_id],
@@ -1026,14 +1141,16 @@ function selectPlan(plan, options = {}) {
     ["原因", reasonText(plan.reason)],
     ["取消原因", plan.cancel_reason || "-"],
   ]);
-  if (options.openRecordPage) {
-    fillRecordFromPlan(plan);
-    setActivePage("record");
-  }
 }
 
 function selectPosition(position, options = {}) {
   state.selectedPosition = position;
+  if (options.openRecordPage) {
+    fillRecordFromPosition(position);
+    closeDrawer();
+    setActivePage("record");
+    return;
+  }
   openDrawer("持仓", `${position.ts_code} ${position.name}`, [
     ["持仓 ID", position.position_id],
     ["账户 ID", position.account_id],
@@ -1048,19 +1165,23 @@ function selectPosition(position, options = {}) {
     ["状态", statusText(position.status)],
     ["到期阶段", dueText(position.due_stage)],
   ]);
-  if (options.openRecordPage) {
-    fillRecordFromPosition(position);
-    setActivePage("record");
-  }
 }
 
 function fillRecordFromPlan(plan) {
   clearRecordForm(false);
+  const recordDate = planTradeDate(plan) || state.report?.next_trade_date || "";
+  const shares = plannedShares(plan);
+  const price = planReferencePrice(plan);
   els.recordPlanId.value = plan.id;
   els.recordPositionId.value = "";
   els.recordSide.value = actionIsSell(plan.action) ? "sell" : "buy";
-  els.recordDate.value = planTradeDate(plan) || state.report?.next_trade_date || "";
-  els.recordShares.value = plannedShares(plan) || "";
+  els.recordDate.value = dateInputValue(recordDate);
+  els.recordShares.value = shares || "";
+  els.recordPrice.value = inputNumber(price);
+  els.recordFee.value = "0";
+  els.recordTax.value = "0";
+  els.recordSlippage.value = "";
+  els.recordPrefillHint.textContent = `已从计划 ${plan.id} 预填：成交日期 ${displayDate(recordDate)}、股数 ${integerText(shares)}${price != null ? `、参考价 ${inputNumber(price)}` : ""}。成交价请按实际开盘成交核对。`;
   els.recordModeChip.textContent = plan.status === "active" ? "按 active 计划录入" : "计划未激活";
   els.recordModeChip.className = `chip ${plan.status === "active" ? "chip-blue" : "chip-amber"}`;
   setRecordFormState();
@@ -1071,23 +1192,29 @@ function fillRecordFromPosition(position) {
   els.recordPlanId.value = "";
   els.recordPositionId.value = position.position_id;
   els.recordSide.value = "sell";
-  els.recordDate.value = state.asOfDate;
+  els.recordDate.value = dateInputValue(state.asOfDate);
   els.recordShares.value = position.shares || "";
-  els.recordPrice.value = position.latest_close || "";
+  els.recordPrice.value = inputNumber(position.latest_close);
+  els.recordFee.value = "0";
+  els.recordTax.value = "0";
+  els.recordSlippage.value = "";
+  els.recordPrefillHint.textContent = `已从持仓 ${position.position_id} 预填：成交日期 ${displayDate(state.asOfDate)}、股数 ${integerText(position.shares)}${position.latest_close != null ? `、最新价 ${inputNumber(position.latest_close)}` : ""}。卖出价请按实际成交核对。`;
   els.recordModeChip.textContent = "按持仓卖出录入";
   els.recordModeChip.className = "chip chip-amber";
+  setRecordFormState();
 }
 
 function clearRecordForm(resetChip = true) {
   els.recordPlanId.value = "";
   els.recordPositionId.value = "";
   els.recordSide.value = "buy";
-  els.recordDate.value = state.report?.next_trade_date || state.asOfDate;
+  els.recordDate.value = dateInputValue(state.report?.next_trade_date || state.asOfDate);
   els.recordPrice.value = "";
   els.recordShares.value = "";
   els.recordFee.value = "0";
   els.recordTax.value = "0";
   els.recordSlippage.value = "";
+  els.recordPrefillHint.textContent = "从待录入队列选择计划后，会自动带出计划 ID、方向、成交日期、股数和参考价。";
   if (resetChip) {
     els.recordModeChip.textContent = "未选择";
     els.recordModeChip.className = "chip chip-neutral";
@@ -1290,6 +1417,8 @@ function planFromReport(plan) {
     name: candidate?.name,
     planned_cash: plan.planned_cash,
     planned_shares: plan.planned_shares,
+    price_reference: plan.price_reference,
+    price_reference_date: plan.price_reference_date,
   };
 }
 
@@ -1310,6 +1439,38 @@ function plannedShares(plan) {
 
 function plannedCash(plan) {
   return plan?.planned_cash ?? plan?.planned_amount ?? plan?.plan_json?.planned_cash ?? null;
+}
+
+function planReferencePrice(plan) {
+  const reportPlan = matchingReportPlan(plan);
+  const explicit = firstFiniteNumber(
+    plan?.price_reference,
+    plan?.plan_json?.price_reference,
+    reportPlan?.price_reference,
+  );
+  if (explicit != null) return explicit;
+
+  const cash = firstFiniteNumber(plannedCash(plan), reportPlan?.planned_cash);
+  const shares = firstFiniteNumber(plannedShares(plan), reportPlan?.planned_shares);
+  if (cash != null && shares != null && shares > 0) return cash / shares;
+  return null;
+}
+
+function matchingReportPlan(plan) {
+  const reportPlan = state.report?.buy_plan;
+  if (!plan || !reportPlan) return null;
+  const reportPlanId = reportPlan.trade_plan_id || reportPlan.id;
+  const planId = plan.id || plan.trade_plan_id;
+  return Number(reportPlanId) === Number(planId) ? reportPlan : null;
+}
+
+function firstFiniteNumber(...values) {
+  for (const value of values) {
+    if (value == null || value === "") continue;
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  return null;
 }
 
 function planDailyPickId(plan) {
@@ -1389,12 +1550,50 @@ function confirmAction({ title, body, inputLabel, quickChoices = [] }) {
   });
 }
 
-function localDateCompact() {
-  const date = new Date();
+function compactDate(date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}${month}${day}`;
+}
+
+function localDateCompact() {
+  return compactDate(new Date());
+}
+
+function defaultReviewDate() {
+  const date = new Date();
+  date.setDate(date.getDate() - 1);
+  while (date.getDay() === 0 || date.getDay() === 6) {
+    date.setDate(date.getDate() - 1);
+  }
+  return compactDate(date);
+}
+
+function offsetBusinessDate(value, offset) {
+  const date = parseCompactDate(value) || new Date();
+  const direction = offset >= 0 ? 1 : -1;
+  let remaining = Math.abs(offset);
+  while (remaining > 0) {
+    date.setDate(date.getDate() + direction);
+    if (date.getDay() !== 0 && date.getDay() !== 6) {
+      remaining -= 1;
+    }
+  }
+  return compactDate(date);
+}
+
+function parseCompactDate(value) {
+  const text = normalizeDate(value);
+  if (!/^\d{8}$/.test(text)) return null;
+  const year = Number(text.slice(0, 4));
+  const month = Number(text.slice(4, 6));
+  const day = Number(text.slice(6, 8));
+  const date = new Date(year, month - 1, day);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+    return null;
+  }
+  return date;
 }
 
 function dashboardAccountKey() {
@@ -1408,6 +1607,22 @@ function dashboardAccountKey() {
   return saved;
 }
 
+function dashboardDryRun() {
+  if (localStorage.getItem("pgc.dashboard.dryRunDefaultVersion") !== DRY_RUN_DEFAULT_VERSION) {
+    localStorage.setItem("pgc.dashboard.dryRun", "false");
+    localStorage.setItem("pgc.dashboard.dryRunDefaultVersion", DRY_RUN_DEFAULT_VERSION);
+    return false;
+  }
+  return localStorage.getItem("pgc.dashboard.dryRun") === "true";
+}
+
+function dashboardOperator() {
+  const saved = String(localStorage.getItem("pgc.dashboard.operator") || "").trim();
+  if (saved) return saved;
+  localStorage.setItem("pgc.dashboard.operator", DEFAULT_OPERATOR);
+  return DEFAULT_OPERATOR;
+}
+
 function normalizeDate(value) {
   return String(value || "").trim().replaceAll("-", "");
 }
@@ -1417,6 +1632,18 @@ function displayDate(value) {
   const text = String(value);
   if (/^\d{8}$/.test(text)) return `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6, 8)}`;
   return text;
+}
+
+function dateInputValue(value) {
+  const text = normalizeDate(value);
+  if (/^\d{8}$/.test(text)) return `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6, 8)}`;
+  return "";
+}
+
+function inputNumber(value, decimals = 4) {
+  const number = firstFiniteNumber(value);
+  if (number == null) return "";
+  return String(Number(number.toFixed(decimals)));
 }
 
 function accountName(account) {
@@ -1560,6 +1787,38 @@ function reasonText(value) {
     no_daily_pick: "没有日级入选记录",
     highest_score_with_free_slot: "最高评分且有空闲仓位",
   }[value] || dash(value);
+}
+
+function reviewHistoryTitle(item) {
+  if (item.ts_code || item.name) return `${item.ts_code || ""} ${item.name || ""}`.trim();
+  if (Number(item.signals_count || 0) > 0) return "有信号但未入选";
+  return "无策略候选";
+}
+
+function reviewHistorySubtext(item) {
+  const parts = [
+    `执行日 ${displayDate(item.planned_trade_date || item.planned_buy_date || item.next_trade_date)}`,
+    `信号 ${integerText(item.signals_count)}`,
+  ];
+  if (item.score != null) parts.push(`评分 ${numberText(item.score, 2)}`);
+  if (item.agent_action) parts.push(`AI ${agentActionText(item.agent_action)}`);
+  return parts.join(" / ");
+}
+
+function reviewHistoryStatusText(item) {
+  if (Number(item.blocker_count || 0) > 0) return `${item.blocker_count} blocker`;
+  if (item.trade_plan_status) return statusText(item.trade_plan_status);
+  if (item.daily_pick_id) return "有候选";
+  if (Number(item.warning_count || 0) > 0) return "警告";
+  return "无候选";
+}
+
+function reviewHistoryStatusClass(item) {
+  if (Number(item.blocker_count || 0) > 0) return "chip-red";
+  if (item.trade_plan_status) return statusClass(item.trade_plan_status);
+  if (item.daily_pick_id) return "chip-blue";
+  if (Number(item.warning_count || 0) > 0) return "chip-amber";
+  return "chip-neutral";
 }
 
 function qualityClass(value) {

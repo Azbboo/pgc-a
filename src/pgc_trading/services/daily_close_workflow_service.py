@@ -363,6 +363,7 @@ def _preview_buy_plan(
             request.account_key,
             request.account_id,
             allow_live_dry_run=ctx.dry_run,
+            allow_live_writes=ctx.allow_live_writes,
         )
         if isinstance(account, ServiceError):
             return _preview_plan_validation_failed(ctx, account)
@@ -434,6 +435,7 @@ def _load_preview_account(
     account_id: int | None,
     *,
     allow_live_dry_run: bool = False,
+    allow_live_writes: bool = False,
 ) -> dict[str, Any] | ServiceError:
     if account_id is None and not account_key:
         return ServiceError(code="VALIDATION_ERROR", message="account_key or account_id is required.")
@@ -461,7 +463,7 @@ def _load_preview_account(
         return ServiceError(code="ACCOUNT_MISMATCH", message="account_key and account_id point to different accounts.")
     if row["status"] != "active":
         return ServiceError(code="ACCOUNT_INACTIVE", message=f"Account is not active: {row['account_key']}.")
-    if row["account_type"] == "live" and allow_live_dry_run:
+    if row["account_type"] == "live" and (allow_live_dry_run or allow_live_writes):
         return dict(row)
     if row["account_type"] != "paper":
         return ServiceError(
@@ -479,7 +481,7 @@ def _live_apply_disabled(
     request: RunDailyCloseWorkflowRequest,
     ctx: RequestContext,
 ) -> ServiceError | None:
-    if ctx.dry_run:
+    if ctx.dry_run or ctx.allow_live_writes:
         return None
     with connect(db_path) as conn:
         row = _load_account_row(conn, request.account_key, request.account_id)
@@ -657,6 +659,7 @@ def _child_context(
         dry_run=ctx.dry_run,
         operator=ctx.operator,
         source=ctx.source,
+        allow_live_writes=ctx.allow_live_writes,
     )
 
 

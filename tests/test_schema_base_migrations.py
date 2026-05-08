@@ -32,6 +32,7 @@ class BaseSchemaMigrationsTest(unittest.TestCase):
                 self.assertIn("market_fetch_runs", tables)
                 self.assertIn("trade_calendar", tables)
                 self.assertIn("market_bars", tables)
+                self.assertIn("market_diagnostic_bars", tables)
                 self.assertIn("daily_basic_snapshots", tables)
                 self.assertIn("portfolio_accounts", tables)
                 self.assertIn("operation_requests", tables)
@@ -55,6 +56,10 @@ class BaseSchemaMigrationsTest(unittest.TestCase):
                 self.assertIn("fetch_run_id", market_columns)
                 self.assertIn("vol", market_columns)
                 self.assertIn("provider", market_columns)
+                diagnostic_columns = self._columns(conn, "market_diagnostic_bars")
+                self.assertIn("fetch_run_id", diagnostic_columns)
+                self.assertIn("vol", diagnostic_columns)
+                self.assertIn("provider", diagnostic_columns)
 
                 account_id = self._insert_account(conn, account_key="paper-main")
                 with self.assertRaises(sqlite3.IntegrityError):

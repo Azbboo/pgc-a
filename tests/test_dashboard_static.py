@@ -18,8 +18,8 @@ class DashboardStaticTest(unittest.TestCase):
 
         self.assertTrue((DASHBOARD_DIR / "styles.css").exists())
         self.assertTrue((DASHBOARD_DIR / "app.js").exists())
-        self.assertIn('href="./assets/styles.css"', index)
-        self.assertIn('src="./assets/app.js"', index)
+        self.assertIn('href="/dashboard/assets/styles.css', index)
+        self.assertIn('src="/dashboard/assets/app.js', index)
 
     def test_dashboard_covers_p0_pages(self) -> None:
         source = "\n".join(
@@ -63,7 +63,7 @@ class DashboardStaticTest(unittest.TestCase):
         )
 
         for label in [
-            "今日主动计划",
+            "执行日主动计划",
             "开盘检查清单",
             "未停牌 / 可交易",
             "无重大利空",
@@ -73,6 +73,30 @@ class DashboardStaticTest(unittest.TestCase):
             "数据质量 blocker",
         ]:
             self.assertIn(label, source)
+
+    def test_dashboard_review_history_controls_are_visible(self) -> None:
+        source = "\n".join(
+            [
+                (DASHBOARD_DIR / "index.html").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8"),
+            ]
+        )
+
+        for label in [
+            "复盘历史",
+            "复盘历史列表",
+            "上一复盘日",
+            "下一复盘日",
+            "刷新历史",
+            'id="reviewDateInput" type="date"',
+        ]:
+            self.assertIn(label, source)
+        self.assertIn("/api/daily-reviews?", source)
+        self.assertIn("function setReviewDate", source)
+        self.assertIn("function offsetBusinessDate", source)
+        self.assertIn("function loadReviewHistory", source)
+        self.assertIn("function renderReviewHistory", source)
+        self.assertIn("els.reviewDateInput.value = dateInputValue(state.asOfDate)", source)
 
     def test_dashboard_p1_cancel_and_execution_guardrails_are_visible(self) -> None:
         source = "\n".join(
@@ -88,6 +112,13 @@ class DashboardStaticTest(unittest.TestCase):
         self.assertIn("此操作不支持 dry run", source)
         self.assertIn("Dashboard 不会向券商下单", source)
         self.assertIn("不会记录卖出成交", source)
+        self.assertIn('id="recordDate" type="date"', source)
+        self.assertIn("会自动带出计划 ID、方向、成交日期、股数和参考价", source)
+        self.assertIn("function planReferencePrice", source)
+        self.assertIn("dateInputValue(recordDate)", source)
+        self.assertIn("closeDrawer();\n    setActivePage(\"record\")", source)
+        self.assertIn("成交录入 dry run 成功，未写入持仓", source)
+        self.assertIn("refreshAll({ keepNotice: true })", source)
         self.assertIn("recordReviewPlanButton.disabled = blocked", source)
         self.assertIn("submitRecordButton.disabled", source)
 
@@ -97,12 +128,21 @@ class DashboardStaticTest(unittest.TestCase):
         self.assertIn('const DEFAULT_ACCOUNT_KEY = "paper-main"', script)
         self.assertIn('const LEGACY_DEFAULT_ACCOUNT_KEY = "paper-200k"', script)
         self.assertIn('const DEFAULT_API_BASE = window.location.pathname.startsWith("/pgc/") ? "/pgc" : ""', script)
+        self.assertIn('const DEFAULT_OPERATOR = "azboo"', script)
         self.assertIn('apiBase: localStorage.getItem("pgc.dashboard.apiBase") || DEFAULT_API_BASE', script)
         self.assertIn("accountKey: dashboardAccountKey()", script)
+        self.assertIn("operator: dashboardOperator()", script)
+        self.assertIn("function dashboardOperator()", script)
+        self.assertIn("dryRun: dashboardDryRun()", script)
+        self.assertIn('const DRY_RUN_DEFAULT_VERSION = "20260508-live-writes-1"', script)
+        self.assertIn('localStorage.setItem("pgc.dashboard.dryRun", "false")', script)
+        self.assertIn('asOfDate: localStorage.getItem("pgc.dashboard.asOfDate") || defaultReviewDate()', script)
+        self.assertIn("function defaultReviewDate()", script)
         self.assertIn("localStorage.setItem(\"pgc.dashboard.accountKey\", DEFAULT_ACCOUNT_KEY)", script)
         self.assertIn("function renderOpeningExitQueue()", script)
         self.assertIn("const due = duePositions();", script)
         self.assertIn("function isExitDuePosition", script)
+        self.assertIn("const canRecord = isActive && matchesExecutionDay && !hasBlockingQuality();", script)
 
     def test_dashboard_guardrails_are_visible_in_client(self) -> None:
         script = (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8")

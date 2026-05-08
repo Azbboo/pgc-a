@@ -7,6 +7,7 @@ from pgc_trading.api.routes import (
     get_daily_review,
     list_account_positions,
     list_data_quality_events,
+    list_daily_reviews,
     list_trade_plans,
 )
 from pgc_trading.api.services import ApiServices
@@ -30,6 +31,20 @@ class _FakeReportService:
             status="success",
             request_id=ctx.request_id,
             data={"as_of_date": request.as_of_date, "account_id": request.account_id},
+            lineage={"account_id": request.account_id},
+        )
+
+    def list_daily_review_history(self, request, ctx):
+        self.calls.append((self.db_path, request, ctx))
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data={
+                "strategy_version": request.strategy_version,
+                "account_id": request.account_id,
+                "before_date": request.before_date,
+                "limit": request.limit,
+            },
             lineage={"account_id": request.account_id},
         )
 
@@ -121,6 +136,34 @@ class ApiReadRoutesTest(unittest.TestCase):
         self.assertEqual(db_path, self.settings.db_path)
         self.assertEqual(request.as_of_date, "20260504")
         self.assertEqual(request.account_id, 3)
+        self.assertTrue(ctx.dry_run)
+        self.assertEqual(ctx.source, "api")
+
+    def test_daily_review_history_route_passes_filters_to_reporting_service(self) -> None:
+        response = _Response()
+
+        payload = list_daily_reviews(
+            self.settings,
+            self.services,
+            response,
+            account_key=None,
+            account_id=3,
+            strategy_version="cpb_6157@2026-05-03",
+            before_date="2026-05-07",
+            limit=12,
+            request_id="req-review-history",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["data"]["before_date"], "20260507")
+        self.assertEqual(payload["data"]["limit"], 12)
+        _, request, ctx = _FakeReportService.calls[0]
+        self.assertEqual(request.account_id, 3)
+        self.assertEqual(request.account_key, None)
+        self.assertEqual(request.strategy_version, "cpb_6157@2026-05-03")
+        self.assertEqual(request.before_date, "20260507")
+        self.assertEqual(request.limit, 12)
         self.assertTrue(ctx.dry_run)
         self.assertEqual(ctx.source, "api")
 

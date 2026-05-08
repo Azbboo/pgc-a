@@ -18,6 +18,7 @@ from pgc_trading.market.tushare_adapter import (
     TradeCalendarDay,
     TushareAdapter,
 )
+from pgc_trading.market.yfinance_adapter import YFinanceAdapter
 from pgc_trading.services.common import RequestContext, ServiceError, ServiceResult, ServiceWarning
 from pgc_trading.storage.database import connect
 
@@ -141,12 +142,13 @@ class MarketDataService:
                 raise
 
         try:
-            adapter = self.adapter or TushareAdapter()
+            adapter = self.adapter or _adapter_for_provider(request.provider)
+            effective_include_daily_basic = _effective_include_daily_basic(request, adapter)
             payload = adapter.fetch_market_data(
                 resolved.ts_codes,
                 resolved.start_date,
                 resolved.end_date,
-                include_daily_basic=request.include_daily_basic,
+                include_daily_basic=effective_include_daily_basic,
             )
         except Exception as exc:
             return _failed_market_fetch_result(
@@ -168,29 +170,43 @@ class MarketDataService:
         coverage_start_date, coverage_end_date = _coverage_dates(bars)
         service_status = "partial_success" if missing_ts_codes else "success"
         fetch_status = "partial_success" if missing_ts_codes else "completed"
+        diagnostic_provider = _is_diagnostic_market_provider(request.provider, adapter)
+        provider_warnings = _warnings_for_provider(request, adapter)
         fetch_manifest = {
             "ts_codes": resolved.ts_codes,
             "include_daily_basic": request.include_daily_basic,
+            "effective_include_daily_basic": effective_include_daily_basic,
             "bars": len(bars),
             "daily_basic": len(daily_basic),
             "missing_ts_codes": missing_ts_codes,
+            "storage_table": "market_diagnostic_bars" if diagnostic_provider else "market_bars",
         }
+        if payload.metadata:
+            fetch_manifest["provider_metadata"] = dict(payload.metadata)
 
         with connect(self.db_path) as conn:
             conn.execute("BEGIN")
             try:
-                bars_upserted = _upsert_market_bars(conn, fetch_run_id, request.provider, bars)
+                bars_upserted = (
+                    _upsert_market_diagnostic_bars(conn, fetch_run_id, request.provider, bars)
+                    if diagnostic_provider
+                    else _upsert_market_bars(conn, fetch_run_id, request.provider, bars)
+                )
                 daily_basic_upserted = (
                     _upsert_daily_basic(conn, fetch_run_id, request.provider, daily_basic)
-                    if request.include_daily_basic
+                    if effective_include_daily_basic
                     else 0
                 )
-                data_quality_event_ids = _write_missing_market_events(
-                    conn,
-                    missing_ts_codes,
-                    request,
-                    resolved,
-                    fetch_run_id,
+                data_quality_event_ids = (
+                    []
+                    if diagnostic_provider
+                    else _write_missing_market_events(
+                        conn,
+                        missing_ts_codes,
+                        request,
+                        resolved,
+                        fetch_run_id,
+                    )
                 )
 
                 result_data = RefreshMarketDataResult(
@@ -210,7 +226,7 @@ class MarketDataService:
                         "market_fetch_run_id": fetch_run_id,
                         "data_quality_event_ids": data_quality_event_ids,
                     },
-                    warnings=_warnings_for_missing_ts_codes(missing_ts_codes),
+                    warnings=provider_warnings + _warnings_for_missing_ts_codes(missing_ts_codes),
                     lineage={
                         "market_fetch_run_id": fetch_run_id,
                         "provider": request.provider,
@@ -259,7 +275,7 @@ class MarketDataService:
                     raise
 
         try:
-            adapter = self.adapter or TushareAdapter()
+            adapter = self.adapter or _adapter_for_provider(request.provider)
             calendar_days = tuple(
                 adapter.fetch_trade_calendar(request.start_date, request.end_date, request.exchange)
             )
@@ -365,6 +381,35 @@ def _validate_calendar_request(request: RefreshTradeCalendarRequest) -> list[Ser
     if not request.provider.strip():
         errors.append(ServiceError(code="VALIDATION_ERROR", message="provider is required."))
     return errors
+
+
+def _adapter_for_provider(provider: str) -> MarketDataAdapter:
+    provider_key = provider.strip().lower()
+    if provider_key == "tushare":
+        return TushareAdapter()
+    if provider_key == "yfinance":
+        return YFinanceAdapter()
+    raise ValueError(
+        f"Unsupported market data provider {provider!r}. Use 'tushare', 'yfinance', "
+        "or inject a MarketDataAdapter."
+    )
+
+
+def _effective_include_daily_basic(
+    request: RefreshMarketDataRequest,
+    adapter: MarketDataAdapter,
+) -> bool:
+    if _is_yfinance_provider(request.provider, adapter):
+        return False
+    return request.include_daily_basic
+
+
+def _is_yfinance_provider(provider: str, adapter: MarketDataAdapter) -> bool:
+    return provider.strip().lower() == "yfinance" or getattr(adapter, "provider", "").lower() == "yfinance"
+
+
+def _is_diagnostic_market_provider(provider: str, adapter: MarketDataAdapter) -> bool:
+    return _is_yfinance_provider(provider, adapter)
 
 
 def _resolve_market_scope(db_path: Path, request: RefreshMarketDataRequest) -> _ResolvedMarketScope:
@@ -527,6 +572,72 @@ def _upsert_market_bars(
                 bar.adj_low,
                 bar.adj_close,
                 provider,
+                fetch_run_id,
+            ),
+        )
+    return len(bars)
+
+
+def _upsert_market_diagnostic_bars(
+    conn: sqlite3.Connection,
+    fetch_run_id: int,
+    provider: str,
+    bars: Sequence[MarketBar],
+) -> int:
+    for bar in bars:
+        conn.execute(
+            """
+            INSERT INTO market_diagnostic_bars
+              (
+                ts_code,
+                trade_date,
+                provider,
+                open,
+                high,
+                low,
+                close,
+                vol,
+                amount,
+                adj_factor,
+                adj_open,
+                adj_high,
+                adj_low,
+                adj_close,
+                fetch_run_id,
+                updated_at
+              )
+            VALUES
+              (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(provider, ts_code, trade_date) DO UPDATE SET
+              open = excluded.open,
+              high = excluded.high,
+              low = excluded.low,
+              close = excluded.close,
+              vol = excluded.vol,
+              amount = excluded.amount,
+              adj_factor = excluded.adj_factor,
+              adj_open = excluded.adj_open,
+              adj_high = excluded.adj_high,
+              adj_low = excluded.adj_low,
+              adj_close = excluded.adj_close,
+              fetch_run_id = excluded.fetch_run_id,
+              updated_at = CURRENT_TIMESTAMP
+            """,
+            (
+                bar.ts_code,
+                bar.trade_date,
+                provider,
+                bar.open,
+                bar.high,
+                bar.low,
+                bar.close,
+                bar.vol,
+                bar.amount,
+                bar.adj_factor,
+                bar.adj_open,
+                bar.adj_high,
+                bar.adj_low,
+                bar.adj_close,
                 fetch_run_id,
             ),
         )
@@ -1074,6 +1185,21 @@ def _warnings_for_missing_ts_codes(missing_ts_codes: Sequence[str]) -> list[Serv
         ServiceWarning(
             code="MARKET_DATA_MISSING",
             message=f"{len(missing_ts_codes)} ts_code(s) are missing market data.",
+            severity="warning",
+        )
+    ]
+
+
+def _warnings_for_provider(
+    request: RefreshMarketDataRequest,
+    adapter: MarketDataAdapter,
+) -> list[ServiceWarning]:
+    if not request.include_daily_basic or not _is_yfinance_provider(request.provider, adapter):
+        return []
+    return [
+        ServiceWarning(
+            code="YFINANCE_DAILY_BASIC_UNSUPPORTED",
+            message="yfinance stores historical OHLCV bars only; daily_basic snapshots are not supported.",
             severity="warning",
         )
     ]

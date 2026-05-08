@@ -152,7 +152,12 @@ class PortfolioPlanningService:
             )
 
         with connect(self.db_path) as conn:
-            account = _resolve_account(conn, request.account_key, request.account_id)
+            account = _resolve_account(
+                conn,
+                request.account_key,
+                request.account_id,
+                allow_live_dry_run=True,
+            )
             if isinstance(account, ServiceError):
                 return ServiceResult(
                     status="validation_failed",
@@ -285,7 +290,12 @@ class PortfolioPlanningService:
                     )
                     conn.commit()
                     return result
-                account = _resolve_account(conn, request.account_key, request.account_id or int(plan["account_id"]))
+                account = _resolve_account(
+                    conn,
+                    request.account_key,
+                    request.account_id or int(plan["account_id"]),
+                    allow_live_writes=ctx.allow_live_writes,
+                )
                 if isinstance(account, ServiceError):
                     return _validation_failed(ctx, None, [account])
                 if int(plan["account_id"]) != account.id:
@@ -366,7 +376,12 @@ class PortfolioPlanningService:
                             )
                         ],
                     )
-                account = _resolve_account(conn, request.account_key, request.account_id or int(plan["account_id"]))
+                account = _resolve_account(
+                    conn,
+                    request.account_key,
+                    request.account_id or int(plan["account_id"]),
+                    allow_live_writes=ctx.allow_live_writes,
+                )
                 if isinstance(account, ServiceError):
                     return _validation_failed(ctx, None, [account])
                 if int(plan["account_id"]) != account.id:
@@ -429,6 +444,7 @@ def _generate_buy_plan_in_tx(
         request.account_key,
         request.account_id,
         allow_live_dry_run=ctx.dry_run,
+        allow_live_writes=ctx.allow_live_writes,
     )
     if isinstance(account, ServiceError):
         return _validation_failed(ctx, _empty_plan_result(BUY_PLAN_ACTION), [account])
@@ -542,7 +558,13 @@ def _generate_sell_plan_in_tx(
     *,
     write: bool,
 ) -> ServiceResult[GenerateTradePlanResult]:
-    account = _resolve_account(conn, request.account_key, request.account_id)
+    account = _resolve_account(
+        conn,
+        request.account_key,
+        request.account_id,
+        allow_live_dry_run=ctx.dry_run,
+        allow_live_writes=ctx.allow_live_writes,
+    )
     if isinstance(account, ServiceError):
         return _validation_failed(ctx, _empty_plan_result(request.action), [account])
 
@@ -696,6 +718,9 @@ def _resolve_account(
     account_id: int | None,
     *,
     allow_live_dry_run: bool = False,
+    allow_live_writes: bool = False,
+    live_block_code: str = "LIVE_PLAN_APPLY_DISABLED",
+    live_block_message: str = "Live account planning is dry-run only until live enablement is approved.",
 ) -> _Account | ServiceError:
     if account_id is None and not account_key:
         return ServiceError(code="VALIDATION_ERROR", message="account_key or account_id is required.")
@@ -723,7 +748,7 @@ def _resolve_account(
         return ServiceError(code="ACCOUNT_MISMATCH", message="account_key and account_id point to different accounts.")
     if row["status"] != "active":
         return ServiceError(code="ACCOUNT_INACTIVE", message=f"Account is not active: {row['account_key']}.")
-    if row["account_type"] == "live" and allow_live_dry_run:
+    if row["account_type"] == "live" and (allow_live_dry_run or allow_live_writes):
         return _Account(
             id=int(row["id"]),
             account_key=row["account_key"],
@@ -734,8 +759,8 @@ def _resolve_account(
         )
     if row["account_type"] != "paper":
         return ServiceError(
-            code="LIVE_PLAN_APPLY_DISABLED" if row["account_type"] == "live" else "UNSUPPORTED_ACCOUNT_TYPE",
-            message="Live account planning is dry-run only until live enablement is approved.",
+            code=live_block_code if row["account_type"] == "live" else "UNSUPPORTED_ACCOUNT_TYPE",
+            message=live_block_message,
             entity_type="portfolio_account",
             entity_id=int(row["id"]),
             severity="blocker",

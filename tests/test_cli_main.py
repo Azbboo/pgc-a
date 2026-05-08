@@ -312,8 +312,41 @@ class CliMainTest(unittest.TestCase):
         self.assertEqual(request.as_of_date, "20260504")
         self.assertFalse(ctx.dry_run)
         self.assertEqual(ctx.operator, "tester")
+        self.assertFalse(ctx.allow_live_writes)
         self.assertTrue(ctx.idempotency_key.startswith("daily-close:paper-main:20260504:"))
         self.assertIn("workflow_status=plan_ready", stdout.getvalue())
+
+    def test_daily_close_live_writes_flag_reaches_service_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc_live_apply.db"
+            db_path.touch()
+            stdout = io.StringIO()
+            code = main(
+                [
+                    "daily-close",
+                    "--date",
+                    "2026-05-04",
+                    "--db-path",
+                    str(db_path),
+                    "--account",
+                    "live-main",
+                    "--run-type",
+                    "live",
+                    "--apply",
+                    "--allow-live-writes",
+                    "--operator",
+                    "tester",
+                ],
+                stdout=stdout,
+                services=CommandServices(daily_close_workflow_service_factory=_FakeCloseService),
+            )
+
+        self.assertEqual(code, 0)
+        _, request, ctx = _FakeCloseService.calls[0]
+        self.assertEqual(request.account_key, "live-main")
+        self.assertEqual(request.run_type, "live")
+        self.assertFalse(ctx.dry_run)
+        self.assertTrue(ctx.allow_live_writes)
 
     def test_daily_close_missing_db_fails_without_creating_database(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -398,6 +431,7 @@ class CliMainTest(unittest.TestCase):
         self.assertIsNone(request.daily_pick_id)
         self.assertFalse(ctx.dry_run)
         self.assertEqual(ctx.operator, "tester")
+        self.assertFalse(ctx.allow_live_writes)
         self.assertEqual(ctx.idempotency_key, "plan-buy:paper-main:20260504:20260504")
         self.assertIn("trade_plan=id=none action=buy_next_open status=active", stdout.getvalue())
 

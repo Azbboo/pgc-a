@@ -157,6 +157,7 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
         help="ignore any completed review with the same idempotency key",
     )
     _add_lifecycle_context_arguments(daily_close)
+    _add_live_write_guard_argument(daily_close)
     daily_close.set_defaults(handler=_run_daily_close)
 
     plan = subparsers.add_parser(
@@ -181,6 +182,7 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
         help="persist the generated buy plan instead of previewing it",
     )
     _add_lifecycle_context_arguments(plan)
+    _add_live_write_guard_argument(plan)
     _add_db_path_argument(plan)
     plan.set_defaults(handler=_run_plan)
 
@@ -194,6 +196,7 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
     plan_cancel.add_argument("--reason", type=_non_blank_text, required=True, help="manual cancellation reason")
     _add_account_arguments(plan_cancel)
     _add_lifecycle_context_arguments(plan_cancel)
+    _add_live_write_guard_argument(plan_cancel)
     _add_db_path_argument(plan_cancel)
     plan_cancel.set_defaults(handler=_run_plan_cancel)
 
@@ -271,6 +274,7 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
         help="create exit decisions without generating sell trade plans",
     )
     _add_lifecycle_context_arguments(exits_evaluate)
+    _add_live_write_guard_argument(exits_evaluate)
     _add_db_path_argument(exits_evaluate)
     exits_evaluate.set_defaults(handler=_run_exits_evaluate)
 
@@ -412,6 +416,7 @@ def _run_daily_close(args: argparse.Namespace, stdout: TextIO, services: Command
         dry_run=not args.apply,
         operator=args.operator,
         source="cli",
+        allow_live_writes=args.allow_live_writes,
     )
     try:
         result = service.run_daily_close(request, ctx)
@@ -452,6 +457,7 @@ def _run_plan(args: argparse.Namespace, stdout: TextIO, services: CommandService
         dry_run=not args.apply,
         operator=args.operator,
         source="cli",
+        allow_live_writes=args.allow_live_writes,
     )
     try:
         result = service.generate_buy_plan(request, ctx)
@@ -488,6 +494,7 @@ def _run_plan_cancel(args: argparse.Namespace, stdout: TextIO, services: Command
         idempotency_key=args.idempotency_key,
         operator=args.operator,
         source="cli",
+        allow_live_writes=args.allow_live_writes,
     )
     try:
         result = service.cancel_plan(request, ctx)
@@ -629,6 +636,7 @@ def _run_exits_evaluate(args: argparse.Namespace, stdout: TextIO, services: Comm
         idempotency_key=args.idempotency_key or _exit_idempotency_key(args),
         operator=args.operator,
         source="cli",
+        allow_live_writes=args.allow_live_writes,
     )
     try:
         result = service.evaluate_exits(request, ctx)
@@ -813,6 +821,14 @@ def _add_lifecycle_context_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--idempotency-key", help="optional idempotency key for audit logging")
 
 
+def _add_live_write_guard_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--allow-live-writes",
+        action="store_true",
+        help="explicitly allow live account ledger writes; does not place broker orders",
+    )
+
+
 def _add_execution_common_arguments(parser: argparse.ArgumentParser) -> None:
     _add_account_arguments(parser)
     parser.add_argument("--fee", type=_non_negative_float, default=0.0, help="execution fee")
@@ -825,6 +841,7 @@ def _add_execution_common_arguments(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--operator", default="cli", help="operator name for audit fields")
     parser.add_argument("--idempotency-key", help="optional idempotency key for audit logging")
+    _add_live_write_guard_argument(parser)
 
 
 def _parse_iso_date(value: str) -> str:
@@ -892,6 +909,7 @@ def _execution_context(args: argparse.Namespace, command: str) -> RequestContext
         idempotency_key=args.idempotency_key,
         operator=args.operator,
         source=args.source,
+        allow_live_writes=args.allow_live_writes,
     )
 
 

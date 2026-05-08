@@ -7,7 +7,7 @@ from pgc_trading.api.errors import service_result_http_status
 from pgc_trading.api.schemas import build_health_payload, service_result_envelope
 from pgc_trading.api.services import ApiServices
 from pgc_trading.api.settings import ApiSettings
-from pgc_trading.reporting.daily_report import DailyReportRequest
+from pgc_trading.reporting.daily_report import DailyReportRequest, DailyReviewHistoryRequest
 from pgc_trading.services.common import RequestContext, ServiceError, ServiceResult
 from pgc_trading.services.data_quality_service import ListDataQualityEventsRequest
 from pgc_trading.services.daily_close_workflow_service import (
@@ -36,6 +36,28 @@ def register_routes(app: Any) -> None:
     @app.get("/api/health", tags=["system"])
     def health() -> dict[str, object]:
         return build_health_payload(app.state.settings)
+
+    @app.get("/api/daily-reviews", tags=["reports"])
+    def daily_review_history(
+        response: Response,
+        account_key: str | None = DEFAULT_ACCOUNT_KEY,
+        account_id: int | None = None,
+        strategy_version: str = STRATEGY_VERSION,
+        before_date: str | None = None,
+        limit: int = 20,
+        request_id: str | None = None,
+    ) -> dict[str, object]:
+        return list_daily_reviews(
+            app.state.settings,
+            app.state.services,
+            response,
+            account_key=_blank_to_none(account_key),
+            account_id=account_id,
+            strategy_version=strategy_version,
+            before_date=_normalize_optional_date(before_date),
+            limit=limit,
+            request_id=request_id,
+        )
 
     @app.get("/api/daily-reviews/{as_of_date}", tags=["reports"])
     def daily_review(
@@ -199,6 +221,32 @@ def get_daily_review(
             account_key=account_key,
             account_id=account_id,
             strategy_version=strategy_version,
+        ),
+        RequestContext(request_id=request_id, dry_run=True, source="api"),
+    )
+    return _service_response(result, response)
+
+
+def list_daily_reviews(
+    settings: ApiSettings,
+    services: ApiServices,
+    response: Any,
+    *,
+    account_key: str | None = DEFAULT_ACCOUNT_KEY,
+    account_id: int | None = None,
+    strategy_version: str = STRATEGY_VERSION,
+    before_date: str | None = None,
+    limit: int = 20,
+    request_id: str | None = None,
+) -> dict[str, object]:
+    service = services.report_service_factory(settings.db_path)
+    result = service.list_daily_review_history(
+        DailyReviewHistoryRequest(
+            account_key=account_key,
+            account_id=account_id,
+            strategy_version=strategy_version,
+            before_date=_normalize_optional_date(before_date),
+            limit=limit,
         ),
         RequestContext(request_id=request_id, dry_run=True, source="api"),
     )
@@ -462,7 +510,7 @@ def record_trade_execution(
                 account_id=account_id,
                 fee=fee,
                 tax=tax,
-                source=_text_field(payload, "source", "manual"),
+                source=_trade_source(payload),
                 slippage=slippage,
             ),
             ctx,
@@ -490,7 +538,7 @@ def record_trade_execution(
             account_id=account_id,
             fee=fee,
             tax=tax,
-            source=_text_field(payload, "source", "manual"),
+            source=_trade_source(payload),
             slippage=slippage,
         ),
         ctx,
@@ -559,6 +607,7 @@ def _write_context_or_response(
     request_id = _optional_text(payload.get("request_id"))
     idempotency_key = _optional_text(payload.get("idempotency_key"))
     operator = _optional_text(payload.get("operator"))
+    allow_live_writes = _bool_field(payload, "allow_live_writes", errors, default=False)
 
     if dry_run and not allow_dry_run:
         errors.append(ServiceError(code="DRY_RUN_NOT_SUPPORTED", message="dry_run is not supported for this endpoint."))
@@ -587,6 +636,7 @@ def _write_context_or_response(
         dry_run=dry_run,
         operator=operator,
         source="api",
+        allow_live_writes=allow_live_writes,
     )
 
 
@@ -623,6 +673,13 @@ def _optional_text(value: Any, default: str | None = None) -> str | None:
 def _text_field(payload: dict[str, Any], key: str, default: str) -> str:
     value = _optional_text(payload.get(key))
     return value if value is not None else default
+
+
+def _trade_source(payload: dict[str, Any]) -> str:
+    source = _text_field(payload, "source", "manual")
+    if source == "dashboard":
+        return "manual"
+    return source
 
 
 def _required_text(payload: dict[str, Any], key: str, errors: list[ServiceError]) -> str:

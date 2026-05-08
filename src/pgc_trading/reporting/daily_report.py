@@ -29,6 +29,15 @@ class DailyReportRequest:
 
 
 @dataclass(frozen=True)
+class DailyReviewHistoryRequest:
+    account_key: str | None = DEFAULT_ACCOUNT_KEY
+    account_id: int | None = None
+    strategy_version: str = STRATEGY_VERSION
+    before_date: str | None = None
+    limit: int = 20
+
+
+@dataclass(frozen=True)
 class DataQualityReport:
     readiness: str
     can_trade: bool
@@ -56,6 +65,41 @@ class AccountReport:
     market_value: float | None
     total_equity: float | None
     equity_as_of_date: str | None
+
+
+@dataclass(frozen=True)
+class DailyReviewHistoryItem:
+    review_date: str
+    next_trade_date: str | None
+    strategy_run_id: int
+    review_status: str
+    signals_count: int
+    daily_pick_id: int | None
+    signal_id: int | None
+    ts_code: str | None
+    name: str | None
+    score: float | None
+    planned_buy_date: str | None
+    selection_reason: str | None
+    trade_plan_id: int | None
+    trade_plan_action: str | None
+    trade_plan_status: str | None
+    planned_trade_date: str | None
+    agent_status: str | None
+    agent_action: str | None
+    agent_risk_level: str | None
+    blocker_count: int
+    warning_count: int
+    created_at: str | None
+
+
+@dataclass(frozen=True)
+class DailyReviewHistory:
+    strategy_version: str
+    account: AccountReport
+    items: list[DailyReviewHistoryItem]
+    limit: int
+    before_date: str | None = None
 
 
 @dataclass(frozen=True)
@@ -267,6 +311,44 @@ class ReportingQueryService:
             },
         )
 
+    def list_daily_review_history(
+        self,
+        request: DailyReviewHistoryRequest,
+        ctx: RequestContext | None = None,
+    ) -> ServiceResult[DailyReviewHistory]:
+        context = ctx or RequestContext(source="report")
+        errors = _validate_history_request(request)
+        if errors:
+            return ServiceResult(status="validation_failed", request_id=context.request_id, errors=errors)
+
+        with connect(self.db_path) as conn:
+            account = _load_account(
+                conn,
+                DailyReportRequest(
+                    as_of_date=request.before_date or "99991231",
+                    account_key=request.account_key,
+                    account_id=request.account_id,
+                    strategy_version=request.strategy_version,
+                ),
+            )
+            items = _load_review_history(conn, request, account.account_id)
+
+        return ServiceResult(
+            status="success",
+            request_id=context.request_id,
+            data=DailyReviewHistory(
+                strategy_version=request.strategy_version,
+                account=account,
+                items=items,
+                limit=request.limit,
+                before_date=request.before_date,
+            ),
+            lineage={
+                "strategy_version": request.strategy_version,
+                "account_id": account.account_id,
+            },
+        )
+
 
 def render_daily_report_json(report: DailyReport) -> str:
     return json.dumps(asdict(report), ensure_ascii=False, indent=2, sort_keys=True) + "\n"
@@ -414,6 +496,21 @@ def _validate_request(request: DailyReportRequest) -> list[ServiceError]:
         errors.append(ServiceError(code="VALIDATION_ERROR", message="account_key or account_id is required."))
     if request.account_id is not None and request.account_id <= 0:
         errors.append(ServiceError(code="VALIDATION_ERROR", message="account_id must be positive."))
+    return errors
+
+
+def _validate_history_request(request: DailyReviewHistoryRequest) -> list[ServiceError]:
+    errors: list[ServiceError] = []
+    if not request.strategy_version.strip():
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="strategy_version is required."))
+    if request.account_id is None and not request.account_key:
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="account_key or account_id is required."))
+    if request.account_id is not None and request.account_id <= 0:
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="account_id must be positive."))
+    if request.before_date is not None and not is_yyyymmdd(request.before_date):
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="before_date must use YYYYMMDD format."))
+    if request.limit < 1 or request.limit > 100:
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="limit must be between 1 and 100."))
     return errors
 
 
@@ -581,6 +678,127 @@ def _load_ranked_signals(conn: Any, strategy_run_id: int) -> list[SignalReport]:
             name=row["name"],
             score=float(row["score"]),
             signal_rank=_optional_int(row["signal_rank"]),
+        )
+        for row in rows
+    ]
+
+
+def _load_review_history(
+    conn: Any,
+    request: DailyReviewHistoryRequest,
+    account_id: int | None,
+) -> list[DailyReviewHistoryItem]:
+    rows = conn.execute(
+        """
+        WITH latest_runs AS (
+          SELECT MAX(id) AS strategy_run_id
+          FROM strategy_runs
+          WHERE strategy_version = ?
+            AND (? IS NULL OR as_of_date <= ?)
+          GROUP BY as_of_date
+          ORDER BY as_of_date DESC, MAX(id) DESC
+          LIMIT ?
+        )
+        SELECT
+          sr.id AS strategy_run_id,
+          sr.as_of_date AS review_date,
+          sr.status AS review_status,
+          sr.created_at,
+          dp.id AS daily_pick_id,
+          dp.planned_buy_date,
+          dp.score,
+          dp.selection_reason,
+          ss.id AS signal_id,
+          ss.ts_code,
+          ss.name,
+          tp.id AS trade_plan_id,
+          tp.action AS trade_plan_action,
+          tp.status AS trade_plan_status,
+          tp.planned_trade_date,
+          ar.status AS agent_status,
+          ad.action AS agent_action,
+          ad.risk_level AS agent_risk_level,
+          (
+            SELECT COUNT(*)
+            FROM strategy_signals ss_count
+            WHERE ss_count.strategy_run_id = sr.id
+          ) AS signals_count,
+          (
+            SELECT COUNT(*)
+            FROM data_quality_events dqe
+            WHERE dqe.trade_date = sr.as_of_date
+              AND dqe.status = 'open'
+              AND dqe.severity = 'blocker'
+          ) AS blocker_count,
+          (
+            SELECT COUNT(*)
+            FROM data_quality_events dqe
+            WHERE dqe.trade_date = sr.as_of_date
+              AND dqe.status = 'open'
+              AND dqe.severity = 'warning'
+          ) AS warning_count,
+          (
+            SELECT cal_date
+            FROM trade_calendar tc
+            WHERE tc.is_open = 1
+              AND tc.cal_date > sr.as_of_date
+            ORDER BY tc.cal_date
+            LIMIT 1
+          ) AS next_trade_date
+        FROM latest_runs lr
+        JOIN strategy_runs sr ON sr.id = lr.strategy_run_id
+        LEFT JOIN daily_picks dp
+          ON dp.strategy_run_id = sr.id
+         AND dp.review_date = sr.as_of_date
+        LEFT JOIN strategy_signals ss ON ss.id = dp.signal_id
+        LEFT JOIN trade_plans tp
+          ON tp.id = (
+            SELECT MAX(tp2.id)
+            FROM trade_plans tp2
+            WHERE tp2.daily_pick_id = dp.id
+              AND tp2.account_id = ?
+          )
+        LEFT JOIN agent_runs ar
+          ON ar.id = (
+            SELECT MAX(ar2.id)
+            FROM agent_runs ar2
+            WHERE ar2.daily_pick_id = dp.id
+          )
+        LEFT JOIN agent_decisions ad ON ad.agent_run_id = ar.id
+        ORDER BY sr.as_of_date DESC, sr.id DESC
+        """,
+        (
+            request.strategy_version,
+            request.before_date,
+            request.before_date,
+            request.limit,
+            account_id,
+        ),
+    ).fetchall()
+    return [
+        DailyReviewHistoryItem(
+            review_date=row["review_date"],
+            next_trade_date=row["next_trade_date"],
+            strategy_run_id=int(row["strategy_run_id"]),
+            review_status=row["review_status"],
+            signals_count=int(row["signals_count"]),
+            daily_pick_id=_optional_int(row["daily_pick_id"]),
+            signal_id=_optional_int(row["signal_id"]),
+            ts_code=row["ts_code"],
+            name=row["name"],
+            score=_optional_float(row["score"]),
+            planned_buy_date=row["planned_buy_date"],
+            selection_reason=row["selection_reason"],
+            trade_plan_id=_optional_int(row["trade_plan_id"]),
+            trade_plan_action=row["trade_plan_action"],
+            trade_plan_status=row["trade_plan_status"],
+            planned_trade_date=row["planned_trade_date"],
+            agent_status=row["agent_status"],
+            agent_action=row["agent_action"],
+            agent_risk_level=row["agent_risk_level"],
+            blocker_count=int(row["blocker_count"]),
+            warning_count=int(row["warning_count"]),
+            created_at=row["created_at"],
         )
         for row in rows
     ]

@@ -58,6 +58,7 @@ class ApiAppTest(unittest.TestCase):
         schema = app.openapi()
 
         self.assertIn("/api/health", schema["paths"])
+        self.assertIn("/api/daily-reviews", schema["paths"])
         self.assertIn("/api/daily-reviews/{as_of_date}", schema["paths"])
 
     def test_service_result_envelope_preserves_contract_shape(self) -> None:

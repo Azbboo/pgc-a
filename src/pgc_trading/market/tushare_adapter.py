@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from typing import Protocol, Sequence, runtime_checkable
+from typing import Any, Mapping, Protocol, Sequence, runtime_checkable
 
 
 @dataclass(frozen=True)
@@ -62,6 +62,7 @@ class MarketDataPayload:
     bars: Sequence[MarketBar] = field(default_factory=tuple)
     daily_basic: Sequence[DailyBasicSnapshot] = field(default_factory=tuple)
     missing_ts_codes: Sequence[str] = field(default_factory=tuple)
+    metadata: Mapping[str, Any] = field(default_factory=dict)
 
 
 @runtime_checkable

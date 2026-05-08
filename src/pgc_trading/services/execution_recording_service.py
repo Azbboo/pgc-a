@@ -65,6 +65,7 @@ class RecordTradeResult:
     cash_after: float | None
     planned_t2_date: str | None = None
     planned_t5_date: str | None = None
+    slippage: float | None = None
 
 
 class ExecutionRecordingService:
@@ -141,7 +142,15 @@ def _record_trade_in_tx(
     *,
     write: bool,
 ) -> ServiceResult[RecordTradeResult]:
-    account = _resolve_account(conn, request.account_key, request.account_id)
+    account = _resolve_account(
+        conn,
+        request.account_key,
+        request.account_id,
+        allow_live_dry_run=ctx.dry_run,
+        allow_live_writes=ctx.allow_live_writes,
+        live_block_code="LIVE_EXECUTION_DISABLED",
+        live_block_message="Live trade recording requires explicit live write enablement.",
+    )
     if isinstance(account, ServiceError):
         return _validation_failed(ctx, [account])
     if not trade_source_allowed_for_account(account.account_type, request.source):
@@ -212,7 +221,15 @@ def _record_position_sell_in_tx(
     *,
     write: bool,
 ) -> ServiceResult[RecordTradeResult]:
-    account = _resolve_account(conn, request.account_key, request.account_id)
+    account = _resolve_account(
+        conn,
+        request.account_key,
+        request.account_id,
+        allow_live_dry_run=ctx.dry_run,
+        allow_live_writes=ctx.allow_live_writes,
+        live_block_code="LIVE_EXECUTION_DISABLED",
+        live_block_message="Live trade recording requires explicit live write enablement.",
+    )
     if isinstance(account, ServiceError):
         return _validation_failed(ctx, [account])
     if not trade_source_allowed_for_account(account.account_type, request.source):
@@ -247,6 +264,7 @@ def _record_position_sell_in_tx(
     amount = request.executed_price * request.shares
     cash_before = _latest_cash(conn, account)
     cash_after = cash_before + amount - request.fee - request.tax
+    slippage = request.slippage
 
     trade_id = None
     equity_snapshot_id = None
@@ -274,6 +292,7 @@ def _record_position_sell_in_tx(
             equity_snapshot_id=equity_snapshot_id,
             position_status="closed",
             cash_after=cash_after,
+            slippage=slippage,
         ),
         created_ids=_created_ids(trade_id, int(position["id"]), equity_snapshot_id),
         lineage={
@@ -329,8 +348,10 @@ def _record_buy_trade(
     trade_id = None
     position_id = None
     equity_snapshot_id = None
+    slippage = _effective_slippage(request, plan)
+
     if write:
-        trade_id = _insert_trade(conn, request, plan, account.id, signal, amount)
+        trade_id = _insert_trade(conn, request, plan, account.id, signal, amount, slippage)
         position_id = _insert_position(
             conn,
             account_id=account.id,
@@ -359,6 +380,7 @@ def _record_buy_trade(
             cash_after=cash_after,
             planned_t2_date=planned_t2_date,
             planned_t5_date=planned_t5_date,
+            slippage=slippage,
         ),
         created_ids=_created_ids(trade_id, position_id, equity_snapshot_id),
         lineage={
@@ -397,6 +419,7 @@ def _record_sell_trade(
     amount = request.executed_price * request.shares
     cash_before = _latest_cash(conn, account)
     cash_after = cash_before + amount - request.fee - request.tax
+    slippage = _effective_slippage(request, plan)
 
     trade_id = None
     equity_snapshot_id = None
@@ -406,7 +429,7 @@ def _record_sell_trade(
             "ts_code": position["ts_code"],
             "name": position["name"],
         }
-        trade_id = _insert_trade(conn, request, plan, account.id, signal, amount)
+        trade_id = _insert_trade(conn, request, plan, account.id, signal, amount, slippage)
         conn.execute(
             """
             UPDATE positions
@@ -430,6 +453,7 @@ def _record_sell_trade(
             equity_snapshot_id=equity_snapshot_id,
             position_status="closed",
             cash_after=cash_after,
+            slippage=slippage,
         ),
         created_ids=_created_ids(trade_id, int(position["id"]), equity_snapshot_id),
         lineage={
@@ -574,6 +598,7 @@ def _insert_trade(
     account_id: int,
     signal: sqlite3.Row | dict[str, Any],
     amount: float,
+    slippage: float | None,
 ) -> int:
     cursor = conn.execute(
         """
@@ -615,11 +640,51 @@ def _insert_trade(
             request.shares,
             request.fee,
             request.tax,
-            request.slippage,
+            slippage,
             request.source,
         ),
     )
     return int(cursor.lastrowid)
+
+
+def _effective_slippage(request: RecordTradeRequest, plan: sqlite3.Row) -> float | None:
+    if request.slippage is not None:
+        return request.slippage
+    reference_price = _plan_price_reference(plan)
+    if reference_price is None or reference_price <= 0:
+        return None
+    return (request.executed_price - reference_price) / reference_price
+
+
+def _plan_price_reference(plan: sqlite3.Row) -> float | None:
+    payload = _loads_json_object(plan["plan_json"])
+    for key in ("price_reference", "planned_price"):
+        value = _optional_float(payload.get(key))
+        if value is not None:
+            return value
+    planned_cash = _optional_float(payload.get("planned_cash"))
+    planned_shares = _optional_int(payload.get("planned_shares") or payload.get("shares"))
+    if planned_cash is not None and planned_shares is not None and planned_shares > 0:
+        return planned_cash / planned_shares
+    return None
+
+
+def _optional_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _optional_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _insert_position_sell_trade(
@@ -1111,6 +1176,7 @@ def _write_record_trade_event(
                     "position_id": result.data.position_id,
                     "position_status": result.data.position_status,
                     "equity_snapshot_id": result.data.equity_snapshot_id,
+                    "slippage": result.data.slippage,
                 }
             ),
             _domain_event_source(ctx.source),

@@ -99,6 +99,7 @@ PGC_TEST_REDIS_PASSWORD=<local-only-secret-or-empty>
 | DEV13 M10 Paper Readiness | done | DEV12 | readiness service/CLI/tests | paper acceptance gate |
 | DEV14 M10 Live Dry Run | done | DEV13 | planning/workflow/tests | live-main dry-run only |
 | DEV15 M10 Runbook Final Gate | done | DEV14 | runbook/contracts/docs/verification | repeatable M10 operations |
+| DEV16 M11 Real Execution Loop | done | DEV15 | live write guards/services/API/CLI/tests/docs | explicit live ledger execution loop |
 
 ## 5. Work Packages
 
@@ -563,6 +564,20 @@ pgc exits-evaluate --date 2026-05-07 --db-path /private/tmp/pgc_cli.db
 - Accepted: `live-main` daily-close rehearsals are dry-run only; non-dry live planning remains blocked.
 - Accepted: runbook, API/CLI contracts, Dashboard brief, and this supervision board now document `paper-main`, `live-main`, `daily-close`, `paper-readiness`, and live dry-run boundaries.
 - Quality gate during M10 final review: `unittest discover` passed with 168 tests and 3 skips; `pytest -q` passed with 165 tests, 3 skips, and 8 subtests; `compileall` passed; `git diff --check` passed; broad secret scan returned only policy text, environment variable names, placeholder markers, dummy test values, and runtime argument names, with no real secret values.
+
+### DEV16: M11 Real Execution Loop
+
+**Priority:** P0
+
+**Goal:** Enable the real execution ledger loop after paper readiness without introducing automatic broker ordering.
+
+**M11 completion review (2026-05-08):**
+
+- Accepted: live non-dry writes still fail by default; explicit `allow_live_writes` / `--allow-live-writes` is required for live plan, trade, and exit writes.
+- Accepted: live trades can only use `manual` or `broker_import`; model-like sources remain blocked by service rules and invariant checks.
+- Accepted: live-main can complete plan -> buy trade -> position -> exit decision/sell plan -> sell trade -> closed position on a migrated temp DB.
+- Accepted: trade slippage is derived from the plan reference price when the request does not provide one.
+- Accepted: README, runbook, and API/CLI contracts document M11 as ledger recording only, not automatic ordering.
 
 ## 6. Handoff Template For New Development Sessions
 

@@ -50,6 +50,14 @@ node scripts/analyze_pgc_raw_events.mjs
 TUSHARE_TOKEN='你的token' python3 scripts/fetch_tushare_market_data.py --end-date 20260430
 ```
 
+M14B 增加了实验性的 yfinance 行情 provider。它是可选依赖，只在显式安装并传入 `provider="yfinance"` 时用于历史日线 OHLCV，结果写入隔离的 `market_diagnostic_bars`，不覆盖生产 `market_bars`。它不提供 `daily_basic`、成交额等价字段或交易日历，也不能替代 Tushare 的生产复盘路径：
+
+```bash
+python3 -m pip install -e '.[yfinance]'
+```
+
+Yahoo Finance / yfinance 是非官方数据来源，适合研究对账和诊断；生产复盘、T+2/T+5 推导和 readiness gate 仍应使用 Tushare 数据与 `trade_calendar`。
+
 运行事件回测：
 
 ```bash
@@ -119,6 +127,17 @@ PYTHONPATH=src python3 -m pgc_trading.cli.main record-buy --plan-id 1 --date 202
 PYTHONPATH=src python3 -m pgc_trading.cli.main exits-evaluate --date 2026-05-12 --db-path data/pgc_trading.db --account paper-main --operator azboo
 PYTHONPATH=src python3 -m pgc_trading.cli.main paper-readiness --date 2026-05-12 --db-path data/pgc_trading.db --account paper-main --min-trades 10
 ```
+
+M11 真实成交闭环只放开显式授权的 live 账本写入，不会向券商下单。确认 paper readiness 和人工批准后，live-main 使用同一条“计划 -> 人工/券商成交录入 -> 持仓 -> 退出 -> 卖出成交录入”链路，并且每个 live 写命令都必须带 `--allow-live-writes`：
+
+```bash
+PYTHONPATH=src python3 -m pgc_trading.cli.main daily-close --date 2026-05-07 --db-path data/pgc_trading.db --account live-main --run-type live --apply --operator azboo --allow-live-writes
+PYTHONPATH=src python3 -m pgc_trading.cli.main record-buy --plan-id 1 --date 2026-05-08 --price 10.50 --shares 1200 --db-path data/pgc_trading.db --account live-main --source broker_import --operator azboo --allow-live-writes
+PYTHONPATH=src python3 -m pgc_trading.cli.main exits-evaluate --date 2026-05-12 --db-path data/pgc_trading.db --account live-main --operator azboo --allow-live-writes
+PYTHONPATH=src python3 -m pgc_trading.cli.main record-sell --position-id 1 --date 2026-05-12 --price 10.90 --shares 1200 --db-path data/pgc_trading.db --account live-main --source broker_import --operator azboo --allow-live-writes
+```
+
+API 非 dry-run 写操作仍需要 `PGC_API_ENABLE_WRITES=1`、`operator`、`idempotency_key`。live 写入还必须在请求体中传入 `"allow_live_writes": true`；未传时服务层会继续返回 live 写入禁用错误。
 
 `agent review` is advisory only. Without `--apply` it builds a dry-run preview and writes nothing. With `--apply` it writes only `input_snapshots`, `agent_runs`, `agent_artifacts`, and `agent_decisions`; it never creates trades, positions, or broker orders. The external TauricResearch/TradingAgents package is optional: if it is not installed, the run is recorded as `skipped` with `no_opinion` instead of breaking the paper workflow.
 

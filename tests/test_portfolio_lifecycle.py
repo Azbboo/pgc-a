@@ -20,6 +20,7 @@ from pgc_trading.services.position_lifecycle_service import (
     EvaluateExitsRequest,
     PositionLifecycleService,
 )
+from pgc_trading.storage.invariant_checks import check_database
 from pgc_trading.storage.migrate import run_migrations
 from pgc_trading.storage.seed import seed_reference_data
 
@@ -107,6 +108,104 @@ class PortfolioLifecycleServiceTest(unittest.TestCase):
                 self.assertEqual(self._count(conn, "trade_plans"), 0)
                 self.assertEqual(self._count(conn, "trades"), 0)
                 self.assertEqual(self._count(conn, "positions"), 0)
+
+    def test_live_real_execution_loop_requires_explicit_enablement(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._migrated_seeded_db(tmp)
+            with sqlite3.connect(db_path) as conn:
+                self._insert_calendar(conn)
+                self._insert_daily_pick(conn)
+
+            blocked = PortfolioPlanningService(db_path).generate_buy_plan(
+                GenerateBuyPlanRequest(account_key="live-main", review_date=AS_OF_DATE),
+                RequestContext(request_id="req-live-blocked", operator="tester"),
+            )
+            self.assertEqual(blocked.status, "validation_failed")
+            self.assertEqual(blocked.errors[0].code, "LIVE_PLAN_APPLY_DISABLED")
+
+            live_ctx = RequestContext(request_id="req-live-enabled", operator="tester", allow_live_writes=True)
+            buy_plan = PortfolioPlanningService(db_path).generate_buy_plan(
+                GenerateBuyPlanRequest(account_key="live-main", review_date=AS_OF_DATE),
+                live_ctx,
+            )
+            self.assertEqual(buy_plan.status, "success")
+            self.assertIsNotNone(buy_plan.data.trade_plan_id)
+
+            trade_without_enablement = ExecutionRecordingService(db_path).record_trade(
+                RecordTradeRequest(
+                    account_key="live-main",
+                    trade_plan_id=int(buy_plan.data.trade_plan_id),
+                    side="buy",
+                    executed_date=BUY_DATE,
+                    executed_price=10.1,
+                    shares=1000,
+                    source="broker_import",
+                ),
+                RequestContext(request_id="req-live-trade-blocked", operator="tester"),
+            )
+            self.assertEqual(trade_without_enablement.status, "validation_failed")
+            self.assertEqual(trade_without_enablement.errors[0].code, "LIVE_EXECUTION_DISABLED")
+
+            buy = ExecutionRecordingService(db_path).record_trade(
+                RecordTradeRequest(
+                    account_key="live-main",
+                    trade_plan_id=int(buy_plan.data.trade_plan_id),
+                    side="buy",
+                    executed_date=BUY_DATE,
+                    executed_price=10.1,
+                    shares=1000,
+                    source="broker_import",
+                ),
+                RequestContext(request_id="req-live-buy", operator="tester", allow_live_writes=True),
+            )
+            self.assertEqual(buy.status, "success")
+            self.assertIsNotNone(buy.data.position_id)
+            self.assertAlmostEqual(buy.data.slippage or 0.0, 0.01, places=6)
+
+            with sqlite3.connect(db_path) as conn:
+                self._insert_market_bar(conn, "000001.SZ", T2_DATE, close=10.6)
+
+            exits = PositionLifecycleService(db_path).evaluate_exits(
+                EvaluateExitsRequest(account_key="live-main", as_of_date=T2_DATE),
+                RequestContext(request_id="req-live-exit", operator="tester", allow_live_writes=True),
+            )
+            self.assertEqual(exits.status, "success")
+            self.assertEqual(len(exits.data.generated_trade_plan_ids), 1)
+
+            sell = ExecutionRecordingService(db_path).record_trade(
+                RecordTradeRequest(
+                    account_key="live-main",
+                    trade_plan_id=exits.data.generated_trade_plan_ids[0],
+                    side="sell",
+                    executed_date="20260508",
+                    executed_price=10.55,
+                    shares=1000,
+                    source="broker_import",
+                ),
+                RequestContext(request_id="req-live-sell", operator="tester", allow_live_writes=True),
+            )
+
+            self.assertEqual(sell.status, "success")
+            self.assertEqual(sell.data.position_id, buy.data.position_id)
+            self.assertEqual(sell.data.position_status, "closed")
+            with sqlite3.connect(db_path) as conn:
+                trades = conn.execute(
+                    """
+                    SELECT pa.account_key, t.side, t.source, t.status, ROUND(t.slippage, 6)
+                    FROM trades t
+                    JOIN portfolio_accounts pa ON pa.id = t.account_id
+                    ORDER BY t.id
+                    """
+                ).fetchall()
+                self.assertEqual(
+                    trades,
+                    [
+                        ("live-main", "buy", "broker_import", "executed", 0.01),
+                        ("live-main", "sell", "broker_import", "executed", None),
+                    ],
+                )
+                self.assertEqual(conn.execute("SELECT status FROM positions").fetchone()[0], "closed")
+            self.assertTrue(check_database(db_path).ok)
 
     def test_record_buy_trade_creates_position_with_trade_calendar_t2_t5(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
