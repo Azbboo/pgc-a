@@ -193,7 +193,7 @@
     "warning_count": 0
   },
   "due_positions": [],
-  "generated_at": "2026-05-08T14:52:20.648167+00:00",
+  "generated_at": "2026-05-08T16:58:46.994365+00:00",
   "latest_market_date": "20260508",
   "lineage": {
     "agent_decision_id": 6,
@@ -212,14 +212,14 @@
     {
       "action_due": "none",
       "buy_date": "20260508",
-      "buy_price": 13.9,
+      "buy_price": 13.92,
       "latest_close": 13.8,
       "latest_trade_date": "20260508",
       "name": "仁东控股",
       "planned_t2_date": "20260512",
       "planned_t5_date": "20260515",
       "position_id": 1,
-      "shares": 5000,
+      "shares": 4800,
       "status": "waiting_t2",
       "ts_code": "002647.SZ"
     }
