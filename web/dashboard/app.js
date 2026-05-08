@@ -1298,7 +1298,7 @@ function selectPosition(position, options = {}) {
     ["T+2", displayDate(position.planned_t2_date)],
     ["T+5", displayDate(position.planned_t5_date)],
     ["最新行情日", displayDate(position.latest_trade_date)],
-    ["最新价", numberText(position.latest_close, 2)],
+    ["最近收盘价", positionLatestCloseNote(position)],
     ["收益", percent(position.unrealized_ret)],
     ["状态", statusText(position.status)],
     ["到期阶段", dueText(position.due_stage)],
@@ -1332,11 +1332,14 @@ function fillRecordFromPosition(position) {
   els.recordSide.value = "sell";
   els.recordDate.value = dateInputValue(state.asOfDate);
   els.recordShares.value = position.shares || "";
-  els.recordPrice.value = inputNumber(position.latest_close);
+  els.recordPrice.value = positionPriceIsStale(position) ? "" : inputNumber(position.latest_close);
   els.recordFee.value = "0";
   els.recordTax.value = "0";
   els.recordSlippage.value = "";
-  els.recordPrefillHint.textContent = `已从持仓 ${position.position_id} 预填：成交日期 ${displayDate(state.asOfDate)}、股数 ${integerText(position.shares)}${position.latest_close != null ? `、最新价 ${inputNumber(position.latest_close)}` : ""}。卖出价请按实际成交核对。`;
+  const priceHint = position.latest_close != null
+    ? `、最近收盘价 ${inputNumber(position.latest_close)}（行情日 ${displayDate(position.latest_trade_date)}，不是实时现价）`
+    : "";
+  els.recordPrefillHint.textContent = `已从持仓 ${position.position_id} 预填：成交日期 ${displayDate(state.asOfDate)}、股数 ${integerText(position.shares)}${priceHint}。卖出价请按实际成交填写。`;
   els.recordModeChip.textContent = "按持仓卖出录入";
   els.recordModeChip.className = "chip chip-amber";
   setRecordFormState();
@@ -1595,6 +1598,19 @@ function findPlan(id) {
 
 function findPosition(id) {
   return state.positions.find((position) => Number(position.position_id) === Number(id));
+}
+
+function positionPriceIsStale(position) {
+  const marketDate = normalizeDate(position?.latest_trade_date);
+  const asOfDate = normalizeDate(state.asOfDate);
+  return Boolean(marketDate && asOfDate && marketDate < asOfDate);
+}
+
+function positionLatestCloseNote(position) {
+  if (position?.latest_close == null || position.latest_close === "") return "-";
+  const marketDate = displayDate(position.latest_trade_date);
+  const prefix = `${numberText(position.latest_close, 2)} / ${marketDate} 收盘`;
+  return positionPriceIsStale(position) ? `${prefix}，不是实时现价` : prefix;
 }
 
 function planFromReport(plan) {

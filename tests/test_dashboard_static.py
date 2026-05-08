@@ -196,6 +196,10 @@ class DashboardStaticTest(unittest.TestCase):
         self.assertIn("const due = duePositions();", script)
         self.assertIn("function isExitDuePosition", script)
         self.assertIn("const canRecord = !lockReason;", script)
+        self.assertIn("function positionPriceIsStale", script)
+        self.assertIn("最近收盘价", script)
+        self.assertIn("不是实时现价", script)
+        self.assertIn('els.recordPrice.value = positionPriceIsStale(position) ? "" : inputNumber(position.latest_close)', script)
         self.assertIn("function recordLockReasonForPlan", script)
         self.assertIn("function recordLockReasonForPlanAction", script)
 
