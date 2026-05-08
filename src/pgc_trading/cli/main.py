@@ -10,7 +10,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, TextIO
 
+from pgc_trading import __version__
 from pgc_trading.config import Paths
+from pgc_trading.ops import build_release_tag, run_ops_health_check, run_ops_migration_step
 from pgc_trading.reporting.daily_report import (
     DailyReportRequest,
     ReportingQueryService,
@@ -49,6 +51,7 @@ from pgc_trading.services.portfolio_planning_service import (
     PortfolioPlanningService,
 )
 from pgc_trading.strategies.cpb_6157 import STRATEGY_VERSION
+from pgc_trading.storage.migrators.backup import backup_database
 
 
 ReviewServiceFactory = Callable[[Path], DailyReviewService]
@@ -388,6 +391,67 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
     _add_lifecycle_context_arguments(external_data_import)
     _add_db_path_argument(external_data_import)
     external_data_import.set_defaults(handler=_run_agent_external_data_import)
+
+    ops = subparsers.add_parser(
+        "ops",
+        help="run repeatable deployment and maintenance steps",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    ops_subparsers = ops.add_subparsers(dest="ops_command", metavar="ops-command")
+
+    ops_version = ops_subparsers.add_parser(
+        "version",
+        help="print the package version and standard release tag",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    ops_version.add_argument("--date", type=_parse_report_date, help="release date in ISO or YYYYMMDD format")
+    ops_version.add_argument("--git-sha", help="optional git commit sha to include in the release tag")
+    ops_version.set_defaults(handler=_run_ops_version)
+
+    ops_backup = ops_subparsers.add_parser(
+        "backup",
+        help="create a timestamped SQLite backup",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    _add_db_path_argument(ops_backup)
+    ops_backup.add_argument("--backup-dir", type=Path, help="backup destination directory")
+    ops_backup.add_argument("--label", default="manual_ops_backup", help="label included in the backup filename")
+    ops_backup.set_defaults(handler=_run_ops_backup)
+
+    ops_migrate = ops_subparsers.add_parser(
+        "migrate",
+        help="run storage migrations with an optional pre-migration backup",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    _add_db_path_argument(ops_migrate)
+    ops_migrate.add_argument("--dry-run", action="store_true", help="show pending migrations without writing")
+    ops_migrate.add_argument("--backup", action="store_true", help="backup the existing database before migrating")
+    ops_migrate.add_argument("--backup-dir", type=Path, help="backup destination directory")
+    ops_migrate.add_argument(
+        "--backup-label",
+        default="before_ops_migrate",
+        help="label included in the pre-migration backup filename",
+    )
+    ops_migrate.set_defaults(handler=_run_ops_migrate)
+
+    ops_health = ops_subparsers.add_parser(
+        "health",
+        help="check database migration state and optional API health",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    _add_db_path_argument(ops_health)
+    ops_health.add_argument("--health-url", help="optional API health URL to verify")
+    ops_health.add_argument(
+        "--require-current-migrations",
+        action="store_true",
+        help="return non-zero when storage migrations are pending",
+    )
+    ops_health.set_defaults(handler=_run_ops_health)
 
     return parser
 
@@ -850,6 +914,83 @@ def _run_report(args: argparse.Namespace, stdout: TextIO, services: CommandServi
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(rendered, encoding="utf-8")
     stdout.write(f"report written for {report_date}: {output_path}\n")
+    return 0
+
+
+def _run_ops_version(args: argparse.Namespace, stdout: TextIO, services: CommandServices) -> int:
+    tag = build_release_tag(date=args.date, git_sha=args.git_sha)
+    stdout.write("ops version command routed.\n")
+    stdout.write(f"package_version={__version__}\n")
+    stdout.write(f"api_version={__version__}\n")
+    stdout.write(f"release_tag={tag}\n")
+    return 0
+
+
+def _run_ops_backup(args: argparse.Namespace, stdout: TextIO, services: CommandServices) -> int:
+    db_path = _normalized_db_path(args.db_path)
+    backup_dir = _normalized_db_path(args.backup_dir) if args.backup_dir is not None else None
+    try:
+        backup_path = backup_database(db_path, backup_dir=backup_dir, label=args.label)
+    except (FileNotFoundError, ValueError, FileExistsError) as exc:
+        stdout.write(f"ops backup failed: {exc}\n")
+        return 1
+
+    stdout.write(f"ops backup command routed using database {db_path}.\n")
+    stdout.write(f"backup_path={backup_path}\n")
+    return 0
+
+
+def _run_ops_migrate(args: argparse.Namespace, stdout: TextIO, services: CommandServices) -> int:
+    db_path = _normalized_db_path(args.db_path)
+    backup_dir = _normalized_db_path(args.backup_dir) if args.backup_dir is not None else None
+    try:
+        result = run_ops_migration_step(
+            db_path,
+            dry_run=args.dry_run,
+            backup=args.backup,
+            backup_dir=backup_dir,
+            backup_label=args.backup_label,
+        )
+    except Exception as exc:
+        stdout.write(f"ops migrate failed: {exc}\n")
+        return 1
+
+    stdout.write(f"ops migrate command routed using database {result.db_path}.\n")
+    stdout.write(f"dry_run={str(result.dry_run).lower()}\n")
+    stdout.write(f"backup_path={result.backup_path if result.backup_path is not None else 'none'}\n")
+    stdout.write(f"applied={_display_list(result.applied)}\n")
+    stdout.write(f"skipped={_display_list(result.skipped)}\n")
+    stdout.write(f"changed={str(result.changed).lower()}\n")
+    return 0
+
+
+def _run_ops_health(args: argparse.Namespace, stdout: TextIO, services: CommandServices) -> int:
+    db_path = _normalized_db_path(args.db_path)
+    result = run_ops_health_check(db_path, health_url=args.health_url)
+
+    stdout.write(f"ops health command routed using database {result.db_path}.\n")
+    stdout.write(f"status={result.status}\n")
+    stdout.write(f"database_exists={str(result.database_exists).lower()}\n")
+    stdout.write(f"latest_migration={result.latest_migration or 'none'}\n")
+    stdout.write(f"pending_migrations={_display_list(result.pending_migrations)}\n")
+    stdout.write(f"package_version={result.package_version}\n")
+    stdout.write(f"api_version={result.api_version}\n")
+    if result.database_error is not None:
+        stdout.write(f"database_error={result.database_error}\n")
+    if result.api_health is not None:
+        stdout.write(f"api_health_ok={str(result.api_health.ok).lower()}\n")
+        stdout.write(f"api_health_url={result.api_health.url}\n")
+        if result.api_health.status_code is not None:
+            stdout.write(f"api_health_status_code={result.api_health.status_code}\n")
+        if result.api_health.error is not None:
+            stdout.write(f"api_health_error={result.api_health.error}\n")
+
+    if not result.database_exists or result.database_error is not None:
+        return 1
+    if result.api_health is not None and not result.api_health.ok:
+        return 1
+    if args.require_current_migrations and result.pending_migrations:
+        return 1
     return 0
 
 
@@ -1367,6 +1508,10 @@ def _display_optional_int(value: int | None) -> str:
 
 def _display_optional_float(value: float | None) -> str:
     return "n/a" if value is None else f"{value:.2f}"
+
+
+def _display_list(values: list[str]) -> str:
+    return ",".join(values) if values else "none"
 
 
 def _display_data(data: object) -> object:

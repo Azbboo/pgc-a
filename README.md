@@ -139,6 +139,18 @@ PYTHONPATH=src python3 -m pgc_trading.cli.main record-sell --position-id 1 --dat
 
 API 非 dry-run 写操作仍需要 `PGC_API_ENABLE_WRITES=1`、`operator`、`idempotency_key`。live 写入还必须在请求体中传入 `"allow_live_writes": true`；未传时服务层会继续返回 live 写入禁用错误。
 
+M20 部署运维标准化入口：
+
+```bash
+PYTHONPATH=src python3 -m pgc_trading.cli.main ops version --date 2026-05-08 --git-sha "$(git rev-parse --short=12 HEAD)"
+PYTHONPATH=src python3 -m pgc_trading.cli.main ops migrate --dry-run --db-path data/pgc_trading.db
+PYTHONPATH=src python3 -m pgc_trading.cli.main ops migrate --db-path data/pgc_trading.db --backup --backup-label before_m20_migrate
+PYTHONPATH=src python3 -m pgc_trading.cli.main ops health --db-path data/pgc_trading.db --require-current-migrations
+scripts/deploy_remote.sh --dry-run --release-tag pgc-v0.1.0-20260508-gabc1234
+```
+
+远端真实部署固定走 `scripts/deploy_remote.sh --release-tag TAG`：脚本会按版本标记、clean worktree 检查、本地测试、远端备份、artifact 上传、远端迁移、`/opt/pgc/app` release symlink、systemd drop-in、服务重启和 `/api/health` 门禁的顺序执行。drop-in 会显式设置 `WorkingDirectory=/opt/pgc/app`、`PYTHONPATH=/opt/pgc/app/src` 和 `PGC_DB_PATH=/opt/pgc/data/pgc_trading.db`。每次非 dry-run 部署输出的 `backup_path` 必须进入当日运行记录，`/opt/pgc/.deployed-revision` 与 `/opt/pgc/.deployed-release` 必须同步更新。
+
 `agent review` is advisory only. Without `--apply` it builds a dry-run preview and writes nothing. With `--apply` it writes only `input_snapshots`, `agent_runs`, `agent_artifacts`, and `agent_decisions`; it never creates trades, positions, or broker orders. The external TauricResearch/TradingAgents package is optional: if it is not installed, the run is recorded as `skipped` with `no_opinion` instead of breaking the paper workflow.
 
 M14C adds cached external-data enrichment for Agent snapshots. `local_snapshot_mode` can include rows from `agent_external_items` and diagnostic provider rows from `market_diagnostic_bars`, but only when their dates are on or before the review date. These rows are stored as input snapshot context and `source_refs`; they remain advisory and do not update strategy signals, trade plans, trades, positions, or production readiness gates.

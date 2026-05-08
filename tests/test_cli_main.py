@@ -255,6 +255,7 @@ class CliMainTest(unittest.TestCase):
             "exits-evaluate",
             "paper-readiness",
             "agent",
+            "ops",
         ]:
             self.assertIn(command, output)
 
@@ -811,6 +812,82 @@ class CliMainTest(unittest.TestCase):
             self.assertFalse(db_path.exists())
             self.assertIn("database not found", stdout.getvalue())
             self.assertIn("external_items.json", stdout.getvalue())
+
+    def test_ops_version_prints_standard_release_tag(self) -> None:
+        stdout = io.StringIO()
+        code = main(
+            ["ops", "version", "--date", "2026-05-08", "--git-sha", "abcdef123456"],
+            stdout=stdout,
+        )
+
+        self.assertEqual(code, 0)
+        output = stdout.getvalue()
+        self.assertIn("package_version=0.1.0", output)
+        self.assertIn("api_version=0.1.0", output)
+        self.assertIn("release_tag=pgc-v0.1.0-20260508-gabcdef1", output)
+
+    def test_ops_backup_creates_timestamped_backup(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc.db"
+            backup_dir = Path(tmp) / "backups"
+            db_path.write_text("payload", encoding="utf-8")
+            stdout = io.StringIO()
+            code = main(
+                [
+                    "ops",
+                    "backup",
+                    "--db-path",
+                    str(db_path),
+                    "--backup-dir",
+                    str(backup_dir),
+                    "--label",
+                    "unit_ops",
+                ],
+                stdout=stdout,
+            )
+
+            self.assertEqual(code, 0)
+            backups = list(backup_dir.glob("*.db"))
+            self.assertEqual(len(backups), 1)
+            self.assertIn("unit_ops", backups[0].name)
+            self.assertIn("backup_path=", stdout.getvalue())
+
+    def test_ops_migrate_dry_run_does_not_create_database(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc.db"
+            stdout = io.StringIO()
+            code = main(
+                ["ops", "migrate", "--dry-run", "--backup", "--db-path", str(db_path)],
+                stdout=stdout,
+            )
+
+            self.assertEqual(code, 0)
+            self.assertFalse(db_path.exists())
+            output = stdout.getvalue()
+            self.assertIn("dry_run=true", output)
+            self.assertIn("backup_path=none", output)
+            self.assertIn("changed=true", output)
+
+    def test_ops_health_requires_current_migrations(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "missing.db"
+            stdout = io.StringIO()
+            code = main(
+                [
+                    "ops",
+                    "health",
+                    "--db-path",
+                    str(db_path),
+                    "--require-current-migrations",
+                ],
+                stdout=stdout,
+            )
+
+            self.assertEqual(code, 1)
+            self.assertFalse(db_path.exists())
+            output = stdout.getvalue()
+            self.assertIn("status=missing_database", output)
+            self.assertIn("database_exists=false", output)
 
     def test_report_command_routes_as_noop(self) -> None:
         stdout = io.StringIO()

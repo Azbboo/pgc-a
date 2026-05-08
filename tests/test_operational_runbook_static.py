@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 RUNBOOK = ROOT / "reports" / "operational_runbook_design.md"
 BACKUP_SCRIPT = ROOT / "scripts" / "backup_remote_pgc_db.sh"
 RESTORE_SCRIPT = ROOT / "scripts" / "restore_remote_pgc_db.sh"
+DEPLOY_SCRIPT = ROOT / "scripts" / "deploy_remote.sh"
 
 
 class OperationalRunbookStaticTest(unittest.TestCase):
@@ -58,6 +59,54 @@ class OperationalRunbookStaticTest(unittest.TestCase):
             self.skipTest("bash is not installed")
         for script in [BACKUP_SCRIPT, RESTORE_SCRIPT]:
             subprocess.run([bash, "-n", str(script)], check=True)
+
+    def test_m20_runbook_documents_standard_ops_release_flow(self) -> None:
+        source = RUNBOOK.read_text(encoding="utf-8")
+
+        for text in [
+            "M20 部署运维标准化",
+            "pgc ops version",
+            "pgc ops migrate --dry-run",
+            "pgc ops health",
+            "--require-current-migrations",
+            "scripts/deploy_remote.sh --dry-run",
+            "release_tag",
+            "backup_path",
+            "systemctl restart pgc-api.service",
+            "/api/health",
+        ]:
+            self.assertIn(text, source)
+
+    def test_m20_deploy_script_is_guarded_and_parseable(self) -> None:
+        self.assertTrue(DEPLOY_SCRIPT.exists(), f"missing {DEPLOY_SCRIPT}")
+        source = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+
+        for text in [
+            "--dry-run",
+            "PGC_RELEASE_TAG",
+            "unittest discover -s tests",
+            "scripts/backup_remote_pgc_db.sh",
+            "git archive --format=tar.gz",
+            "python3 -m pgc_trading.storage.migrate",
+            "PGC_DB_PATH",
+            "systemctl daemon-reload",
+            'systemctl restart "$service"',
+            'curl -fsS "$health_url"',
+            "/opt/pgc/.deployed-revision",
+            "/opt/pgc/.deployed-release",
+            "root@150.158.121.150",
+            "/opt/pgc/data/pgc_trading.db",
+            "/opt/pgc/releases",
+        ]:
+            self.assertIn(text, source)
+
+        self.assertNotIn("rm -rf", source)
+        self.assertNotIn("rm -f", source)
+
+        bash = shutil.which("bash")
+        if bash is None:
+            self.skipTest("bash is not installed")
+        subprocess.run([bash, "-n", str(DEPLOY_SCRIPT)], check=True)
 
 
 if __name__ == "__main__":

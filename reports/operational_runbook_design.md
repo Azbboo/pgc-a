@@ -979,7 +979,141 @@ curl -fsS http://150.158.121.150:8020/api/health
 
 恢复完成后必须重新执行服务状态、迁移状态、`writes_enabled=true`、账户持仓和最近交易查询。恢复不会替代审计记录；回滚原因、使用的 `BACKUP_PATH`、恢复时间和验证结果都要写入当日运行记录。
 
-## 18. 停机与暂停规则
+## 18. M20 部署运维标准化
+
+M20 的目标是把部署、迁移、备份、健康检查和版本标记固定成同一条可重复流程。任何线上变更都不再靠临时命令记忆，而是走 `pgc ops ...` 和 `scripts/deploy_remote.sh`。
+
+### 标准版本标记
+
+版本标记格式：
+
+```text
+pgc-v<package_version>-YYYYMMDD[-g<short_sha>]
+```
+
+生成当前 release tag：
+
+```bash
+PYTHONPATH=src python3 -m pgc_trading.cli.main ops version --date 2026-05-08 --git-sha "$(git rev-parse --short=12 HEAD)"
+```
+
+预期输出必须包含：
+
+- `package_version`
+- `api_version`
+- `release_tag`
+
+如需把 tag 写入 Git，必须显式使用部署脚本的 `--create-git-tag`，不得手工创造不同命名规则。
+
+### 本地迁移与备份入口
+
+迁移前先查看 pending migrations，dry-run 不得创建数据库：
+
+```bash
+PYTHONPATH=src python3 -m pgc_trading.cli.main ops migrate --dry-run --db-path data/pgc_trading.db
+```
+
+对已有数据库执行非 dry-run 迁移时，必须先创建 timestamped backup：
+
+```bash
+PYTHONPATH=src python3 -m pgc_trading.cli.main ops migrate \
+  --db-path data/pgc_trading.db \
+  --backup \
+  --backup-label before_m20_migrate
+```
+
+只做手动备份时：
+
+```bash
+PYTHONPATH=src python3 -m pgc_trading.cli.main ops backup \
+  --db-path data/pgc_trading.db \
+  --label before_manual_write
+```
+
+输出中的 `backup_path` 必须进入当日运行记录。
+
+### 健康检查入口
+
+本地数据库和迁移状态检查：
+
+```bash
+PYTHONPATH=src python3 -m pgc_trading.cli.main ops health \
+  --db-path data/pgc_trading.db \
+  --require-current-migrations
+```
+
+远端 API 同步检查：
+
+```bash
+PYTHONPATH=src python3 -m pgc_trading.cli.main ops health \
+  --db-path data/pgc_trading.db \
+  --health-url http://127.0.0.1:8020/api/health \
+  --require-current-migrations
+```
+
+发布门禁要求：
+
+- `status=ok`；
+- `database_exists=true`；
+- `pending_migrations=none`；
+- 如果传了 `--health-url`，必须 `api_health_ok=true`；
+- API payload 仍必须暴露 `api_version`、`writes_enabled`、`database_configured`，且不泄露数据库路径。
+
+### 远端部署脚本
+
+部署前必须先 dry-run：
+
+```bash
+scripts/deploy_remote.sh --dry-run --release-tag pgc-v0.1.0-20260508-gabc1234
+```
+
+真实部署执行固定序列：
+
+1. 生成或校验 `release_tag`；
+2. 检查 worktree 是否干净；如需部署未提交内容，必须显式 `--allow-dirty` 并在运行记录写明原因；
+3. 运行本地测试，除非显式 `--skip-tests`；
+4. 调用 `scripts/backup_remote_pgc_db.sh` 创建远端 `/opt/pgc/backups/pgc_trading-YYYYMMDD-HHMMSS.db`；
+5. 用 `git archive` 生成 release artifact；
+6. 上传到 `/opt/pgc/releases/<release_tag>.tar.gz`；
+7. 在远端 release 目录执行 `python3 -m pgc_trading.storage.migrate --db-path /opt/pgc/data/pgc_trading.db`；
+8. 更新 `/opt/pgc/app` symlink；
+9. 写入 systemd drop-in，显式设置 `WorkingDirectory=/opt/pgc/app`、`PYTHONPATH=/opt/pgc/app/src`、`PGC_DB_PATH=/opt/pgc/data/pgc_trading.db`；
+10. `systemctl daemon-reload`；
+11. `systemctl restart pgc-api.service`；
+12. 重试 `/api/health`，通过后更新 `/opt/pgc/.deployed-revision` 与 `/opt/pgc/.deployed-release`，并输出 `release_tag`、`backup_path`、`artifact_path`。
+
+命令：
+
+```bash
+scripts/deploy_remote.sh --release-tag pgc-v0.1.0-20260508-gabc1234
+```
+
+如需要在部署时创建 Git tag：
+
+```bash
+scripts/deploy_remote.sh --release-tag pgc-v0.1.0-20260508-gabc1234 --create-git-tag
+```
+
+部署失败处理：
+
+- 如果失败发生在远端迁移或服务重启前，保留 artifact 和 backup，先诊断，不立即恢复；
+- 如果失败发生在迁移后且 `/api/health` 不能恢复，使用本次输出的 `backup_path` 走 M15A 恢复序列；
+- 不允许手工覆盖 `/opt/pgc/data/pgc_trading.db`；
+- 不允许跳过备份直接迁移线上库。
+
+### M20 验收标准
+
+M20 通过条件：
+
+1. `pgc ops version` 能稳定输出 release tag。
+2. `pgc ops migrate --dry-run` 不创建数据库。
+3. `pgc ops migrate --backup` 对已有库先备份再迁移。
+4. `pgc ops health --require-current-migrations` 能阻断缺库、坏库和 pending migrations。
+5. `scripts/deploy_remote.sh --dry-run` 能列出版本、备份、上传、远端迁移、重启和健康检查计划。
+6. `scripts/deploy_remote.sh` 通过 shell parse 检查，且不包含破坏性 `rm -rf` 或 `rm -f`。
+7. Runbook 和 README 均记录同一套 M20 命令。
+
+## 19. 停机与暂停规则
 
 必须暂停新开仓的情况：
 
@@ -1006,7 +1140,7 @@ curl -fsS http://150.158.121.150:8020/api/health
 - 创建新的 live 买入计划；
 - 临时修改策略参数继续运行。
 
-## 19. Runbook 验收标准
+## 20. Runbook 验收标准
 
 Runbook 落地后必须满足：
 
@@ -1021,7 +1155,7 @@ Runbook 落地后必须满足：
 9. 每个账户查询都带 account id。
 10. 任意一次重复提交不会重复建仓。
 
-## 19. ADR
+## 21. ADR
 
 ### ADR-OPS-001: 首版实盘不自动下单
 

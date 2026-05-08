@@ -82,6 +82,33 @@ class DashboardStaticTest(unittest.TestCase):
         self.assertIn("function resetPreOpenChecks", source)
         self.assertIn("function preOpenContextKey", source)
 
+    def test_dashboard_m17_execution_guidance_is_visible(self) -> None:
+        source = "\n".join(
+            [
+                (DASHBOARD_DIR / "index.html").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "styles.css").read_text(encoding="utf-8"),
+            ]
+        )
+
+        for label in [
+            "今日操作导引",
+            "今天该做什么",
+            "为什么不能做",
+            "下一步点哪里",
+            "定位检查清单",
+            "查看数据质量",
+            "录入买入成交",
+            "计划交易日与执行日不一致",
+        ]:
+            self.assertIn(label, source)
+        self.assertIn('id="openingWorkflowGuide"', source)
+        self.assertIn("function renderOpeningWorkflowGuide", source)
+        self.assertIn("function openingWorkflowGuidance", source)
+        self.assertIn("function onWorkflowGuideClick", source)
+        self.assertIn('data-guidance-action="${escapeHtml(action.action)}"', source)
+        self.assertIn(".execution-command-center", source)
+
     def test_dashboard_review_history_controls_are_visible(self) -> None:
         source = "\n".join(
             [

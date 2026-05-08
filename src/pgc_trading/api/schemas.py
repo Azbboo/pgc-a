@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, is_dataclass
 from typing import Any
 
+from pgc_trading import __version__
 from pgc_trading.api.settings import ApiSettings
 from pgc_trading.services.common import ServiceResult
 
@@ -15,7 +16,7 @@ def build_health_payload(settings: ApiSettings) -> dict[str, object]:
     return {
         "status": "ok",
         "service": "pgc-trading-api",
-        "api_version": "0.1.0",
+        "api_version": __version__,
         "writes_enabled": settings.enable_writes,
         "database_configured": bool(settings.db_path),
     }

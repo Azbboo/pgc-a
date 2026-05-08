@@ -1,187 +1,228 @@
 {
-  "generated_at": "2026-05-08T12:43:19+00:00",
-  "review_date": "20260508",
-  "next_trade_date": "20260511",
-  "variant_id": "cpb_6157",
-  "reference_variant_id": "cpb_5240",
-  "outputs": {
-    "pool": "/Users/azboo/Desktop/Person/pgc/data/daily_review_20260508_pool_performance.csv",
-    "prior_plan": "/Users/azboo/Desktop/Person/pgc/data/daily_review_20260508_prior_plan.csv",
-    "candidates": "/Users/azboo/Desktop/Person/pgc/data/daily_review_20260508_v2_candidates.csv",
-    "reference_candidates": "/Users/azboo/Desktop/Person/pgc/data/daily_review_20260508_reference_candidates.csv",
-    "preconfirm_watchlist": "/Users/azboo/Desktop/Person/pgc/data/daily_review_20260508_preconfirm_watchlist.csv",
-    "report": "/Users/azboo/Desktop/Person/pgc/reports/daily_review_20260508.md"
+  "account": {
+    "account_id": 1,
+    "account_key": "paper-main",
+    "account_type": "paper",
+    "cash": 130500.0,
+    "equity_as_of_date": "20260508",
+    "free_position_slots": 2,
+    "market_value": 69500.0,
+    "max_positions": 3,
+    "name": "Paper Main",
+    "open_positions": 1,
+    "total_equity": 200000.0
   },
-  "pool_summary": {
-    "n": 244,
-    "up": 164,
-    "flat": 4,
-    "down": 76,
-    "avg_pct_chg": 0.0104,
-    "median_pct_chg": 0.0089,
-    "limit_up_like": 8,
-    "limit_down_like": 0
+  "agent_advice": {
+    "action": "caution",
+    "agent_decision_id": 6,
+    "agent_run_id": 6,
+    "analyst_reports": [
+      {
+        "analyst_key": "technical",
+        "analyst_name": "技术面",
+        "risk_points": [
+          "从前期高点29.0-29.25仅回落约5.2%，上方压力明显，drawdown_from_peak为-10.15%尚未有效修复。",
+          "近期波动剧烈，如4月30日振幅高达13.5%，不适合低风险偏好。"
+        ],
+        "status": "available",
+        "summary": "形态为缩量回调后的多头反弹，信号已通过，短期动能改善，但接近前期高点压力区。",
+        "supporting_points": [
+          "策略特征'contracting_pullback_bullish'通过，评分134.5，信号确认。",
+          "20260508日涨幅4.64%，收盘27.50为近5日最高，且成交额放大至6.94亿（量比1.07）。",
+          "近3日回调幅度有限，缩量后反弹放量，显示空方衰竭。"
+        ]
+      },
+      {
+        "analyst_key": "fundamental",
+        "analyst_name": "基本面",
+        "risk_points": [
+          "市盈率185.51，市净率3.75，市销率7.50，估值显著偏高。",
+          "缺少利润表、资产负债表和现金流数据，无法评估盈利质量和成长性，基本面缺乏安全边际。",
+          "高换手率（9.37%）可能反映投机性交易占主导，与高估值组合形成风险放大。"
+        ],
+        "status": "partial",
+        "summary": "可用的估值数据极不具吸引力，缺失收入和盈利数据，无法形成有效判断，整体偏负面。",
+        "supporting_points": [
+          "流通市值约73.57亿，流动性尚可，自由换手率13.43%表明市场关注度较高。",
+          "股息率0.31%，在估值层面上仅提供极微弱的缓冲。"
+        ]
+      },
+      {
+        "analyst_key": "news",
+        "analyst_name": "新闻面",
+        "risk_points": [
+          "缺少公司动态、行业政策和重大公告信息，无法确认是否存在未预期的利好或利空。"
+        ],
+        "status": "unavailable",
+        "summary": "数据源未接入，无法提供任何新闻或公告分析。",
+        "supporting_points": []
+      },
+      {
+        "analyst_key": "sentiment",
+        "analyst_name": "情绪面",
+        "risk_points": [
+          "情绪指标完全由价格和成交量衍生，未接入新闻情绪、社媒讨论或龙虎榜席位数据，可靠性有限。",
+          "自由换手率高达13.43%，在缺少基本面支撑的情况下可能意味着情绪过度亢奋。"
+        ],
+        "status": "partial",
+        "summary": "从市场行为推断，短期情绪有所回暖，但缺乏外部数据验证，需警惕情绪过热。",
+        "supporting_points": [
+          "最近5日收益率约3.03%，最新交易日量比1.13，成交额高于10日均量1.07倍，显示短线资金流入。",
+          "组合层面仍有2个空余仓位，若参与不会突破仓位上限。"
+        ]
+      }
+    ],
+    "artifacts": [
+      {
+        "artifact_id": 12,
+        "artifact_type": "decision_json",
+        "content_hash": "4243a9eb797003797fd49cd8160ff35eefaade5bef14474981dfbcab2e912cea"
+      },
+      {
+        "artifact_id": 13,
+        "artifact_type": "raw_state",
+        "content_hash": "ce2c6556f20327d73141b2b83118bde38238b372d30697d3a213e25a7d4c561b"
+      },
+      {
+        "artifact_id": 14,
+        "artifact_type": "final_report",
+        "content_hash": "773cfa75d5a33e19154166268ce075232f3050232cf7c8a1c0c277713fde7a0e"
+      }
+    ],
+    "confidence": 0.62,
+    "note": "Agent 复核仅作参考。",
+    "report_markdown": "# TradingAgents 本地快照复核\n\n技术面出现缩量回调后的放量反弹信号，但基本面数据严重不足且估值极高，新闻和外部情绪均缺失，整体风险较大，建议谨慎对待。\n\n## 技术面\n\n形态为缩量回调后的多头反弹，信号已通过，短期动能改善，但接近前期高点压力区。\n\n支持依据：\n- 策略特征'contracting_pullback_bullish'通过，评分134.5，信号确认。\n- 20260508日涨幅4.64%，收盘27.50为近5日最高，且成交额放大至6.94亿（量比1.07）。\n- 近3日回调幅度有限，缩量后反弹放量，显示空方衰竭。\n\n风险提示：\n- 从前期高点29.0-29.25仅回落约5.2%，上方压力明显，drawdown_from_peak为-10.15%尚未有效修复。\n- 近期波动剧烈，如4月30日振幅高达13.5%，不适合低风险偏好。\n\n## 基本面\n\n可用的估值数据极不具吸引力，缺失收入和盈利数据，无法形成有效判断，整体偏负面。\n\n支持依据：\n- 流通市值约73.57亿，流动性尚可，自由换手率13.43%表明市场关注度较高。\n- 股息率0.31%，在估值层面上仅提供极微弱的缓冲。\n\n风险提示：\n- 市盈率185.51，市净率3.75，市销率7.50，估值显著偏高。\n- 缺少利润表、资产负债表和现金流数据，无法评估盈利质量和成长性，基本面缺乏安全边际。\n- 高换手率（9.37%）可能反映投机性交易占主导，与高估值组合形成风险放大。\n\n## 新闻面\n\n数据源未接入，无法提供任何新闻或公告分析。\n\n风险提示：\n- 缺少公司动态、行业政策和重大公告信息，无法确认是否存在未预期的利好或利空。\n\n## 情绪面\n\n从市场行为推断，短期情绪有所回暖，但缺乏外部数据验证，需警惕情绪过热。\n\n支持依据：\n- 最近5日收益率约3.03%，最新交易日量比1.13，成交额高于10日均量1.07倍，显示短线资金流入。\n- 组合层面仍有2个空余仓位，若参与不会突破仓位上限。\n\n风险提示：\n- 情绪指标完全由价格和成交量衍生，未接入新闻情绪、社媒讨论或龙虎榜席位数据，可靠性有限。\n- 自由换手率高达13.43%，在缺少基本面支撑的情况下可能意味着情绪过度亢奋。\n\n## 综合支持依据\n- 技术面模型通过的'contracting_pullback_bullish'特征评分134.5，结构与量价配合较清晰。\n- 20260508日放量上涨4.64%，短期趋势改善，组合有空余容量。\n- 流动性良好，流通市值73.57亿，换手活跃。\n\n## 综合风险提示\n- 基本面估值极高（PE 185.5, PB 3.75, PS 7.50），且完全缺失利润及负债数据，安全边际极弱。\n- 新闻与外部情绪数据完全缺失，信息不对称风险显著。\n- 股价接近前期阻力区29.0-29.25，且从高点回撤-10.15%尚未有效修复，技术反弹空间可能受限。\n- 高换手率与高估值组合易引发剧烈波动，不适合作为稳健持仓。\n\n## 原始输出\n{\n  \"action\": \"caution\",\n  \"confidence\": 0.62,\n  \"risk_level\": \"high\",\n  \"summary\": \"技术面出现缩量回调后的放量反弹信号，但基本面数据严重不足且估值极高，新闻和外部情绪均缺失，整体风险较大，建议谨慎对待。\",\n  \"analyst_reports\": {\n    \"technical\": {\n      \"status\": \"available\",\n      \"summary\": \"形态为缩量回调后的多头反弹，信号已通过，短期动能改善，但接近前期高点压力区。\",\n      \"supporting_points\": [\n        \"策略特征'contracting_pullback_bullish'通过，评分134.5，信号确认。\",\n        \"20260508日涨幅4.64%，收盘27.50为近5日最高，且成交额放大至6.94亿（量比1.07）。\",\n        \"近3日回调幅度有限，缩量后反弹放量，显示空方衰竭。\"\n      ],\n      \"risk_points\": [\n        \"从前期高点29.0-29.25仅回落约5.2%，上方压力明显，drawdown_from_peak为-10.15%尚未有效修复。\",\n        \"近期波动剧烈，如4月30日振幅高达13.5%，不适合低风险偏好。\"\n      ]\n    },\n    \"fundamental\": {\n      \"status\": \"partial\",\n      \"summary\": \"可用的估值数据极不具吸引力，缺失收入和盈利数据，无法形成有效判断，整体偏负面。\",\n      \"supporting_points\": [\n        \"流通市值约73.57亿，流动性尚可，自由换手率13.43%表明市场关注度较高。\",\n        \"股息率0.31%，在估值层面上仅提供极微弱的缓冲。\"\n      ],\n      \"risk_points\": [\n        \"市盈率185.51，市净率3.75，市销率7.50，估值显著偏高。\",\n        \"缺少利润表、资产负债表和现金流数据，无法评估盈利质量和成长性，基本面缺乏安全边际。\",\n        \"高换手率（9.37%）可能反映投机性交易占主导，与高估值组合形成风险放大。\"\n      ]\n    },\n    \"news\": {\n      \"status\": \"unavailable\",\n      \"summary\": \"数据源未接入，无法提供任何新闻或公告分析。\",\n      \"supporting_points\": [],\n      \"risk_points\": [\n        \"缺少公司动态、行业政策和重大公告信息，无法确认是否存在未预期的利好或利空。\"\n      ]\n    },\n    \"sentiment\": {\n      \"status\": \"partial\",\n      \"summary\": \"从市场行为推断，短期情绪有所回暖，但缺乏外部数据验证，需警惕情绪过热。\",\n      \"supporting_points\": [\n        \"最近5日收益率约3.03%，最新交易日量比1.13，成交额高于10日均量1.07倍，显示短线资金流入。\",\n        \"组合层面仍有2个空余仓位，若参与不会突破仓位上限。\"\n      ],\n      \"risk_points\": [\n        \"情绪指标完全由价格和成交量衍生，未接入新闻情绪、社媒讨论或龙虎榜席位数据，可靠性有限。\",\n        \"自由换手率高达13.43%，在缺少基本面支撑的情况下可能意味着情绪过度亢奋。\"\n      ]\n    }\n  },\n  \"supporting_points\": [\n    \"技术面模型通过的'contracting_pullback_bullish'特征评分134.5，结构与量价配合较清晰。\",\n    \"20260508日放量上涨4.64%，短期趋势改善，组合有空余容量。\",\n    \"流动性良好，流通市值73.57亿，换手活跃。\"\n  ],\n  \"risk_points\": [\n    \"基本面估值极高（PE 185.5, PB 3.75, PS 7.50），且完全缺失利润及负债数据，安全边际极弱。\",\n    \"新闻与外部情绪数据完全缺失，信息不对称风险显著。\",\n    \"股价接近前期阻力区29.0-29.25，且从高点回撤-10.15%尚未有效修复，技术反弹空间可能受限。\",\n    \"高换手率与高估值组合易引发剧烈波动，不适合作为稳健持仓。\"\n  ]\n}\n",
+    "risk_level": "high",
+    "risk_points": [
+      "基本面估值极高（PE 185.5, PB 3.75, PS 7.50），且完全缺失利润及负债数据，安全边际极弱。",
+      "新闻与外部情绪数据完全缺失，信息不对称风险显著。",
+      "股价接近前期阻力区29.0-29.25，且从高点回撤-10.15%尚未有效修复，技术反弹空间可能受限。",
+      "高换手率与高估值组合易引发剧烈波动，不适合作为稳健持仓。"
+    ],
+    "source_refs": [
+      "daily_picks:2",
+      "strategy_signals:5",
+      "market_bars:301188.SZ:20260508",
+      "daily_basic_snapshots:301188.SZ:20260508"
+    ],
+    "status": "completed",
+    "summary": "技术面出现缩量回调后的放量反弹信号，但基本面数据严重不足且估值极高，新闻和外部情绪均缺失，整体风险较大，建议谨慎对待。",
+    "supporting_points": [
+      "技术面模型通过的'contracting_pullback_bullish'特征评分134.5，结构与量价配合较清晰。",
+      "20260508日放量上涨4.64%，短期趋势改善，组合有空余容量。",
+      "流动性良好，流通市值73.57亿，换手活跃。"
+    ]
   },
-  "candidates": [
-    {
-      "ts_code": "301188.SZ",
-      "name": "力诺药包",
+  "as_of_date": "20260508",
+  "buy_plan": {
+    "action": "buy_next_open",
+    "free_position_slots": 2,
+    "planned_buy_date": "20260511",
+    "planned_cash": 65250.0,
+    "planned_shares": 2300,
+    "planned_trade_date": "20260511",
+    "price_reference": 27.5,
+    "price_reference_date": "20260508",
+    "reason": "daily_pick",
+    "status": "active",
+    "trade_plan_id": 2
+  },
+  "candidate": {
+    "daily_pick_id": 2,
+    "feature_run_id": 2,
+    "feature_snapshot_id": 403,
+    "features": {
+      "amount_contract_ratio": 0.66302,
+      "amount_ma10": 645522.7987,
+      "avg_amount_to_ma10": 0.894526,
+      "bars_used": 197,
+      "bull_body": 0.054852,
+      "close_recover": 0.046423,
+      "drawdown_from_peak": -0.101538,
       "entry_date": "20260409",
       "entry_price": 24.28,
+      "entry_runup": 0.142976,
+      "feature_name": "contracting_pullback_bullish",
+      "invalid_reason": null,
+      "latest_bar_date": "20260508",
+      "min_entry_price": 10.0,
+      "pullback_close_ret": -0.021229,
+      "pullback_days": 3,
+      "raw_event_id": 166,
       "review_date": "20260508",
-      "trigger_age_trading_days": 18,
+      "score": 134.4969,
+      "signal_passed": true,
+      "trigger_amount": 693758.433,
+      "trigger_amount_to_ma10": 1.074723,
       "trigger_close": 27.5,
-      "score": 134.497,
-      "pullback_days": 3.0,
-      "amount_contract_ratio": 0.663,
-      "avg_amount_to_ma10": 0.8945,
-      "pullback_close_ret": -0.0212,
-      "drawdown_from_peak": -0.1015,
-      "bull_body": 0.0549,
-      "close_recover": 0.0464,
-      "trigger_pct_chg": 0.0464,
-      "trigger_amount_to_ma10": 1.0747,
-      "entry_runup": 0.143,
-      "entry_price_pos_in_day": 0.5608695652173923,
-      "buy_gap_from_entry": 0.007,
-      "pre_ret_20d": 0.3631728045325781,
-      "pre_amount_ratio_5_20": 9.37663070464324,
-      "range_pos_20": 0.8796477495107633,
-      "dist_ma20": 0.2930617509539421,
-      "signal_turnover_rate": 15.9348,
-      "signal_volume_ratio": 0.95,
-      "buy_total_mv": 668841.5375,
-      "buy_circ_mv": 668841.5375,
-      "bigwin_score": 67,
-      "core_score": 25,
-      "liquidity_score": 12,
-      "trend_score": 15,
-      "execution_score": 15,
-      "bigwin_grade": "B",
-      "score_notes": "价格10-100但入池价中位；市值合格但量比边缘；趋势中高位且站上MA20；入池次日不追高",
-      "industry": "玻璃",
-      "buy_zone_low": 26.95,
-      "buy_zone_high": 27.5,
-      "max_chase_price": 28.05,
-      "no_buy_above": 28.6,
-      "financial_flag": false,
-      "swing_watch": false,
-      "v2_action": "低吸观察",
-      "position_plan": "短线仓或不做"
-    }
-  ],
-  "reference_candidates": [],
-  "preconfirm_watchlist": [
+      "trigger_pct_chg": 0.046423,
+      "ts_code": "301188.SZ"
+    },
+    "market_fetch_run_id": 2,
+    "name": "力诺药包",
+    "planned_buy_date": "20260511",
+    "ranked_signals": [
+      {
+        "name": "力诺药包",
+        "score": 134.4969,
+        "signal_id": 5,
+        "signal_rank": 1,
+        "ts_code": "301188.SZ"
+      }
+    ],
+    "review_date": "20260508",
+    "score": 134.4969,
+    "selected_over_signal_count": 0,
+    "selection_reason": "highest_score_rank_1: 134.4969",
+    "signal_id": 5,
+    "signal_rank": 1,
+    "strategy_run_id": 2,
+    "ts_code": "301188.SZ"
+  },
+  "data_quality": {
+    "account_ok": true,
+    "blocker_count": 0,
+    "can_trade": true,
+    "event_ids": [],
+    "market_coverage_ok": true,
+    "missing_market_bar_count": 0,
+    "readiness": "pass",
+    "strategy_version_ok": true,
+    "trade_calendar_ok": true,
+    "valid_raw_count": 244,
+    "warning_count": 0
+  },
+  "due_positions": [],
+  "generated_at": "2026-05-08T14:52:20.648167+00:00",
+  "latest_market_date": "20260508",
+  "lineage": {
+    "agent_decision_id": 6,
+    "agent_run_id": 6,
+    "daily_pick_id": 2,
+    "data_quality_event_ids": [],
+    "feature_run_id": 2,
+    "market_fetch_run_id": 2,
+    "signal_id": 5,
+    "strategy_run_id": 2,
+    "trade_plan_id": 2
+  },
+  "next_trade_date": "20260511",
+  "no_candidate_reason": null,
+  "positions": [
     {
-      "ts_code": "002733.SZ",
-      "name": "雄韬股份",
-      "entry_date": "20260423",
-      "entry_price": 31.07,
-      "review_date": "20260508",
-      "industry": "电气设备",
-      "watch_age_trading_days": 8.0,
-      "watch_close": 29.2,
-      "watch_pct_chg": -0.0305,
-      "pullback_days": 2.0,
-      "amount_contract_ratio": 0.8676,
-      "avg_amount_to_ma10": 0.7191,
-      "pullback_close_ret": -0.0305,
-      "drawdown_from_peak": -0.1103,
-      "entry_runup": -0.0373,
-      "confirm_close_min": 29.5504,
-      "confirm_note": "次日需放量不过热且收阳，站回上一日收盘上方",
-      "entry_price_pos_in_day": 0.8270042194092827,
-      "buy_gap_from_entry": -0.0708,
-      "pre_ret_20d": 0.1113961157933307,
-      "pre_amount_ratio_5_20": 0.746797317245794,
-      "range_pos_20": 0.705812574139976,
-      "dist_ma20": 0.0631101140924306,
-      "signal_turnover_rate": 9.7015,
-      "signal_volume_ratio": 1.25,
-      "buy_total_mv": 1155334.2434,
-      "buy_circ_mv": 1109170.3163,
-      "bigwin_score": 67,
-      "core_score": 12,
-      "liquidity_score": 25,
-      "trend_score": 15,
-      "execution_score": 15,
-      "bigwin_grade": "B",
-      "score_notes": "价格合格但入池价偏高；市值30-150亿且量比温和；趋势中高位且站上MA20；入池次日不追高",
-      "pre_action": "观察"
-    }
-  ],
-  "prior_plan": [
-    {
-      "ts_code": "002647.SZ",
+      "action_due": "none",
+      "buy_date": "20260508",
+      "buy_price": 13.9,
+      "latest_close": 13.8,
+      "latest_trade_date": "20260508",
       "name": "仁东控股",
-      "industry": "多元金融",
-      "prior_action": "优先买点",
-      "position_plan": "不追高成交后:70%短线+30%观察",
-      "trigger_close": 13.75,
-      "buy_zone_low": 13.48,
-      "buy_zone_high": 13.75,
-      "max_chase_price": 14.02,
-      "no_buy_above": 14.3,
-      "trade_date": "20260508",
-      "open": 13.92,
-      "high": 14.0,
-      "low": 13.45,
-      "close": 13.8,
-      "pct_chg": 0.0036,
-      "open_vs_trigger": 0.0124,
-      "close_vs_trigger": 0.0036,
-      "touched_buy_zone": true,
-      "open_ok": true,
-      "assumed_buy": 13.75,
-      "close_ret_from_assumed_buy": 0.0036
-    },
-    {
-      "ts_code": "300250.SZ",
-      "name": "初灵信息",
-      "industry": "软件服务",
-      "prior_action": "低吸观察",
-      "position_plan": "短线仓或不做",
-      "trigger_close": 21.27,
-      "buy_zone_low": 20.84,
-      "buy_zone_high": 21.27,
-      "max_chase_price": 21.7,
-      "no_buy_above": 22.12,
-      "trade_date": "20260508",
-      "open": 21.75,
-      "high": 22.18,
-      "low": 21.07,
-      "close": 21.29,
-      "pct_chg": 0.0009,
-      "open_vs_trigger": 0.0226,
-      "close_vs_trigger": 0.0009,
-      "touched_buy_zone": true,
-      "open_ok": false,
-      "assumed_buy": 21.27,
-      "close_ret_from_assumed_buy": 0.0009
-    },
-    {
-      "ts_code": "603890.SH",
-      "name": "春秋电子",
-      "industry": "元器件",
-      "prior_action": "观察/放弃",
-      "position_plan": "短线仓或不做",
-      "trigger_close": 19.89,
-      "buy_zone_low": 19.49,
-      "buy_zone_high": 19.89,
-      "max_chase_price": 20.29,
-      "no_buy_above": 20.69,
-      "trade_date": "20260508",
-      "open": 19.49,
-      "high": 20.64,
-      "low": 19.24,
-      "close": 20.24,
-      "pct_chg": 0.0176,
-      "open_vs_trigger": -0.0201,
-      "close_vs_trigger": 0.0176,
-      "touched_buy_zone": true,
-      "open_ok": true,
-      "assumed_buy": 19.49,
-      "close_ret_from_assumed_buy": 0.0385
+      "planned_t2_date": "20260512",
+      "planned_t5_date": "20260515",
+      "position_id": 1,
+      "shares": 5000,
+      "status": "waiting_t2",
+      "ts_code": "002647.SZ"
     }
-  ]
+  ],
+  "strategy_version": "cpb_6157@2026-05-03"
 }

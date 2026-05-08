@@ -61,6 +61,7 @@ function cacheElements() {
     "executionBadge",
     "reloadExecutionButton",
     "executionEvaluateExitsButton",
+    "openingWorkflowGuide",
     "openingReadinessSummary",
     "openingBlockerChip",
     "openingPlanBody",
@@ -196,6 +197,7 @@ function bindEvents() {
   els.plansBody.addEventListener("click", onPlansTableClick);
   els.recordQueue.addEventListener("click", onRecordQueueClick);
   els.positionsBody.addEventListener("click", onPositionsTableClick);
+  els.openingWorkflowGuide.addEventListener("click", onWorkflowGuideClick);
 }
 
 function syncFormFromState() {
@@ -588,6 +590,7 @@ function renderOpeningExecution() {
   const executionDay = executionDate();
   const readiness = openingReadiness(activePlans, executionDay, blocked);
 
+  renderOpeningWorkflowGuide(readiness, executionPlans, executionDay);
   executionPlanPanel.classList.toggle("blocked", blocked);
   executionPlanPanel.classList.toggle("idle", !blocked && activePlans.length === 0);
   els.openingBlockerChip.textContent = blocked ? "数据阻断" : activePlans.length ? "可执行" : "无 active 买入计划";
@@ -618,6 +621,256 @@ function renderOpeningExecution() {
   renderPreOpenChecklist(activePlans, executionDay, blocked, readiness);
   renderOpeningCancelQueue();
   renderOpeningExitQueue();
+}
+
+function renderOpeningWorkflowGuide(readiness, executionPlans, executionDay) {
+  const guidance = openingWorkflowGuidance(readiness, executionPlans, executionDay);
+  els.openingWorkflowGuide.className = `execution-command-center execution-command-center--${guidance.tone}`;
+  els.openingWorkflowGuide.innerHTML = `
+    <div class="workflow-guide__main">
+      <span class="workflow-guide__kicker">今日操作导引 · 执行日 ${displayDate(executionDay)}</span>
+      <h2>${escapeHtml(guidance.title)}</h2>
+      <p>${escapeHtml(guidance.detail)}</p>
+    </div>
+    <div class="workflow-guide__facts">
+      ${workflowFact("今天该做什么", guidance.what, guidance.whatTone)}
+      ${workflowFact("为什么不能做", guidance.why, guidance.whyTone)}
+      ${workflowFact("下一步点哪里", guidance.next, guidance.nextTone)}
+    </div>
+    <div class="workflow-guide__actions">
+      ${guidance.actions.map(workflowActionButton).join("")}
+    </div>
+  `;
+}
+
+function openingWorkflowGuidance(readiness, executionPlans, executionDay) {
+  const report = state.report;
+  const due = duePositions();
+  const draftExecutionPlans = executionPlans.filter((plan) => plan.status === "draft");
+  const activeExecutionPlans = executionPlans.filter((plan) => plan.status === "active");
+  const reportPlan = report?.buy_plan ? planFromReport(report.buy_plan) : null;
+  const reportPlanMatchesExecutionDay = reportPlan && planTradeDate(reportPlan) === executionDay;
+  const firstDraftPlan = draftExecutionPlans[0] || (reportPlanMatchesExecutionDay && reportPlan.status === "draft" ? reportPlan : null);
+  const firstActivePlan = activeExecutionPlans[0] || (reportPlanMatchesExecutionDay && reportPlan.status === "active" ? reportPlan : null);
+  const firstDuePosition = due[0];
+
+  if (!report) {
+    return {
+      tone: "blocked",
+      title: "先确认上下文，执行台还没有可用复盘报告",
+      detail: "复盘报告读取失败时，不判断买入、卖出或持仓动作。",
+      what: "检查账户、复盘日、策略版本和 API Base",
+      why: "缺少复盘报告，无法确认执行日和计划状态",
+      next: "点“刷新执行台”，仍失败时调整左侧页面上下文",
+      whatTone: "warning",
+      whyTone: "blocked",
+      nextTone: "action",
+      actions: [
+        { label: "刷新执行台", action: "refresh", primary: true },
+        { label: "检查上下文", action: "context" },
+      ],
+    };
+  }
+
+  if (readiness.blocked) {
+    const reason = primaryBlockerReason();
+    return {
+      tone: "blocked",
+      title: "今天先处理数据阻断，暂不做买入录入",
+      detail: reason,
+      what: "处理 open 数据质量 blocker",
+      why: reason,
+      next: "点“查看数据质量”，处理后回到执行台刷新",
+      whatTone: "blocked",
+      whyTone: "blocked",
+      nextTone: "action",
+      actions: [
+        { label: "查看数据质量", action: "quality", primary: true },
+        { label: "刷新执行台", action: "refresh" },
+      ],
+    };
+  }
+
+  if (firstActivePlan && readiness.ready) {
+    return {
+      tone: "ready",
+      title: `按 active 计划录入 ${planStockText(firstActivePlan)} 买入成交`,
+      detail: "开盘检查已完成；提交前仍需按真实成交日期、价格和股数核对。",
+      what: `${displayDate(executionDay)} 录入人工纸面买入成交`,
+      why: "没有锁定项，Dashboard 只记录事实，不会向券商下单",
+      next: "点“录入买入成交”进入成交录入页",
+      whatTone: "ready",
+      whyTone: "ready",
+      nextTone: "action",
+      actions: [
+        { label: "录入买入成交", action: "record-plan", planId: firstActivePlan.id, primary: true },
+        { label: "查看计划详情", action: "plan-detail", planId: firstActivePlan.id },
+      ],
+    };
+  }
+
+  if (firstActivePlan && !readiness.manualComplete) {
+    const unchecked = uncheckedPreOpenLabels();
+    return {
+      tone: "waiting",
+      title: "先完成开盘检查，再录入买入成交",
+      detail: unchecked.length ? `待确认：${unchecked.join("、")}。` : "待确认开盘检查项。",
+      what: `核对 ${planStockText(firstActivePlan)} 的开盘可交易条件`,
+      why: "开盘检查未完成，买入录入按钮会保持锁定",
+      next: "点“定位检查清单”，逐项确认后再点录入",
+      whatTone: "warning",
+      whyTone: "blocked",
+      nextTone: "action",
+      actions: [
+        { label: "定位检查清单", action: "checklist", primary: true },
+        { label: "查看计划详情", action: "plan-detail", planId: firstActivePlan.id },
+      ],
+    };
+  }
+
+  if (firstDraftPlan) {
+    return {
+      tone: "waiting",
+      title: "今天有草稿计划，先发布为 active",
+      detail: "成交录入只接受 active 计划；草稿计划不会进入开盘录入队列。",
+      what: `${displayDate(executionDay)} 计划发布后再录入成交`,
+      why: "计划仍是草稿，尚未成为可执行计划",
+      next: "点“发布计划”，发布成功后完成开盘检查",
+      whatTone: "warning",
+      whyTone: "blocked",
+      nextTone: "action",
+      actions: [
+        { label: "发布计划", action: "publish-plan", planId: firstDraftPlan.id, primary: true },
+        { label: "查看交易计划", action: "plans" },
+      ],
+    };
+  }
+
+  if (firstDuePosition) {
+    return {
+      tone: "waiting",
+      title: "今天优先处理到期持仓退出任务",
+      detail: "没有匹配执行日的 active 买入计划，但存在 T+2 / T+5 到期待处理持仓。",
+      what: `${displayDate(executionDay)} 评估退出并按实际成交录入卖出`,
+      why: "买入计划缺失；退出任务来自当前持仓生命周期",
+      next: "点“评估退出”生成退出决策/计划，或直接进入卖出录入",
+      whatTone: "warning",
+      whyTone: "ready",
+      nextTone: "action",
+      actions: [
+        { label: "评估退出", action: "exits", primary: true },
+        { label: "卖出录入", action: "record-position", positionId: firstDuePosition.position_id },
+      ],
+    };
+  }
+
+  if (executionPlans.length) {
+    const statusSummary = executionPlans.map((plan) => `计划 ${plan.id}：${statusText(plan.status)}`).join("；");
+    return {
+      tone: "idle",
+      title: "今天没有 active 买入待录入",
+      detail: statusSummary,
+      what: "核对今日计划状态，确认是否已执行、取消或过期",
+      why: "没有 active 状态的执行日买入计划",
+      next: "点“查看交易计划”检查状态和原因",
+      whatTone: "idle",
+      whyTone: "blocked",
+      nextTone: "action",
+      actions: [
+        { label: "查看交易计划", action: "plans", primary: true },
+        { label: "查看每日复盘", action: "review" },
+      ],
+    };
+  }
+
+  if (activeBuyPlans().some((plan) => plan.status === "active")) {
+    return {
+      tone: "idle",
+      title: "存在 active 买入计划，但不是今天执行",
+      detail: "当前 active 买入计划的计划交易日与执行日不一致，不能在今天录入。",
+      what: "核对计划交易日，避免错日录入成交",
+      why: "计划交易日与执行日不一致",
+      next: "点“查看交易计划”核对具体日期",
+      whatTone: "idle",
+      whyTone: "blocked",
+      nextTone: "action",
+      actions: [
+        { label: "查看交易计划", action: "plans", primary: true },
+        { label: "查看每日复盘", action: "review" },
+      ],
+    };
+  }
+
+  if (report.candidate) {
+    return {
+      tone: "waiting",
+      title: "有复盘候选，但今天还没有可执行计划",
+      detail: "候选不等于成交计划；需要在每日复盘和交易计划中确认计划生成状态。",
+      what: "检查候选是否已生成并发布计划",
+      why: "没有计划交易日匹配执行日的 active 买入计划",
+      next: "点“查看每日复盘”确认候选和计划血缘",
+      whatTone: "warning",
+      whyTone: "blocked",
+      nextTone: "action",
+      actions: [
+        { label: "查看每日复盘", action: "review", primary: true },
+        { label: "查看交易计划", action: "plans" },
+      ],
+    };
+  }
+
+  return {
+    tone: "idle",
+    title: "今天没有主动买入或退出任务",
+    detail: `复盘状态：${reasonText(report.no_candidate_reason)}。`,
+    what: "保留观察，必要时刷新复盘和计划列表",
+    why: "没有候选、active 买入计划或 T+2 / T+5 退出任务",
+    next: "点“查看每日复盘”确认无候选原因",
+    whatTone: "idle",
+    whyTone: "ready",
+    nextTone: "action",
+    actions: [
+      { label: "查看每日复盘", action: "review", primary: true },
+      { label: "刷新执行台", action: "refresh" },
+    ],
+  };
+}
+
+function workflowFact(label, value, tone) {
+  return `
+    <div class="workflow-guide__fact workflow-guide__fact--${tone || "idle"}">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+    </div>
+  `;
+}
+
+function workflowActionButton(action) {
+  const attrs = [
+    `data-guidance-action="${escapeHtml(action.action)}"`,
+    action.planId ? `data-plan-id="${escapeHtml(action.planId)}"` : "",
+    action.positionId ? `data-position-id="${escapeHtml(action.positionId)}"` : "",
+  ].filter(Boolean).join(" ");
+  return `<button type="button" ${attrs} class="${action.primary ? "primary-button" : ""}">${escapeHtml(action.label)}</button>`;
+}
+
+function primaryBlockerReason() {
+  const blockers = blockingEvents();
+  const first = blockers[0];
+  const reason = first?.message || first?.code || "存在数据质量 blocker。";
+  return blockers.length > 1 ? `${reason}（另有 ${blockers.length - 1} 项）` : reason;
+}
+
+function uncheckedPreOpenLabels() {
+  const labels = {
+    notSuspended: "未停牌 / 可交易",
+    noMajorBadNews: "无重大利空",
+    openNotExtremeHigh: "开盘未极端高开",
+    cashSlotsChecked: "现金 / 仓位已核对",
+  };
+  return Object.entries(labels)
+    .filter(([key]) => !state.preOpenChecks[key])
+    .map(([, label]) => label);
 }
 
 function renderOpeningReadinessSummary(readiness) {
@@ -1268,6 +1521,39 @@ function onRecordQueueClick(event) {
     const position = findPosition(Number(positionButton.dataset.recordPositionId));
     if (position) selectPosition(position, { openRecordPage: true });
   }
+}
+
+function onWorkflowGuideClick(event) {
+  const button = event.target.closest("button[data-guidance-action]");
+  if (!button) return;
+  const action = button.dataset.guidanceAction;
+  const planId = Number(button.dataset.planId);
+  const positionId = Number(button.dataset.positionId);
+  const plan = planId ? selectedRecordPlan(planId) : null;
+  const position = positionId ? findPosition(positionId) : null;
+
+  if (action === "refresh") refreshAll();
+  if (action === "context") focusContextForm();
+  if (action === "quality") setActivePage("quality");
+  if (action === "review") setActivePage("review");
+  if (action === "plans") setActivePage("plans");
+  if (action === "checklist") focusPreOpenChecklist();
+  if (action === "exits") evaluateExits();
+  if (action === "record-plan" && plan) selectPlan(plan, { openRecordPage: true });
+  if (action === "plan-detail" && plan) selectPlan(plan);
+  if (action === "publish-plan" && planId) publishPlan(planId);
+  if (action === "record-position" && position) selectPosition(position, { openRecordPage: true });
+}
+
+function focusContextForm() {
+  els.contextForm.scrollIntoView({ block: "center", behavior: "smooth" });
+  els.asOfDateInput.focus();
+}
+
+function focusPreOpenChecklist() {
+  els.preOpenChecklist.scrollIntoView({ block: "center", behavior: "smooth" });
+  const firstUnchecked = els.preOpenChecklist.querySelector("input[data-preopen-check]:not(:checked):not(:disabled)");
+  if (firstUnchecked) firstUnchecked.focus();
 }
 
 function onPositionsTableClick(event) {
