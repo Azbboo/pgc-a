@@ -22,6 +22,7 @@ const state = {
   dryRun: dashboardDryRun(),
   activePage: "execution",
   busy: false,
+  reviewDatePinned: false,
   report: null,
   reportEnvelope: null,
   reviewHistory: [],
@@ -217,6 +218,7 @@ function readContextForm() {
   state.strategyVersion = els.strategyInput.value.trim() || DEFAULT_STRATEGY_VERSION;
   state.operator = els.operatorInput.value.trim();
   state.dryRun = els.dryRunInput.checked;
+  state.reviewDatePinned = true;
   if (preOpenContextKey() !== previousPreOpenContext) resetPreOpenChecks();
   syncFormFromState();
 }
@@ -248,19 +250,27 @@ async function setReviewDate(value) {
   }
   if (nextDate === state.asOfDate) return;
   state.asOfDate = nextDate;
+  state.reviewDatePinned = true;
   resetPreOpenChecks();
   syncFormFromState();
   persistContext();
   setActivePage("review");
-  await refreshAll();
+  await refreshAll({ autoLatest: false });
 }
 
 async function refreshAll(options = {}) {
   setBusy(true);
   if (!options.keepNotice) showNotice("");
   try {
+    await loadReviewHistory();
+    if (shouldAdoptLatestReviewDate(options)) {
+      state.asOfDate = latestReviewHistoryDate();
+      resetPreOpenChecks();
+      syncFormFromState();
+      persistContext();
+    }
     await loadDailyReport();
-    await Promise.all([loadPlans(), loadQuality(), loadPositions(), loadReviewHistory()]);
+    await Promise.all([loadPlans(), loadQuality(), loadPositions()]);
     renderAll();
   } catch (error) {
     showNotice(error.message || String(error));
@@ -287,7 +297,6 @@ async function loadReviewHistory() {
   const params = new URLSearchParams();
   params.set("strategy_version", state.strategyVersion);
   params.set("limit", "20");
-  params.set("before_date", state.asOfDate);
   const accountId = resolvedAccountId();
   if (accountId) {
     params.set("account_id", accountId);
@@ -302,6 +311,20 @@ async function loadReviewHistory() {
     throw new Error(errorMessages(envelope).join("；") || "无法读取复盘历史列表。");
   }
   state.reviewHistory = envelope.data?.items || [];
+}
+
+function latestReviewHistoryDate() {
+  const dates = (state.reviewHistory || [])
+    .map((item) => normalizeDate(item.review_date))
+    .filter((value) => /^\d{8}$/.test(value))
+    .sort();
+  return dates.length ? dates[dates.length - 1] : "";
+}
+
+function shouldAdoptLatestReviewDate(options = {}) {
+  if (options.autoLatest === false || state.reviewDatePinned) return false;
+  const latestDate = latestReviewHistoryDate();
+  return Boolean(latestDate && /^\d{8}$/.test(state.asOfDate) && latestDate > state.asOfDate);
 }
 
 async function loadPlans() {
@@ -737,9 +760,11 @@ function renderReview() {
 
 function renderReviewHistory() {
   const items = state.reviewHistory || [];
+  const latestDate = latestReviewHistoryDate();
+  const historyScope = latestDate ? `最新 ${displayDate(latestDate)}` : `截至 ${displayDate(state.asOfDate)}`;
   els.reviewHistoryState.textContent = items.length
-    ? `截至 ${displayDate(state.asOfDate)} · ${items.length} 条`
-    : `截至 ${displayDate(state.asOfDate)} · 无记录`;
+    ? `${historyScope} · ${items.length} 条`
+    : `${historyScope} · 无记录`;
   els.reviewHistoryList.innerHTML = items.length
     ? items.map((item) => {
       const selected = item.review_date === state.asOfDate;
@@ -758,7 +783,7 @@ function renderReviewHistory() {
         </button>
       `;
     }).join("")
-    : emptyState(`截至 ${displayDate(state.asOfDate)} 尚无复盘历史；运行复盘后会出现在这里。`);
+    : emptyState("暂无复盘历史；运行复盘后会出现在这里。");
 }
 
 function renderNextAction() {
