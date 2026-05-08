@@ -3,10 +3,10 @@
     "account_id": 1,
     "account_key": "paper-main",
     "account_type": "paper",
-    "cash": 130500.0,
+    "cash": 133184.0,
     "equity_as_of_date": "20260508",
     "free_position_slots": 2,
-    "market_value": 69500.0,
+    "market_value": 66816.0,
     "max_positions": 3,
     "name": "Paper Main",
     "open_positions": 1,
@@ -193,7 +193,7 @@
     "warning_count": 0
   },
   "due_positions": [],
-  "generated_at": "2026-05-08T16:58:46.994365+00:00",
+  "generated_at": "2026-05-08T17:03:11.442012+00:00",
   "latest_market_date": "20260508",
   "lineage": {
     "agent_decision_id": 6,
