@@ -13,10 +13,10 @@
 ## Current Baseline
 
 - Branch: `codex/m14b-yfinance`
-- Latest deployed release: `pgc-v0.1.0-20260509-m41b-m46`
+- Latest deployed release: `pgc-v0.1.0-20260509-m47-m50`
 - Remote migration state: `012_market_review`, `pending_migrations=none`
 - M41B/M42/M45/M46 are done and deployed.
-- M47/M48/M49/M50 are implemented and locally verified; they are not yet committed, pushed, or deployed in this batch.
+- M47/M48/M49/M50 are done and deployed in release `pgc-v0.1.0-20260509-m47-m50`.
 - M46 systemd timer is previewed but not enabled.
 - Full-market review is advisory only.
 
@@ -33,14 +33,14 @@
 
 | Track | Task | Status | Can Run In Parallel? | Depends On | Suggested Session |
 | --- | --- | --- | --- | --- | --- |
-| M47A | Evidence import and coverage contract | Done / Local verification | Yes | M43 source policy, M41A read APIs | Session A |
-| M48A | Full-market Dashboard interaction upgrade | Done / Local verification | Yes | M41B full-market tab | Session B |
-| M49A | TradingAgents Chinese structured report | Done / Local verification | Yes | M15/M26 agent bridge, external evidence cache | Session C |
-| M50A | Strategy hypothesis validation loop | Done / Local verification | Yes | M44 backtest bridge, M40 hypotheses | Session D |
+| M47A | Evidence import and coverage contract | Done, Deployed | Yes | M43 source policy, M41A read APIs | Session A |
+| M48A | Full-market Dashboard interaction upgrade | Done, Deployed | Yes | M41B full-market tab | Session B |
+| M49A | TradingAgents Chinese structured report | Done, Deployed | Yes | M15/M26 agent bridge, external evidence cache | Session C |
+| M50A | Strategy hypothesis validation loop | Done, Deployed | Yes | M44 backtest bridge, M40 hypotheses | Session D |
 | M51 | Review timeline and cross-day comparison | Next | After M47/M48 data shape stabilizes | M12 history, M41B market page | Follow-up |
 | M52 | Scheduled pipeline activation and ops monitor | Next | After M47/M49 evidence gates are stable | M46 timer installer | Ops follow-up |
 
-## M47-M50 Local Verification Record
+## M47-M50 Verification And Release Record
 
 Verified on 2026-05-09:
 
@@ -56,7 +56,31 @@ PYTHONPATH=src:. pytest -q
 # 334 passed, 3 skipped, 10 subtests passed
 ```
 
-Release status: local only. Commit, push, deploy, and remote health remain separate follow-up actions.
+Release status: deployed on 2026-05-09 as `pgc-v0.1.0-20260509-m47-m50`.
+
+M53 release checkpoint:
+
+```bash
+PYTHONPATH=src:. pytest -q
+# 334 passed, 3 skipped, 10 subtests passed
+
+git diff --check
+
+bash scripts/deploy_remote.sh --release-tag pgc-v0.1.0-20260509-m47-m50
+# Ran 337 tests in 3.418s
+# OK (skipped=3)
+# release_tag=pgc-v0.1.0-20260509-m47-m50
+# backup_path=/opt/pgc/backups/pgc_trading-20260509-155250.db
+# git_sha=d34d2d198c3c8479721fb686687f6ed13818deac
+
+ssh root@150.158.121.150 "cd /opt/pgc/app && PYTHONPATH=src python3 -m pgc_trading.cli.main ops health --db-path /opt/pgc/data/pgc_trading.db --health-url http://127.0.0.1:8020/api/health --require-current-migrations"
+# latest_migration=012_market_review
+# pending_migrations=none
+# api_health_ok=true
+# api_health_status_code=200
+```
+
+The M46/M52 timer remained disabled after release verification: `systemctl is-enabled pgc-daily-pipeline.timer` returned `not-found` and `systemctl is-active pgc-daily-pipeline.timer` returned `inactive`.
 
 ## M47: Data Evidence Closed Loop
 

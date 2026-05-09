@@ -9,12 +9,12 @@ This ledger is the single index for historical and active project work. Detailed
 | Field | Value |
 | --- | --- |
 | Branch | `codex/m14b-yfinance` |
-| Latest deployed commit | See release tag `pgc-v0.1.0-20260509-m41b-m46` |
-| Latest release tag | `pgc-v0.1.0-20260509-m41b-m46` |
+| Latest deployed commit | `d34d2d198c3c8479721fb686687f6ed13818deac` |
+| Latest release tag | `pgc-v0.1.0-20260509-m47-m50` |
 | Remote API | `http://150.158.121.150:8020` |
 | Remote migration state | `012_market_review`, `pending_migrations=none` |
 | Latest release health | `api_health_ok=true`, HTTP `200` |
-| Latest full verification | `334 passed, 3 skipped, 10 subtests passed` locally on 2026-05-09; deploy script ran `330 tests`, `OK (skipped=3)` |
+| Latest full verification | `334 passed, 3 skipped, 10 subtests passed` locally on 2026-05-09; deploy script ran `337 tests`, `OK (skipped=3)`; remote `ops health` returned HTTP `200` |
 
 ## Status Legend
 
@@ -116,20 +116,20 @@ This ledger is the single index for historical and active project work. Detailed
 | M44 | Strategy hypothesis backtest bridge | Done, Deployed | `8e3a36f`, release `pgc-v0.1.0-20260509-g8e3a36f` | Produces backtest request artifacts; no active param mutation. |
 | M45 | Open execution alignment with market-plan context | Done, Deployed | release `pgc-v0.1.0-20260509-m41b-m46` | Added read-only open-execution service/API/CLI/Dashboard context; shows alignment/risk/action and does not auto-cancel or execute trades. |
 | M46 | Scheduled post-close pipeline | Done, Deployed | release `pgc-v0.1.0-20260509-m41b-m46` | `latest-closed`, `/opt/pgc/logs`, `/opt/pgc/backups`, health precheck, and systemd timer installer added; remote timer preview passed but timer is not enabled yet. |
-| M47 | Data evidence closed loop | Done / Local verification | Local verification 2026-05-09 | Provider-tagged market/sector/stock news, sentiment, policy, and research evidence with freshness/coverage states; no live web fetch in trading path. |
-| M48 | Full-market Dashboard interaction upgrade | Done / Local verification | Local verification 2026-05-09 | Cross-day selector, history strip, sector/evidence drawers, source metadata, and plan relationship view added; verified with Dashboard/API static tests and full suite. |
-| M49 | TradingAgents Chinese structured report | Done / Local verification | Local verification 2026-05-09 | Chinese source-labeled TradingAgents sections for fundamentals, news, sentiment, technicals, sector context, risks, conclusion, raw artifacts, and unavailable fallback. |
-| M50 | Strategy evolution validation loop | Done / Local verification | Local verification 2026-05-09 | Hypothesis evidence/backtest gates before acceptance; accepted hypotheses create future strategy-version tasks only. |
+| M47 | Data evidence closed loop | Done, Deployed | `159382f`, release `pgc-v0.1.0-20260509-m47-m50` | Provider-tagged market/sector/stock news, sentiment, policy, and research evidence with freshness/coverage states; no live web fetch in trading path. |
+| M48 | Full-market Dashboard interaction upgrade | Done, Deployed | `159382f`, release `pgc-v0.1.0-20260509-m47-m50` | Cross-day selector, history strip, sector/evidence drawers, source metadata, and plan relationship view added; verified with Dashboard/API static tests and full suite. |
+| M49 | TradingAgents Chinese structured report | Done, Deployed | `159382f`, release `pgc-v0.1.0-20260509-m47-m50` | Chinese source-labeled TradingAgents sections for fundamentals, news, sentiment, technicals, sector context, risks, conclusion, raw artifacts, and unavailable fallback. |
+| M50 | Strategy evolution validation loop | Done, Deployed | `159382f`, release `pgc-v0.1.0-20260509-m47-m50` | Hypothesis evidence/backtest gates before acceptance; accepted hypotheses create future strategy-version tasks only. |
 | M51 | Review timeline and cross-day comparison | Next | `docs/plans/2026-05-09-m51-m54-release-timeline-ops-plan.md` | Compare daily review, full-market review, plan context, and open-execution state across dates without changing execution context accidentally. |
 | M52 | Scheduled pipeline activation and ops monitor | Next | `docs/plans/2026-05-09-m51-m54-release-timeline-ops-plan.md` | Formal timer activation checklist, health/journal/rollback commands, and duplicate-write guardrails; timer still requires explicit operator enablement. |
-| M53 | Release M47-M50 checkpoint | Next | `docs/plans/2026-05-09-m51-m54-release-timeline-ops-plan.md` | Deploy pushed M47-M50 commit, run remote health, update ledger from local verification to deployed, and keep timer disabled unless explicitly enabled. |
+| M53 | Release M47-M50 checkpoint | Done, Deployed | release `pgc-v0.1.0-20260509-m47-m50` | Deployed `d34d2d198c3c8479721fb686687f6ed13818deac`; remote health HTTP `200`, migration `012_market_review`, `pending_migrations=none`; timer remained `not-found`/`inactive`. |
 | M54 | Production evidence import operations | Next | `docs/plans/2026-05-09-m51-m54-release-timeline-ops-plan.md` | Repeatable provider-file evidence imports with dry-run coverage, stale/duplicate/missing summaries, and source-hash idempotency. |
 
 ## Active Parallel Plan
 
 | Lane | Task | Status | Depends On | Review Focus |
 | --- | --- | --- | --- | --- |
-| A | M53 Release M47-M50 checkpoint | Next | M47-M50 pushed commit `159382f` | Deploy, remote health, ledger deployed status; timer remains disabled unless explicitly enabled. |
+| A | M53 Release M47-M50 checkpoint | Done, Deployed | release `pgc-v0.1.0-20260509-m47-m50` | Remote health passed; ledger deployed status recorded; timer remained disabled. |
 | B | M51 Review timeline and cross-day comparison | Next | M47/M48 data shape stable | Cross-day navigation must not override execution-date context. |
 | C | M52 Scheduled pipeline activation and ops monitor | Next | M46 timer installer, M47/M49 evidence gates stable | Dry-run first, explicit operator enablement, journal/status/rollback documented. |
 | D | M54 Production evidence import operations | Next | M47 evidence contract, M49 Agent evidence cache | Provider-file contract, dry-run coverage, source-hash idempotency, no live fetch in trading path. |
