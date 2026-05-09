@@ -36,7 +36,9 @@ class TradingAgentsAdapterTest(unittest.TestCase):
                         '"news":{"status":"unavailable","summary":"新闻源未接入",'
                         '"supporting_points":[],"risk_points":["不得编造新闻"]},'
                         '"sentiment":{"status":"partial","summary":"市场情绪偏热",'
-                        '"supporting_points":["放量上涨"],"risk_points":["短线拥挤"]}},'
+                        '"supporting_points":["放量上涨"],"risk_points":["短线拥挤"]},'
+                        '"sector":{"status":"unavailable","summary":"板块位置未接入",'
+                        '"supporting_points":[],"risk_points":["不能编造板块强弱"]}},'
                         '"supporting_points":["评分较强"],'
                         '"risk_points":["注意开盘波动"]}'
                         "\n```"
@@ -78,10 +80,15 @@ class TradingAgentsAdapterTest(unittest.TestCase):
         self.assertEqual(result.risk_points, ["注意开盘波动"])
         self.assertEqual(result.analyst_reports["technical"]["summary"], "技术面转强")
         self.assertEqual(result.analyst_reports["news"]["status"], "unavailable")
+        self.assertEqual(result.raw_decision["execution_source"]["mode"], "local_snapshot_mode")
+        self.assertIn("report_sections", result.raw_decision)
+        self.assertEqual(result.raw_decision["report_sections"]["sector"]["status"], "unavailable")
         self.assertEqual(result.raw_decision["external_data_coverage"]["news"], "unavailable")
-        self.assertIn("# TradingAgents 本地快照复核", result.final_report)
-        self.assertIn("## 技术面", result.final_report)
+        self.assertIn("# TradingAgents 中文结构化复核", result.final_report)
+        self.assertIn("来源：TradingAgents 本地快照模式", result.final_report)
+        self.assertIn("## 技术/量价", result.final_report)
         self.assertIn("## 基本面", result.final_report)
+        self.assertIn("## 板块位置", result.final_report)
         self.assertEqual(client_calls[0]["provider"], "deepseek")
         self.assertEqual(client_calls[0]["model"], "deepseek-v4-pro")
         self.assertIn("只允许使用下方本地数据库快照", prompt_calls[0])
@@ -90,6 +97,7 @@ class TradingAgentsAdapterTest(unittest.TestCase):
         self.assertIn("系统确定性复盘事实", prompt_calls[0])
         self.assertIn("未接入/缺失警告", prompt_calls[0])
         self.assertIn("所有自然语言必须使用简体中文", prompt_calls[0])
+        self.assertIn("板块位置", prompt_calls[0])
         self.assertIn('"ts_code": "000001.SZ"', prompt_calls[0])
         self.assertNotIn("tradingagents.graph.trading_graph", imported_modules)
 
@@ -117,6 +125,7 @@ def _snapshot() -> dict[str, object]:
             "news": "unavailable",
             "sentiment": "partial",
             "technical": "available",
+            "sector": "unavailable",
         },
         "candidate": {
             "daily_pick_id": 1,
@@ -141,6 +150,7 @@ def _snapshot() -> dict[str, object]:
                 "news": "unavailable",
                 "sentiment": "partial",
                 "technical": "available",
+                "sector": "unavailable",
             },
             "evidence_context": {
                 "system_review_facts": {
@@ -162,6 +172,10 @@ def _snapshot() -> dict[str, object]:
                 "cached_sentiment_data": {
                     "label": "缓存情绪数据",
                     "status": "partial",
+                },
+                "cached_sector_context": {
+                    "label": "缓存板块位置",
+                    "status": "unavailable",
                 },
                 "missing_data_warnings": ["新闻/公告未接入/数据不足。"],
                 "source_boundary": ["外部证据不直接改变交易计划。"],

@@ -111,6 +111,22 @@ class OperationalRunbookStaticTest(unittest.TestCase):
         ]:
             self.assertIn(text, source)
 
+    def test_m50_runbook_documents_strategy_hypothesis_validation_loop(self) -> None:
+        source = RUNBOOK.read_text(encoding="utf-8")
+
+        for text in [
+            "M50 策略假设验证 / 回测闭环",
+            "proposed -> testing -> accepted/rejected",
+            "strategy-evolution backtest",
+            "--evidence-id market_review_run:RUN_ID",
+            "--backtest-artifact reports/strategy_hypothesis_backtests/hypothesis_1_backtest_request.json",
+            "`accepted` requires validation evidence ids",
+            "`accepted` requires a readable backtest request artifact",
+            "accepted hypotheses create a separate future strategy-version task only",
+            "no active strategy or trading behavior mutation is allowed",
+        ]:
+            self.assertIn(text, source)
+
     def test_m42_runbook_documents_market_review_daily_pipeline_contract(self) -> None:
         source = RUNBOOK.read_text(encoding="utf-8")
 

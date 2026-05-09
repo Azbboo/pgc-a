@@ -837,6 +837,9 @@ def _external_items_payload(
             "item_count": len(items),
             "by_scope": _count_by(items, "scope_type"),
             "by_sentiment": _count_by(items, "sentiment"),
+            "scope": _external_scope_coverage(items),
+            "freshness": _external_freshness_coverage(items, as_of_date),
+            "source_hash": _external_source_hash_coverage(items),
         },
         "missing_data": missing_data,
     }
@@ -851,7 +854,15 @@ def _empty_external_items_payload(as_of_date: str, *, has_review: bool) -> dict[
         "as_of_date": as_of_date,
         "items": [],
         "source": _source_payload(["market_review_runs", "market_external_items"]),
-        "coverage": {"has_review": has_review, "item_count": 0, "by_scope": {}, "by_sentiment": {}},
+        "coverage": {
+            "has_review": has_review,
+            "item_count": 0,
+            "by_scope": {},
+            "by_sentiment": {},
+            "scope": {"market": "missing", "sector": "missing", "stock": "missing"},
+            "freshness": {"market": "missing", "sector": "missing", "stock": "missing"},
+            "source_hash": "missing",
+        },
         "missing_data": missing_data,
     }
 
@@ -1043,6 +1054,47 @@ def _count_by(items: list[dict[str, Any]], key: str) -> dict[str, int]:
         label = "unknown" if value is None else str(value)
         counts[label] = counts.get(label, 0) + 1
     return counts
+
+
+def _external_scope_coverage(items: list[dict[str, Any]]) -> dict[str, str]:
+    return {
+        "market": "available" if _items_for_scope(items, "market") else "missing",
+        "sector": "partial" if _items_for_scope(items, "sector") else "missing",
+        "stock": "partial" if _items_for_scope(items, "stock") else "missing",
+    }
+
+
+def _external_freshness_coverage(items: list[dict[str, Any]], as_of_date: str) -> dict[str, str]:
+    return {
+        scope_type: _external_scope_freshness(_items_for_scope(items, scope_type), as_of_date)
+        for scope_type in ("market", "sector", "stock")
+    }
+
+
+def _external_scope_freshness(items: list[dict[str, Any]], as_of_date: str) -> str:
+    if not items:
+        return "missing"
+    fresh_count = sum(1 for item in items if item.get("published_date") == as_of_date)
+    if fresh_count == len(items):
+        return "fresh"
+    if fresh_count == 0:
+        return "stale"
+    return "partial"
+
+
+def _external_source_hash_coverage(items: list[dict[str, Any]]) -> str:
+    if not items:
+        return "missing"
+    hashed_count = sum(1 for item in items if str(item.get("source_hash") or "").strip())
+    if hashed_count == len(items):
+        return "available"
+    if hashed_count == 0:
+        return "missing"
+    return "partial"
+
+
+def _items_for_scope(items: list[dict[str, Any]], scope_type: str) -> list[dict[str, Any]]:
+    return [item for item in items if item.get("scope_type") == scope_type]
 
 
 def _build_regime_snapshot(conn: sqlite3.Connection, request: RunMarketReviewRequest) -> _RegimeSnapshot:

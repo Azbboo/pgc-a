@@ -606,6 +606,21 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
     )
     strategy_evolution_mark.add_argument("--hypothesis-id", type=_positive_int, required=True)
     strategy_evolution_mark.add_argument("--status", choices=sorted(VALID_HYPOTHESIS_STATUSES), required=True)
+    strategy_evolution_mark.add_argument(
+        "--review-note",
+        help="operator review note to store on the hypothesis validation trail",
+    )
+    strategy_evolution_mark.add_argument(
+        "--evidence-id",
+        action="append",
+        default=[],
+        help="validation evidence id; repeat for multiple evidence records",
+    )
+    strategy_evolution_mark.add_argument(
+        "--backtest-artifact",
+        type=Path,
+        help="path to a strategy_hypothesis_backtest_request artifact required before accepted",
+    )
     _add_lifecycle_context_arguments(strategy_evolution_mark)
     _add_db_path_argument(strategy_evolution_mark)
     strategy_evolution_mark.set_defaults(handler=_run_strategy_evolution_mark)
@@ -1455,7 +1470,13 @@ def _run_strategy_evolution_mark(
         return 1
 
     service = services.strategy_evolution_service_factory(db_path)
-    request = MarkStrategyHypothesisRequest(hypothesis_id=args.hypothesis_id, status=args.status)
+    request = MarkStrategyHypothesisRequest(
+        hypothesis_id=args.hypothesis_id,
+        status=args.status,
+        review_note=args.review_note,
+        evidence_ids=tuple(args.evidence_id or []),
+        backtest_artifact_path=str(args.backtest_artifact) if args.backtest_artifact is not None else None,
+    )
     ctx = RequestContext(
         request_id="cli-strategy-evolution-mark",
         idempotency_key=args.idempotency_key,
@@ -2361,8 +2382,12 @@ def _write_agent_review_result(
         f"agent_decision_id={_display_optional_int(getattr(data, 'agent_decision_id', None))} "
         f"action={getattr(data, 'action', None) or 'n/a'} "
         f"risk_level={getattr(data, 'risk_level', None) or 'n/a'} "
-        f"confidence={_display_optional_float(getattr(data, 'confidence', None))}\n"
+        f"confidence={_display_optional_float(getattr(data, 'confidence', None))} "
+        f"execution_mode={getattr(data, 'execution_mode', None) or 'n/a'}\n"
     )
+    source_label = getattr(data, "source_label", None)
+    if source_label:
+        stdout.write(f"source_label={source_label}\n")
     summary = getattr(data, "summary", None)
     if summary:
         stdout.write(f"summary={summary}\n")
@@ -2493,8 +2518,19 @@ def _write_strategy_evolution_mark_result(
         f"previous_status={getattr(data, 'previous_status', 'n/a')} "
         f"status={getattr(hypothesis, 'status', 'n/a')} "
         f"operator={getattr(data, 'operator', None) or 'none'} "
+        f"strategy_version_task_required={_display_bool(getattr(data, 'strategy_version_task_required', False))} "
         f"title={getattr(hypothesis, 'title', 'n/a')}\n"
     )
+    evidence_ids = getattr(data, "evidence_ids", []) or []
+    backtest_artifact_paths = getattr(data, "backtest_artifact_paths", []) or []
+    stdout.write(f"validation_evidence_ids={_display_list(evidence_ids)}\n")
+    stdout.write(f"backtest_artifacts={_display_list(backtest_artifact_paths)}\n")
+    review_note = getattr(data, "review_note", None)
+    if review_note:
+        stdout.write(f"review_note={review_note}\n")
+    strategy_version_task = getattr(data, "strategy_version_task", None)
+    if isinstance(strategy_version_task, dict):
+        stdout.write(f"future_strategy_version_task_key={strategy_version_task.get('task_key', 'n/a')}\n")
 
 
 def _write_strategy_evolution_backtest_result(
@@ -2520,8 +2556,11 @@ def _write_strategy_evolution_backtest_result(
         f"strategy_version_task_required={_display_bool(getattr(data, 'strategy_version_task_required', False))} "
         f"would_write_artifact={_display_bool(getattr(data, 'would_write_artifact', False))} "
         f"wrote_artifact={_display_bool(getattr(data, 'wrote_artifact', False))} "
-        f"active_params_mutated={_display_bool(getattr(data, 'active_params_mutated', False))}\n"
+        f"active_params_mutated={_display_bool(getattr(data, 'active_params_mutated', False))} "
+        f"recorded_hypothesis_validation={_display_bool(getattr(data, 'recorded_hypothesis_validation', False))}\n"
     )
+    validation_evidence_ids = getattr(data, "validation_evidence_ids", []) or []
+    stdout.write(f"validation_evidence_ids={_display_list(validation_evidence_ids)}\n")
     artifact_path = getattr(data, "artifact_path", None)
     if artifact_path:
         stdout.write(f"artifact_path={artifact_path}\n")

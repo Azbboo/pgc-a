@@ -1,7 +1,8 @@
 """Strategy hypothesis backtest request bridge.
 
 The bridge turns a stored strategy hypothesis into an explicit replay/backtest
-request artifact. It deliberately does not mutate strategy params, strategy
+request artifact. In apply mode it records that artifact path on the hypothesis
+validation metadata. It deliberately does not mutate strategy params, strategy
 versions, trade plans, trades, positions, or backtest result tables.
 """
 
@@ -10,6 +11,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +34,8 @@ class StrategyHypothesisBacktestResult:
     wrote_artifact: bool = False
     artifact_path: str | None = None
     active_params_mutated: bool = False
+    recorded_hypothesis_validation: bool = False
+    validation_evidence_ids: list[str] = field(default_factory=list)
     artifact: dict[str, Any] = field(default_factory=dict)
 
 
@@ -125,6 +129,8 @@ class StrategyHypothesisBacktestService:
                     wrote_artifact=False,
                     artifact_path=None,
                     active_params_mutated=False,
+                    recorded_hypothesis_validation=False,
+                    validation_evidence_ids=_suggested_validation_evidence_ids(hypothesis),
                     artifact=artifact,
                 ),
                 warnings=warnings,
@@ -136,6 +142,13 @@ class StrategyHypothesisBacktestService:
             )
 
         self._write_artifact(artifact_path, artifact)
+        validation_evidence_ids = _record_hypothesis_backtest_artifact(
+            self.db_path,
+            request.hypothesis_id,
+            artifact_path,
+            artifact,
+            ctx.operator,
+        )
         return ServiceResult(
             status="success",
             request_id=ctx.request_id,
@@ -147,6 +160,8 @@ class StrategyHypothesisBacktestService:
                 wrote_artifact=True,
                 artifact_path=str(artifact_path),
                 active_params_mutated=False,
+                recorded_hypothesis_validation=True,
+                validation_evidence_ids=validation_evidence_ids,
                 artifact=artifact,
             ),
             created_ids={"strategy_hypothesis_backtest_artifact": request.hypothesis_id},
@@ -248,6 +263,11 @@ def _build_artifact(
         "strategy": strategy,
         "backtest_request": backtest_request,
         "strategy_version_task": strategy_version_task,
+        "validation_gate": {
+            "required_before_acceptance": ["validation_evidence_ids", "backtest_request_artifact"],
+            "suggested_validation_evidence_ids": _suggested_validation_evidence_ids(hypothesis),
+            "accepted_is_research_outcome_only": True,
+        },
         "safety": {
             "active_params_mutated": False,
             "writes_trade_state": False,
@@ -256,6 +276,80 @@ def _build_artifact(
             "accepted_creates_separate_strategy_version_task": status == "accepted",
         },
     }
+
+
+def _record_hypothesis_backtest_artifact(
+    db_path: Path,
+    hypothesis_id: int,
+    artifact_path: Path,
+    artifact: dict[str, Any],
+    operator: str | None,
+) -> list[str]:
+    with connect(db_path) as conn:
+        hypothesis = _load_hypothesis(conn, hypothesis_id)
+        if hypothesis is None:
+            raise RuntimeError(f"strategy hypothesis id={hypothesis_id} was not found while recording artifact")
+        evidence = _json_loads(hypothesis["evidence_json"])
+        validation = _validation_payload(evidence)
+        backtest_artifacts = _merge_values(_validation_values(validation, "backtest_artifacts"), [str(artifact_path)])
+        evidence_ids = _merge_values(
+            _validation_values(validation, "evidence_ids"),
+            _suggested_validation_evidence_ids(hypothesis),
+        )
+        validation["backtest_artifacts"] = backtest_artifacts
+        validation["evidence_ids"] = evidence_ids
+        validation["backtest_task_key"] = artifact.get("backtest_request", {}).get("task_key")
+        validation["backtest_artifact_recorded_at"] = _utc_timestamp()
+        validation["backtest_artifact_operator"] = operator
+        evidence["validation"] = validation
+        conn.execute(
+            """
+            UPDATE strategy_hypotheses
+            SET evidence_json = ?
+            WHERE id = ?
+            """,
+            (_json_dumps(evidence), hypothesis_id),
+        )
+        return evidence_ids
+
+
+def _suggested_validation_evidence_ids(hypothesis: sqlite3.Row) -> list[str]:
+    evidence = _json_loads(hypothesis["evidence_json"])
+    suggested: list[str] = [f"strategy_hypothesis:{int(hypothesis['id'])}"]
+    source = evidence.get("source")
+    market_review_run_id = evidence.get("market_review_run_id")
+    if source and market_review_run_id is not None:
+        suggested.append(f"{source}:market_review_run:{market_review_run_id}")
+    elif source:
+        suggested.append(str(source))
+    as_of_date = evidence.get("as_of_date") or hypothesis["as_of_date"]
+    if as_of_date:
+        suggested.append(f"as_of_date:{as_of_date}")
+    return _merge_values([], suggested)
+
+
+def _validation_payload(evidence: dict[str, Any]) -> dict[str, Any]:
+    validation = evidence.get("validation")
+    return dict(validation) if isinstance(validation, dict) else {}
+
+
+def _validation_values(validation: dict[str, Any], key: str) -> list[str]:
+    values = validation.get(key)
+    if not isinstance(values, list):
+        return []
+    return [str(value).strip() for value in values if str(value).strip()]
+
+
+def _merge_values(existing: list[str], new_values: list[str]) -> list[str]:
+    merged: list[str] = []
+    for value in [*existing, *new_values]:
+        if value and value not in merged:
+            merged.append(value)
+    return merged
+
+
+def _utc_timestamp() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _strategy_payload(current_strategy: sqlite3.Row | None, strategy_id: str) -> dict[str, Any]:

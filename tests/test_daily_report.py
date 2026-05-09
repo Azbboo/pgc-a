@@ -161,6 +161,7 @@ class DailyReportTest(unittest.TestCase):
                 {
                     "fundamental": "partial",
                     "news": "unavailable",
+                    "sector": "unavailable",
                     "sentiment": "partial",
                     "technical": "available",
                 },
@@ -172,8 +173,19 @@ class DailyReportTest(unittest.TestCase):
             self.assertEqual(advice.external_evidence[0].source, "tushare")
             self.assertEqual(advice.external_evidence[0].category, "fundamental")
             self.assertEqual(advice.missing_data_warnings, ["新闻/公告未接入/数据不足。"])
-            self.assertEqual([report.analyst_key for report in advice.analyst_reports], ["technical", "fundamental"])
-            self.assertEqual(advice.analyst_reports[0].summary, "技术面转强。")
+            self.assertEqual([report.analyst_key for report in advice.analyst_reports], ["fundamental", "technical"])
+            self.assertEqual(advice.analyst_reports[1].summary, "技术面转强。")
+            self.assertEqual(advice.execution_mode, "local_snapshot_mode")
+            self.assertEqual(advice.source_label, "TradingAgents 本地快照模式")
+            self.assertEqual([section.section_key for section in advice.report_sections], [
+                "fundamental",
+                "news",
+                "sentiment",
+                "technical",
+                "sector",
+                "risk",
+                "conclusion",
+            ])
             self.assertEqual(advice.report_markdown, "# Agent Report\n\nDetailed advisory.\n")
             self.assertEqual([artifact.artifact_type for artifact in advice.artifacts], ["decision_json", "final_report"])
 
@@ -181,6 +193,9 @@ class DailyReportTest(unittest.TestCase):
             self.assertIn("支持依据", markdown)
             self.assertIn("score is strong", markdown)
             self.assertIn("风险提示", markdown)
+            self.assertIn("中文结构化报告", markdown)
+            self.assertIn("运行模式：local_snapshot_mode", markdown)
+            self.assertIn("### 板块位置", markdown)
             self.assertIn("数据覆盖", markdown)
             self.assertIn("外部证据", markdown)
             self.assertIn("未接入/缺失", markdown)
@@ -190,7 +205,8 @@ class DailyReportTest(unittest.TestCase):
             self.assertEqual(payload["agent_advice"]["external_data_coverage"]["news"], "unavailable")
             self.assertEqual(payload["agent_advice"]["external_evidence"][0]["source"], "tushare")
             self.assertEqual(payload["agent_advice"]["missing_data_warnings"], ["新闻/公告未接入/数据不足。"])
-            self.assertEqual(payload["agent_advice"]["analyst_reports"][1]["analyst_name"], "基本面")
+            self.assertEqual(payload["agent_advice"]["analyst_reports"][0]["analyst_name"], "基本面")
+            self.assertEqual(payload["agent_advice"]["report_sections"][4]["section_name"], "板块位置")
             self.assertEqual(payload["agent_advice"]["artifacts"][1]["artifact_type"], "final_report")
             self.assertNotIn("path", payload["agent_advice"]["artifacts"][1])
 
@@ -373,6 +389,7 @@ class DailyReportTest(unittest.TestCase):
                             "news": "unavailable",
                             "sentiment": "partial",
                             "technical": "available",
+                            "sector": "unavailable",
                         },
                         "candidate": {
                             "ts_code": "000001.SZ",
@@ -438,6 +455,11 @@ class DailyReportTest(unittest.TestCase):
                 json.dumps(["gap risk"], ensure_ascii=False),
                 json.dumps(
                     {
+                        "execution_source": {
+                            "mode": "local_snapshot_mode",
+                            "source_label": "TradingAgents 本地快照模式",
+                            "agent_system": "TradingAgents",
+                        },
                         "supporting_points": ["fallback"],
                         "risk_points": ["fallback"],
                         "analyst_reports": {
@@ -452,6 +474,65 @@ class DailyReportTest(unittest.TestCase):
                                 "summary": "基本面数据有限。",
                                 "supporting_points": ["市值适中"],
                                 "risk_points": ["缺少财报快照"],
+                            },
+                        },
+                        "report_sections": {
+                            "fundamental": {
+                                "section_name": "基本面",
+                                "status": "partial",
+                                "source_label": "TradingAgents 本地快照模式；来源：daily_basic_snapshots",
+                                "summary": "基本面数据有限。",
+                                "supporting_points": ["市值适中"],
+                                "risk_points": ["缺少财报快照"],
+                            },
+                            "news": {
+                                "section_name": "新闻",
+                                "status": "unavailable",
+                                "source_label": "TradingAgents 本地快照模式；来源未接入/数据不足",
+                                "summary": "新闻数据源未接入/数据不足。",
+                                "supporting_points": [],
+                                "risk_points": ["新闻缺少真实输入，不能编造相关证据。"],
+                            },
+                            "sentiment": {
+                                "section_name": "情绪",
+                                "status": "partial",
+                                "source_label": "TradingAgents 本地快照模式；来源：market-derived",
+                                "summary": "市场行为推断情绪偏热。",
+                                "supporting_points": ["放量"],
+                                "risk_points": ["拥挤"],
+                            },
+                            "technical": {
+                                "section_name": "技术/量价",
+                                "status": "available",
+                                "source_label": "TradingAgents 本地快照模式；来源：market_bars",
+                                "source_refs": ["market_diagnostic_bars:yfinance:000001.SZ:20260504"],
+                                "summary": "技术面转强。",
+                                "supporting_points": ["放量突破"],
+                                "risk_points": ["高开回落"],
+                            },
+                            "sector": {
+                                "section_name": "板块位置",
+                                "status": "unavailable",
+                                "source_label": "TradingAgents 本地快照模式；来源未接入/数据不足",
+                                "summary": "板块位置数据源未接入/数据不足。",
+                                "supporting_points": [],
+                                "risk_points": ["板块位置缺少真实输入，不能编造相关证据。"],
+                            },
+                            "risk": {
+                                "section_name": "风险",
+                                "status": "available",
+                                "source_label": "TradingAgents 本地快照模式；综合结构化复核输出",
+                                "summary": "需要关注高开回落。",
+                                "supporting_points": [],
+                                "risk_points": ["gap risk"],
+                            },
+                            "conclusion": {
+                                "section_name": "结论",
+                                "status": "available",
+                                "source_label": "TradingAgents 本地快照模式；综合结构化复核输出",
+                                "summary": "Agent supports the plan.",
+                                "supporting_points": ["score is strong"],
+                                "risk_points": ["gap risk"],
                             },
                         },
                     },

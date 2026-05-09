@@ -56,7 +56,7 @@ class ImportMarketExternalDataResult:
     would_insert_count: int
     inserted_count: int
     duplicate_count: int
-    coverage_summary: dict[str, str]
+    coverage_summary: dict[str, Any]
     market_external_item_ids: list[int] = field(default_factory=list)
     invalid_records: list[MarketExternalDataValidationIssue] = field(default_factory=list)
 
@@ -83,6 +83,7 @@ class _CoverageItem:
     scope_type: str
     item_type: str
     sentiment: str
+    published_date: str
 
 
 class MarketExternalDataService:
@@ -125,7 +126,7 @@ class MarketExternalDataService:
         would_insert_count, duplicate_count = (0, 0)
         if prepared:
             would_insert_count, duplicate_count = _preview_inserts(self.db_path, prepared)
-        coverage_summary = self._coverage_for_import(as_of_date, prepared)
+        coverage_summary = self._coverage_for_import(as_of_date, prepared, duplicate_count=duplicate_count)
 
         if invalid_records:
             return _validation_failed_result(
@@ -195,17 +196,22 @@ class MarketExternalDataService:
         if compact_date is None or not _is_yyyymmdd(compact_date):
             return _empty_coverage_summary()
         with connect(self.db_path) as conn:
-            return build_market_external_coverage_summary(_load_coverage_items(conn, compact_date))
+            return build_market_external_coverage_summary(_load_coverage_items(conn, compact_date), compact_date)
 
     def _coverage_for_import(
         self,
         as_of_date: str,
         prepared: Sequence[_PreparedMarketExternalItem],
-    ) -> dict[str, str]:
+        *,
+        duplicate_count: int = 0,
+    ) -> dict[str, Any]:
         with connect(self.db_path) as conn:
             items = _load_coverage_items(conn, as_of_date)
-        items.extend(_CoverageItem(item.scope_type, item.item_type, item.sentiment) for item in prepared)
-        return build_market_external_coverage_summary(items)
+        items.extend(
+            _CoverageItem(item.scope_type, item.item_type, item.sentiment, item.published_date)
+            for item in prepared
+        )
+        return build_market_external_coverage_summary(items, as_of_date, duplicate_count=duplicate_count)
 
 
 def build_market_external_source_hash(
@@ -231,7 +237,12 @@ def build_market_external_source_hash(
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def build_market_external_coverage_summary(items: Sequence[_CoverageItem]) -> dict[str, str]:
+def build_market_external_coverage_summary(
+    items: Sequence[_CoverageItem],
+    as_of_date: str,
+    *,
+    duplicate_count: int = 0,
+) -> dict[str, Any]:
     has_market = any(item.scope_type == "market" for item in items)
     has_sector = any(item.scope_type == "sector" for item in items)
     has_stock = any(item.scope_type == "stock" for item in items)
@@ -253,6 +264,8 @@ def build_market_external_coverage_summary(items: Sequence[_CoverageItem]) -> di
         "stock": "partial" if has_stock else "missing",
         "sentiment": sentiment_status,
         "news": "available" if has_news else "missing",
+        "duplicates": "duplicate" if duplicate_count else "none",
+        "freshness": _freshness_summary(items, as_of_date),
     }
 
 
@@ -362,6 +375,7 @@ def _prepare_record(
     item_type = _required_text(record, index, "item_type", issues)
     provider = _required_text(record, index, "provider", issues)
     published_date = _optional_date(record, index, "published_date", issues, required=True)
+    source_hash = _required_text(record, index, "source_hash", issues)
     title = _required_text(record, index, "title", issues)
     summary = _required_text(record, index, "summary", issues)
 
@@ -432,6 +446,26 @@ def _prepare_record(
     )
     metadata_json = _metadata_json(record, index, issues)
 
+    expected_source_hash: str | None = None
+    if provider and scope_type and scope_key and published_date and title and summary:
+        expected_source_hash = build_market_external_source_hash(
+            provider=provider,
+            scope_type=scope_type,
+            scope_key=scope_key,
+            published_date=published_date,
+            title=title,
+            summary=summary,
+        )
+        if source_hash and source_hash != expected_source_hash:
+            issues.append(
+                MarketExternalDataValidationIssue(
+                    index=index,
+                    field="source_hash",
+                    code="SOURCE_HASH_MISMATCH",
+                    message="source_hash does not match provider, scope, date, title, and summary.",
+                )
+            )
+
     if issues:
         return None, issues
 
@@ -440,16 +474,10 @@ def _prepare_record(
     assert item_type is not None
     assert provider is not None
     assert published_date is not None
+    assert source_hash is not None
     assert title is not None
     assert summary is not None
-    source_hash = build_market_external_source_hash(
-        provider=provider,
-        scope_type=scope_type,
-        scope_key=scope_key,
-        published_date=published_date,
-        title=title,
-        summary=summary,
-    )
+    assert expected_source_hash is not None
     return (
         _PreparedMarketExternalItem(
             as_of_date=as_of_date,
@@ -464,7 +492,7 @@ def _prepare_record(
             importance=importance,
             published_date=published_date,
             metadata_json=metadata_json,
-            source_hash=source_hash,
+            source_hash=expected_source_hash,
         ),
         [],
     )
@@ -748,7 +776,7 @@ def _insert_external_item(conn: sqlite3.Connection, item: _PreparedMarketExterna
 def _load_coverage_items(conn: sqlite3.Connection, as_of_date: str) -> list[_CoverageItem]:
     rows = conn.execute(
         """
-        SELECT scope_type, item_type, sentiment
+        SELECT scope_type, item_type, sentiment, published_date
         FROM market_external_items
         WHERE as_of_date = ? AND published_date <= ?
         """,
@@ -759,19 +787,47 @@ def _load_coverage_items(conn: sqlite3.Connection, as_of_date: str) -> list[_Cov
             scope_type=str(row["scope_type"]),
             item_type=str(row["item_type"]),
             sentiment=str(row["sentiment"]),
+            published_date=str(row["published_date"]),
         )
         for row in rows
     ]
 
 
-def _empty_coverage_summary() -> dict[str, str]:
+def _empty_coverage_summary() -> dict[str, Any]:
     return {
         "market": "missing",
         "sector": "missing",
         "stock": "missing",
         "sentiment": "missing",
         "news": "missing",
+        "duplicates": "none",
+        "freshness": {
+            "market": "missing",
+            "sector": "missing",
+            "stock": "missing",
+        },
     }
+
+
+def _freshness_summary(items: Sequence[_CoverageItem], as_of_date: str) -> dict[str, str]:
+    return {
+        scope_type: _freshness_for_scope(
+            [item for item in items if item.scope_type == scope_type],
+            as_of_date,
+        )
+        for scope_type in ("market", "sector", "stock")
+    }
+
+
+def _freshness_for_scope(items: Sequence[_CoverageItem], as_of_date: str) -> str:
+    if not items:
+        return "missing"
+    fresh_count = sum(1 for item in items if item.published_date == as_of_date)
+    if fresh_count == len(items):
+        return "fresh"
+    if fresh_count == 0:
+        return "stale"
+    return "partial"
 
 
 def _validation_failed_result(
@@ -782,7 +838,7 @@ def _validation_failed_result(
     valid_items: list[_PreparedMarketExternalItem],
     invalid_records: list[MarketExternalDataValidationIssue],
     errors: list[ServiceError],
-    coverage_summary: dict[str, str],
+    coverage_summary: dict[str, Any],
     would_insert_count: int = 0,
     duplicate_count: int = 0,
 ) -> ServiceResult[ImportMarketExternalDataResult]:

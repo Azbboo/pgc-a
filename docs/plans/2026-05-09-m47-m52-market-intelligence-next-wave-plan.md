@@ -16,6 +16,7 @@
 - Latest deployed release: `pgc-v0.1.0-20260509-m41b-m46`
 - Remote migration state: `012_market_review`, `pending_migrations=none`
 - M41B/M42/M45/M46 are done and deployed.
+- M47/M48/M49/M50 are implemented and locally verified; they are not yet committed, pushed, or deployed in this batch.
 - M46 systemd timer is previewed but not enabled.
 - Full-market review is advisory only.
 
@@ -32,12 +33,30 @@
 
 | Track | Task | Status | Can Run In Parallel? | Depends On | Suggested Session |
 | --- | --- | --- | --- | --- | --- |
-| M47A | Evidence import and coverage contract | Next | Yes | M43 source policy, M41A read APIs | Session A |
-| M48A | Full-market Dashboard interaction upgrade | Next | Yes | M41B full-market tab | Session B |
-| M49A | TradingAgents Chinese structured report | Next | Yes | M15/M26 agent bridge, external evidence cache | Session C |
-| M50A | Strategy hypothesis validation loop | Next | Yes | M44 backtest bridge, M40 hypotheses | Session D |
+| M47A | Evidence import and coverage contract | Done / Local verification | Yes | M43 source policy, M41A read APIs | Session A |
+| M48A | Full-market Dashboard interaction upgrade | Done / Local verification | Yes | M41B full-market tab | Session B |
+| M49A | TradingAgents Chinese structured report | Done / Local verification | Yes | M15/M26 agent bridge, external evidence cache | Session C |
+| M50A | Strategy hypothesis validation loop | Done / Local verification | Yes | M44 backtest bridge, M40 hypotheses | Session D |
 | M51 | Review timeline and cross-day comparison | Next | After M47/M48 data shape stabilizes | M12 history, M41B market page | Follow-up |
 | M52 | Scheduled pipeline activation and ops monitor | Next | After M47/M49 evidence gates are stable | M46 timer installer | Ops follow-up |
+
+## M47-M50 Local Verification Record
+
+Verified on 2026-05-09:
+
+```bash
+PYTHONPATH=src:. pytest -q tests/test_market_external_data_service.py tests/test_market_review_service.py tests/test_cli_market_review.py tests/test_dashboard_static.py tests/test_tradingagents_adapter.py tests/test_agent_review_service.py tests/test_daily_report.py tests/test_strategy_evolution_service.py tests/test_strategy_hypothesis_backtest_service.py
+# 70 passed, 1 skipped, 3 subtests passed
+
+node --check web/dashboard/app.js
+git diff --check
+python3 -m py_compile src/pgc_trading/agents/tradingagents_adapter.py src/pgc_trading/cli/main.py src/pgc_trading/reporting/daily_report.py src/pgc_trading/services/agent_review_service.py src/pgc_trading/services/market_external_data_service.py src/pgc_trading/services/market_review_service.py src/pgc_trading/services/strategy_evolution_service.py src/pgc_trading/services/strategy_hypothesis_backtest_service.py
+
+PYTHONPATH=src:. pytest -q
+# 334 passed, 3 skipped, 10 subtests passed
+```
+
+Release status: local only. Commit, push, deploy, and remote health remain separate follow-up actions.
 
 ## M47: Data Evidence Closed Loop
 

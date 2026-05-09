@@ -299,18 +299,28 @@ class DashboardStaticTest(unittest.TestCase):
             "系统复盘原始数据",
             "外部证据",
             "中文复核报告",
+            "TradingAgents 中文结构化报告",
+            "输出来源",
+            "TradingAgents 本地快照模式",
+            "TradingAgents 外部图模式",
+            "TradingAgents 不可用 fallback",
             "来源边界 source_refs",
             "数据覆盖 external_data_coverage",
             "Agent 是否影响交易计划：否，仅供参考",
             "未接入/缺失",
             "未接入/数据不足",
-            "技术面",
             "基本面",
-            "新闻面",
-            "情绪面",
+            "新闻",
+            "情绪",
+            "技术/量价",
+            "板块位置",
+            "风险",
+            "结论",
             "不会自动发布、取消或记录成交，也不会向券商执行",
         ]:
             self.assertIn(label, source)
+        self.assertIn("function renderAgentStructuredSections", source)
+        self.assertIn("function normalizedAgentReportSections", source)
         self.assertIn("function renderAgentSourceRefs", source)
         self.assertIn("function renderAgentCoverage", source)
         self.assertIn("function renderAgentEvidence", source)
@@ -320,12 +330,16 @@ class DashboardStaticTest(unittest.TestCase):
         self.assertIn("advice.external_data_coverage", source)
         self.assertIn("advice.external_evidence", source)
         self.assertIn("advice.missing_data_warnings", source)
+        self.assertIn("advice.report_sections", source)
+        self.assertIn("advice.source_label", source)
         self.assertIn("agent_external_items:", source)
         self.assertIn("market_diagnostic_bars:", source)
+        self.assertIn("sector_constituents:", source)
         self.assertIn("advice.source_refs", source)
         self.assertIn("agent-source-boundary", source)
         self.assertIn("agent-coverage", source)
         self.assertIn("agent-evidence", source)
+        self.assertIn("agent-structured-report", source)
 
     def test_dashboard_m41b_full_market_view_is_read_only_and_traceable(self) -> None:
         source = "\n".join(
@@ -383,6 +397,55 @@ class DashboardStaticTest(unittest.TestCase):
         self.assertNotIn("POST /api/market-reviews", source)
         self.assertNotIn('apiRequest("/api/market-reviews", { method: "POST"', script)
         self.assertNotIn("market-review write", source.lower())
+
+    def test_dashboard_m48_market_interactions_are_read_only_and_cross_day(self) -> None:
+        source = "\n".join(
+            [
+                (DASHBOARD_DIR / "index.html").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "styles.css").read_text(encoding="utf-8"),
+            ]
+        )
+        script = (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8")
+
+        for label in [
+            "上一全市场",
+            "下一全市场",
+            "最新全市场",
+            "跟随复盘日",
+            "全市场历史",
+            "相关明日计划",
+            "source_hash",
+            "source metadata",
+            "计划详情",
+        ]:
+            self.assertIn(label, source)
+        for html_id in [
+            'id="marketReviewDateInput" type="date"',
+            'id="marketPrevDateButton"',
+            'id="marketNextDateButton"',
+            'id="marketLatestDateButton"',
+            'id="marketFollowReviewDateButton"',
+            'id="marketHistoryStrip"',
+        ]:
+            self.assertIn(html_id, source)
+        for fn_name in [
+            "function setMarketReviewDate",
+            "function marketReviewDate",
+            "function renderMarketHistoryStrip",
+            "function adjacentMarketReviewDate",
+            "function renderMarketLinkedPlan",
+            "function marketPlanForContext",
+            "function onMarketPlanContextClick",
+            "function itemTypeText",
+            "function importanceText",
+        ]:
+            self.assertIn(fn_name, source)
+        self.assertIn('data-market-history-date="${escapeHtml(date)}"', source)
+        self.assertIn('data-market-plan-action="detail"', source)
+        self.assertIn('localStorage.setItem("pgc.dashboard.marketAsOfDate"', source)
+        self.assertNotIn("POST /api/market-reviews", source)
+        self.assertNotIn('apiRequest("/api/market-reviews", { method: "POST"', script)
 
     def test_dashboard_p1_cancel_and_execution_guardrails_are_visible(self) -> None:
         source = "\n".join(

@@ -114,10 +114,12 @@ class AgentReviewServiceTest(unittest.TestCase):
             self.assertEqual(snapshot["candidate"]["analysis_contexts"]["fundamental"]["status"], "unavailable")
             self.assertEqual(snapshot["candidate"]["analysis_contexts"]["news"]["status"], "unavailable")
             self.assertEqual(snapshot["candidate"]["analysis_contexts"]["sentiment"]["status"], "partial")
+            self.assertEqual(snapshot["candidate"]["analysis_contexts"]["sector"]["status"], "unavailable")
             evidence_context = snapshot["candidate"]["evidence_context"]
             self.assertEqual(evidence_context["system_review_facts"]["label"], "系统确定性复盘事实")
             self.assertEqual(evidence_context["cached_technical_data"]["label"], "缓存技术数据")
             self.assertEqual(evidence_context["cached_fundamental_data"]["status"], "unavailable")
+            self.assertEqual(evidence_context["cached_sector_context"]["label"], "缓存板块位置")
             self.assertTrue(any("新闻/公告未接入/数据不足" in item for item in evidence_context["missing_data_warnings"]))
             self.assertIn("外部证据不直接改变交易计划。", evidence_context["source_boundary"])
             self.assertEqual(
@@ -125,6 +127,7 @@ class AgentReviewServiceTest(unittest.TestCase):
                 {
                     "fundamental": "unavailable",
                     "news": "unavailable",
+                    "sector": "unavailable",
                     "sentiment": "partial",
                     "technical": "available",
                 },
@@ -135,6 +138,8 @@ class AgentReviewServiceTest(unittest.TestCase):
             self.assertEqual(config.deep_think_llm, "deepseek-v4-pro")
             self.assertEqual(config.quick_think_llm, "deepseek-v4-pro")
             self.assertEqual(config.max_debate_rounds, 3)
+            self.assertIsNone(result.data.execution_mode)
+            self.assertIsNone(result.data.source_label)
             self.assertTrue(str(paths.results_dir).startswith(str(root)))
             self.assertTrue(result.data.artifact_paths)
             for artifact_path in result.data.artifact_paths:
@@ -191,6 +196,7 @@ class AgentReviewServiceTest(unittest.TestCase):
                 {
                     "fundamental": "partial",
                     "news": "available",
+                    "sector": "unavailable",
                     "sentiment": "partial",
                     "technical": "available",
                 },

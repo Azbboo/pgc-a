@@ -7,6 +7,7 @@ from pathlib import Path
 
 from pgc_trading.services.common import RequestContext
 from pgc_trading.services.market_review_service import (
+    ListMarketReviewExternalItemsRequest,
     MarketReviewService,
     RunMarketReviewRequest,
 )
@@ -165,6 +166,49 @@ class MarketReviewServiceTest(unittest.TestCase):
                 self.assertEqual(self._count(conn, "market_review_runs"), 1)
                 self.assertEqual(self._count(conn, "sector_daily_snapshots"), 2)
                 self.assertEqual(self._count(conn, "sector_constituents"), 7)
+
+    def test_external_item_read_payload_reports_scope_freshness_and_hash_coverage(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._migrated_db(tmp)
+            with sqlite3.connect(db_path) as conn:
+                conn.execute(
+                    """
+                    INSERT INTO market_review_runs
+                      (as_of_date, status, provider_manifest_json, coverage_json, summary_json, completed_at)
+                    VALUES
+                      (?, 'completed', '{}', '{}', '{}', CURRENT_TIMESTAMP)
+                    """,
+                    (AS_OF_DATE,),
+                )
+                conn.execute(
+                    """
+                    INSERT INTO market_external_items
+                      (
+                        as_of_date, scope_type, scope_key, item_type, provider, title, summary,
+                        sentiment, importance, published_date, source_hash
+                      )
+                    VALUES
+                      (?, 'market', 'A_SHARE', 'policy', 'manual_fixture', '市场政策', '政策摘要',
+                       'neutral', 'medium', ?, 'hash-market'),
+                      (?, 'sector', 'PHARMA_PACKAGING', 'news', 'manual_fixture', '板块新闻', '板块摘要',
+                       'positive', 'medium', '20260507', 'hash-sector')
+                    """,
+                    (AS_OF_DATE, AS_OF_DATE, AS_OF_DATE),
+                )
+
+            result = MarketReviewService(db_path).list_market_review_external_items(
+                ListMarketReviewExternalItemsRequest(as_of_date=AS_OF_DATE),
+                RequestContext(request_id="req-external-items", dry_run=True),
+            )
+
+            self.assertTrue(result.ok)
+            self.assertEqual(result.data["coverage"]["scope"]["market"], "available")
+            self.assertEqual(result.data["coverage"]["scope"]["sector"], "partial")
+            self.assertEqual(result.data["coverage"]["scope"]["stock"], "missing")
+            self.assertEqual(result.data["coverage"]["freshness"]["market"], "fresh")
+            self.assertEqual(result.data["coverage"]["freshness"]["sector"], "stale")
+            self.assertEqual(result.data["coverage"]["freshness"]["stock"], "missing")
+            self.assertEqual(result.data["coverage"]["source_hash"], "available")
 
     def _migrated_db(self, tmp: str) -> Path:
         db_path = Path(tmp) / "pgc.db"

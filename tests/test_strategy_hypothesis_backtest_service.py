@@ -44,6 +44,7 @@ class StrategyHypothesisBacktestServiceTest(unittest.TestCase):
             self.assertFalse(result.data.wrote_artifact)
             self.assertIsNone(result.data.artifact_path)
             self.assertFalse(result.data.active_params_mutated)
+            self.assertFalse(result.data.recorded_hypothesis_validation)
             self.assertFalse((reports_dir / "strategy_hypothesis_backtests").exists())
             self.assertEqual(_strategy_param_file_contents(), params_before)
             self.assertEqual(_count_rows(db_path, "strategy_versions"), strategy_versions_before)
@@ -55,6 +56,10 @@ class StrategyHypothesisBacktestServiceTest(unittest.TestCase):
             self.assertEqual(artifact["backtest_request"]["task_key"], f"strategy-hypothesis:{hypothesis_id}:backtest")
             self.assertTrue(artifact["backtest_request"]["proposed_change"]["requires_replay_backtest"])
             self.assertFalse(artifact["backtest_request"]["proposed_change"]["mutates_active_params"])
+            self.assertEqual(
+                artifact["validation_gate"]["required_before_acceptance"],
+                ["validation_evidence_ids", "backtest_request_artifact"],
+            )
             self.assertFalse(artifact["safety"]["active_params_mutated"])
             self.assertTrue(artifact["safety"]["requires_replay_before_param_change"])
 
@@ -78,11 +83,16 @@ class StrategyHypothesisBacktestServiceTest(unittest.TestCase):
             self.assertIsNotNone(result.data)
             assert result.data is not None
             self.assertTrue(result.data.wrote_artifact)
+            self.assertTrue(result.data.recorded_hypothesis_validation)
             self.assertIsNotNone(result.data.artifact_path)
             assert result.data.artifact_path is not None
             artifact_path = Path(result.data.artifact_path)
             self.assertTrue(artifact_path.exists())
             self.assertEqual(json.loads(artifact_path.read_text(encoding="utf-8")), result.data.artifact)
+            validation = _hypothesis_validation(db_path, hypothesis_id)
+            self.assertIn(str(artifact_path), validation["backtest_artifacts"])
+            self.assertIn(f"strategy_hypothesis:{hypothesis_id}", validation["evidence_ids"])
+            self.assertEqual(validation["backtest_task_key"], f"strategy-hypothesis:{hypothesis_id}:backtest")
             self.assertEqual(_strategy_param_file_contents(), params_before)
             self.assertEqual(_count_rows(db_path, "strategy_versions"), strategy_versions_before)
 
@@ -179,6 +189,19 @@ def _insert_hypothesis(
 def _count_rows(db_path: Path, table: str) -> int:
     with sqlite3.connect(db_path) as conn:
         return int(conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+
+
+def _hypothesis_validation(db_path: Path, hypothesis_id: int) -> dict[str, Any]:
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT evidence_json FROM strategy_hypotheses WHERE id = ?",
+            (hypothesis_id,),
+        ).fetchone()
+    assert row is not None
+    evidence = json.loads(row[0])
+    validation = evidence.get("validation")
+    assert isinstance(validation, dict)
+    return validation
 
 
 def _strategy_param_file_contents() -> dict[Path, str]:

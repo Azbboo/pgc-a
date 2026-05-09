@@ -46,6 +46,8 @@ class AgentReviewResult:
     confidence: float | None
     risk_level: str | None
     summary: str | None
+    execution_mode: str | None = None
+    source_label: str | None = None
     artifact_paths: list[str] = field(default_factory=list)
 
 
@@ -111,6 +113,8 @@ class AgentReviewService:
                         confidence=None,
                         risk_level="unknown",
                         summary="dry-run only; no TradingAgents review was persisted",
+                        execution_mode="dry_run",
+                        source_label="dry-run preview",
                         artifact_paths=[],
                     ),
                     warnings=[
@@ -173,6 +177,8 @@ class AgentReviewService:
                     confidence=external_result.confidence,
                     risk_level=external_result.risk_level,
                     summary=external_result.summary,
+                    execution_mode=_execution_mode(external_result),
+                    source_label=_source_label(external_result),
                     artifact_paths=[str(path) for path in artifact_paths.values()],
                 )
                 _finish_operation(conn, operation_id, service_status, result, error_message)
@@ -257,6 +263,7 @@ def _load_candidate(conn: sqlite3.Connection, request: ReviewDailyPickRequest) -
     diagnostic_market = _load_diagnostic_market_context(conn, row["ts_code"], row["review_date"])
     external_items = _load_external_items(conn, row["ts_code"], row["review_date"])
     features = _json_loads(row["features_json"], {})
+    sector_context = _load_sector_position_context(conn, row["ts_code"], row["review_date"], features)
     market_summary = _market_summary(row["review_date"], recent_bars)
     open_positions = _open_positions_count(conn, account["id"])
     portfolio_context = {
@@ -275,6 +282,7 @@ def _load_candidate(conn: sqlite3.Connection, request: ReviewDailyPickRequest) -
     if daily_basic is not None:
         source_refs.append(f"daily_basic_snapshots:{row['ts_code']}:{daily_basic['trade_date']}")
     source_refs.extend(_diagnostic_market_refs(row["ts_code"], diagnostic_market))
+    source_refs.extend(_sector_context_refs(sector_context))
     source_refs.extend(f"agent_external_items:{item['id']}" for item in external_items)
     analysis_contexts = _build_analysis_contexts(
         ts_code=row["ts_code"],
@@ -284,6 +292,7 @@ def _load_candidate(conn: sqlite3.Connection, request: ReviewDailyPickRequest) -
         market_summary=market_summary,
         daily_basic=daily_basic,
         diagnostic_market=diagnostic_market,
+        sector_context=sector_context,
         external_items=external_items,
         portfolio_context=portfolio_context,
     )
@@ -321,6 +330,7 @@ def _load_candidate(conn: sqlite3.Connection, request: ReviewDailyPickRequest) -
         "daily_basic": daily_basic,
         "external_data": {
             "market_diagnostics": diagnostic_market,
+            "sector_context": sector_context,
             "items": _external_items_context(external_items),
         },
         "analysis_contexts": analysis_contexts,
@@ -492,6 +502,94 @@ def _load_external_items(conn: sqlite3.Connection, ts_code: str, as_of_date: str
     return items
 
 
+def _load_sector_position_context(
+    conn: sqlite3.Connection,
+    ts_code: str,
+    as_of_date: str,
+    features: dict[str, Any],
+) -> dict[str, Any]:
+    row = conn.execute(
+        """
+        SELECT
+          mrr.id AS market_review_run_id,
+          mrr.as_of_date,
+          sc.sector_code,
+          sc.sector_name,
+          sc.rank_in_sector,
+          sc.role,
+          sc.score,
+          sc.metrics_json AS constituent_metrics_json,
+          sds.provider,
+          sds.rank_overall,
+          sds.return_1d,
+          sds.return_3d,
+          sds.return_5d,
+          sds.return_10d,
+          sds.breadth_score,
+          sds.volume_score,
+          sds.persistence_score,
+          sds.leader_count,
+          sds.metrics_json AS sector_metrics_json
+        FROM sector_constituents sc
+        JOIN market_review_runs mrr ON mrr.id = sc.market_review_run_id
+        LEFT JOIN sector_daily_snapshots sds
+          ON sds.market_review_run_id = sc.market_review_run_id
+         AND sds.sector_code = sc.sector_code
+        WHERE sc.ts_code = ?
+          AND mrr.as_of_date <= ?
+          AND mrr.status = 'completed'
+        ORDER BY mrr.as_of_date DESC, sc.rank_in_sector IS NULL, sc.rank_in_sector
+        LIMIT 1
+        """,
+        (ts_code, as_of_date),
+    ).fetchone()
+    if row is not None:
+        return {
+            "status": "available",
+            "source": "sector_constituents and sector_daily_snapshots local cache",
+            "market_review_run_id": int(row["market_review_run_id"]),
+            "as_of_date": row["as_of_date"],
+            "sector_code": row["sector_code"],
+            "sector_name": row["sector_name"],
+            "rank_in_sector": row["rank_in_sector"],
+            "role": row["role"],
+            "score": row["score"],
+            "provider": row["provider"],
+            "rank_overall": row["rank_overall"],
+            "return_1d": row["return_1d"],
+            "return_3d": row["return_3d"],
+            "return_5d": row["return_5d"],
+            "return_10d": row["return_10d"],
+            "breadth_score": row["breadth_score"],
+            "volume_score": row["volume_score"],
+            "persistence_score": row["persistence_score"],
+            "leader_count": row["leader_count"],
+            "constituent_metrics": _json_loads(row["constituent_metrics_json"], {}),
+            "sector_metrics": _json_loads(row["sector_metrics_json"], {}),
+            "limitations": [
+                "板块位置来自已落库全市场复盘，不会改变交易计划。",
+                "若全市场复盘不是当日最新，只能作为背景复核。",
+            ],
+        }
+    industry = str(features.get("industry") or "").strip()
+    if industry:
+        return {
+            "status": "partial",
+            "source": "strategy feature industry hint; sector review cache not matched",
+            "industry": industry,
+            "note": f"{ts_code} 只有策略特征中的 industry={industry}，没有匹配到已落库板块排名。",
+            "limitations": [
+                "行业字段不是完整板块强弱排名。",
+                "缺少 sector_daily_snapshots / sector_constituents 交叉验证。",
+            ],
+        }
+    return {
+        "status": "unavailable",
+        "source": "sector_daily_snapshots",
+        "note": f"{ts_code} 在 {as_of_date} 前没有可用板块位置缓存。",
+    }
+
+
 def _market_summary(as_of_date: str, bars: list[dict[str, Any]]) -> dict[str, Any]:
     latest = bars[0] if bars else {}
     closes = [float(row["close"]) for row in reversed(bars) if row.get("close") is not None]
@@ -534,6 +632,7 @@ def _build_analysis_contexts(
     market_summary: dict[str, Any],
     daily_basic: dict[str, Any] | None,
     diagnostic_market: dict[str, Any],
+    sector_context: dict[str, Any],
     external_items: list[dict[str, Any]],
     portfolio_context: dict[str, Any],
 ) -> dict[str, Any]:
@@ -542,12 +641,13 @@ def _build_analysis_contexts(
         "fundamental": _fundamental_context(ts_code, name, review_date, features, daily_basic, external_items),
         "news": _news_context(ts_code, name, review_date, external_items),
         "sentiment": _sentiment_context(features, market_summary, daily_basic, portfolio_context, external_items),
+        "sector": _sector_context(ts_code, name, review_date, sector_context, external_items),
     }
 
 
 def _external_data_coverage(analysis_contexts: dict[str, Any]) -> dict[str, str]:
     coverage: dict[str, str] = {}
-    for key in ("fundamental", "news", "sentiment", "technical"):
+    for key in ("fundamental", "news", "sentiment", "technical", "sector"):
         context = analysis_contexts.get(key, {})
         status = context.get("status") if isinstance(context, dict) else None
         coverage[key] = status if status in {"available", "partial", "unavailable"} else "unavailable"
@@ -599,6 +699,10 @@ def _build_evidence_context(
             "label": "缓存情绪数据",
             **dict(analysis_contexts.get("sentiment", {})),
         },
+        "cached_sector_context": {
+            "label": "缓存板块位置",
+            **dict(analysis_contexts.get("sector", {})),
+        },
         "missing_data_warnings": _missing_data_warnings(analysis_contexts),
         "source_boundary": [
             "TradingAgents 只能引用本地快照中已经缓存的外部证据。",
@@ -615,8 +719,9 @@ def _missing_data_warnings(analysis_contexts: dict[str, Any]) -> list[str]:
         "fundamental": "基本面",
         "news": "新闻/公告",
         "sentiment": "情绪面",
+        "sector": "板块位置",
     }
-    for key in ("technical", "fundamental", "news", "sentiment"):
+    for key in ("technical", "fundamental", "news", "sentiment", "sector"):
         context = analysis_contexts.get(key, {})
         if not isinstance(context, dict):
             warnings.append(f"{labels[key]}未接入/数据不足。")
@@ -764,6 +869,37 @@ def _sentiment_context(
     }
 
 
+def _sector_context(
+    ts_code: str,
+    name: str,
+    review_date: str,
+    sector_context: dict[str, Any],
+    external_items: list[dict[str, Any]],
+) -> dict[str, Any]:
+    sector_items = _items_by_type(external_items, {"research_note", "risk_note"})
+    status = sector_context.get("status") if isinstance(sector_context, dict) else "unavailable"
+    if status == "available":
+        return {
+            **sector_context,
+            "external_items": sector_items,
+            "note": (
+                f"{ts_code} {name} 截至 {review_date} 有已落库板块位置："
+                f"{sector_context.get('sector_name')}，全市场排名 {sector_context.get('rank_overall')}。"
+            ),
+        }
+    if status == "partial":
+        return {
+            **sector_context,
+            "external_items": sector_items,
+        }
+    return {
+        "status": "unavailable",
+        "source": "sector_daily_snapshots",
+        "external_items": sector_items,
+        "note": f"{ts_code} {name} 截至 {review_date} 没有可用于 Agent 复核的板块位置缓存。",
+    }
+
+
 def _pick_existing(source: dict[str, Any], keys: list[str]) -> dict[str, Any]:
     return {key: source[key] for key in keys if key in source and source[key] is not None}
 
@@ -805,6 +941,21 @@ def _diagnostic_market_refs(ts_code: str, diagnostic_market: dict[str, Any]) -> 
         last_trade_date = provider.get("last_trade_date")
         if last_trade_date:
             refs.append(f"market_diagnostic_bars:{provider.get('provider')}:{ts_code}:{last_trade_date}")
+    return refs
+
+
+def _sector_context_refs(sector_context: dict[str, Any]) -> list[str]:
+    if not isinstance(sector_context, dict) or sector_context.get("status") != "available":
+        return []
+    run_id = sector_context.get("market_review_run_id")
+    sector_code = sector_context.get("sector_code")
+    as_of_date = sector_context.get("as_of_date")
+    refs: list[str] = []
+    if run_id is not None:
+        refs.append(f"market_review_runs:{run_id}")
+    if sector_code and as_of_date:
+        refs.append(f"sector_daily_snapshots:{sector_code}:{as_of_date}")
+        refs.append(f"sector_constituents:{sector_code}:{as_of_date}")
     return refs
 
 
@@ -930,8 +1081,14 @@ def _write_artifacts(
     prefix = paths.results_dir / f"agent_run_{agent_run_id:06d}"
     artifacts: dict[str, Path] = {}
     decision_path = prefix.with_name(f"{prefix.name}_decision.json")
-    decision_path.write_text(json.dumps(result.raw_decision, ensure_ascii=False, sort_keys=True, indent=2), encoding="utf-8")
+    structured_decision = dict(result.raw_decision)
+    raw_response = structured_decision.pop("raw_response", None)
+    decision_path.write_text(json.dumps(structured_decision, ensure_ascii=False, sort_keys=True, indent=2), encoding="utf-8")
     artifacts["decision_json"] = decision_path
+    if raw_response:
+        raw_response_path = prefix.with_name(f"{prefix.name}_raw_response.txt")
+        raw_response_path.write_text(str(raw_response), encoding="utf-8")
+        artifacts["raw_response"] = raw_response_path
     if result.raw_state is not None:
         raw_state_path = prefix.with_name(f"{prefix.name}_state.json")
         raw_state_path.write_text(json.dumps(result.raw_state, ensure_ascii=False, sort_keys=True, indent=2), encoding="utf-8")
@@ -982,7 +1139,10 @@ def _insert_agent_decision(
 ) -> int:
     raw_decision = dict(result.raw_decision)
     if "decision_json" in artifact_ids:
-        raw_decision["raw_output_ref"] = f"agent_artifacts:{artifact_ids['decision_json']}"
+        raw_decision["structured_summary_ref"] = f"agent_artifacts:{artifact_ids['decision_json']}"
+    if "raw_response" in artifact_ids:
+        raw_decision.pop("raw_response", None)
+        raw_decision["raw_response_ref"] = f"agent_artifacts:{artifact_ids['raw_response']}"
     cursor = conn.execute(
         """
         INSERT INTO agent_decisions
@@ -1094,6 +1254,21 @@ def _file_hash(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _execution_source(result: TradingAgentsExecutionResult) -> dict[str, Any]:
+    value = result.raw_decision.get("execution_source")
+    return value if isinstance(value, dict) else {}
+
+
+def _execution_mode(result: TradingAgentsExecutionResult) -> str | None:
+    mode = str(_execution_source(result).get("mode") or "").strip()
+    return mode or None
+
+
+def _source_label(result: TradingAgentsExecutionResult) -> str | None:
+    label = str(_execution_source(result).get("source_label") or "").strip()
+    return label or None
+
+
 def _json_loads(value: str | None, fallback: Any) -> Any:
     if value is None:
         return fallback
@@ -1112,5 +1287,7 @@ def _empty_result() -> AgentReviewResult:
         confidence=None,
         risk_level=None,
         summary=None,
+        execution_mode=None,
+        source_label=None,
         artifact_paths=[],
     )

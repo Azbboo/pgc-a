@@ -881,7 +881,8 @@ code {
   justify-content: flex-end;
 }
 
-.review-history-control {
+.review-history-control,
+.market-date-control {
   display: flex;
   align-items: end;
   flex-wrap: wrap;
@@ -891,6 +892,10 @@ code {
   border-radius: var(--radius);
   background: #fff;
   box-shadow: var(--shadow-soft);
+}
+
+.market-date-control {
+  max-width: 100%;
 }
 
 .review-scope-label {
@@ -1015,6 +1020,79 @@ code {
   min-width: 0;
 }
 
+.market-history-strip {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  box-shadow: var(--shadow-soft);
+}
+
+.market-history-strip .empty-state {
+  grid-column: 1 / -1;
+}
+
+.market-history-strip__label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.market-history-strip__items {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  overflow-x: auto;
+  padding-bottom: 1px;
+}
+
+.market-history-pill {
+  display: grid;
+  justify-items: start;
+  gap: 2px;
+  min-width: 132px;
+  min-height: 48px;
+  padding: 7px 9px;
+  border-color: var(--line);
+  background: var(--surface-soft);
+  box-shadow: none;
+}
+
+.market-history-pill:hover:not(:disabled),
+.market-history-pill.active {
+  transform: none;
+  border-color: rgba(93, 135, 255, 0.45);
+  background: var(--accent-soft);
+  color: var(--accent);
+  box-shadow: none;
+}
+
+.market-history-pill strong,
+.market-history-pill span {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+}
+
+.market-history-pill strong {
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.market-history-pill span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
 .market-regime-strip {
   display: grid;
   grid-template-columns: minmax(240px, 1.35fr) repeat(5, minmax(104px, 0.5fr));
@@ -1123,6 +1201,19 @@ code {
   gap: 10px;
 }
 
+.market-plan-context-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 0.72fr);
+  gap: 10px;
+  min-width: 0;
+}
+
+.market-context-main {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
 .market-context-card,
 .market-hypothesis-card {
   display: grid;
@@ -1169,6 +1260,63 @@ code {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.market-linked-plan {
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #dfe7ff;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.market-linked-plan--empty {
+  border-color: var(--line);
+  background: #fff;
+}
+
+.market-linked-plan > span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.market-linked-plan strong {
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.market-linked-plan p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.market-linked-plan dl {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 4px 8px;
+  margin: 0;
+}
+
+.market-linked-plan dt {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.market-linked-plan dd {
+  margin: 0;
+  min-width: 0;
+  color: var(--ink);
+  font-size: 12px;
   overflow-wrap: anywhere;
 }
 
@@ -1232,6 +1380,26 @@ code {
 .market-evidence-item dt,
 .market-evidence-item dd {
   min-width: 0;
+}
+
+.market-evidence-source {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding-top: 6px;
+  border-top: 1px dashed var(--line);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.market-evidence-source span,
+.market-evidence-source a,
+.market-evidence-source em {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .market-leadership-table table {
@@ -2080,7 +2248,8 @@ td > .empty-state {
 }
 
 .agent-detail-grid,
-.agent-analyst-grid {
+.agent-analyst-grid,
+.agent-structured-report__grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
@@ -2088,7 +2257,8 @@ td > .empty-state {
 }
 
 .agent-point-section,
-.agent-analyst-card {
+.agent-analyst-card,
+.agent-structured-section {
   min-width: 0;
   padding: 12px;
   border: 1px solid var(--line);
@@ -2097,7 +2267,9 @@ td > .empty-state {
 }
 
 .agent-point-section h3,
-.agent-artifacts h3 {
+.agent-artifacts h3,
+.agent-structured-report h3,
+.agent-structured-section h3 {
   margin: 0 0 8px;
   font-size: 13px;
   font-weight: 700;
@@ -2157,6 +2329,47 @@ td > .empty-state {
 .agent-analyst-points em {
   color: var(--muted);
   font-style: normal;
+}
+
+.agent-structured-report {
+  margin-top: 16px;
+}
+
+.agent-structured-report__head,
+.agent-structured-section__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.agent-section-source {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.agent-section-refs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.agent-section-points {
+  margin-top: 10px;
+}
+
+.agent-section-points span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.agent-section-points ul {
+  margin: 0;
+  padding-left: 18px;
 }
 
 .agent-artifacts {
@@ -2497,6 +2710,7 @@ td > .empty-state {
   .review-grid,
   .execution-grid,
   .market-layout,
+  .market-plan-context-pair,
   .split-panels,
   .record-layout {
     grid-template-columns: 1fr;
@@ -2649,13 +2863,15 @@ td > .empty-state {
   .confirm-summary,
   .readiness-steps,
   .workflow-guide__facts,
-    .agent-source-boundary,
-    .agent-coverage__grid,
-    .agent-detail-grid,
-    .agent-analyst-grid,
-    .paper-promotion-scorecard__grid,
-    .market-regime-strip,
-    .market-evidence-item dl {
+  .agent-source-boundary,
+  .agent-coverage__grid,
+  .agent-detail-grid,
+  .agent-analyst-grid,
+  .agent-structured-report__grid,
+  .paper-promotion-scorecard__grid,
+  .market-history-strip,
+  .market-regime-strip,
+  .market-evidence-item dl {
     grid-template-columns: 1fr;
   }
 

@@ -21,6 +21,20 @@ from pgc_trading.config import ROOT
 AGENT_ROOT = ROOT / "data" / "agents" / "tradingagents"
 
 
+REPORT_SECTION_ORDER = ("fundamental", "news", "sentiment", "technical", "sector", "risk", "conclusion")
+ANALYST_SECTION_ORDER = ("technical", "fundamental", "news", "sentiment", "sector")
+EVIDENCE_COVERAGE_KEYS = ("fundamental", "news", "sentiment", "technical", "sector")
+REPORT_SECTION_NAMES = {
+    "fundamental": "基本面",
+    "news": "新闻",
+    "sentiment": "情绪",
+    "technical": "技术/量价",
+    "sector": "板块位置",
+    "risk": "风险",
+    "conclusion": "结论",
+}
+
+
 @dataclass(frozen=True)
 class TradingAgentsPaths:
     results_dir: Path = AGENT_ROOT / "results"
@@ -128,7 +142,7 @@ class TradingAgentsRunner:
         as_of_date = _yyyymmdd_to_iso(str(snapshot["as_of_date"]))
         graph = graph_cls(analysts, config=default_config, debug=False)
         final_state, raw_decision = graph.propagate(ticker, as_of_date)
-        return parse_tradingagents_output(raw_decision, final_state)
+        return parse_tradingagents_output(raw_decision, final_state, config)
 
     def _run_local_snapshot_review(
         self,
@@ -173,15 +187,31 @@ def build_input_snapshot(candidate: dict, as_of_date: str, source_refs: list[str
     }
 
 
-def parse_tradingagents_output(raw_decision: Any, final_state: Any | None = None) -> TradingAgentsExecutionResult:
+def parse_tradingagents_output(
+    raw_decision: Any,
+    final_state: Any | None = None,
+    config: TradingAgentsRunConfig | None = None,
+) -> TradingAgentsExecutionResult:
     decision_text = _decision_text(raw_decision)
     action = _map_action(decision_text)
     risk_level = _map_risk_level(action, decision_text)
     summary = _summary_from_output(raw_decision, decision_text)
+    execution_source = _execution_source(config, "TradingAgents 外部图模式" if config else "TradingAgents 原始输出")
+    report_sections = _build_structured_report_sections(
+        parsed=raw_decision if isinstance(raw_decision, dict) else {},
+        analyst_reports={},
+        summary=summary,
+        supporting_points=[],
+        risk_points=[],
+        snapshot=None,
+        config=config,
+    )
     raw_decision_json = {
         "raw_decision": _json_safe(raw_decision),
         "mapped_action": action,
         "mapped_risk_level": risk_level,
+        "execution_source": execution_source,
+        "report_sections": report_sections,
     }
     return TradingAgentsExecutionResult(
         action=action,
@@ -193,7 +223,14 @@ def parse_tradingagents_output(raw_decision: Any, final_state: Any | None = None
         analyst_reports={},
         raw_decision=raw_decision_json,
         raw_state=_json_safe(final_state) if final_state is not None else None,
-        final_report=decision_text,
+        final_report=_format_local_snapshot_report(
+            summary,
+            report_sections,
+            [],
+            [],
+            decision_text,
+            execution_source,
+        ),
     )
 
 
@@ -207,6 +244,7 @@ def parse_local_snapshot_output(
     candidate = snapshot.get("candidate", {})
     analyst_reports: dict[str, dict[str, Any]] = {}
     external_data_coverage = _coverage_from_snapshot(snapshot)
+    execution_source = _execution_source(config, "TradingAgents 本地快照模式")
     if parse_failed:
         action = _map_action(response_text)
         risk_level = _map_risk_level(action, response_text)
@@ -230,10 +268,20 @@ def parse_local_snapshot_output(
         analyst_reports = _apply_snapshot_coverage_to_analyst_reports(analyst_reports, external_data_coverage)
 
     confidence = _normalize_confidence(parsed.get("confidence"))
+    report_sections = _build_structured_report_sections(
+        parsed=parsed,
+        analyst_reports=analyst_reports,
+        summary=summary,
+        supporting_points=supporting_points,
+        risk_points=risk_points,
+        snapshot=snapshot,
+        config=config,
+    )
     raw_decision = {
         "schema_version": "1.0",
         "agent_system": config.agent_system,
         "mode": config.mode,
+        "execution_source": execution_source,
         "llm_provider": config.llm_provider,
         "deep_think_llm": config.deep_think_llm,
         "quick_think_llm": config.quick_think_llm,
@@ -244,6 +292,7 @@ def parse_local_snapshot_output(
         "risk_level": risk_level,
         "summary": summary,
         "analyst_reports": analyst_reports,
+        "report_sections": report_sections,
         "external_data_coverage": external_data_coverage,
         "supporting_points": supporting_points,
         "risk_points": risk_points,
@@ -264,15 +313,23 @@ def parse_local_snapshot_output(
         raw_state={"snapshot": _json_safe(snapshot), "config": json.loads(config.to_json())},
         final_report=_format_local_snapshot_report(
             summary,
-            analyst_reports,
+            report_sections,
             supporting_points,
             risk_points,
             response_text,
+            execution_source,
         ),
     )
 
 
 def unavailable_result(message: str) -> TradingAgentsExecutionResult:
+    execution_source = {
+        "agent_system": "TradingAgents",
+        "mode": "unavailable_fallback",
+        "source_label": "TradingAgents 不可用 fallback",
+        "online_tools": False,
+    }
+    report_sections = _unavailable_report_sections(message, execution_source["source_label"])
     return TradingAgentsExecutionResult(
         action="no_opinion",
         confidence=None,
@@ -287,7 +344,17 @@ def unavailable_result(message: str) -> TradingAgentsExecutionResult:
             "action": "no_opinion",
             "risk_level": "unknown",
             "summary": message,
+            "execution_source": execution_source,
+            "report_sections": report_sections,
         },
+        final_report=_format_local_snapshot_report(
+            message,
+            report_sections,
+            [],
+            [message],
+            "",
+            execution_source,
+        ),
     )
 
 
@@ -345,7 +412,7 @@ def _build_local_snapshot_prompt(snapshot: dict[str, Any], config: TradingAgents
 系统确定性复盘事实、缓存技术数据、缓存基本面数据、缓存新闻/公告数据、
 缓存情绪数据、未接入/缺失警告。请优先使用这个分层来组织结论。
 
-请分别扮演技术面、基本面、新闻面、情绪面四个分析师，基于 snapshot.analysis_contexts
+请分别扮演技术/量价、基本面、新闻、情绪、板块位置五个分析师，基于 snapshot.analysis_contexts
 对应分区给出分析。若 external_data_coverage 标记某个分区为 unavailable，
 必须明确写出“数据源未接入/数据不足”，
 不要编造新闻、公告、社媒情绪或基本面事实。
@@ -384,7 +451,22 @@ JSON schema:
       "summary": "中文情绪面结论",
       "supporting_points": ["中文支持依据"],
       "risk_points": ["中文风险提示"]
+    }},
+    "sector": {{
+      "status": "available | partial | unavailable",
+      "summary": "中文板块位置结论",
+      "supporting_points": ["中文支持依据"],
+      "risk_points": ["中文风险提示"]
     }}
+  }},
+  "report_sections": {{
+    "fundamental": {{"summary": "中文基本面", "supporting_points": ["中文"], "risk_points": ["中文"]}},
+    "news": {{"summary": "中文新闻", "supporting_points": ["中文"], "risk_points": ["中文"]}},
+    "sentiment": {{"summary": "中文情绪", "supporting_points": ["中文"], "risk_points": ["中文"]}},
+    "technical": {{"summary": "中文技术/量价", "supporting_points": ["中文"], "risk_points": ["中文"]}},
+    "sector": {{"summary": "中文板块位置", "supporting_points": ["中文"], "risk_points": ["中文"]}},
+    "risk": {{"summary": "中文综合风险", "supporting_points": [], "risk_points": ["中文"]}},
+    "conclusion": {{"summary": "中文结论", "supporting_points": ["中文"], "risk_points": ["中文"]}}
   }},
   "supporting_points": ["来自快照的中文支持依据"],
   "risk_points": ["来自快照的中文风险提示"]
@@ -472,7 +554,7 @@ def _coverage_from_snapshot(snapshot: dict[str, Any]) -> dict[str, str]:
     if not isinstance(raw_coverage, dict):
         return {}
     coverage: dict[str, str] = {}
-    for key in ("fundamental", "news", "sentiment", "technical"):
+    for key in EVIDENCE_COVERAGE_KEYS:
         status = str(raw_coverage.get(key) or "").strip().lower()
         if status in {"available", "partial", "unavailable"}:
             coverage[key] = status
@@ -511,6 +593,7 @@ def _coverage_available_summary(key: str, status: str) -> str:
         "fundamental": "基本面",
         "news": "新闻面",
         "sentiment": "情绪面",
+        "sector": "板块位置",
     }.get(key, key)
     return f"{label}数据覆盖为{status}。"
 
@@ -521,6 +604,7 @@ def _coverage_unavailable_summary(key: str) -> str:
         "fundamental": "基本面",
         "news": "新闻面",
         "sentiment": "情绪面",
+        "sector": "板块位置",
     }.get(key, key)
     return f"{label}数据源未接入/数据不足。"
 
@@ -531,6 +615,7 @@ def _coverage_unavailable_risk(key: str) -> str:
         "fundamental": "基本面",
         "news": "新闻面",
         "sentiment": "情绪面",
+        "sector": "板块位置",
     }.get(key, key)
     return f"{label}缺少真实输入，不能编造相关证据。"
 
@@ -539,7 +624,7 @@ def _normalize_analyst_reports(value: Any) -> dict[str, dict[str, Any]]:
     if not isinstance(value, dict):
         return {}
     reports: dict[str, dict[str, Any]] = {}
-    for key in ("technical", "fundamental", "news", "sentiment"):
+    for key in ANALYST_SECTION_ORDER:
         report = value.get(key)
         if not isinstance(report, dict):
             continue
@@ -557,7 +642,7 @@ def _normalize_analyst_reports(value: Any) -> dict[str, dict[str, Any]]:
 
 def _aggregate_report_points(analyst_reports: dict[str, dict[str, Any]], field: str) -> list[str]:
     points: list[str] = []
-    for key in ("technical", "fundamental", "news", "sentiment"):
+    for key in ANALYST_SECTION_ORDER:
         report = analyst_reports.get(key, {})
         points.extend(_string_list(report.get(field)))
     return points[:8]
@@ -574,24 +659,211 @@ def _non_blank_or(value: Any, fallback: str) -> str:
     return normalized if normalized else fallback
 
 
+def _execution_source(config: TradingAgentsRunConfig | None, source_label: str) -> dict[str, Any]:
+    return {
+        "agent_system": config.agent_system if config else "TradingAgents",
+        "mode": config.mode if config else "unknown",
+        "source_label": source_label,
+        "llm_provider": config.llm_provider if config else None,
+        "deep_think_llm": config.deep_think_llm if config else None,
+        "quick_think_llm": config.quick_think_llm if config else None,
+        "online_tools": bool(config.online_tools) if config else None,
+    }
+
+
+def _build_structured_report_sections(
+    *,
+    parsed: Any,
+    analyst_reports: dict[str, dict[str, Any]],
+    summary: str,
+    supporting_points: list[str],
+    risk_points: list[str],
+    snapshot: dict[str, Any] | None,
+    config: TradingAgentsRunConfig | None,
+) -> dict[str, dict[str, Any]]:
+    raw_sections = parsed.get("report_sections") if isinstance(parsed, dict) else None
+    if not isinstance(raw_sections, dict) and isinstance(parsed, dict):
+        raw_sections = parsed.get("sections")
+    if not isinstance(raw_sections, dict):
+        raw_sections = {}
+    coverage = _coverage_from_snapshot(snapshot or {})
+
+    sections: dict[str, dict[str, Any]] = {}
+    for key in REPORT_SECTION_ORDER:
+        raw_section = raw_sections.get(key)
+        if not isinstance(raw_section, dict):
+            raw_section = analyst_reports.get(key, {}) if key in ANALYST_SECTION_ORDER else {}
+        sections[key] = _normalize_report_section(
+            key=key,
+            value=raw_section,
+            summary=summary,
+            supporting_points=supporting_points,
+            risk_points=risk_points,
+            coverage=coverage,
+            snapshot=snapshot,
+            config=config,
+        )
+    return sections
+
+
+def _normalize_report_section(
+    *,
+    key: str,
+    value: dict[str, Any],
+    summary: str,
+    supporting_points: list[str],
+    risk_points: list[str],
+    coverage: dict[str, str],
+    snapshot: dict[str, Any] | None,
+    config: TradingAgentsRunConfig | None,
+) -> dict[str, Any]:
+    status = str(value.get("status") or coverage.get(key) or "partial").strip().lower()
+    if key in {"risk", "conclusion"}:
+        status = "available"
+    elif status not in {"available", "partial", "unavailable"}:
+        status = "partial"
+
+    section_summary = _non_blank_or(value.get("summary"), _default_section_summary(key, summary, risk_points))
+    section_supporting = _string_list(value.get("supporting_points"))
+    section_risks = _string_list(value.get("risk_points"))
+
+    if key == "risk" and not section_risks:
+        section_risks = list(risk_points)
+    if key == "conclusion":
+        if not section_supporting:
+            section_supporting = list(supporting_points[:4])
+        if not section_risks:
+            section_risks = list(risk_points[:4])
+
+    if status == "unavailable":
+        section_summary = _coverage_unavailable_summary(key)
+        section_supporting = []
+        warning = _coverage_unavailable_risk(key)
+        if warning not in section_risks:
+            section_risks.append(warning)
+
+    return {
+        "section_key": key,
+        "section_name": REPORT_SECTION_NAMES[key],
+        "status": status,
+        "source_label": _section_source_label(key, snapshot, config),
+        "source_refs": _section_source_refs(key, snapshot),
+        "summary": section_summary,
+        "supporting_points": section_supporting,
+        "risk_points": section_risks,
+    }
+
+
+def _default_section_summary(key: str, summary: str, risk_points: list[str]) -> str:
+    if key == "risk":
+        return risk_points[0] if risk_points else "未返回独立风险段，需结合各分项风险人工复核。"
+    if key == "conclusion":
+        return summary
+    return "该分析维度没有返回摘要。"
+
+
+def _section_source_label(
+    key: str,
+    snapshot: dict[str, Any] | None,
+    config: TradingAgentsRunConfig | None,
+) -> str:
+    mode = config.mode if config else "unknown"
+    if mode == "local_snapshot_mode":
+        mode_label = "TradingAgents 本地快照模式"
+    elif mode == "external_graph_mode":
+        mode_label = "TradingAgents 外部图模式"
+    else:
+        mode_label = "TradingAgents 输出"
+    if key in {"risk", "conclusion"}:
+        return f"{mode_label}；综合结构化复核输出"
+    if not isinstance(snapshot, dict) and mode == "external_graph_mode":
+        return f"{mode_label}；来源：TradingAgents 原始输出/外部工具"
+
+    context = _analysis_context(snapshot, key)
+    source = str(context.get("source") or "").strip() if isinstance(context, dict) else ""
+    if source:
+        return f"{mode_label}；来源：{source}"
+    return f"{mode_label}；来源未接入/数据不足"
+
+
+def _analysis_context(snapshot: dict[str, Any] | None, key: str) -> dict[str, Any]:
+    if not isinstance(snapshot, dict):
+        return {}
+    candidate = snapshot.get("candidate")
+    if not isinstance(candidate, dict):
+        return {}
+    contexts = candidate.get("analysis_contexts")
+    if not isinstance(contexts, dict):
+        return {}
+    context = contexts.get(key)
+    return context if isinstance(context, dict) else {}
+
+
+def _section_source_refs(key: str, snapshot: dict[str, Any] | None) -> list[str]:
+    if not isinstance(snapshot, dict):
+        return []
+    refs = snapshot.get("source_refs")
+    source_refs = [str(ref) for ref in refs if str(ref).strip()] if isinstance(refs, list) else []
+    prefixes = {
+        "technical": ("market_bars:", "market_diagnostic_bars:", "strategy_signals:"),
+        "fundamental": ("daily_basic_snapshots:", "agent_external_items:"),
+        "news": ("agent_external_items:",),
+        "sentiment": ("agent_external_items:", "market_bars:", "daily_basic_snapshots:"),
+        "sector": ("market_review_runs:", "sector_daily_snapshots:", "sector_constituents:", "market_plan_contexts:"),
+    }.get(key)
+    if prefixes is None:
+        return source_refs[:12]
+    filtered = [ref for ref in source_refs if ref.startswith(prefixes)]
+    return filtered[:12]
+
+
+def _unavailable_report_sections(message: str, source_label: str) -> dict[str, dict[str, Any]]:
+    sections: dict[str, dict[str, Any]] = {}
+    for key in REPORT_SECTION_ORDER:
+        sections[key] = {
+            "section_key": key,
+            "section_name": REPORT_SECTION_NAMES[key],
+            "status": "unavailable" if key not in {"risk", "conclusion"} else "available",
+            "source_label": source_label,
+            "source_refs": [],
+            "summary": message if key in {"risk", "conclusion"} else _coverage_unavailable_summary(key),
+            "supporting_points": [],
+            "risk_points": [message] if key in {"risk", "conclusion"} else [_coverage_unavailable_risk(key)],
+        }
+    return sections
+
+
 def _format_local_snapshot_report(
     summary: str,
-    analyst_reports: dict[str, dict[str, Any]],
+    report_sections: dict[str, dict[str, Any]],
     supporting_points: list[str],
     risk_points: list[str],
     response_text: str,
+    execution_source: dict[str, Any],
 ) -> str:
-    lines = ["# TradingAgents 本地快照复核", "", summary]
-    for key, title in (
-        ("technical", "技术面"),
-        ("fundamental", "基本面"),
-        ("news", "新闻面"),
-        ("sentiment", "情绪面"),
-    ):
-        report = analyst_reports.get(key)
+    source_label = str(execution_source.get("source_label") or "TradingAgents 输出")
+    mode = str(execution_source.get("mode") or "unknown")
+    lines = [
+        "# TradingAgents 中文结构化复核",
+        "",
+        f"来源：{source_label}",
+        f"运行模式：{mode}",
+        "",
+        "## 结论摘要",
+        "",
+        summary,
+    ]
+    for key in REPORT_SECTION_ORDER:
+        report = report_sections.get(key)
         if not report:
             continue
-        lines.extend(["", f"## {title}", "", str(report.get("summary") or "无摘要。")])
+        title = str(report.get("section_name") or REPORT_SECTION_NAMES.get(key, key))
+        lines.extend(["", f"## {title}", "", f"来源：{report.get('source_label') or source_label}", ""])
+        source_refs = _string_list(report.get("source_refs"))
+        if source_refs:
+            lines.append(f"source_refs：{', '.join(source_refs)}")
+            lines.append("")
+        lines.append(str(report.get("summary") or "无摘要。"))
         report_supporting = _string_list(report.get("supporting_points"))
         if report_supporting:
             lines.extend(["", "支持依据：", *[f"- {point}" for point in report_supporting]])
@@ -602,7 +874,8 @@ def _format_local_snapshot_report(
         lines.extend(["", "## 综合支持依据", *[f"- {point}" for point in supporting_points]])
     if risk_points:
         lines.extend(["", "## 综合风险提示", *[f"- {point}" for point in risk_points]])
-    lines.extend(["", "## 原始输出", response_text])
+    if response_text:
+        lines.extend(["", "## 原始输出", response_text])
     return "\n".join(lines).strip() + "\n"
 
 

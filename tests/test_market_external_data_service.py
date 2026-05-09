@@ -44,6 +44,12 @@ class MarketExternalDataServiceTest(unittest.TestCase):
                     "stock": "partial",
                     "sentiment": "partial",
                     "news": "available",
+                    "duplicates": "none",
+                    "freshness": {
+                        "market": "fresh",
+                        "sector": "fresh",
+                        "stock": "fresh",
+                    },
                 },
             )
             with sqlite3.connect(db_path) as conn:
@@ -155,8 +161,61 @@ class MarketExternalDataServiceTest(unittest.TestCase):
                     "stock": "missing",
                     "sentiment": "missing",
                     "news": "missing",
+                    "duplicates": "none",
+                    "freshness": {
+                        "market": "missing",
+                        "sector": "missing",
+                        "stock": "missing",
+                    },
                 },
             )
+
+    def test_stale_and_duplicate_evidence_are_explicit_coverage_states(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._migrated_db(tmp)
+            service = MarketExternalDataService(db_path)
+
+            result = service.import_external_data(
+                ImportMarketExternalDataRequest(
+                    as_of_date="20260508",
+                    records=[
+                        self._record(published_date="20260507"),
+                        self._record(published_date="20260507"),
+                    ],
+                ),
+                RequestContext(request_id="test-market-external-stale-duplicate", dry_run=True, operator="tester"),
+            )
+
+            self.assertTrue(result.ok)
+            self.assertEqual(result.data.would_insert_count, 1)
+            self.assertEqual(result.data.duplicate_count, 1)
+            self.assertEqual(result.data.coverage_summary["duplicates"], "duplicate")
+            self.assertEqual(result.data.coverage_summary["freshness"]["market"], "stale")
+
+    def test_rejects_missing_or_mismatched_source_hash_without_partial_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._migrated_db(tmp)
+            service = MarketExternalDataService(db_path)
+
+            result = service.import_external_data(
+                ImportMarketExternalDataRequest(
+                    as_of_date="20260508",
+                    records=[
+                        self._record(source_hash="bad-hash"),
+                        self._record(title="缺少哈希", source_hash=None),
+                    ],
+                ),
+                RequestContext(request_id="test-market-external-source-hash", dry_run=False, operator="tester"),
+            )
+
+            self.assertFalse(result.ok)
+            self.assertEqual(result.status, "validation_failed")
+            self.assertEqual(
+                {error.code for error in result.errors},
+                {"SOURCE_HASH_MISMATCH", "REQUIRED_FIELD"},
+            )
+            with sqlite3.connect(db_path) as conn:
+                self.assertEqual(self._count(conn, "market_external_items"), 0)
 
     def test_rejects_fixture_date_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -208,6 +267,15 @@ class MarketExternalDataServiceTest(unittest.TestCase):
             "metadata": {"source_note": "unit test"},
         }
         record.update(overrides)
+        if "source_hash" not in overrides:
+            record["source_hash"] = build_market_external_source_hash(
+                provider=str(record["provider"]),
+                scope_type=str(record["scope_type"]),
+                scope_key=str(record["scope_key"]),
+                published_date=str(record["published_date"]),
+                title=str(record["title"]),
+                summary=str(record["summary"]),
+            )
         return record
 
     def _count(self, conn: sqlite3.Connection, table_name: str) -> int:

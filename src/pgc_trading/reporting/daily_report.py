@@ -170,6 +170,18 @@ class AgentAnalystReport:
 
 
 @dataclass(frozen=True)
+class AgentReportSection:
+    section_key: str
+    section_name: str
+    status: str
+    source_label: str
+    summary: str
+    supporting_points: list[str] = field(default_factory=list)
+    risk_points: list[str] = field(default_factory=list)
+    source_refs: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class AgentExternalEvidenceReport:
     source_ref: str
     source: str
@@ -191,6 +203,8 @@ class AgentAdviceReport:
     confidence: float | None
     summary: str | None
     note: str
+    execution_mode: str | None = None
+    source_label: str | None = None
     supporting_points: list[str] = field(default_factory=list)
     risk_points: list[str] = field(default_factory=list)
     source_refs: list[str] = field(default_factory=list)
@@ -198,6 +212,7 @@ class AgentAdviceReport:
     external_evidence: list[AgentExternalEvidenceReport] = field(default_factory=list)
     missing_data_warnings: list[str] = field(default_factory=list)
     analyst_reports: list[AgentAnalystReport] = field(default_factory=list)
+    report_sections: list[AgentReportSection] = field(default_factory=list)
     artifacts: list[AgentArtifactReport] = field(default_factory=list)
     report_markdown: str | None = None
 
@@ -520,6 +535,8 @@ def render_daily_report_markdown(report: DailyReport) -> str:
     lines.extend(
         [
             f"- 状态：{_status_text(report.agent_advice.status)}",
+            f"- 来源：{report.agent_advice.source_label or _agent_source_label(report.agent_advice.execution_mode)}",
+            f"- 运行模式：{report.agent_advice.execution_mode or 'unknown'}",
             f"- 意见：{_agent_action_text(report.agent_advice.action)}",
             f"- 风险：{_risk_text(report.agent_advice.risk_level)}",
             f"- 摘要：{report.agent_advice.summary or report.agent_advice.note}",
@@ -560,6 +577,16 @@ def render_daily_report_markdown(report: DailyReport) -> str:
                 lines.extend(["", "支持依据：", *[f"- {point}" for point in analyst.supporting_points]])
             if analyst.risk_points:
                 lines.extend(["", "风险提示：", *[f"- {point}" for point in analyst.risk_points]])
+    if report.agent_advice.report_sections:
+        lines.extend(["", "中文结构化报告："])
+        for section in report.agent_advice.report_sections:
+            lines.extend(["", f"### {section.section_name}", "", f"来源：{section.source_label}", "", section.summary])
+            if section.source_refs:
+                lines.append(f"source_refs：{', '.join(section.source_refs)}")
+            if section.supporting_points:
+                lines.extend(["", "支持依据：", *[f"- {point}" for point in section.supporting_points]])
+            if section.risk_points:
+                lines.extend(["", "风险提示：", *[f"- {point}" for point in section.risk_points]])
 
     lines.extend(["", "## 当前持仓处理", ""])
     if not report.positions:
@@ -1262,6 +1289,12 @@ def _load_agent_advice(conn: Any, candidate: CandidateReport | None) -> AgentAdv
     external_evidence = _load_agent_external_evidence(payload)
     missing_data_warnings = _load_agent_missing_data_warnings(payload, raw_decision, external_data_coverage)
     analyst_reports = _load_agent_analyst_reports(raw_decision.get("analyst_reports"))
+    execution_source = raw_decision.get("execution_source")
+    if not isinstance(execution_source, dict):
+        execution_source = {}
+    execution_mode = _optional_text_value(execution_source.get("mode"))
+    source_label = _optional_text_value(execution_source.get("source_label")) or _agent_source_label(execution_mode)
+    report_sections = _load_agent_report_sections(raw_decision.get("report_sections"), source_label)
     artifacts, final_report_path = _load_agent_artifacts(conn, int(row["agent_run_id"]))
     return AgentAdviceReport(
         agent_run_id=int(row["agent_run_id"]),
@@ -1272,6 +1305,8 @@ def _load_agent_advice(conn: Any, candidate: CandidateReport | None) -> AgentAdv
         confidence=_optional_float(row["confidence"]),
         summary=row["summary"] or row["error_message"],
         note="Agent 复核失败，需人工复核。" if status == "failed" else "Agent 复核仅作参考。",
+        execution_mode=execution_mode,
+        source_label=source_label,
         supporting_points=supporting_points,
         risk_points=risk_points,
         source_refs=source_refs,
@@ -1279,6 +1314,7 @@ def _load_agent_advice(conn: Any, candidate: CandidateReport | None) -> AgentAdv
         external_evidence=external_evidence,
         missing_data_warnings=missing_data_warnings,
         analyst_reports=analyst_reports,
+        report_sections=report_sections,
         artifacts=artifacts,
         report_markdown=_load_agent_report_markdown(final_report_path),
     )
@@ -1294,7 +1330,7 @@ def _load_agent_external_data_coverage(payload: dict[str, Any], raw_decision: di
     if not isinstance(raw_coverage, dict):
         return {}
     coverage: dict[str, str] = {}
-    for key in ("fundamental", "news", "sentiment", "technical"):
+    for key in ("fundamental", "news", "sentiment", "technical", "sector"):
         status = str(raw_coverage.get(key) or "").strip().lower()
         if status in {"available", "partial", "unavailable"}:
             coverage[key] = status
@@ -1327,6 +1363,7 @@ def _load_agent_external_evidence(payload: dict[str, Any]) -> list[AgentExternal
             )
         )
     evidence.extend(_technical_evidence_from_snapshot(candidate))
+    evidence.extend(_sector_evidence_from_snapshot(candidate))
     return evidence[:24]
 
 
@@ -1381,6 +1418,36 @@ def _technical_evidence_from_snapshot(candidate: dict[str, Any]) -> list[AgentEx
     return rows
 
 
+def _sector_evidence_from_snapshot(candidate: dict[str, Any]) -> list[AgentExternalEvidenceReport]:
+    analysis_contexts = candidate.get("analysis_contexts")
+    sector = analysis_contexts.get("sector") if isinstance(analysis_contexts, dict) else None
+    if not isinstance(sector, dict):
+        external_data = candidate.get("external_data")
+        sector = external_data.get("sector_context") if isinstance(external_data, dict) else None
+    if not isinstance(sector, dict) or sector.get("status") != "available":
+        return []
+    sector_code = str(sector.get("sector_code") or "unknown")
+    as_of_date = _optional_text_value(sector.get("as_of_date"))
+    summary_parts = [
+        f"sector={sector.get('sector_name') or sector_code}",
+        f"rank_overall={sector.get('rank_overall')}",
+        f"rank_in_sector={sector.get('rank_in_sector')}",
+        f"role={sector.get('role')}",
+    ]
+    return [
+        AgentExternalEvidenceReport(
+            source_ref=f"sector_constituents:{sector_code}:{as_of_date}",
+            source=str(sector.get("provider") or "market_review"),
+            category="sector",
+            published_date=as_of_date,
+            title="板块位置缓存",
+            summary="；".join(part for part in summary_parts if not part.endswith("=None")),
+            sentiment=None,
+            importance=None,
+        )
+    ]
+
+
 def _load_agent_missing_data_warnings(
     payload: dict[str, Any],
     raw_decision: dict[str, Any],
@@ -1400,6 +1467,7 @@ def _load_agent_missing_data_warnings(
         "fundamental": "基本面",
         "news": "新闻/公告",
         "sentiment": "情绪面",
+        "sector": "板块位置",
     }
     return [
         f"{labels[key]}未接入/数据不足。"
@@ -1413,10 +1481,11 @@ def _load_agent_analyst_reports(value: Any) -> list[AgentAnalystReport]:
         return []
     reports: list[AgentAnalystReport] = []
     for key, name in (
-        ("technical", "技术面"),
         ("fundamental", "基本面"),
-        ("news", "新闻面"),
-        ("sentiment", "情绪面"),
+        ("news", "新闻"),
+        ("sentiment", "情绪"),
+        ("technical", "技术/量价"),
+        ("sector", "板块位置"),
     ):
         payload = value.get(key)
         if not isinstance(payload, dict):
@@ -1432,6 +1501,37 @@ def _load_agent_analyst_reports(value: Any) -> list[AgentAnalystReport]:
             )
         )
     return reports
+
+
+def _load_agent_report_sections(value: Any, source_label: str) -> list[AgentReportSection]:
+    if not isinstance(value, dict):
+        return []
+    sections: list[AgentReportSection] = []
+    for key, name in (
+        ("fundamental", "基本面"),
+        ("news", "新闻"),
+        ("sentiment", "情绪"),
+        ("technical", "技术/量价"),
+        ("sector", "板块位置"),
+        ("risk", "风险"),
+        ("conclusion", "结论"),
+    ):
+        payload = value.get(key)
+        if not isinstance(payload, dict):
+            continue
+        sections.append(
+            AgentReportSection(
+                section_key=key,
+                section_name=str(payload.get("section_name") or name),
+                status=str(payload.get("status") or "partial"),
+                source_label=str(payload.get("source_label") or source_label),
+                source_refs=_string_list(payload.get("source_refs")),
+                summary=str(payload.get("summary") or "该结构化段落没有返回摘要。"),
+                supporting_points=_string_list(payload.get("supporting_points")),
+                risk_points=_string_list(payload.get("risk_points")),
+            )
+        )
+    return sections
 
 
 def _load_agent_artifacts(conn: Any, agent_run_id: int) -> tuple[list[AgentArtifactReport], str | None]:
@@ -2006,6 +2106,15 @@ def _agent_action_text(value: str) -> str:
         "review_required": "需要人工复核",
         "no_opinion": "无有效意见",
     }.get(value, value)
+
+
+def _agent_source_label(value: str | None) -> str:
+    return {
+        "local_snapshot_mode": "TradingAgents 本地快照模式",
+        "external_graph_mode": "TradingAgents 外部图模式",
+        "unavailable_fallback": "TradingAgents 不可用 fallback",
+        "dry_run": "dry-run preview",
+    }.get(value or "", "TradingAgents 输出")
 
 
 def _risk_text(value: str) -> str:

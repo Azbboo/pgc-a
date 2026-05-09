@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,13 @@ from pgc_trading.storage.database import connect
 
 
 VALID_HYPOTHESIS_STATUSES = {"proposed", "testing", "accepted", "rejected", "archived"}
+VALID_HYPOTHESIS_TRANSITIONS = {
+    "proposed": {"proposed", "testing", "rejected", "archived"},
+    "testing": {"testing", "accepted", "rejected", "archived"},
+    "accepted": {"accepted", "archived"},
+    "rejected": {"rejected", "archived"},
+    "archived": {"archived"},
+}
 SECTOR_PERSISTENCE_THRESHOLD = 0.7
 TOP_SECTOR_RANK_LIMIT = 5
 
@@ -40,6 +48,9 @@ class ListStrategyHypothesesRequest:
 class MarkStrategyHypothesisRequest:
     hypothesis_id: int
     status: str
+    review_note: str | None = None
+    evidence_ids: tuple[str, ...] = field(default_factory=tuple)
+    backtest_artifact_path: str | None = None
 
 
 @dataclass(frozen=True)
@@ -75,6 +86,11 @@ class MarkStrategyHypothesisResult:
     hypothesis: StrategyHypothesis
     previous_status: str
     operator: str | None = None
+    review_note: str | None = None
+    evidence_ids: list[str] = field(default_factory=list)
+    backtest_artifact_paths: list[str] = field(default_factory=list)
+    strategy_version_task_required: bool = False
+    strategy_version_task: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -234,13 +250,54 @@ class StrategyEvolutionService:
                 )
 
             previous_status = existing.status
+            transition_errors = _validate_status_transition(previous_status, request.status)
+            evidence_ids = _merge_validation_values(
+                _validation_values(existing.evidence, "evidence_ids"),
+                _normalized_evidence_ids(request.evidence_ids),
+            )
+            backtest_artifact_paths = _merge_validation_values(
+                _validation_values(existing.evidence, "backtest_artifacts"),
+                _normalized_backtest_artifact_paths(request.backtest_artifact_path),
+            )
+            acceptance_errors = _validate_acceptance_gate(
+                existing,
+                request.status,
+                evidence_ids,
+                backtest_artifact_paths,
+            )
+            if transition_errors or acceptance_errors:
+                return ServiceResult(
+                    status="validation_failed",
+                    request_id=ctx.request_id,
+                    errors=transition_errors + acceptance_errors,
+                    lineage={
+                        "hypothesis_id": request.hypothesis_id,
+                        "previous_status": previous_status,
+                        "requested_status": request.status,
+                    },
+                )
+
+            updated_evidence = _append_validation_event(
+                evidence=existing.evidence,
+                previous_status=previous_status,
+                next_status=request.status,
+                operator=ctx.operator,
+                review_note=request.review_note,
+                evidence_ids=evidence_ids,
+                backtest_artifact_paths=backtest_artifact_paths,
+            )
+            strategy_version_task = (
+                _future_strategy_version_task_payload(existing, evidence_ids, backtest_artifact_paths)
+                if request.status == "accepted"
+                else None
+            )
             conn.execute(
                 """
                 UPDATE strategy_hypotheses
-                SET status = ?
+                SET status = ?, evidence_json = ?
                 WHERE id = ?
                 """,
-                (request.status, request.hypothesis_id),
+                (request.status, _json_dumps(updated_evidence), request.hypothesis_id),
             )
             updated = _get_hypothesis(conn, request.hypothesis_id)
             if updated is None:
@@ -253,12 +310,20 @@ class StrategyEvolutionService:
                 hypothesis=updated,
                 previous_status=previous_status,
                 operator=ctx.operator,
+                review_note=request.review_note,
+                evidence_ids=evidence_ids,
+                backtest_artifact_paths=backtest_artifact_paths,
+                strategy_version_task_required=request.status == "accepted",
+                strategy_version_task=strategy_version_task,
             ),
             lineage={
                 "hypothesis_id": request.hypothesis_id,
                 "previous_status": previous_status,
                 "status": request.status,
                 "operator": ctx.operator,
+                "strategy_version_task_key": (
+                    strategy_version_task.get("task_key") if strategy_version_task is not None else None
+                ),
             },
         )
 
@@ -286,7 +351,208 @@ def _validate_mark_request(request: MarkStrategyHypothesisRequest) -> list[Servi
         errors.append(ServiceError(code="VALIDATION_ERROR", message="hypothesis_id must be greater than zero."))
     if request.status not in VALID_HYPOTHESIS_STATUSES:
         errors.append(ServiceError(code="VALIDATION_ERROR", message=f"invalid hypothesis status: {request.status}"))
+    if request.review_note is not None and not request.review_note.strip():
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="review_note must not be blank."))
+    for evidence_id in request.evidence_ids:
+        if not str(evidence_id).strip():
+            errors.append(ServiceError(code="VALIDATION_ERROR", message="evidence_id must not be blank."))
+    if request.backtest_artifact_path is not None and not str(request.backtest_artifact_path).strip():
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="backtest_artifact_path must not be blank."))
     return errors
+
+
+def _validate_status_transition(previous_status: str, next_status: str) -> list[ServiceError]:
+    allowed = VALID_HYPOTHESIS_TRANSITIONS.get(previous_status, set())
+    if next_status in allowed:
+        return []
+    return [
+        ServiceError(
+            code="INVALID_HYPOTHESIS_STATUS_TRANSITION",
+            message=f"strategy hypothesis cannot move from {previous_status} to {next_status}.",
+            entity_type="strategy_hypothesis",
+        )
+    ]
+
+
+def _validate_acceptance_gate(
+    hypothesis: StrategyHypothesis,
+    next_status: str,
+    evidence_ids: list[str],
+    backtest_artifact_paths: list[str],
+) -> list[ServiceError]:
+    if next_status != "accepted":
+        return []
+
+    errors: list[ServiceError] = []
+    if not evidence_ids:
+        errors.append(
+            ServiceError(
+                code="ACCEPTED_REQUIRES_VALIDATION_EVIDENCE",
+                message="accepted strategy hypotheses require at least one validation evidence id.",
+                entity_type="strategy_hypothesis",
+                entity_id=hypothesis.hypothesis_id,
+            )
+        )
+    if not backtest_artifact_paths:
+        errors.append(
+            ServiceError(
+                code="ACCEPTED_REQUIRES_BACKTEST_ARTIFACT",
+                message="accepted strategy hypotheses require a replay/backtest request artifact.",
+                entity_type="strategy_hypothesis",
+                entity_id=hypothesis.hypothesis_id,
+            )
+        )
+    for artifact_path in backtest_artifact_paths:
+        errors.extend(_validate_backtest_artifact(hypothesis, artifact_path))
+    return errors
+
+
+def _validate_backtest_artifact(hypothesis: StrategyHypothesis, artifact_path: str) -> list[ServiceError]:
+    path = Path(artifact_path).expanduser()
+    if not path.exists():
+        return [
+            ServiceError(
+                code="BACKTEST_ARTIFACT_NOT_FOUND",
+                message=f"backtest artifact was not found: {path}",
+                entity_type="strategy_hypothesis",
+                entity_id=hypothesis.hypothesis_id,
+            )
+        ]
+    try:
+        artifact = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return [
+            ServiceError(
+                code="BACKTEST_ARTIFACT_INVALID",
+                message=f"backtest artifact is not valid JSON: {exc}",
+                entity_type="strategy_hypothesis",
+                entity_id=hypothesis.hypothesis_id,
+            )
+        ]
+    if not isinstance(artifact, dict) or artifact.get("artifact_type") != "strategy_hypothesis_backtest_request":
+        return [
+            ServiceError(
+                code="BACKTEST_ARTIFACT_INVALID",
+                message="backtest artifact must be a strategy_hypothesis_backtest_request artifact.",
+                entity_type="strategy_hypothesis",
+                entity_id=hypothesis.hypothesis_id,
+            )
+        ]
+    artifact_hypothesis = artifact.get("hypothesis", {})
+    artifact_hypothesis_id = artifact_hypothesis.get("id") if isinstance(artifact_hypothesis, dict) else None
+    try:
+        parsed_artifact_hypothesis_id = int(artifact_hypothesis_id or 0)
+    except (TypeError, ValueError):
+        parsed_artifact_hypothesis_id = 0
+    if parsed_artifact_hypothesis_id != int(hypothesis.hypothesis_id or 0):
+        return [
+            ServiceError(
+                code="BACKTEST_ARTIFACT_HYPOTHESIS_MISMATCH",
+                message="backtest artifact hypothesis id does not match the requested hypothesis.",
+                entity_type="strategy_hypothesis",
+                entity_id=hypothesis.hypothesis_id,
+            )
+        ]
+    return []
+
+
+def _append_validation_event(
+    *,
+    evidence: dict[str, Any],
+    previous_status: str,
+    next_status: str,
+    operator: str | None,
+    review_note: str | None,
+    evidence_ids: list[str],
+    backtest_artifact_paths: list[str],
+) -> dict[str, Any]:
+    updated = dict(evidence)
+    validation = _validation_payload(updated)
+    validation["evidence_ids"] = evidence_ids
+    validation["backtest_artifacts"] = backtest_artifact_paths
+
+    events = validation.get("review_events")
+    if not isinstance(events, list):
+        events = []
+    events.append(
+        {
+            "from_status": previous_status,
+            "to_status": next_status,
+            "operator": operator,
+            "review_note": review_note,
+            "evidence_ids": evidence_ids,
+            "backtest_artifact_paths": backtest_artifact_paths,
+            "created_at": _utc_timestamp(),
+        }
+    )
+    validation["review_events"] = events
+    updated["validation"] = validation
+    return updated
+
+
+def _future_strategy_version_task_payload(
+    hypothesis: StrategyHypothesis,
+    evidence_ids: list[str],
+    backtest_artifact_paths: list[str],
+) -> dict[str, Any]:
+    hypothesis_id = int(hypothesis.hypothesis_id or 0)
+    proposed_change = {
+        **hypothesis.proposed_change,
+        "mutates_active_params": False,
+    }
+    return {
+        "task_key": f"strategy-hypothesis:{hypothesis_id}:strategy-version",
+        "task_type": "create_candidate_strategy_version",
+        "status": "pending",
+        "strategy_id": str(proposed_change.get("strategy_id") or "cpb_6157"),
+        "hypothesis_id": hypothesis_id,
+        "hypothesis_type": hypothesis.hypothesis_type,
+        "title": hypothesis.title,
+        "research_outcome_status": "accepted",
+        "validation_evidence_ids": evidence_ids,
+        "backtest_artifact_paths": backtest_artifact_paths,
+        "proposed_change": proposed_change,
+        "acceptance_rules": [
+            "Create a new draft or candidate strategy_version row rather than mutating the active version.",
+            "Attach replay/backtest evidence to the promotion review.",
+            "Keep paper/live deployments on the current version until explicit promotion approval.",
+        ],
+    }
+
+
+def _validation_payload(evidence: dict[str, Any]) -> dict[str, Any]:
+    validation = evidence.get("validation")
+    return dict(validation) if isinstance(validation, dict) else {}
+
+
+def _validation_values(evidence: dict[str, Any], key: str) -> list[str]:
+    values = _validation_payload(evidence).get(key)
+    if not isinstance(values, list):
+        return []
+    return [str(value).strip() for value in values if str(value).strip()]
+
+
+def _normalized_evidence_ids(values: tuple[str, ...]) -> list[str]:
+    return [str(value).strip() for value in values if str(value).strip()]
+
+
+def _normalized_backtest_artifact_paths(value: str | None) -> list[str]:
+    if value is None:
+        return []
+    text = str(value).strip()
+    return [str(Path(text).expanduser())] if text else []
+
+
+def _merge_validation_values(existing: list[str], new_values: list[str]) -> list[str]:
+    merged: list[str] = []
+    for value in [*existing, *new_values]:
+        if value and value not in merged:
+            merged.append(value)
+    return merged
+
+
+def _utc_timestamp() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _load_market_observations(conn: sqlite3.Connection, as_of_date: str) -> _MarketObservations:

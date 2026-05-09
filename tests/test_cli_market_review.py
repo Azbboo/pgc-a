@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import sqlite3
 import tempfile
 import unittest
@@ -88,13 +89,19 @@ class _FakeMarketExternalImportData:
     would_insert_count: int = 3
     inserted_count: int = 0
     duplicate_count: int = 0
-    coverage_summary: dict[str, str] = field(
+    coverage_summary: dict[str, object] = field(
         default_factory=lambda: {
             "market": "available",
             "sector": "partial",
             "stock": "partial",
             "sentiment": "partial",
             "news": "available",
+            "duplicates": "none",
+            "freshness": {
+                "market": "fresh",
+                "sector": "fresh",
+                "stock": "fresh",
+            },
         }
     )
     market_external_item_ids: list[int] = field(default_factory=list)
@@ -381,6 +388,8 @@ class CliMarketReviewTest(unittest.TestCase):
         self.assertIn("duplicates=0", output)
         self.assertIn("invalid=0", output)
         self.assertIn('"sector":"partial"', output)
+        self.assertIn('"duplicates":"none"', output)
+        self.assertIn('"freshness":{"market":"fresh","sector":"fresh","stock":"fresh"}', output)
 
     def test_market_external_data_import_apply_mode_uses_write_context(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -481,6 +490,7 @@ class CliMarketReviewTest(unittest.TestCase):
         self.assertIn("inserted=3", output)
         self.assertIn("duplicates=0", output)
         self.assertIn("invalid=0", output)
+        self.assertIn('"freshness":{"market":"fresh","sector":"fresh","stock":"fresh"}', output)
 
     def test_strategy_evolution_propose_list_and_mark(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -637,6 +647,84 @@ class CliMarketReviewTest(unittest.TestCase):
             self.assertIn("BACKTEST_REQUEST_DRY_RUN", output)
             self.assertEqual(_count_strategy_versions(db_path), strategy_versions_before)
 
+    def test_strategy_evolution_acceptance_requires_validation_inputs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc.db"
+            artifact_path = Path(tmp) / "hypothesis_backtest_request.json"
+            run_migrations(db_path)
+            seed_reference_data(db_path)
+            _seed_risk_off_review(db_path)
+            apply_stdout = io.StringIO()
+            apply_code = main(
+                [
+                    "strategy-evolution",
+                    "propose",
+                    "--date",
+                    "20260508",
+                    "--db-path",
+                    str(db_path),
+                    "--apply",
+                ],
+                stdout=apply_stdout,
+            )
+            hypothesis_id = _first_hypothesis_id(db_path)
+            _write_backtest_artifact(artifact_path, hypothesis_id)
+            strategy_versions_before = _count_strategy_versions(db_path)
+
+            testing_stdout = io.StringIO()
+            testing_code = main(
+                [
+                    "strategy-evolution",
+                    "mark",
+                    "--hypothesis-id",
+                    str(hypothesis_id),
+                    "--status",
+                    "testing",
+                    "--review-note",
+                    "Ready for replay/backtest.",
+                    "--operator",
+                    "azboo",
+                    "--db-path",
+                    str(db_path),
+                ],
+                stdout=testing_stdout,
+            )
+            accepted_stdout = io.StringIO()
+            accepted_code = main(
+                [
+                    "strategy-evolution",
+                    "mark",
+                    "--hypothesis-id",
+                    str(hypothesis_id),
+                    "--status",
+                    "accepted",
+                    "--evidence-id",
+                    "market_review_run:1",
+                    "--backtest-artifact",
+                    str(artifact_path),
+                    "--review-note",
+                    "Replay artifact attached; promote only to future strategy-version task.",
+                    "--operator",
+                    "azboo",
+                    "--db-path",
+                    str(db_path),
+                ],
+                stdout=accepted_stdout,
+            )
+
+            self.assertEqual(apply_code, 0)
+            self.assertEqual(testing_code, 0)
+            self.assertEqual(accepted_code, 0)
+            output = accepted_stdout.getvalue()
+            self.assertIn("strategy-evolution mark command routed", output)
+            self.assertIn("previous_status=testing", output)
+            self.assertIn("status=accepted", output)
+            self.assertIn("strategy_version_task_required=true", output)
+            self.assertIn("validation_evidence_ids=market_review_run:1", output)
+            self.assertIn(f"backtest_artifacts={artifact_path}", output)
+            self.assertIn(f"future_strategy_version_task_key=strategy-hypothesis:{hypothesis_id}:strategy-version", output)
+            self.assertEqual(_count_strategy_versions(db_path), strategy_versions_before)
+
     def test_strategy_evolution_missing_db_fails_without_creating_database(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "missing.db"
@@ -787,6 +875,20 @@ def _count_strategy_versions(db_path: Path) -> int:
 def _first_hypothesis_id(db_path: Path) -> int:
     with sqlite3.connect(db_path) as conn:
         return int(conn.execute("SELECT id FROM strategy_hypotheses ORDER BY id LIMIT 1").fetchone()[0])
+
+
+def _write_backtest_artifact(path: Path, hypothesis_id: int) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "artifact_type": "strategy_hypothesis_backtest_request",
+                "hypothesis": {"id": hypothesis_id},
+                "backtest_request": {"task_key": f"strategy-hypothesis:{hypothesis_id}:backtest"},
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
 
 
 if __name__ == "__main__":

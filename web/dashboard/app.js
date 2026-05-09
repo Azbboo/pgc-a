@@ -6,10 +6,20 @@ const DEFAULT_OPERATOR = "azboo";
 const CANCEL_REASON_CHOICES = ["高开过大", "停牌/不可交易", "重大利空", "人工跳过"];
 const DRY_RUN_DEFAULT_VERSION = "20260508-live-writes-1";
 const AGENT_ANALYST_SECTIONS = [
-  ["technical", "技术面"],
   ["fundamental", "基本面"],
   ["news", "新闻面"],
   ["sentiment", "情绪面"],
+  ["technical", "技术/量价"],
+  ["sector", "板块位置"],
+];
+const AGENT_REPORT_SECTIONS = [
+  ["fundamental", "基本面"],
+  ["news", "新闻"],
+  ["sentiment", "情绪"],
+  ["technical", "技术/量价"],
+  ["sector", "板块位置"],
+  ["risk", "风险"],
+  ["conclusion", "结论"],
 ];
 
 const state = {
@@ -30,6 +40,8 @@ const state = {
   openExecution: null,
   openExecutionEnvelope: null,
   marketReviewHistory: [],
+  marketAsOfDate: localStorage.getItem("pgc.dashboard.marketAsOfDate") || "",
+  marketDatePinned: Boolean(localStorage.getItem("pgc.dashboard.marketAsOfDate")),
   marketReview: null,
   marketReviewEnvelope: null,
   marketSectors: [],
@@ -96,7 +108,14 @@ function cacheElements() {
     "reviewBadge",
     "marketBadge",
     "reloadMarketButton",
+    "marketReviewDateInput",
+    "marketPrevDateButton",
+    "marketNextDateButton",
+    "marketLatestDateButton",
+    "marketFollowReviewDateButton",
+    "marketApplyDateButton",
     "marketReviewDateLabel",
+    "marketHistoryStrip",
     "marketRegimeStrip",
     "marketSectorState",
     "marketSectorBody",
@@ -212,7 +231,15 @@ function bindEvents() {
   els.reloadReviewHistoryButton.addEventListener("click", loadReviewHistoryAndRender);
   els.reviewHistoryList.addEventListener("click", onReviewHistoryClick);
   els.reloadMarketButton.addEventListener("click", loadMarketReviewAndRender);
+  els.marketApplyDateButton.addEventListener("click", applyMarketReviewDateInput);
+  els.marketReviewDateInput.addEventListener("change", applyMarketReviewDateInput);
+  els.marketPrevDateButton.addEventListener("click", () => shiftMarketReviewDate(-1));
+  els.marketNextDateButton.addEventListener("click", () => shiftMarketReviewDate(1));
+  els.marketLatestDateButton.addEventListener("click", setLatestMarketReviewDate);
+  els.marketFollowReviewDateButton.addEventListener("click", followReviewDateForMarket);
+  els.marketHistoryStrip.addEventListener("click", onMarketHistoryClick);
   els.marketSectorBody.addEventListener("click", onMarketSectorClick);
+  els.marketPlanContextPanel.addEventListener("click", onMarketPlanContextClick);
   els.openMarketNewsDrawerButton.addEventListener("click", () => openMarketNewsDrawer());
   els.marketHypothesesList.addEventListener("click", onMarketHypothesisClick);
   els.reloadExecutionButton.addEventListener("click", refreshAll);
@@ -260,6 +287,7 @@ function syncFormFromState() {
   els.accountIdInput.value = state.accountId;
   els.asOfDateInput.value = state.asOfDate;
   els.reviewDateInput.value = dateInputValue(state.asOfDate);
+  els.marketReviewDateInput.value = dateInputValue(marketReviewDate());
   els.strategyInput.value = state.strategyVersion;
   els.operatorInput.value = state.operator;
   els.writeTokenInput.value = state.writeToken;
@@ -290,6 +318,11 @@ function persistContext() {
   localStorage.setItem("pgc.dashboard.operator", state.operator);
   localStorage.setItem("pgc.dashboard.writeToken", state.writeToken);
   localStorage.setItem("pgc.dashboard.dryRun", String(state.dryRun));
+  if (state.marketDatePinned && state.marketAsOfDate) {
+    localStorage.setItem("pgc.dashboard.marketAsOfDate", state.marketAsOfDate);
+  } else {
+    localStorage.removeItem("pgc.dashboard.marketAsOfDate");
+  }
 }
 
 async function applyReviewDateInput() {
@@ -314,6 +347,57 @@ async function setLatestReviewDate() {
     return;
   }
   await setReviewDate(latestDate);
+}
+
+async function applyMarketReviewDateInput() {
+  await setMarketReviewDate(els.marketReviewDateInput.value);
+}
+
+async function shiftMarketReviewDate(offset) {
+  const adjacent = adjacentMarketReviewDate(offset);
+  if (!adjacent) {
+    showNotice(offset < 0 ? "没有更早的全市场复盘历史。" : "没有更新的全市场复盘历史。");
+    renderMarketReviewNavigation();
+    return;
+  }
+  await setMarketReviewDate(adjacent);
+}
+
+async function setLatestMarketReviewDate() {
+  const latestDate = latestMarketReviewDate();
+  if (!latestDate) {
+    showNotice("暂无可用全市场复盘历史。");
+    renderMarketReviewNavigation();
+    return;
+  }
+  await setMarketReviewDate(latestDate);
+}
+
+async function followReviewDateForMarket() {
+  state.marketAsOfDate = "";
+  state.marketDatePinned = false;
+  persistContext();
+  syncFormFromState();
+  await loadMarketReviewAndRender();
+}
+
+async function setMarketReviewDate(value) {
+  const nextDate = normalizeDate(value);
+  if (!/^\d{8}$/.test(nextDate)) {
+    showNotice("全市场复盘日需要选择有效日期。");
+    syncFormFromState();
+    renderMarketReviewNavigation();
+    return;
+  }
+  if (nextDate === marketReviewDate() && state.marketDatePinned) {
+    renderMarketReviewNavigation();
+    return;
+  }
+  state.marketAsOfDate = nextDate;
+  state.marketDatePinned = true;
+  persistContext();
+  syncFormFromState();
+  await loadMarketReviewAndRender();
 }
 
 async function setReviewDate(value) {
@@ -413,7 +497,7 @@ async function loadOpenExecution() {
 }
 
 async function loadMarketReview() {
-  const asOfDate = normalizeDate(state.asOfDate);
+  const asOfDate = marketReviewDate();
   const contextPath = marketPlanContextApiPath(asOfDate);
   const [
     historyEnvelope,
@@ -1700,6 +1784,8 @@ function renderAgent() {
 }
 
 function renderMarketReview() {
+  renderMarketReviewNavigation();
+  renderMarketHistoryStrip();
   renderMarketScopeMarkers();
   renderMarketRegimeStrip();
   renderMarketSectors();
@@ -1709,11 +1795,85 @@ function renderMarketReview() {
 }
 
 function renderMarketScopeMarkers() {
-  const selected = `复盘日 ${displayDate(state.asOfDate)}`;
+  const selected = `全市场日 ${displayDate(marketReviewDate())}`;
+  const reviewContext = normalizeDate(state.asOfDate);
   const latest = state.marketReviewHistory[0]?.as_of_date;
-  els.marketReviewDateLabel.textContent = latest && latest !== state.asOfDate
-    ? `${selected} / 最新全市场 ${displayDate(latest)}`
-    : selected;
+  const contextText = reviewContext && reviewContext !== marketReviewDate()
+    ? ` / 交易上下文 ${displayDate(reviewContext)}`
+    : "";
+  els.marketReviewDateLabel.textContent = latest && latest !== marketReviewDate()
+    ? `${selected}${contextText} / 最新全市场 ${displayDate(latest)}`
+    : `${selected}${contextText}`;
+}
+
+function renderMarketReviewNavigation() {
+  const previousDate = adjacentMarketReviewDate(-1);
+  const nextDate = adjacentMarketReviewDate(1);
+  const latestDate = latestMarketReviewDate();
+  const hasHistory = marketReviewHistoryDates().length > 0;
+  const selectedDate = marketReviewDate();
+  els.marketReviewDateInput.value = dateInputValue(selectedDate);
+  els.marketPrevDateButton.disabled = !previousDate;
+  els.marketNextDateButton.disabled = !nextDate;
+  els.marketLatestDateButton.disabled = !hasHistory || latestDate === selectedDate;
+  els.marketFollowReviewDateButton.disabled = !state.marketDatePinned && selectedDate === normalizeDate(state.asOfDate);
+  els.marketPrevDateButton.title = previousDate ? `上一全市场 ${displayDate(previousDate)}` : "没有更早的全市场复盘历史";
+  els.marketNextDateButton.title = nextDate ? `下一全市场 ${displayDate(nextDate)}` : "没有更新的全市场复盘历史";
+  els.marketLatestDateButton.title = latestDate ? `最新全市场 ${displayDate(latestDate)}` : "暂无全市场复盘历史";
+}
+
+function renderMarketHistoryStrip() {
+  const items = state.marketReviewHistory || [];
+  const selectedDate = marketReviewDate();
+  els.marketHistoryStrip.innerHTML = items.length
+    ? `
+      <span class="market-history-strip__label">全市场历史</span>
+      <div class="market-history-strip__items">
+        ${items.slice(0, 8).map((item) => {
+          const date = normalizeDate(item.as_of_date);
+          const selected = date === selectedDate;
+          return `
+            <button type="button" class="market-history-pill ${selected ? "active" : ""}" data-market-history-date="${escapeHtml(date)}">
+              <strong>${displayDate(date)}</strong>
+              <span>${escapeHtml(marketRegimeText(item.regime || item.status))}</span>
+            </button>
+          `;
+        }).join("")}
+      </div>
+    `
+    : emptyState(`暂无全市场历史；当前查看 ${displayDate(selectedDate)}。`);
+}
+
+function onMarketHistoryClick(event) {
+  const button = event.target.closest("button[data-market-history-date]");
+  if (!button) return;
+  setMarketReviewDate(button.dataset.marketHistoryDate);
+}
+
+function marketReviewHistoryDates() {
+  return [...new Set((state.marketReviewHistory || [])
+    .map((item) => normalizeDate(item.as_of_date))
+    .filter((value) => /^\d{8}$/.test(value)))]
+    .sort();
+}
+
+function latestMarketReviewDate() {
+  const dates = marketReviewHistoryDates();
+  return dates.length ? dates[dates.length - 1] : "";
+}
+
+function adjacentMarketReviewDate(offset) {
+  const dates = marketReviewHistoryDates();
+  const current = marketReviewDate();
+  if (!dates.length || !/^\d{8}$/.test(current)) return "";
+  if (offset < 0) {
+    return [...dates].reverse().find((date) => date < current) || "";
+  }
+  return dates.find((date) => date > current) || "";
+}
+
+function marketReviewDate() {
+  return normalizeDate(state.marketAsOfDate || state.asOfDate);
 }
 
 function renderMarketRegimeStrip() {
@@ -1726,7 +1886,7 @@ function renderMarketRegimeStrip() {
       <div class="market-regime-card market-regime-card--empty">
         <span class="market-regime-kicker">market-reviews</span>
         <strong>暂无全市场复盘</strong>
-        <p>${escapeHtml(missing || `复盘日 ${displayDate(state.asOfDate)} 尚未生成 market-reviews 记录。`)}</p>
+        <p>${escapeHtml(missing || `全市场日 ${displayDate(marketReviewDate())} 尚未生成 market-reviews 记录。`)}</p>
       </div>
     `;
     return;
@@ -1792,6 +1952,7 @@ function renderMarketPlanContext() {
     const missing = marketMissingDataText(state.marketPlanContextEnvelope?.data);
     els.marketPlanContextPanel.innerHTML = `
       ${header}
+      ${renderMarketLinkedPlan({ trade_plan_id: planId })}
       ${actionMetrics([
         ["关联计划", planId ? `计划 ${planId}` : "当前无明日计划"],
         ["上下文记录", "0"],
@@ -1807,23 +1968,68 @@ function renderMarketPlanContext() {
     <div class="market-context-list">
       ${contexts.map((context) => `
         <article class="market-context-card">
-          <div class="market-context-card__head">
-            <strong>计划 ${escapeHtml(context.trade_plan_id)}</strong>
-            <span>
-              ${chipHtml(alignmentText(context.alignment), alignmentClass(context.alignment))}
-              ${chipHtml(riskText(context.risk_level), riskClass(context.risk_level))}
-            </span>
+          <div class="market-plan-context-pair">
+            <div class="market-context-main">
+              <div class="market-context-card__head">
+                <strong>计划 ${escapeHtml(context.trade_plan_id)}</strong>
+                <span>
+                  ${chipHtml(alignmentText(context.alignment), alignmentClass(context.alignment))}
+                  ${chipHtml(riskText(context.risk_level), riskClass(context.risk_level))}
+                </span>
+              </div>
+              <p>${escapeHtml(context.rationale || "暂无 rationale。")}</p>
+              <dl class="market-context-meta">
+                <dt>管理建议</dt>
+                <dd>${escapeHtml(managementActionText(context.management_action))}</dd>
+                <dt>创建时间</dt>
+                <dd>${escapeHtml(displayTimestamp(context.created_at))}</dd>
+              </dl>
+            </div>
+            ${renderMarketLinkedPlan(context)}
           </div>
-          <p>${escapeHtml(context.rationale || "暂无 rationale。")}</p>
-          <dl class="market-context-meta">
-            <dt>管理建议</dt>
-            <dd>${escapeHtml(managementActionText(context.management_action))}</dd>
-            <dt>创建时间</dt>
-            <dd>${escapeHtml(displayTimestamp(context.created_at))}</dd>
-          </dl>
         </article>
       `).join("")}
     </div>
+  `;
+}
+
+function renderMarketLinkedPlan(context) {
+  const planId = context?.trade_plan_id || marketContextPlanId();
+  const plan = marketPlanForContext(planId);
+  if (!planId) {
+    return `
+      <aside class="market-linked-plan market-linked-plan--empty">
+        <span>相关明日计划</span>
+        <strong>当前无明日计划</strong>
+        <p>Plan-context 会靠近相关计划展示；没有计划时只保留市场建议。</p>
+      </aside>
+    `;
+  }
+  if (!plan) {
+    return `
+      <aside class="market-linked-plan market-linked-plan--empty">
+        <span>相关明日计划</span>
+        <strong>计划 ${escapeHtml(planId)}</strong>
+        <p>当前上下文未加载该计划详情；关系记录仍保持只读。</p>
+      </aside>
+    `;
+  }
+  return `
+    <aside class="market-linked-plan" data-plan-context-view="明日计划关系">
+      <span>相关明日计划</span>
+      <strong>${escapeHtml(planStockText(plan))}</strong>
+      <dl>
+        <dt>计划 ID</dt>
+        <dd>${escapeHtml(plan.id)}</dd>
+        <dt>状态</dt>
+        <dd>${escapeHtml(statusText(plan.status))}</dd>
+        <dt>交易日</dt>
+        <dd>${displayDate(planTradeDate(plan))}</dd>
+        <dt>动作</dt>
+        <dd>${escapeHtml(actionText(plan.action))}</dd>
+      </dl>
+      <button type="button" class="link-button" data-market-plan-action="detail" data-plan-id="${escapeHtml(plan.id)}">计划详情</button>
+    </aside>
   `;
 }
 
@@ -1880,9 +2086,19 @@ function renderMarketEvidenceItem(item) {
         <dd>${escapeHtml(item.provider || "unknown")}</dd>
         <dt>date</dt>
         <dd>${displayDate(item.published_date)}</dd>
+        <dt>source_hash</dt>
+        <dd>${escapeHtml(item.source_hash || "-")}</dd>
+        <dt>type</dt>
+        <dd>${escapeHtml(itemTypeText(item.item_type))}</dd>
+        <dt>importance</dt>
+        <dd>${escapeHtml(importanceText(item.importance))}</dd>
         <dt>scope</dt>
         <dd>${escapeHtml(scopeText(item.scope_type, item.scope_key))}</dd>
       </dl>
+      <div class="market-evidence-source">
+        <span>source metadata</span>
+        ${item.url ? `<a href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer">来源链接</a>` : `<em>无 URL</em>`}
+      </div>
     </article>
   `;
 }
@@ -1891,10 +2107,12 @@ function renderAgentAdvice(advice, { expanded }) {
   const supportingPoints = listValue(advice.supporting_points);
   const riskPoints = listValue(advice.risk_points);
   const analystReports = normalizedAgentAnalystReports(advice);
+  const reportSections = normalizedAgentReportSections(advice);
   const artifacts = Array.isArray(advice.artifacts) ? advice.artifacts : [];
   const sourceRefs = listValue(advice.source_refs);
   const unavailable = agentAdviceUnavailable(advice);
   const summary = advice.summary || advice.note || agentUnavailableText(advice);
+  const sourceLabel = advice.source_label || agentSourceText(advice.execution_mode);
   const quickPoints = !expanded && (supportingPoints.length || riskPoints.length)
     ? `
       <div class="agent-quick-points">
@@ -1913,6 +2131,7 @@ function renderAgentAdvice(advice, { expanded }) {
       <div class="agent-analyst-grid">
         ${analystReports.map(renderAgentAnalystCard).join("")}
       </div>
+      ${renderAgentStructuredSections(reportSections)}
       ${renderAgentEvidence(advice.external_evidence)}
       ${renderAgentMissingDataWarnings(advice.missing_data_warnings)}
       ${renderAgentSourceRefs(sourceRefs)}
@@ -1950,6 +2169,7 @@ function renderAgentAdvice(advice, { expanded }) {
       </div>
       <div class="action-meta agent-report-metrics">
         <div class="metric"><span>运行状态</span><strong>${agentRunStatusText(advice.status)}</strong></div>
+        <div class="metric"><span>输出来源</span><strong>${escapeHtml(sourceLabel)}</strong></div>
         <div class="metric"><span>意见</span><strong>${agentActionText(advice.action)}</strong></div>
         <div class="metric"><span>风险等级</span><strong>${riskText(advice.risk_level)}</strong></div>
         <div class="metric"><span>置信度</span><strong>${advice.confidence == null ? "-" : numberText(advice.confidence, 2)}</strong></div>
@@ -1990,6 +2210,66 @@ function renderAgentAnalystCard(report) {
         </div>
       </div>
     </section>
+  `;
+}
+
+function normalizedAgentReportSections(advice) {
+  const sections = Array.isArray(advice.report_sections) ? advice.report_sections : [];
+  const byKey = Object.fromEntries(
+    sections
+      .filter((section) => section && section.section_key)
+      .map((section) => [section.section_key, section])
+  );
+  return AGENT_REPORT_SECTIONS.map(([key, name]) => {
+    const section = byKey[key];
+    if (section) {
+      return { ...section, section_key: key, section_name: section.section_name || name };
+    }
+    return {
+      section_key: key,
+      section_name: name,
+      status: key === "risk" || key === "conclusion" ? "partial" : "unavailable",
+      source_label: advice.source_label || agentSourceText(advice.execution_mode),
+      source_refs: [],
+      summary: key === "conclusion"
+        ? (advice.summary || advice.note || "未返回结论。")
+        : "未接入/数据不足。",
+      supporting_points: [],
+      risk_points: key === "risk" ? listValue(advice.risk_points) : [],
+    };
+  });
+}
+
+function renderAgentStructuredSections(sections) {
+  return `
+    <section class="agent-structured-report">
+      <div class="agent-structured-report__head">
+        <h3>TradingAgents 中文结构化报告</h3>
+        ${chipHtml("基本面 / 新闻 / 情绪 / 技术/量价 / 板块位置 / 风险 / 结论", "chip-agent")}
+      </div>
+      <div class="agent-structured-report__grid">
+        ${sections.map(renderAgentStructuredSection).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderAgentStructuredSection(section) {
+  const supportingPoints = listValue(section.supporting_points);
+  const riskPoints = listValue(section.risk_points);
+  const sourceRefs = listValue(section.source_refs);
+  return `
+    <article class="agent-structured-section">
+      <div class="agent-structured-section__head">
+        <h3>${escapeHtml(section.section_name || agentReportSectionText(section.section_key))}</h3>
+        ${chipHtml(agentAnalystStatusText(section.status), agentAnalystStatusClass(section.status))}
+      </div>
+      <p class="agent-section-source">${escapeHtml(section.source_label || "TradingAgents 输出")}</p>
+      <p>${escapeHtml(section.summary || "未接入/数据不足。")}</p>
+      ${sourceRefs.length ? `<div class="agent-section-refs">${sourceRefs.map((ref) => chipHtml(sourceRefText(ref), sourceRefClass(ref))).join("")}</div>` : ""}
+      ${supportingPoints.length ? `<div class="agent-section-points"><span>支持</span><ul>${supportingPoints.map((point) => `<li>${escapeHtml(point)}</li>`).join("")}</ul></div>` : ""}
+      ${riskPoints.length ? `<div class="agent-section-points"><span>风险</span><ul>${riskPoints.map((point) => `<li>${escapeHtml(point)}</li>`).join("")}</ul></div>` : ""}
+    </article>
   `;
 }
 
@@ -2125,6 +2405,7 @@ function sourceRefClass(ref) {
   const text = String(ref || "");
   if (text.startsWith("agent_external_items:")) return "chip-indigo";
   if (text.startsWith("market_diagnostic_bars:")) return "chip-amber";
+  if (text.startsWith("market_review_runs:") || text.startsWith("sector_daily_snapshots:") || text.startsWith("sector_constituents:")) return "chip-green";
   if (text.startsWith("market_bars:") || text.startsWith("daily_basic_snapshots:")) return "chip-blue";
   return "chip-neutral";
 }
@@ -2338,6 +2619,13 @@ function onMarketSectorClick(event) {
   if (!button) return;
   const sector = findMarketSector(button.dataset.sectorCode);
   if (sector) openMarketSectorDrawer(sector);
+}
+
+function onMarketPlanContextClick(event) {
+  const button = event.target.closest("button[data-market-plan-action]");
+  if (!button) return;
+  const plan = marketPlanForContext(button.dataset.planId);
+  if (plan) selectPlan(plan);
 }
 
 function onMarketHypothesisClick(event) {
@@ -2706,7 +2994,7 @@ function openMarketNewsDrawer(scopeType = "", scopeKey = "") {
     meta: [
       [`证据 ${items.length}`, "chip-blue"],
       [sentimentText(dominantSentiment(counts)), sentimentClass(dominantSentiment(counts))],
-      [`复盘日 ${displayDate(state.asOfDate)}`, "chip-neutral"],
+      [`全市场日 ${displayDate(marketReviewDate())}`, "chip-neutral"],
     ],
     actions: [
       { label: "全市场页", action: "page", page: "market" },
@@ -3321,6 +3609,18 @@ function marketContextPlanId() {
   return plan?.id || "";
 }
 
+function marketPlanForContext(planId) {
+  if (!planId) return null;
+  const loadedPlan = findPlan(Number(planId));
+  if (loadedPlan) return loadedPlan;
+  const reportPlan = state.report?.buy_plan;
+  const reportPlanId = reportPlan?.trade_plan_id || reportPlan?.id;
+  if (reportPlan && Number(reportPlanId) === Number(planId)) {
+    return planFromReport(reportPlan);
+  }
+  return null;
+}
+
 function marketReviewExists() {
   return Boolean(state.marketReview?.exists || state.marketReview?.market_review_run_id);
 }
@@ -3807,6 +4107,26 @@ function marketRoleText(value) {
   }[value] || dash(value);
 }
 
+function itemTypeText(value) {
+  return {
+    news: "新闻",
+    announcement: "公告",
+    policy: "政策",
+    sentiment: "情绪",
+    research_note: "研究纪要",
+    risk_note: "风险提示",
+  }[value] || dash(value);
+}
+
+function importanceText(value) {
+  return {
+    high: "高",
+    medium: "中",
+    low: "低",
+    unknown: "未知",
+  }[value] || dash(value);
+}
+
 function scopeText(scopeType, scopeKey) {
   return `${dash(scopeType)}:${dash(scopeKey)}`;
 }
@@ -3835,6 +4155,7 @@ function featureValue(key, value) {
 function agentArtifactText(value) {
   return {
     decision_json: "决策 JSON",
+    raw_response: "原始输出",
     raw_state: "运行状态",
     final_report: "复核报告",
     debug_log: "调试日志",
@@ -3845,11 +4166,33 @@ function agentArtifactText(value) {
 
 function agentAnalystText(value) {
   return {
-    technical: "技术面",
     fundamental: "基本面",
     news: "新闻面",
     sentiment: "情绪面",
+    technical: "技术/量价",
+    sector: "板块位置",
   }[value] || dash(value);
+}
+
+function agentReportSectionText(value) {
+  return {
+    fundamental: "基本面",
+    news: "新闻",
+    sentiment: "情绪",
+    technical: "技术/量价",
+    sector: "板块位置",
+    risk: "风险",
+    conclusion: "结论",
+  }[value] || dash(value);
+}
+
+function agentSourceText(value) {
+  return {
+    local_snapshot_mode: "TradingAgents 本地快照模式",
+    external_graph_mode: "TradingAgents 外部图模式",
+    unavailable_fallback: "TradingAgents 不可用 fallback",
+    dry_run: "dry-run preview",
+  }[value] || "TradingAgents 输出";
 }
 
 function agentAnalystStatusText(value) {
@@ -3880,9 +4223,9 @@ function agentEvidenceCategoryText(value) {
   return {
     technical: "技术面",
     fundamental: "基本面",
-    news: "新闻",
+    news: "新闻面",
     announcement: "公告",
-    sentiment: "情绪",
+    sentiment: "情绪面",
     risk_note: "风险提示",
     research_note: "研究摘要",
   }[value] || (value || "外部证据");

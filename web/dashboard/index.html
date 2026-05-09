@@ -4,8 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>PGC 操作台</title>
-    <link rel="stylesheet" href="/dashboard/assets/styles.css?v=20260509-m41b-market-1" />
-    <script defer src="/dashboard/assets/app.js?v=20260509-m41b-market-1"></script>
+    <link rel="stylesheet" href="/dashboard/assets/styles.css?v=20260509-m48-market-1" />
+    <script defer src="/dashboard/assets/app.js?v=20260509-m48-market-1"></script>
   </head>
   <body>
     <div class="app-shell">
@@ -367,11 +367,23 @@
               <p>读取 market-reviews 只读结果，核对市场状态、板块轮动、外部证据和明日计划关系。</p>
             </div>
             <div class="toolbar">
-              <span id="marketReviewDateLabel" class="review-scope-chip">复盘日 -</span>
+              <div class="market-date-control" aria-label="全市场复盘日期">
+                <button type="button" id="marketPrevDateButton">上一全市场</button>
+                <label class="review-date-field">
+                  <span>全市场日</span>
+                  <input id="marketReviewDateInput" type="date" autocomplete="off" />
+                </label>
+                <button type="button" id="marketApplyDateButton">查看</button>
+                <button type="button" id="marketNextDateButton">下一全市场</button>
+                <button type="button" id="marketLatestDateButton">最新全市场</button>
+                <button type="button" id="marketFollowReviewDateButton">跟随复盘日</button>
+              </div>
+              <span id="marketReviewDateLabel" class="review-scope-chip">全市场日 -</span>
               <button type="button" id="reloadMarketButton">刷新全市场</button>
             </div>
           </div>
 
+          <section class="market-history-strip" id="marketHistoryStrip" aria-label="全市场历史"></section>
           <section class="market-regime-strip" id="marketRegimeStrip" aria-live="polite"></section>
 
           <div class="market-layout">

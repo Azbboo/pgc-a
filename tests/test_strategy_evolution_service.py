@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 import tempfile
 import unittest
@@ -119,6 +120,86 @@ class StrategyEvolutionServiceTest(unittest.TestCase):
             self.assertEqual(len(listed.data.hypotheses), 1)
             self.assertEqual(listed.data.hypotheses[0].hypothesis_id, hypothesis_id)
 
+    def test_acceptance_requires_testing_evidence_and_backtest_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc.db"
+            artifact_path = Path(tmp) / "hypothesis_backtest_request.json"
+            run_migrations(db_path)
+            _seed_market_review_observations(db_path)
+            params_before = _strategy_param_file_contents()
+            strategy_versions_before = _count_strategy_versions(db_path)
+            service = StrategyEvolutionService(db_path)
+            proposed = service.propose_hypotheses(
+                ProposeStrategyHypothesesRequest(as_of_date="20260508"),
+                RequestContext(dry_run=False, operator="azboo"),
+            )
+            assert proposed.data is not None
+            hypothesis_id = proposed.data.hypotheses[0].hypothesis_id
+            assert hypothesis_id is not None
+            _write_backtest_artifact(artifact_path, hypothesis_id)
+
+            direct_accept = service.mark_hypothesis(
+                MarkStrategyHypothesisRequest(
+                    hypothesis_id=hypothesis_id,
+                    status="accepted",
+                    evidence_ids=("market_review_run:1",),
+                    backtest_artifact_path=str(artifact_path),
+                ),
+                RequestContext(request_id="direct-accept", operator="azboo"),
+            )
+            self.assertEqual(direct_accept.status, "validation_failed")
+            self.assertEqual([error.code for error in direct_accept.errors], ["INVALID_HYPOTHESIS_STATUS_TRANSITION"])
+
+            testing = service.mark_hypothesis(
+                MarkStrategyHypothesisRequest(
+                    hypothesis_id=hypothesis_id,
+                    status="testing",
+                    review_note="Ready for replay/backtest.",
+                ),
+                RequestContext(request_id="testing", operator="azboo"),
+            )
+            missing_gate = service.mark_hypothesis(
+                MarkStrategyHypothesisRequest(hypothesis_id=hypothesis_id, status="accepted"),
+                RequestContext(request_id="missing-gate", operator="azboo"),
+            )
+            accepted = service.mark_hypothesis(
+                MarkStrategyHypothesisRequest(
+                    hypothesis_id=hypothesis_id,
+                    status="accepted",
+                    review_note="Replay request artifact and evidence are attached.",
+                    evidence_ids=("market_review_run:1", "backtest_request:local"),
+                    backtest_artifact_path=str(artifact_path),
+                ),
+                RequestContext(request_id="accepted", operator="azboo"),
+            )
+
+            self.assertTrue(testing.ok)
+            self.assertEqual(missing_gate.status, "validation_failed")
+            self.assertEqual(
+                {error.code for error in missing_gate.errors},
+                {"ACCEPTED_REQUIRES_VALIDATION_EVIDENCE", "ACCEPTED_REQUIRES_BACKTEST_ARTIFACT"},
+            )
+            self.assertEqual(accepted.status, "success")
+            self.assertIsNotNone(accepted.data)
+            assert accepted.data is not None
+            self.assertEqual(accepted.data.previous_status, "testing")
+            self.assertEqual(accepted.data.hypothesis.status, "accepted")
+            self.assertTrue(accepted.data.strategy_version_task_required)
+            self.assertIsNotNone(accepted.data.strategy_version_task)
+            assert accepted.data.strategy_version_task is not None
+            self.assertEqual(
+                accepted.data.strategy_version_task["task_key"],
+                f"strategy-hypothesis:{hypothesis_id}:strategy-version",
+            )
+            self.assertFalse(accepted.data.strategy_version_task["proposed_change"]["mutates_active_params"])
+            self.assertEqual(_strategy_param_file_contents(), params_before)
+            self.assertEqual(_count_strategy_versions(db_path), strategy_versions_before)
+
+            validation = _hypothesis_validation(db_path, hypothesis_id)
+            self.assertEqual(validation["evidence_ids"], ["market_review_run:1", "backtest_request:local"])
+            self.assertEqual(validation["backtest_artifacts"], [str(artifact_path)])
+            self.assertEqual([event["to_status"] for event in validation["review_events"]], ["testing", "accepted"])
+
     def test_no_observations_is_skipped_without_writes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "pgc.db"
@@ -233,8 +314,40 @@ def _count_hypotheses(db_path: Path) -> int:
         return int(conn.execute("SELECT COUNT(*) FROM strategy_hypotheses").fetchone()[0])
 
 
+def _count_strategy_versions(db_path: Path) -> int:
+    with sqlite3.connect(db_path) as conn:
+        return int(conn.execute("SELECT COUNT(*) FROM strategy_versions").fetchone()[0])
+
+
 def _strategy_param_file_contents() -> dict[Path, str]:
     return {path: path.read_text(encoding="utf-8") for path in STRATEGY_PARAM_FILES}
+
+
+def _write_backtest_artifact(path: Path, hypothesis_id: int) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "artifact_type": "strategy_hypothesis_backtest_request",
+                "hypothesis": {"id": hypothesis_id},
+                "backtest_request": {"task_key": f"strategy-hypothesis:{hypothesis_id}:backtest"},
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+
+def _hypothesis_validation(db_path: Path, hypothesis_id: int) -> dict[str, object]:
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT evidence_json FROM strategy_hypotheses WHERE id = ?",
+            (hypothesis_id,),
+        ).fetchone()
+    assert row is not None
+    evidence = json.loads(row[0])
+    validation = evidence.get("validation")
+    assert isinstance(validation, dict)
+    return validation
 
 
 if __name__ == "__main__":
