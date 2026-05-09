@@ -9,8 +9,10 @@ from pathlib import Path
 
 from pgc_trading.cli.main import CommandServices, main
 from pgc_trading.services.common import RequestContext, ServiceResult
+from pgc_trading.services.market_plan_context_service import MarketPlanContextResult
 from pgc_trading.services.market_review_service import MarketRegimeResult
 from pgc_trading.storage.migrate import run_migrations
+from pgc_trading.storage.seed import seed_reference_data
 
 
 class _FakeMarketReviewRunService:
@@ -122,10 +124,40 @@ class _UnexpectedMarketExternalDataService:
         raise AssertionError(f"market external data service should not be built for missing db: {db_path}")
 
 
+class _FakeMarketPlanContextService:
+    calls: list[tuple[Path, object, RequestContext]] = []
+
+    def __init__(self, db_path: Path):
+        self.db_path = db_path
+
+    def link_plan_context(self, request, ctx: RequestContext) -> ServiceResult[MarketPlanContextResult]:
+        self.calls.append((self.db_path, request, ctx))
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data=MarketPlanContextResult(
+                market_review_run_id=42,
+                trade_plan_id=request.trade_plan_id,
+                alignment="aligned",
+                risk_level="low",
+                management_action="proceed",
+                rationale="Candidate aligns with market review.",
+                evidence={"candidate": {"ts_code": "000001.SZ"}},
+            ),
+            lineage={"changed": "false" if ctx.dry_run else "true"},
+        )
+
+
+class _UnexpectedMarketPlanContextService:
+    def __init__(self, db_path: Path):
+        raise AssertionError(f"market plan context service should not be built for missing db: {db_path}")
+
+
 class CliMarketReviewTest(unittest.TestCase):
     def setUp(self) -> None:
         _FakeMarketReviewRunService.calls = []
         _FakeMarketExternalDataService.calls = []
+        _FakeMarketPlanContextService.calls = []
 
     def test_market_review_run_routes_to_service_with_dry_run_context(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -556,6 +588,55 @@ class CliMarketReviewTest(unittest.TestCase):
             self.assertIn("hypotheses_count=1", testing_stdout.getvalue())
             self.assertIn(f"id={hypothesis_id}", testing_stdout.getvalue())
 
+    def test_strategy_evolution_backtest_dry_run_routes_without_state_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc.db"
+            run_migrations(db_path)
+            seed_reference_data(db_path)
+            _seed_risk_off_review(db_path)
+            apply_stdout = io.StringIO()
+            apply_code = main(
+                [
+                    "strategy-evolution",
+                    "propose",
+                    "--date",
+                    "20260508",
+                    "--db-path",
+                    str(db_path),
+                    "--apply",
+                ],
+                stdout=apply_stdout,
+            )
+            hypothesis_id = _first_hypothesis_id(db_path)
+            strategy_versions_before = _count_strategy_versions(db_path)
+
+            stdout = io.StringIO()
+            code = main(
+                [
+                    "strategy-evolution",
+                    "backtest",
+                    "--hypothesis-id",
+                    str(hypothesis_id),
+                    "--db-path",
+                    str(db_path),
+                    "--dry-run",
+                ],
+                stdout=stdout,
+            )
+
+            self.assertEqual(apply_code, 0)
+            self.assertEqual(code, 0)
+            output = stdout.getvalue()
+            self.assertIn("strategy-evolution backtest command routed", output)
+            self.assertIn(f"hypothesis-id={hypothesis_id}", output)
+            self.assertIn(f"task_key=strategy-hypothesis:{hypothesis_id}:backtest", output)
+            self.assertIn("strategy_version_task_required=false", output)
+            self.assertIn("would_write_artifact=true", output)
+            self.assertIn("wrote_artifact=false", output)
+            self.assertIn("active_params_mutated=false", output)
+            self.assertIn("BACKTEST_REQUEST_DRY_RUN", output)
+            self.assertEqual(_count_strategy_versions(db_path), strategy_versions_before)
+
     def test_strategy_evolution_missing_db_fails_without_creating_database(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "missing.db"
@@ -570,6 +651,98 @@ class CliMarketReviewTest(unittest.TestCase):
                     str(db_path),
                 ],
                 stdout=stdout,
+            )
+
+            self.assertEqual(code, 1)
+            self.assertFalse(db_path.exists())
+            self.assertIn("database not found", stdout.getvalue())
+            self.assertIn("no writes were performed", stdout.getvalue())
+
+    def test_market_review_link_plan_routes_to_service_with_dry_run_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc_market_review.db"
+            db_path.touch()
+            stdout = io.StringIO()
+            code = main(
+                [
+                    "market-review",
+                    "link-plan",
+                    "--date",
+                    "20260508",
+                    "--trade-plan-id",
+                    "7",
+                    "--db-path",
+                    str(db_path),
+                ],
+                stdout=stdout,
+                services=CommandServices(market_plan_context_service_factory=_FakeMarketPlanContextService),
+            )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(len(_FakeMarketPlanContextService.calls), 1)
+        called_db_path, request, ctx = _FakeMarketPlanContextService.calls[0]
+        self.assertEqual(called_db_path, db_path)
+        self.assertEqual(request.as_of_date, "20260508")
+        self.assertEqual(request.trade_plan_id, 7)
+        self.assertTrue(ctx.dry_run)
+        self.assertEqual(ctx.request_id, "cli-market-review-link-plan")
+        self.assertEqual(ctx.operator, "cli")
+        output = stdout.getvalue()
+        self.assertIn("market-review link-plan command routed", output)
+        self.assertIn("market_plan_context_status=success", output)
+        self.assertIn("market_review_run_id=42", output)
+        self.assertIn("trade_plan_id=7", output)
+        self.assertIn("alignment=aligned", output)
+        self.assertIn("management_action=proceed", output)
+        self.assertIn("changed=false", output)
+
+    def test_market_review_link_plan_apply_mode_uses_operator(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc_market_review.db"
+            db_path.touch()
+            stdout = io.StringIO()
+            code = main(
+                [
+                    "market-review",
+                    "link-plan",
+                    "--date",
+                    "2026-05-08",
+                    "--trade-plan-id",
+                    "7",
+                    "--operator",
+                    "azboo",
+                    "--apply",
+                    "--db-path",
+                    str(db_path),
+                ],
+                stdout=stdout,
+                services=CommandServices(market_plan_context_service_factory=_FakeMarketPlanContextService),
+            )
+
+        self.assertEqual(code, 0)
+        _, request, ctx = _FakeMarketPlanContextService.calls[0]
+        self.assertEqual(request.as_of_date, "20260508")
+        self.assertFalse(ctx.dry_run)
+        self.assertEqual(ctx.operator, "azboo")
+        self.assertIn("changed=true", stdout.getvalue())
+
+    def test_market_review_link_plan_missing_db_fails_without_creating_database(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "missing.db"
+            stdout = io.StringIO()
+            code = main(
+                [
+                    "market-review",
+                    "link-plan",
+                    "--date",
+                    "20260508",
+                    "--trade-plan-id",
+                    "7",
+                    "--db-path",
+                    str(db_path),
+                ],
+                stdout=stdout,
+                services=CommandServices(market_plan_context_service_factory=_UnexpectedMarketPlanContextService),
             )
 
             self.assertEqual(code, 1)
@@ -604,6 +777,11 @@ def _seed_risk_off_review(db_path: Path) -> None:
 def _count_hypotheses(db_path: Path) -> int:
     with sqlite3.connect(db_path) as conn:
         return int(conn.execute("SELECT COUNT(*) FROM strategy_hypotheses").fetchone()[0])
+
+
+def _count_strategy_versions(db_path: Path) -> int:
+    with sqlite3.connect(db_path) as conn:
+        return int(conn.execute("SELECT COUNT(*) FROM strategy_versions").fetchone()[0])
 
 
 def _first_hypothesis_id(db_path: Path) -> int:

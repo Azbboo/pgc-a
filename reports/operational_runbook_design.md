@@ -1186,7 +1186,32 @@ daily review API returns 200
 - `/api/health` 必须可用，且 daily review API `/api/daily-reviews/20260508` 对 `paper-main` 返回 200；
 - 验收通过后，当日运行记录必须保存命令、输出摘要、`backup_path`（如有）和操作者。
 
-## 20. 停机与暂停规则
+## 20. M43 全市场复盘生产数据源策略
+
+M43 的目标是把全市场复盘的数据源边界写进生产 Runbook，避免把测试 fixture 伪装成真实数据源。详细策略见 `reports/market_review_data_source_design.md`。
+
+必须遵守的生产不变量：
+
+- Fixture imports are for tests only.
+- Tushare/official cached data is preferred for market and sector facts.
+- Manual news/sentiment imports must include provider, title, date, summary, and source hash.
+- Missing evidence is acceptable but must be explicit.
+- No live web fetch inside daily trading path.
+
+生产全市场复盘的数据进入顺序：
+
+1. 先刷新 Tushare 或官方缓存，确认 `market_bars`、`trade_calendar` 和候选股票行情覆盖复盘日 `S`；
+2. 板块成分只从生产 provider 的缓存文件导入，先 dry-run `market-review import-sectors`，再按需 apply；
+3. 新闻、公告、政策、情绪等外部证据只允许导入已审核缓存，先 dry-run `market-review external-data import`；
+4. `market_review_runs.provider_manifest_json` 必须能说明市场、板块、外部证据的 provider；
+5. `coverage_summary` 或日报必须显式显示 `available`、`partial`、`missing` 或 `unknown`；
+6. `scripts/run_daily_pipeline.sh` 不允许在交易路径里实时抓取网页、新闻、社媒或搜索结果。
+
+缺失新闻/情绪证据时，可以继续确定性策略流程，但报告必须写明“未接入/证据不足”。缺失行情、交易日历或候选股票必要市场事实时，不能静默继续，必须按数据质量门禁处理为 warning 或 blocker。
+
+`manual_fixture` 不是生产 provider。`tests/fixtures/market_review` 下的文件只能用于单元测试、CLI contract test、golden replay 或演练库，不得写入 `data/pgc_trading.db` 或远端 `/opt/pgc/data/pgc_trading.db`。
+
+## 21. 停机与暂停规则
 
 必须暂停新开仓的情况：
 
@@ -1213,7 +1238,7 @@ daily review API returns 200
 - 创建新的 live 买入计划；
 - 临时修改策略参数继续运行。
 
-## 21. Runbook 验收标准
+## 22. Runbook 验收标准
 
 Runbook 落地后必须满足：
 
@@ -1228,7 +1253,7 @@ Runbook 落地后必须满足：
 9. 每个账户查询都带 account id。
 10. 任意一次重复提交不会重复建仓。
 
-## 22. ADR
+## 23. ADR
 
 ### ADR-OPS-001: 首版实盘不自动下单
 

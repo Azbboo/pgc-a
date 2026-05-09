@@ -203,6 +203,17 @@ class AgentAdviceReport:
 
 
 @dataclass(frozen=True)
+class MarketPlanContextReport:
+    market_review_run_id: int
+    trade_plan_id: int
+    alignment: str
+    risk_level: str
+    management_action: str
+    rationale: str
+    evidence: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class PositionReport:
     position_id: int
     ts_code: str
@@ -226,6 +237,7 @@ class ReportLineage:
     daily_pick_id: int | None
     signal_id: int | None
     trade_plan_id: int | None
+    market_review_run_id: int | None
     agent_run_id: int | None
     agent_decision_id: int | None
     data_quality_event_ids: list[int] = field(default_factory=list)
@@ -244,6 +256,7 @@ class DailyReport:
     candidate: CandidateReport | None
     no_candidate_reason: str | None
     buy_plan: BuyPlanReport | None
+    market_plan_context: MarketPlanContextReport | None
     agent_advice: AgentAdviceReport
     positions: list[PositionReport]
     due_positions: list[PositionReport]
@@ -287,6 +300,7 @@ class ReportingQueryService:
             account = _load_account(conn, request)
             candidate = _load_candidate(conn, request)
             buy_plan = _load_buy_plan(conn, candidate, account)
+            market_plan_context = _load_market_plan_context(conn, buy_plan, request.as_of_date)
             agent_advice = _load_agent_advice(conn, candidate)
             positions = _load_positions(conn, request.as_of_date, account.account_id)
             no_candidate_reason = _no_candidate_reason(conn, request, candidate)
@@ -301,6 +315,7 @@ class ReportingQueryService:
             daily_pick_id=candidate.daily_pick_id if candidate else None,
             signal_id=candidate.signal_id if candidate else None,
             trade_plan_id=buy_plan.trade_plan_id if buy_plan else None,
+            market_review_run_id=market_plan_context.market_review_run_id if market_plan_context else None,
             agent_run_id=agent_advice.agent_run_id,
             agent_decision_id=agent_advice.agent_decision_id,
             data_quality_event_ids=data_quality.event_ids,
@@ -317,6 +332,7 @@ class ReportingQueryService:
             candidate=candidate,
             no_candidate_reason=no_candidate_reason,
             buy_plan=buy_plan,
+            market_plan_context=market_plan_context,
             agent_advice=agent_advice,
             positions=positions,
             due_positions=[position for position in positions if position.action_due != "none"],
@@ -449,6 +465,8 @@ def render_daily_report_markdown(report: DailyReport) -> str:
             ]
         )
 
+    lines.extend(_market_plan_context_lines(report.market_plan_context))
+
     lines.extend(["", "## Agent 复核", ""])
     lines.extend(
         [
@@ -523,6 +541,7 @@ def render_daily_report_markdown(report: DailyReport) -> str:
         ("入选记录", report.lineage.daily_pick_id),
         ("信号记录", report.lineage.signal_id),
         ("计划记录", report.lineage.trade_plan_id),
+        ("全市场复盘", report.lineage.market_review_run_id),
         ("Agent 运行", report.lineage.agent_run_id),
         ("Agent 意见", report.lineage.agent_decision_id),
     ]
@@ -932,6 +951,45 @@ def _load_buy_plan(
         free_position_slots=_optional_int(payload.get("free_position_slots")),
         price_reference=_optional_float(payload.get("price_reference")),
         price_reference_date=payload.get("price_reference_date"),
+    )
+
+
+def _load_market_plan_context(
+    conn: Any,
+    buy_plan: BuyPlanReport | None,
+    as_of_date: str,
+) -> MarketPlanContextReport | None:
+    if buy_plan is None:
+        return None
+    row = conn.execute(
+        """
+        SELECT
+          mpc.market_review_run_id,
+          mpc.trade_plan_id,
+          mpc.alignment,
+          mpc.risk_level,
+          mpc.management_action,
+          mpc.rationale,
+          mpc.evidence_json
+        FROM market_plan_contexts mpc
+        JOIN market_review_runs mrr ON mrr.id = mpc.market_review_run_id
+        WHERE mpc.trade_plan_id = ?
+          AND mrr.as_of_date = ?
+        ORDER BY mpc.id DESC
+        LIMIT 1
+        """,
+        (buy_plan.trade_plan_id, as_of_date),
+    ).fetchone()
+    if row is None:
+        return None
+    return MarketPlanContextReport(
+        market_review_run_id=int(row["market_review_run_id"]),
+        trade_plan_id=int(row["trade_plan_id"]),
+        alignment=row["alignment"],
+        risk_level=row["risk_level"],
+        management_action=row["management_action"],
+        rationale=row["rationale"],
+        evidence=_loads_json_object(row["evidence_json"]),
     )
 
 
@@ -1444,6 +1502,125 @@ def _paper_promotion_lines(promotion: PaperReadinessResult | None) -> list[str]:
     ]
 
 
+def _market_plan_context_lines(context: MarketPlanContextReport | None) -> list[str]:
+    lines = ["", "## 全市场复盘与明日计划关系", ""]
+    if context is None:
+        lines.append("- 状态：未生成全市场复盘与计划关系。")
+        lines.append("- 提醒：该部分只提供管理建议，不会自动创建、取消或执行交易计划。")
+        return lines
+
+    evidence = context.evidence
+    market_regime = _dict_value(evidence.get("market_regime"))
+    top_sectors = _dict_list(evidence.get("top_sectors"))
+    candidate_sector = _dict_value(evidence.get("candidate_sector"))
+    external_items = _dict_list(evidence.get("external_items"))
+    lines.extend(
+        [
+            f"- 市场状态：{_market_regime_text(market_regime)}",
+            f"- 强势板块：{_top_sectors_text(top_sectors)}",
+            f"- 候选板块匹配：{_candidate_sector_fit_text(candidate_sector)}",
+            f"- 新闻/情绪匹配：{_external_fit_text(external_items)}",
+            (
+                "- 管理建议："
+                f"{_management_action_text(context.management_action)}；"
+                f"匹配 {_alignment_text(context.alignment)}；"
+                f"风险 {_risk_text(context.risk_level)}"
+            ),
+            f"- 理由：{context.rationale}",
+            "- 提醒：该结论只提供管理建议，不会自动创建、取消或执行交易计划。",
+        ]
+    )
+    return lines
+
+
+def _dict_value(value: Any) -> dict[str, Any] | None:
+    return value if isinstance(value, dict) else None
+
+
+def _dict_list(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def _market_regime_text(payload: dict[str, Any] | None) -> str:
+    if not payload:
+        return "未知"
+    regime = {
+        "risk_on": "风险偏好",
+        "neutral": "中性",
+        "risk_off": "风险收缩",
+        "unknown": "未知",
+    }.get(str(payload.get("regime") or "unknown"), str(payload.get("regime") or "unknown"))
+    summary = _optional_text_value(payload.get("summary"))
+    scores = []
+    for label, key in [("宽度", "breadth_score"), ("趋势", "trend_score"), ("持续", "persistence_score")]:
+        score = _optional_float_from_any(payload.get(key))
+        if score is not None:
+            scores.append(f"{label}{score:.2f}")
+    score_text = f"（{' / '.join(scores)}）" if scores else ""
+    return f"{regime}{score_text}" + (f"：{summary}" if summary else "")
+
+
+def _top_sectors_text(sectors: list[dict[str, Any]]) -> str:
+    if not sectors:
+        return "未找到板块轮动数据"
+    parts = []
+    for sector in sectors[:3]:
+        name = str(sector.get("sector_name") or sector.get("sector_code") or "未知板块")
+        rank = _optional_int_from_any(sector.get("rank_overall"))
+        persistence = _optional_float_from_any(sector.get("persistence_score"))
+        rank_text = f"#{rank}" if rank is not None else "#-"
+        persistence_text = f"，持续 {persistence:.2f}" if persistence is not None else ""
+        parts.append(f"{name}{rank_text}{persistence_text}")
+    return "；".join(parts)
+
+
+def _candidate_sector_fit_text(sector: dict[str, Any] | None) -> str:
+    if not sector:
+        return "未找到候选所属板块数据"
+    name = str(sector.get("sector_name") or sector.get("sector_code") or "未知板块")
+    rank = _optional_int_from_any(sector.get("rank_overall"))
+    role = str(sector.get("role") or "unknown")
+    persistence = _optional_float_from_any(sector.get("persistence_score"))
+    rank_text = f"全市场排名 #{rank}" if rank is not None else "全市场排名未知"
+    persistence_text = f"，持续 {persistence:.2f}" if persistence is not None else ""
+    return f"{name}，{rank_text}，个股角色 {role}{persistence_text}"
+
+
+def _external_fit_text(items: list[dict[str, Any]]) -> str:
+    if not items:
+        return "未找到新闻/情绪证据"
+    high_negative_count = sum(
+        1
+        for item in items
+        if item.get("sentiment") == "negative" and item.get("importance") == "high"
+    )
+    first = items[0]
+    title = str(first.get("title") or "未命名证据")
+    sentiment = str(first.get("sentiment") or "unknown")
+    importance = str(first.get("importance") or "unknown")
+    return f"{len(items)} 条证据，高重要度负面 {high_negative_count} 条；首要证据：{title}（{sentiment}/{importance}）"
+
+
+def _optional_int_from_any(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _optional_float_from_any(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _promotion_next_steps(promotion: PaperReadinessResult) -> str:
     if promotion.promotion_blockers:
         return ", ".join(promotion.promotion_blockers)
@@ -1549,6 +1726,24 @@ def _risk_text(value: str) -> str:
         "low": "低",
         "medium": "中",
         "high": "高",
+        "unknown": "未知",
+    }.get(value, value)
+
+
+def _alignment_text(value: str) -> str:
+    return {
+        "aligned": "顺势",
+        "neutral": "中性",
+        "conflict": "冲突",
+        "unknown": "未知",
+    }.get(value, value)
+
+
+def _management_action_text(value: str) -> str:
+    return {
+        "proceed": "按计划推进",
+        "manual_review": "人工复核",
+        "consider_cancel": "考虑取消",
         "unknown": "未知",
     }.get(value, value)
 

@@ -19,6 +19,14 @@ from pgc_trading.services.execution_recording_service import (
     RecordPositionSellRequest,
     RecordTradeRequest,
 )
+from pgc_trading.services.market_review_service import (
+    GetMarketReviewPlanContextRequest,
+    GetMarketReviewRequest,
+    ListMarketReviewExternalItemsRequest,
+    ListMarketReviewHypothesesRequest,
+    ListMarketReviewsRequest,
+    ListMarketReviewSectorsRequest,
+)
 from pgc_trading.services.portfolio_planning_service import (
     CancelTradePlanRequest,
     GenerateBuyPlanRequest,
@@ -77,6 +85,96 @@ def register_routes(app: Any) -> None:
             account_key=_blank_to_none(account_key),
             account_id=account_id,
             strategy_version=strategy_version,
+            request_id=request_id,
+        )
+
+    @app.get("/api/market-reviews", tags=["market-review"])
+    def market_review_history(
+        response: Response,
+        limit: int = 20,
+        request_id: str | None = None,
+    ) -> dict[str, object]:
+        return list_market_reviews(
+            app.state.settings,
+            app.state.services,
+            response,
+            limit=limit,
+            request_id=request_id,
+        )
+
+    @app.get("/api/market-reviews/{as_of_date}", tags=["market-review"])
+    def market_review_detail(
+        as_of_date: str,
+        response: Response,
+        request_id: str | None = None,
+    ) -> dict[str, object]:
+        return get_market_review(
+            app.state.settings,
+            app.state.services,
+            response,
+            as_of_date=as_of_date,
+            request_id=request_id,
+        )
+
+    @app.get("/api/market-reviews/{as_of_date}/sectors", tags=["market-review"])
+    def market_review_sectors(
+        as_of_date: str,
+        response: Response,
+        request_id: str | None = None,
+    ) -> dict[str, object]:
+        return list_market_review_sectors(
+            app.state.settings,
+            app.state.services,
+            response,
+            as_of_date=as_of_date,
+            request_id=request_id,
+        )
+
+    @app.get("/api/market-reviews/{as_of_date}/external-items", tags=["market-review"])
+    def market_review_external_items(
+        as_of_date: str,
+        response: Response,
+        request_id: str | None = None,
+    ) -> dict[str, object]:
+        return list_market_review_external_items(
+            app.state.settings,
+            app.state.services,
+            response,
+            as_of_date=as_of_date,
+            request_id=request_id,
+        )
+
+    @app.get("/api/market-reviews/{as_of_date}/hypotheses", tags=["market-review"])
+    def market_review_hypotheses(
+        as_of_date: str,
+        response: Response,
+        status: str | None = None,
+        limit: int = 100,
+        request_id: str | None = None,
+    ) -> dict[str, object]:
+        return list_market_review_hypotheses(
+            app.state.settings,
+            app.state.services,
+            response,
+            as_of_date=as_of_date,
+            status=_blank_to_none(status),
+            limit=limit,
+            request_id=request_id,
+        )
+
+    @app.get("/api/market-reviews/{as_of_date}/plan-context", tags=["market-review"])
+    def market_review_plan_context(
+        as_of_date: str,
+        response: Response,
+        trade_plan_id: int | None = None,
+        request_id: str | None = None,
+    ) -> dict[str, object]:
+        return get_market_review_plan_context(
+            app.state.settings,
+            app.state.services,
+            response,
+            as_of_date=as_of_date,
+            trade_plan_id=trade_plan_id,
             request_id=request_id,
         )
 
@@ -276,6 +374,110 @@ def list_daily_reviews(
             before_date=_normalize_optional_date(before_date),
             limit=limit,
         ),
+        RequestContext(request_id=request_id, dry_run=True, source="api"),
+    )
+    return _service_response(result, response)
+
+
+def list_market_reviews(
+    settings: ApiSettings,
+    services: ApiServices,
+    response: Any,
+    *,
+    limit: int = 20,
+    request_id: str | None = None,
+) -> dict[str, object]:
+    service = services.market_review_service_factory(settings.db_path)
+    result = service.list_market_reviews(
+        ListMarketReviewsRequest(limit=limit),
+        RequestContext(request_id=request_id, dry_run=True, source="api"),
+    )
+    return _service_response(result, response)
+
+
+def get_market_review(
+    settings: ApiSettings,
+    services: ApiServices,
+    response: Any,
+    *,
+    as_of_date: str,
+    request_id: str | None = None,
+) -> dict[str, object]:
+    normalized_date = _normalize_date(as_of_date)
+    service = services.market_review_service_factory(settings.db_path)
+    result = service.get_market_review(
+        GetMarketReviewRequest(as_of_date=normalized_date),
+        RequestContext(request_id=request_id, dry_run=True, source="api"),
+    )
+    return _service_response(result, response)
+
+
+def list_market_review_sectors(
+    settings: ApiSettings,
+    services: ApiServices,
+    response: Any,
+    *,
+    as_of_date: str,
+    request_id: str | None = None,
+) -> dict[str, object]:
+    normalized_date = _normalize_date(as_of_date)
+    service = services.market_review_service_factory(settings.db_path)
+    result = service.list_market_review_sectors(
+        ListMarketReviewSectorsRequest(as_of_date=normalized_date),
+        RequestContext(request_id=request_id, dry_run=True, source="api"),
+    )
+    return _service_response(result, response)
+
+
+def list_market_review_external_items(
+    settings: ApiSettings,
+    services: ApiServices,
+    response: Any,
+    *,
+    as_of_date: str,
+    request_id: str | None = None,
+) -> dict[str, object]:
+    normalized_date = _normalize_date(as_of_date)
+    service = services.market_review_service_factory(settings.db_path)
+    result = service.list_market_review_external_items(
+        ListMarketReviewExternalItemsRequest(as_of_date=normalized_date),
+        RequestContext(request_id=request_id, dry_run=True, source="api"),
+    )
+    return _service_response(result, response)
+
+
+def list_market_review_hypotheses(
+    settings: ApiSettings,
+    services: ApiServices,
+    response: Any,
+    *,
+    as_of_date: str,
+    status: str | None = None,
+    limit: int = 100,
+    request_id: str | None = None,
+) -> dict[str, object]:
+    normalized_date = _normalize_date(as_of_date)
+    service = services.market_review_service_factory(settings.db_path)
+    result = service.list_market_review_hypotheses(
+        ListMarketReviewHypothesesRequest(as_of_date=normalized_date, status=status, limit=limit),
+        RequestContext(request_id=request_id, dry_run=True, source="api"),
+    )
+    return _service_response(result, response)
+
+
+def get_market_review_plan_context(
+    settings: ApiSettings,
+    services: ApiServices,
+    response: Any,
+    *,
+    as_of_date: str,
+    trade_plan_id: int | None = None,
+    request_id: str | None = None,
+) -> dict[str, object]:
+    normalized_date = _normalize_date(as_of_date)
+    service = services.market_review_service_factory(settings.db_path)
+    result = service.get_market_review_plan_context(
+        GetMarketReviewPlanContextRequest(as_of_date=normalized_date, trade_plan_id=trade_plan_id),
         RequestContext(request_id=request_id, dry_run=True, source="api"),
     )
     return _service_response(result, response)

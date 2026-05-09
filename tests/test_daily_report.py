@@ -72,6 +72,36 @@ class DailyReportTest(unittest.TestCase):
             self.assertIn("data_quality", payload)
             self.assertIn("lineage", payload)
 
+    def test_report_includes_market_plan_context_section(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._plan_ready_db(tmp)
+            with sqlite3.connect(db_path) as conn:
+                market_review_run_id = self._insert_market_plan_context(conn)
+
+            result = ReportingQueryService(db_path).get_daily_report(
+                DailyReportRequest(as_of_date=AS_OF_DATE, account_key=ACCOUNT_KEY),
+                RequestContext(request_id="req-report-market-plan-context"),
+            )
+
+            self.assertEqual(result.status, "success")
+            self.assertIsNotNone(result.data.market_plan_context)
+            self.assertEqual(result.data.market_plan_context.market_review_run_id, market_review_run_id)
+            self.assertEqual(result.data.market_plan_context.management_action, "proceed")
+            self.assertEqual(result.data.lineage.market_review_run_id, market_review_run_id)
+
+            markdown = render_daily_report_markdown(result.data)
+            self.assertIn("## 全市场复盘与明日计划关系", markdown)
+            self.assertIn("市场状态", markdown)
+            self.assertIn("强势板块", markdown)
+            self.assertIn("候选板块匹配", markdown)
+            self.assertIn("新闻/情绪匹配", markdown)
+            self.assertIn("不会自动创建、取消或执行交易计划", markdown)
+
+            payload = json.loads(render_daily_report_json(result.data))
+            self.assertEqual(payload["market_plan_context"]["management_action"], "proceed")
+            self.assertEqual(payload["lineage"]["market_review_run_id"], market_review_run_id)
+            self.assertEqual(payload["market_plan_context"]["evidence"]["top_sectors"][0]["sector_name"], "人工智能")
+
     def test_review_history_lists_latest_runs_with_pick_plan_and_no_candidate_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = self._plan_ready_db(tmp)
@@ -430,6 +460,80 @@ class DailyReportTest(unittest.TestCase):
             """,
             (run_id, str(report_path.with_suffix(".json")), run_id, str(report_path)),
         )
+
+    def _insert_market_plan_context(self, conn: sqlite3.Connection) -> int:
+        trade_plan_id = int(conn.execute("SELECT id FROM trade_plans ORDER BY id DESC LIMIT 1").fetchone()[0])
+        run_id = int(
+            conn.execute(
+                """
+                INSERT INTO market_review_runs
+                  (as_of_date, status, provider_manifest_json, coverage_json, summary_json, completed_at)
+                VALUES
+                  (?, 'completed', '{}', '{}', '{}', CURRENT_TIMESTAMP)
+                """,
+                (AS_OF_DATE,),
+            ).lastrowid
+        )
+        conn.execute(
+            """
+            INSERT INTO market_regime_snapshots
+              (
+                market_review_run_id,
+                as_of_date,
+                regime,
+                breadth_score,
+                trend_score,
+                volume_score,
+                sentiment_score,
+                persistence_score,
+                summary
+              )
+            VALUES
+              (?, ?, 'risk_on', 0.72, 0.68, 0.66, 0.61, 0.80, 'Market review supports the plan.')
+            """,
+            (run_id, AS_OF_DATE),
+        )
+        evidence = {
+            "market_regime": {
+                "regime": "risk_on",
+                "breadth_score": 0.72,
+                "trend_score": 0.68,
+                "persistence_score": 0.80,
+                "summary": "Market review supports the plan.",
+            },
+            "top_sectors": [
+                {
+                    "sector_code": "AI",
+                    "sector_name": "人工智能",
+                    "rank_overall": 1,
+                    "persistence_score": 0.80,
+                }
+            ],
+            "candidate_sector": {
+                "sector_code": "AI",
+                "sector_name": "人工智能",
+                "rank_overall": 1,
+                "role": "leader",
+                "persistence_score": 0.80,
+            },
+            "external_items": [
+                {
+                    "title": "行业景气度改善",
+                    "sentiment": "positive",
+                    "importance": "medium",
+                }
+            ],
+        }
+        conn.execute(
+            """
+            INSERT INTO market_plan_contexts
+              (market_review_run_id, trade_plan_id, alignment, risk_level, management_action, rationale, evidence_json)
+            VALUES
+              (?, ?, 'aligned', 'low', 'proceed', 'Sector and evidence support the plan.', ?)
+            """,
+            (run_id, trade_plan_id, json.dumps(evidence, ensure_ascii=False)),
+        )
+        return run_id
 
     def _insert_no_candidate_review_run(self, conn: sqlite3.Connection, review_date: str) -> None:
         strategy = conn.execute(

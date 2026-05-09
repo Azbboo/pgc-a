@@ -51,6 +51,10 @@ from pgc_trading.services.market_external_data_service import (
     ImportMarketExternalDataRequest,
     MarketExternalDataService,
 )
+from pgc_trading.services.market_plan_context_service import (
+    LinkMarketPlanContextRequest,
+    MarketPlanContextService,
+)
 from pgc_trading.services.market_review_service import MarketReviewService, RunMarketReviewRequest
 from pgc_trading.services.position_lifecycle_service import (
     EvaluateExitsRequest,
@@ -69,6 +73,10 @@ from pgc_trading.services.strategy_evolution_service import (
     StrategyEvolutionService,
     VALID_HYPOTHESIS_STATUSES,
 )
+from pgc_trading.services.strategy_hypothesis_backtest_service import (
+    CreateStrategyHypothesisBacktestRequest,
+    StrategyHypothesisBacktestService,
+)
 from pgc_trading.services.sector_rotation_service import ImportSectorMembershipRequest
 from pgc_trading.strategies.cpb_6157 import STRATEGY_VERSION
 from pgc_trading.storage.migrators.backup import backup_database
@@ -85,8 +93,10 @@ AgentReviewServiceFactory = Callable[[Path], AgentReviewService]
 AgentExternalDataServiceFactory = Callable[[Path], AgentExternalDataService]
 DailyPipelineServiceFactory = Callable[[Path], DailyPipelineService]
 MarketExternalDataServiceFactory = Callable[[Path], MarketExternalDataService]
+MarketPlanContextServiceFactory = Callable[[Path], MarketPlanContextService]
 MarketReviewServiceFactory = Callable[[Path], MarketReviewService]
 StrategyEvolutionServiceFactory = Callable[[Path], StrategyEvolutionService]
+StrategyHypothesisBacktestServiceFactory = Callable[[Path], StrategyHypothesisBacktestService]
 
 
 @dataclass(frozen=True)
@@ -102,8 +112,12 @@ class CommandServices:
     agent_external_data_service_factory: AgentExternalDataServiceFactory = AgentExternalDataService
     daily_pipeline_service_factory: DailyPipelineServiceFactory = DailyPipelineService
     market_external_data_service_factory: MarketExternalDataServiceFactory = MarketExternalDataService
+    market_plan_context_service_factory: MarketPlanContextServiceFactory = MarketPlanContextService
     market_review_service_factory: MarketReviewServiceFactory = MarketReviewService
     strategy_evolution_service_factory: StrategyEvolutionServiceFactory = StrategyEvolutionService
+    strategy_hypothesis_backtest_service_factory: StrategyHypothesisBacktestServiceFactory = (
+        StrategyHypothesisBacktestService
+    )
 
 
 class PgcArgumentParser(argparse.ArgumentParser):
@@ -282,6 +296,23 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
     _add_lifecycle_context_arguments(market_review_external_data_import)
     _add_db_path_argument(market_review_external_data_import)
     market_review_external_data_import.set_defaults(handler=_run_market_external_data_import)
+
+    market_review_link_plan = market_review_subparsers.add_parser(
+        "link-plan",
+        help="link a completed market review to a trade plan without mutating the plan",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    _add_report_date_argument(market_review_link_plan)
+    market_review_link_plan.add_argument("--trade-plan-id", type=_positive_int, required=True)
+    market_review_link_plan.add_argument(
+        "--apply",
+        action="store_true",
+        help="write market_plan_contexts instead of running a dry-run preview",
+    )
+    _add_lifecycle_context_arguments(market_review_link_plan)
+    _add_db_path_argument(market_review_link_plan)
+    market_review_link_plan.set_defaults(handler=_run_market_review_link_plan)
 
     plan = subparsers.add_parser(
         "plan",
@@ -575,6 +606,31 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
     _add_lifecycle_context_arguments(strategy_evolution_mark)
     _add_db_path_argument(strategy_evolution_mark)
     strategy_evolution_mark.set_defaults(handler=_run_strategy_evolution_mark)
+
+    strategy_evolution_backtest = strategy_evolution_subparsers.add_parser(
+        "backtest",
+        help="build a replay/backtest request for a strategy hypothesis",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    strategy_evolution_backtest.add_argument("--hypothesis-id", type=_positive_int, required=True)
+    strategy_evolution_backtest_mode = strategy_evolution_backtest.add_mutually_exclusive_group()
+    strategy_evolution_backtest_mode.add_argument(
+        "--dry-run",
+        dest="dry_run",
+        action="store_true",
+        default=True,
+        help="preview the backtest request artifact without writing it; this is the default",
+    )
+    strategy_evolution_backtest_mode.add_argument(
+        "--apply",
+        dest="dry_run",
+        action="store_false",
+        help="write the backtest request artifact without changing strategy params",
+    )
+    _add_lifecycle_context_arguments(strategy_evolution_backtest)
+    _add_db_path_argument(strategy_evolution_backtest)
+    strategy_evolution_backtest.set_defaults(handler=_run_strategy_evolution_backtest)
 
     ops = subparsers.add_parser(
         "ops",
@@ -895,6 +951,50 @@ def _run_market_external_data_import(
         return 1
 
     _write_market_external_data_import_result(stdout, command, source_file, db_path, result)
+    return 0 if result.ok else 1
+
+
+def _run_market_review_link_plan(
+    args: argparse.Namespace,
+    stdout: TextIO,
+    services: CommandServices,
+) -> int:
+    db_path = _normalized_db_path(args.db_path)
+    as_of_date = args.date
+    command = "market-review link-plan"
+
+    if not db_path.exists():
+        _write_routed_message(
+            stdout,
+            command,
+            as_of_date,
+            db_path,
+            "database not found; market plan context service was not run and no writes were performed",
+        )
+        return 1
+
+    service = services.market_plan_context_service_factory(db_path)
+    request = LinkMarketPlanContextRequest(
+        as_of_date=as_of_date,
+        trade_plan_id=args.trade_plan_id,
+    )
+    ctx = RequestContext(
+        request_id="cli-market-review-link-plan",
+        idempotency_key=args.idempotency_key or f"market-review:link-plan:{as_of_date}:{args.trade_plan_id}",
+        dry_run=not args.apply,
+        operator=args.operator,
+        source="cli",
+    )
+    try:
+        result = service.link_plan_context(request, ctx)
+    except sqlite3.OperationalError as exc:
+        stdout.write("market_plan_context_status=failed\n")
+        stdout.write(f"as_of_date={as_of_date}\n")
+        stdout.write(f"trade_plan_id={args.trade_plan_id}\n")
+        stdout.write(f"database_error={exc}\n")
+        return 1
+
+    _write_market_plan_context_result(stdout, command, as_of_date, db_path, result)
     return 0 if result.ok else 1
 
 
@@ -1353,6 +1453,47 @@ def _run_strategy_evolution_mark(
         return 1
 
     _write_strategy_evolution_mark_result(stdout, command, hypothesis_label, db_path, result)
+    return 0 if result.ok else 1
+
+
+def _run_strategy_evolution_backtest(
+    args: argparse.Namespace,
+    stdout: TextIO,
+    services: CommandServices,
+) -> int:
+    db_path = _normalized_db_path(args.db_path)
+    command = "strategy-evolution backtest"
+    hypothesis_label = f"hypothesis-id={args.hypothesis_id}"
+
+    if not db_path.exists():
+        _write_routed_message(
+            stdout,
+            command,
+            hypothesis_label,
+            db_path,
+            "database not found; strategy hypothesis backtest service was not run and no writes were performed",
+        )
+        return 1
+
+    service = services.strategy_hypothesis_backtest_service_factory(db_path)
+    request = CreateStrategyHypothesisBacktestRequest(hypothesis_id=args.hypothesis_id)
+    ctx = RequestContext(
+        request_id="cli-strategy-evolution-backtest",
+        idempotency_key=args.idempotency_key,
+        dry_run=args.dry_run,
+        operator=args.operator,
+        source="cli",
+    )
+    try:
+        result = service.create_backtest_request(request, ctx)
+    except sqlite3.OperationalError as exc:
+        stdout.write(
+            f"strategy-evolution backtest failed for {hypothesis_label}: "
+            f"database is not initialized or is incompatible: {exc}\n"
+        )
+        return 1
+
+    _write_strategy_evolution_backtest_result(stdout, command, hypothesis_label, db_path, result)
     return 0 if result.ok else 1
 
 
@@ -1882,6 +2023,31 @@ def _write_market_review_result(stdout: TextIO, result: ServiceResult[object]) -
     _write_warnings_and_errors(stdout, result)
 
 
+def _write_market_plan_context_result(
+    stdout: TextIO,
+    command: str,
+    as_of_date: str,
+    db_path: Path,
+    result: ServiceResult[object],
+) -> None:
+    _write_routed_message(stdout, command, as_of_date, db_path, f"service returned {result.status}")
+    data = result.data
+    stdout.write(f"market_plan_context_status={result.status}\n")
+    if data is None:
+        _write_warnings_and_errors(stdout, result)
+        return
+
+    stdout.write(f"as_of_date={as_of_date}\n")
+    stdout.write(f"market_review_run_id={getattr(data, 'market_review_run_id', 'n/a')}\n")
+    stdout.write(f"trade_plan_id={getattr(data, 'trade_plan_id', 'n/a')}\n")
+    stdout.write(f"alignment={getattr(data, 'alignment', 'unknown')}\n")
+    stdout.write(f"risk_level={getattr(data, 'risk_level', 'unknown')}\n")
+    stdout.write(f"management_action={getattr(data, 'management_action', 'unknown')}\n")
+    stdout.write(f"changed={result.lineage.get('changed', 'false')}\n")
+    stdout.write(f"rationale={getattr(data, 'rationale', '')}\n")
+    _write_warnings_and_errors(stdout, result)
+
+
 def _write_sector_membership_import_result(
     stdout: TextIO,
     command: str,
@@ -2287,6 +2453,36 @@ def _write_strategy_evolution_mark_result(
     )
 
 
+def _write_strategy_evolution_backtest_result(
+    stdout: TextIO,
+    command: str,
+    hypothesis_label: str,
+    db_path: Path,
+    result: ServiceResult[object],
+) -> None:
+    _write_routed_message(stdout, command, hypothesis_label, db_path, f"service returned {result.status}")
+    _write_warnings_and_errors(stdout, result)
+    data = result.data
+    if data is None:
+        return
+
+    artifact = getattr(data, "artifact", {})
+    backtest_request = artifact.get("backtest_request", {}) if isinstance(artifact, dict) else {}
+    stdout.write(
+        "strategy_hypothesis_backtest="
+        f"hypothesis_id={_display_optional_int(getattr(data, 'hypothesis_id', None))} "
+        f"status={getattr(data, 'hypothesis_status', None) or 'n/a'} "
+        f"task_key={backtest_request.get('task_key', 'n/a')} "
+        f"strategy_version_task_required={_display_bool(getattr(data, 'strategy_version_task_required', False))} "
+        f"would_write_artifact={_display_bool(getattr(data, 'would_write_artifact', False))} "
+        f"wrote_artifact={_display_bool(getattr(data, 'wrote_artifact', False))} "
+        f"active_params_mutated={_display_bool(getattr(data, 'active_params_mutated', False))}\n"
+    )
+    artifact_path = getattr(data, "artifact_path", None)
+    if artifact_path:
+        stdout.write(f"artifact_path={artifact_path}\n")
+
+
 def _write_daily_pipeline_result(stdout: TextIO, result: ServiceResult[object]) -> None:
     data = result.data
     if data is None:
@@ -2452,6 +2648,10 @@ def _display_optional_int(value: int | None) -> str:
 
 def _display_optional_float(value: float | None) -> str:
     return "n/a" if value is None else f"{value:.2f}"
+
+
+def _display_bool(value: bool) -> str:
+    return "true" if value else "false"
 
 
 def _display_optional_ratio(value: float | None) -> str:

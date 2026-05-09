@@ -1,18 +1,26 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
 from pathlib import Path
 
 from pgc_trading.api.routes import (
     get_daily_review,
+    get_market_review,
+    get_market_review_plan_context,
     list_account_positions,
     list_data_quality_events,
     list_daily_reviews,
+    list_market_review_external_items,
+    list_market_review_hypotheses,
+    list_market_review_sectors,
+    list_market_reviews,
     list_trade_plans,
 )
 from pgc_trading.api.services import ApiServices
 from pgc_trading.api.settings import ApiSettings
 from pgc_trading.services.common import ServiceError, ServiceResult
+from pgc_trading.storage.migrate import run_migrations
 
 
 class _Response:
@@ -64,6 +72,55 @@ class _FakeDataQualityService:
         )
 
 
+class _FakeMarketReviewReadService:
+    calls: list[tuple[str, Path, object, object]] = []
+
+    def __init__(self, db_path: Path):
+        self.db_path = db_path
+
+    def list_market_reviews(self, request, ctx):
+        return self._result("list_market_reviews", request, ctx, {"limit": request.limit})
+
+    def get_market_review(self, request, ctx):
+        return self._result("get_market_review", request, ctx, {"as_of_date": request.as_of_date})
+
+    def list_market_review_sectors(self, request, ctx):
+        return self._result("list_market_review_sectors", request, ctx, {"as_of_date": request.as_of_date})
+
+    def list_market_review_external_items(self, request, ctx):
+        return self._result("list_market_review_external_items", request, ctx, {"as_of_date": request.as_of_date})
+
+    def list_market_review_hypotheses(self, request, ctx):
+        return self._result(
+            "list_market_review_hypotheses",
+            request,
+            ctx,
+            {"as_of_date": request.as_of_date, "status": request.status, "limit": request.limit},
+        )
+
+    def get_market_review_plan_context(self, request, ctx):
+        return self._result(
+            "get_market_review_plan_context",
+            request,
+            ctx,
+            {"as_of_date": request.as_of_date, "trade_plan_id": request.trade_plan_id},
+        )
+
+    def _result(self, method: str, request, ctx, data: dict[str, object]):
+        self.calls.append((method, self.db_path, request, ctx))
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data={
+                "method": method,
+                **data,
+                "source": {"tables": ["market_review_runs"]},
+                "coverage": {"has_review": True},
+                "missing_data": [],
+            },
+        )
+
+
 class _FakePositionService:
     calls: list[tuple[Path, object, object]] = []
 
@@ -106,12 +163,14 @@ class ApiReadRoutesTest(unittest.TestCase):
     def setUp(self) -> None:
         _FakeReportService.calls = []
         _FakeDataQualityService.calls = []
+        _FakeMarketReviewReadService.calls = []
         _FakePositionService.calls = []
         _FakePortfolioService.calls = []
         self.settings = ApiSettings(db_path=Path("/tmp/api-read-routes.db"))
         self.services = ApiServices(
             report_service_factory=_FakeReportService,
             data_quality_service_factory=_FakeDataQualityService,
+            market_review_service_factory=_FakeMarketReviewReadService,
             portfolio_planning_service_factory=_FakePortfolioService,
             position_lifecycle_service_factory=_FakePositionService,
         )
@@ -166,6 +225,92 @@ class ApiReadRoutesTest(unittest.TestCase):
         self.assertEqual(request.limit, 12)
         self.assertTrue(ctx.dry_run)
         self.assertEqual(ctx.source, "api")
+
+    def test_market_reviews_route_calls_read_service_with_api_context(self) -> None:
+        response = _Response()
+
+        payload = list_market_reviews(
+            self.settings,
+            self.services,
+            response,
+            limit=7,
+            request_id="req-market-list",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["data"]["limit"], 7)
+        method, db_path, request, ctx = _FakeMarketReviewReadService.calls[0]
+        self.assertEqual(method, "list_market_reviews")
+        self.assertEqual(db_path, self.settings.db_path)
+        self.assertEqual(request.limit, 7)
+        self.assertTrue(ctx.dry_run)
+        self.assertEqual(ctx.source, "api")
+        self.assertEqual(ctx.request_id, "req-market-list")
+
+    def test_market_review_child_routes_normalize_dates_and_pass_filters(self) -> None:
+        response = _Response()
+
+        get_market_review(self.settings, self.services, response, as_of_date="2026-05-08")
+        list_market_review_sectors(self.settings, self.services, response, as_of_date="2026-05-08")
+        list_market_review_external_items(self.settings, self.services, response, as_of_date="2026-05-08")
+        list_market_review_hypotheses(
+            self.settings,
+            self.services,
+            response,
+            as_of_date="2026-05-08",
+            status="testing",
+            limit=2,
+        )
+        payload = get_market_review_plan_context(
+            self.settings,
+            self.services,
+            response,
+            as_of_date="2026-05-08",
+            trade_plan_id=2,
+            request_id="req-plan-context",
+        )
+
+        self.assertEqual(payload["data"]["trade_plan_id"], 2)
+        calls = {method: (request, ctx) for method, _, request, ctx in _FakeMarketReviewReadService.calls}
+        for method in (
+            "get_market_review",
+            "list_market_review_sectors",
+            "list_market_review_external_items",
+            "list_market_review_hypotheses",
+            "get_market_review_plan_context",
+        ):
+            self.assertEqual(calls[method][0].as_of_date, "20260508")
+            self.assertTrue(calls[method][1].dry_run)
+            self.assertEqual(calls[method][1].source, "api")
+        self.assertEqual(calls["list_market_review_hypotheses"][0].status, "testing")
+        self.assertEqual(calls["list_market_review_hypotheses"][0].limit, 2)
+        self.assertEqual(calls["get_market_review_plan_context"][0].trade_plan_id, 2)
+        self.assertEqual(calls["get_market_review_plan_context"][1].request_id, "req-plan-context")
+
+    def test_market_review_detail_returns_stable_empty_state_when_no_review_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc.db"
+            run_migrations(db_path)
+            response = _Response()
+
+            payload = get_market_review(
+                ApiSettings(db_path=db_path),
+                ApiServices(),
+                response,
+                as_of_date="2026-05-08",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["status"], "success")
+        self.assertFalse(payload["data"]["exists"])
+        self.assertEqual(payload["data"]["status"], "missing")
+        self.assertEqual(payload["data"]["as_of_date"], "20260508")
+        self.assertIn("source", payload["data"])
+        self.assertIn("coverage", payload["data"])
+        self.assertIn("missing_data", payload["data"])
+        self.assertIn("market_review_runs", payload["data"]["missing_data"])
+        self.assertFalse(payload["data"]["coverage"]["has_review"])
 
     def test_data_quality_route_passes_read_filters(self) -> None:
         response = _Response()

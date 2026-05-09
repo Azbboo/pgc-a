@@ -98,6 +98,22 @@ class ApiAppTest(unittest.TestCase):
         self.assertIn("/api/health", schema["paths"])
         self.assertIn("/api/daily-reviews", schema["paths"])
         self.assertIn("/api/daily-reviews/{as_of_date}", schema["paths"])
+        self.assertIn("/api/market-reviews", schema["paths"])
+        self.assertIn("/api/market-reviews/{as_of_date}", schema["paths"])
+        self.assertIn("/api/market-reviews/{as_of_date}/sectors", schema["paths"])
+        self.assertIn("/api/market-reviews/{as_of_date}/external-items", schema["paths"])
+        self.assertIn("/api/market-reviews/{as_of_date}/hypotheses", schema["paths"])
+        self.assertIn("/api/market-reviews/{as_of_date}/plan-context", schema["paths"])
+        market_review_paths = [
+            "/api/market-reviews",
+            "/api/market-reviews/{as_of_date}",
+            "/api/market-reviews/{as_of_date}/sectors",
+            "/api/market-reviews/{as_of_date}/external-items",
+            "/api/market-reviews/{as_of_date}/hypotheses",
+            "/api/market-reviews/{as_of_date}/plan-context",
+        ]
+        for path in market_review_paths:
+            self.assertEqual(set(schema["paths"][path]), {"get"})
 
     def test_service_result_envelope_preserves_contract_shape(self) -> None:
         result = ServiceResult(

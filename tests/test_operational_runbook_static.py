@@ -8,6 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNBOOK = ROOT / "reports" / "operational_runbook_design.md"
+MARKET_REVIEW_DATA_SOURCE_DESIGN = ROOT / "reports" / "market_review_data_source_design.md"
 BACKUP_SCRIPT = ROOT / "scripts" / "backup_remote_pgc_db.sh"
 RESTORE_SCRIPT = ROOT / "scripts" / "restore_remote_pgc_db.sh"
 DEPLOY_SCRIPT = ROOT / "scripts" / "deploy_remote.sh"
@@ -105,6 +106,46 @@ class OperationalRunbookStaticTest(unittest.TestCase):
             "accepted hypothesis creates a separate strategy-version task",
             "active paper/live strategy params are not mutated by reports",
             "src/pgc_trading/strategies/params/*.json",
+        ]:
+            self.assertIn(text, source)
+
+    def test_m43_runbook_documents_market_review_data_source_policy(self) -> None:
+        source = RUNBOOK.read_text(encoding="utf-8")
+
+        for text in [
+            "M43 全市场复盘生产数据源策略",
+            "reports/market_review_data_source_design.md",
+            "Fixture imports are for tests only.",
+            "Tushare/official cached data is preferred for market and sector facts.",
+            "Manual news/sentiment imports must include provider, title, date, summary, and source hash.",
+            "Missing evidence is acceptable but must be explicit.",
+            "No live web fetch inside daily trading path.",
+            "market_review_runs.provider_manifest_json",
+            "coverage_summary",
+            "scripts/run_daily_pipeline.sh",
+            "manual_fixture",
+            "tests/fixtures/market_review",
+        ]:
+            self.assertIn(text, source)
+
+    def test_m43_market_review_data_source_design_freezes_production_boundaries(self) -> None:
+        self.assertTrue(MARKET_REVIEW_DATA_SOURCE_DESIGN.exists())
+        source = MARKET_REVIEW_DATA_SOURCE_DESIGN.read_text(encoding="utf-8")
+
+        for text in [
+            "Fixture imports are for tests only.",
+            "Tushare/official cached data is preferred for market and sector facts.",
+            "Manual news/sentiment imports must include provider, title, date, summary, and source hash.",
+            "Missing evidence is acceptable but must be explicit.",
+            "No live web fetch inside daily trading path.",
+            "tests/fixtures/market_review",
+            "manual_fixture is not a production provider",
+            "market_external_items.source_hash",
+            "coverage_summary",
+            "provider_manifest_json",
+            "market-review external-data import",
+            "scripts/run_daily_pipeline.sh",
+            "/opt/pgc/data/pgc_trading.db",
         ]:
             self.assertIn(text, source)
 
