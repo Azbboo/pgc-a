@@ -41,6 +41,7 @@ This ledger is the single index for historical and active project work. Detailed
 | M35-M42 market review strategy wave | `docs/plans/2026-05-09-m35-m42-market-review-strategy-evolution-plan.md` |
 | M39-M46 integration wave | `docs/plans/2026-05-09-m39-m46-market-review-integration-plan.md` |
 | M47-M52 market intelligence next wave | `docs/plans/2026-05-09-m47-m52-market-intelligence-next-wave-plan.md` |
+| M51-M54 release, timeline, and ops wave | `docs/plans/2026-05-09-m51-m54-release-timeline-ops-plan.md` |
 
 ## DEV Work Packages
 
@@ -119,15 +120,19 @@ This ledger is the single index for historical and active project work. Detailed
 | M48 | Full-market Dashboard interaction upgrade | Done / Local verification | Local verification 2026-05-09 | Cross-day selector, history strip, sector/evidence drawers, source metadata, and plan relationship view added; verified with Dashboard/API static tests and full suite. |
 | M49 | TradingAgents Chinese structured report | Done / Local verification | Local verification 2026-05-09 | Chinese source-labeled TradingAgents sections for fundamentals, news, sentiment, technicals, sector context, risks, conclusion, raw artifacts, and unavailable fallback. |
 | M50 | Strategy evolution validation loop | Done / Local verification | Local verification 2026-05-09 | Hypothesis evidence/backtest gates before acceptance; accepted hypotheses create future strategy-version tasks only. |
-| M51 | Review timeline and cross-day comparison | Next | `docs/plans/2026-05-09-m47-m52-market-intelligence-next-wave-plan.md` | Compare daily review, full-market review, plan context, and open-execution state across dates without changing execution context accidentally. |
-| M52 | Scheduled pipeline activation and ops monitor | Next | `docs/plans/2026-05-09-m47-m52-market-intelligence-next-wave-plan.md` | Formal timer activation checklist, health/journal/rollback commands, and duplicate-write guardrails; timer still requires explicit operator enablement. |
+| M51 | Review timeline and cross-day comparison | Next | `docs/plans/2026-05-09-m51-m54-release-timeline-ops-plan.md` | Compare daily review, full-market review, plan context, and open-execution state across dates without changing execution context accidentally. |
+| M52 | Scheduled pipeline activation and ops monitor | Next | `docs/plans/2026-05-09-m51-m54-release-timeline-ops-plan.md` | Formal timer activation checklist, health/journal/rollback commands, and duplicate-write guardrails; timer still requires explicit operator enablement. |
+| M53 | Release M47-M50 checkpoint | Next | `docs/plans/2026-05-09-m51-m54-release-timeline-ops-plan.md` | Deploy pushed M47-M50 commit, run remote health, update ledger from local verification to deployed, and keep timer disabled unless explicitly enabled. |
+| M54 | Production evidence import operations | Next | `docs/plans/2026-05-09-m51-m54-release-timeline-ops-plan.md` | Repeatable provider-file evidence imports with dry-run coverage, stale/duplicate/missing summaries, and source-hash idempotency. |
 
 ## Active Parallel Plan
 
 | Lane | Task | Status | Depends On | Review Focus |
 | --- | --- | --- | --- | --- |
-| A | M51 Review timeline and cross-day comparison | Next | M47/M48 data shape stable | Cross-day navigation must not override execution-date context. |
-| B | M52 Scheduled pipeline activation and ops monitor | Next | M46 timer installer, M47/M49 evidence gates stable | Dry-run first, explicit operator enablement, journal/status/rollback documented. |
+| A | M53 Release M47-M50 checkpoint | Next | M47-M50 pushed commit `159382f` | Deploy, remote health, ledger deployed status; timer remains disabled unless explicitly enabled. |
+| B | M51 Review timeline and cross-day comparison | Next | M47/M48 data shape stable | Cross-day navigation must not override execution-date context. |
+| C | M52 Scheduled pipeline activation and ops monitor | Next | M46 timer installer, M47/M49 evidence gates stable | Dry-run first, explicit operator enablement, journal/status/rollback documented. |
+| D | M54 Production evidence import operations | Next | M47 evidence contract, M49 Agent evidence cache | Provider-file contract, dry-run coverage, source-hash idempotency, no live fetch in trading path. |
 
 ## Review Rules For Future Sessions
 
