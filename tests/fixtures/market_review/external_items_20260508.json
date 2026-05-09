@@ -1,0 +1,44 @@
+{
+  "as_of_date": "20260508",
+  "provider": "manual_fixture",
+  "items": [
+    {
+      "scope_type": "market",
+      "scope_key": "A_SHARE",
+      "item_type": "policy",
+      "published_date": "20260508",
+      "title": "A股市场政策摘要",
+      "summary": "政策基调保持稳增长，流动性预期平稳；作为人工夹具，仅用于验证外部证据缓存。",
+      "sentiment": "neutral",
+      "importance": "medium",
+      "url": null,
+      "metadata": {
+        "source_note": "manual test fixture"
+      }
+    },
+    {
+      "scope_type": "sector",
+      "scope_key": "PHARMA_PACKAGING",
+      "item_type": "news",
+      "published_date": "20260508",
+      "title": "医药包装板块新闻",
+      "summary": "医药包装需求预期改善，板块关注度上升，但持续性仍需后续成交验证。",
+      "sentiment": "positive",
+      "importance": "medium",
+      "metadata": {}
+    },
+    {
+      "scope_type": "stock",
+      "scope_key": "301188.SZ",
+      "item_type": "announcement",
+      "published_date": "20260508",
+      "title": "力诺药包公告摘要",
+      "summary": "公告未显示需要自动改写交易计划的重大新增风险，后续仍以人工复核为准。",
+      "sentiment": "unknown",
+      "importance": "unknown",
+      "metadata": {
+        "company": "力诺药包"
+      }
+    }
+  ]
+}

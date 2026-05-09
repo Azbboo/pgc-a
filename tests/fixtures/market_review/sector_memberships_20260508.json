@@ -1,0 +1,25 @@
+{
+  "as_of_date": "20260508",
+  "provider": "manual_fixture",
+  "sectors": [
+    {
+      "sector_code": "PHARMA_PACKAGING",
+      "sector_name": "医药包装",
+      "members": [
+        {"ts_code": "301188.SZ", "name": "力诺药包"},
+        {"ts_code": "300111.SZ", "name": "向阳包装"},
+        {"ts_code": "002222.SZ", "name": "恒健材料"},
+        {"ts_code": "688999.SH", "name": "缺失样本"}
+      ]
+    },
+    {
+      "sector_code": "AI_SOFTWARE",
+      "sector_name": "AI软件",
+      "members": [
+        {"ts_code": "300001.SZ", "name": "创智软件"},
+        {"ts_code": "300002.SZ", "name": "海量智能"},
+        {"ts_code": "300003.SZ", "name": "云启科技"}
+      ]
+    }
+  ]
+}

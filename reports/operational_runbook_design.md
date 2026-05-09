@@ -813,6 +813,29 @@ reports/daily/
 - 参数调整必须进入策略版本治理流程；
 - 新参数必须重新回测和验证。
 
+### 14.1 M40 策略演化假设治理
+
+市场复盘只能生成策略演化假设，不能直接改变 paper/live 的当前执行参数。收盘后如需把市场环境、板块持续性、个股负面新闻或计划冲突转成研究事项，使用：
+
+```bash
+PYTHONPATH=src python3 -m pgc_trading.cli.main strategy-evolution propose \
+  --date 20260508 \
+  --db-path data/pgc_trading.db \
+  --operator azboo \
+  --apply
+PYTHONPATH=src python3 -m pgc_trading.cli.main strategy-evolution list --status proposed
+PYTHONPATH=src python3 -m pgc_trading.cli.main strategy-evolution mark --hypothesis-id 1 --status testing --operator azboo
+PYTHONPATH=src python3 -m pgc_trading.cli.main strategy-evolution mark --hypothesis-id 1 --status rejected --operator azboo
+```
+
+M40 policy:
+
+- hypothesis must pass replay/backtest before accepted；
+- accepted hypothesis creates a separate strategy-version task；
+- active paper/live strategy params are not mutated by reports；
+- `strategy-evolution propose` 只写 `strategy_hypotheses`，不写 `src/pgc_trading/strategies/params/*.json`；
+- `accepted` 只代表研究结论进入下一步治理，不代表当前策略立即生效。
+
 ## 15. 月度审计流程
 
 每月最后一个交易日后执行。

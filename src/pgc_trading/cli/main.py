@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sqlite3
 import sys
 from dataclasses import asdict, dataclass, is_dataclass
@@ -46,6 +47,11 @@ from pgc_trading.services.operational_readiness_service import (
     OperationalReadinessService,
     PaperReadinessRequest,
 )
+from pgc_trading.services.market_external_data_service import (
+    ImportMarketExternalDataRequest,
+    MarketExternalDataService,
+)
+from pgc_trading.services.market_review_service import MarketReviewService, RunMarketReviewRequest
 from pgc_trading.services.position_lifecycle_service import (
     EvaluateExitsRequest,
     ListPositionsRequest,
@@ -56,6 +62,14 @@ from pgc_trading.services.portfolio_planning_service import (
     GenerateBuyPlanRequest,
     PortfolioPlanningService,
 )
+from pgc_trading.services.strategy_evolution_service import (
+    ListStrategyHypothesesRequest,
+    MarkStrategyHypothesisRequest,
+    ProposeStrategyHypothesesRequest,
+    StrategyEvolutionService,
+    VALID_HYPOTHESIS_STATUSES,
+)
+from pgc_trading.services.sector_rotation_service import ImportSectorMembershipRequest
 from pgc_trading.strategies.cpb_6157 import STRATEGY_VERSION
 from pgc_trading.storage.migrators.backup import backup_database
 
@@ -70,6 +84,9 @@ PlanningServiceFactory = Callable[[Path], PortfolioPlanningService]
 AgentReviewServiceFactory = Callable[[Path], AgentReviewService]
 AgentExternalDataServiceFactory = Callable[[Path], AgentExternalDataService]
 DailyPipelineServiceFactory = Callable[[Path], DailyPipelineService]
+MarketExternalDataServiceFactory = Callable[[Path], MarketExternalDataService]
+MarketReviewServiceFactory = Callable[[Path], MarketReviewService]
+StrategyEvolutionServiceFactory = Callable[[Path], StrategyEvolutionService]
 
 
 @dataclass(frozen=True)
@@ -84,6 +101,9 @@ class CommandServices:
     agent_review_service_factory: AgentReviewServiceFactory = AgentReviewService
     agent_external_data_service_factory: AgentExternalDataServiceFactory = AgentExternalDataService
     daily_pipeline_service_factory: DailyPipelineServiceFactory = DailyPipelineService
+    market_external_data_service_factory: MarketExternalDataServiceFactory = MarketExternalDataService
+    market_review_service_factory: MarketReviewServiceFactory = MarketReviewService
+    strategy_evolution_service_factory: StrategyEvolutionServiceFactory = StrategyEvolutionService
 
 
 class PgcArgumentParser(argparse.ArgumentParser):
@@ -176,6 +196,92 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
     _add_lifecycle_context_arguments(daily_close)
     _add_live_write_guard_argument(daily_close)
     daily_close.set_defaults(handler=_run_daily_close)
+
+    market_review = subparsers.add_parser(
+        "market-review",
+        help="run market breadth and regime review workflows",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    market_review_subparsers = market_review.add_subparsers(
+        dest="market_review_command",
+        metavar="market-review-command",
+    )
+    market_review_run = market_review_subparsers.add_parser(
+        "run",
+        help="compute a deterministic market regime snapshot",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    _add_report_date_argument(market_review_run)
+    market_review_run.add_argument("--universe", default="market_bars", help="market universe source")
+    market_review_run.add_argument(
+        "--min-coverage",
+        type=_coverage_float,
+        default=0.8,
+        help="minimum same-day market_bars coverage ratio required",
+    )
+    market_review_mode = market_review_run.add_mutually_exclusive_group()
+    market_review_mode.add_argument(
+        "--dry-run",
+        dest="apply",
+        action="store_false",
+        help="compute the regime without writing market_review_runs",
+    )
+    market_review_mode.add_argument(
+        "--apply",
+        dest="apply",
+        action="store_true",
+        help="persist the regime snapshot idempotently by as-of date",
+    )
+    market_review_run.set_defaults(apply=False)
+    _add_lifecycle_context_arguments(market_review_run)
+    _add_db_path_argument(market_review_run)
+    market_review_run.set_defaults(handler=_run_market_review)
+
+    market_review_import_sectors = market_review_subparsers.add_parser(
+        "import-sectors",
+        help="preview or apply sector membership rotation snapshots",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    _add_report_date_argument(market_review_import_sectors)
+    market_review_import_sectors.add_argument("--file", "--input", dest="source_file", type=Path, required=True)
+    market_review_import_sectors.add_argument(
+        "--apply",
+        action="store_true",
+        help="write sector_daily_snapshots and sector_constituents instead of running a dry-run preview",
+    )
+    _add_lifecycle_context_arguments(market_review_import_sectors)
+    _add_db_path_argument(market_review_import_sectors)
+    market_review_import_sectors.set_defaults(handler=_run_market_review_import_sectors)
+
+    market_review_external_data = market_review_subparsers.add_parser(
+        "external-data",
+        help="import cached market-review news and sentiment evidence",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    market_review_external_data_subparsers = market_review_external_data.add_subparsers(
+        dest="market_review_external_data_command",
+        metavar="external-data-command",
+    )
+    market_review_external_data_import = market_review_external_data_subparsers.add_parser(
+        "import",
+        help="preview or apply a JSON import into market_external_items",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    _add_report_date_argument(market_review_external_data_import)
+    market_review_external_data_import.add_argument("--file", "--input", dest="source_file", type=Path, required=True)
+    market_review_external_data_import.add_argument(
+        "--apply",
+        action="store_true",
+        help="write market_external_items instead of running a dry-run preview",
+    )
+    _add_lifecycle_context_arguments(market_review_external_data_import)
+    _add_db_path_argument(market_review_external_data_import)
+    market_review_external_data_import.set_defaults(handler=_run_market_external_data_import)
 
     plan = subparsers.add_parser(
         "plan",
@@ -410,6 +516,66 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
     _add_db_path_argument(external_data_import)
     external_data_import.set_defaults(handler=_run_agent_external_data_import)
 
+    strategy_evolution = subparsers.add_parser(
+        "strategy-evolution",
+        help="propose and review strategy-evolution hypotheses",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    strategy_evolution_subparsers = strategy_evolution.add_subparsers(
+        dest="strategy_evolution_command",
+        metavar="strategy-evolution-command",
+    )
+
+    strategy_evolution_propose = strategy_evolution_subparsers.add_parser(
+        "propose",
+        help="generate strategy hypotheses from market-review observations",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    _add_report_date_argument(strategy_evolution_propose)
+    strategy_evolution_propose.add_argument(
+        "--apply",
+        action="store_true",
+        help="persist proposed hypotheses instead of previewing them",
+    )
+    _add_lifecycle_context_arguments(strategy_evolution_propose)
+    _add_db_path_argument(strategy_evolution_propose)
+    strategy_evolution_propose.set_defaults(handler=_run_strategy_evolution_propose)
+
+    strategy_evolution_list = strategy_evolution_subparsers.add_parser(
+        "list",
+        help="list strategy-evolution hypotheses",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    strategy_evolution_list.add_argument(
+        "--status",
+        choices=sorted(VALID_HYPOTHESIS_STATUSES),
+        help="filter hypotheses by review status",
+    )
+    strategy_evolution_list.add_argument(
+        "--date",
+        dest="date",
+        type=_parse_report_date,
+        help="optional hypothesis date filter in ISO or YYYYMMDD format",
+    )
+    strategy_evolution_list.add_argument("--limit", type=_positive_int, help="maximum hypotheses to print")
+    _add_db_path_argument(strategy_evolution_list)
+    strategy_evolution_list.set_defaults(handler=_run_strategy_evolution_list)
+
+    strategy_evolution_mark = strategy_evolution_subparsers.add_parser(
+        "mark",
+        help="update a strategy-evolution hypothesis review status",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    strategy_evolution_mark.add_argument("--hypothesis-id", type=_positive_int, required=True)
+    strategy_evolution_mark.add_argument("--status", choices=sorted(VALID_HYPOTHESIS_STATUSES), required=True)
+    _add_lifecycle_context_arguments(strategy_evolution_mark)
+    _add_db_path_argument(strategy_evolution_mark)
+    strategy_evolution_mark.set_defaults(handler=_run_strategy_evolution_mark)
+
     ops = subparsers.add_parser(
         "ops",
         help="run repeatable deployment and maintenance steps",
@@ -603,6 +769,132 @@ def _run_daily_close(args: argparse.Namespace, stdout: TextIO, services: Command
         return 1
 
     _write_daily_close_result(stdout, args.command, as_of_date, db_path, result)
+    return 0 if result.ok else 1
+
+
+def _run_market_review(args: argparse.Namespace, stdout: TextIO, services: CommandServices) -> int:
+    db_path = _normalized_db_path(args.db_path)
+    as_of_date = args.date
+
+    if not db_path.exists():
+        stdout.write("market_review_status=failed\n")
+        stdout.write(f"as_of_date={as_of_date}\n")
+        stdout.write(f"database={db_path}\n")
+        stdout.write("error=database not found; market review service was not run and no writes were performed\n")
+        return 1
+
+    service = services.market_review_service_factory(db_path)
+    request = RunMarketReviewRequest(
+        as_of_date=as_of_date,
+        universe=args.universe,
+        min_coverage=args.min_coverage,
+    )
+    ctx = RequestContext(
+        request_id="cli-market-review",
+        idempotency_key=args.idempotency_key or f"market-review:{as_of_date}",
+        dry_run=not args.apply,
+        operator=args.operator,
+        source="cli",
+    )
+    try:
+        result = service.run_market_review(request, ctx)
+    except sqlite3.OperationalError as exc:
+        stdout.write("market_review_status=failed\n")
+        stdout.write(f"as_of_date={as_of_date}\n")
+        stdout.write(f"database_error={exc}\n")
+        return 1
+
+    _write_market_review_result(stdout, result)
+    return 0 if result.ok else 1
+
+
+def _run_market_review_import_sectors(
+    args: argparse.Namespace,
+    stdout: TextIO,
+    services: CommandServices,
+) -> int:
+    db_path = _normalized_db_path(args.db_path)
+    source_file = _normalized_db_path(args.source_file)
+    as_of_date = args.date
+    command = "market-review import-sectors"
+
+    if not db_path.exists():
+        _write_routed_message(
+            stdout,
+            command,
+            f"file={source_file}",
+            db_path,
+            "database not found; sector membership import service was not run and no writes were performed",
+        )
+        return 1
+
+    service = services.market_review_service_factory(db_path)
+    request = ImportSectorMembershipRequest(
+        as_of_date=as_of_date,
+        source_file=source_file,
+    )
+    ctx = RequestContext(
+        request_id="cli-market-review-import-sectors",
+        idempotency_key=args.idempotency_key or f"market-review:sectors:{as_of_date}",
+        dry_run=not args.apply,
+        operator=args.operator,
+        source="cli",
+    )
+    try:
+        result = service.import_sector_memberships(request, ctx)
+    except sqlite3.OperationalError as exc:
+        stdout.write(
+            f"market-review import-sectors failed for file={source_file}: "
+            f"database is not initialized or is incompatible: {exc}\n"
+        )
+        return 1
+
+    _write_sector_membership_import_result(stdout, command, source_file, db_path, result)
+    return 0 if result.ok else 1
+
+
+def _run_market_external_data_import(
+    args: argparse.Namespace,
+    stdout: TextIO,
+    services: CommandServices,
+) -> int:
+    db_path = _normalized_db_path(args.db_path)
+    source_file = _normalized_db_path(args.source_file)
+    as_of_date = args.date
+    command = "market-review external-data import"
+
+    if not db_path.exists():
+        _write_routed_message(
+            stdout,
+            command,
+            f"file={source_file}",
+            db_path,
+            "database not found; market external data import service was not run and no writes were performed",
+        )
+        return 1
+
+    service = services.market_external_data_service_factory(db_path)
+    request = ImportMarketExternalDataRequest(
+        as_of_date=as_of_date,
+        source_file=source_file,
+    )
+    ctx = RequestContext(
+        request_id="cli-market-external-data-import",
+        idempotency_key=args.idempotency_key,
+        dry_run=not args.apply,
+        operator=args.operator,
+        source="cli",
+    )
+    try:
+        result = service.import_external_data(request, ctx)
+    except sqlite3.OperationalError as exc:
+        stdout.write(
+            f"market-review external-data import failed for file={source_file}: "
+            f"database is not initialized or is incompatible: {exc}\n"
+        )
+        return 1
+
+    _write_market_external_data_import_result(stdout, command, source_file, db_path, result)
     return 0 if result.ok else 1
 
 
@@ -950,6 +1242,120 @@ def _run_agent_external_data_import(
     return 0 if result.ok else 1
 
 
+def _run_strategy_evolution_propose(
+    args: argparse.Namespace,
+    stdout: TextIO,
+    services: CommandServices,
+) -> int:
+    db_path = _normalized_db_path(args.db_path)
+    command = "strategy-evolution propose"
+
+    if not db_path.exists():
+        _write_routed_message(
+            stdout,
+            command,
+            args.date,
+            db_path,
+            "database not found; strategy evolution service was not run and no writes were performed",
+        )
+        return 1
+
+    service = services.strategy_evolution_service_factory(db_path)
+    request = ProposeStrategyHypothesesRequest(as_of_date=args.date)
+    ctx = RequestContext(
+        request_id="cli-strategy-evolution-propose",
+        idempotency_key=args.idempotency_key,
+        dry_run=not args.apply,
+        operator=args.operator,
+        source="cli",
+    )
+    try:
+        result = service.propose_hypotheses(request, ctx)
+    except sqlite3.OperationalError as exc:
+        stdout.write(
+            f"strategy-evolution propose failed for {args.date}: "
+            f"database is not initialized or is incompatible: {exc}\n"
+        )
+        return 1
+
+    _write_strategy_evolution_propose_result(stdout, command, args.date, db_path, result)
+    return 0 if result.ok else 1
+
+
+def _run_strategy_evolution_list(
+    args: argparse.Namespace,
+    stdout: TextIO,
+    services: CommandServices,
+) -> int:
+    db_path = _normalized_db_path(args.db_path)
+    command = "strategy-evolution list"
+    date_label = args.date or "all-dates"
+
+    if not db_path.exists():
+        _write_routed_message(
+            stdout,
+            command,
+            date_label,
+            db_path,
+            "database not found; strategy evolution service was not run and no writes were performed",
+        )
+        return 1
+
+    service = services.strategy_evolution_service_factory(db_path)
+    request = ListStrategyHypothesesRequest(status=args.status, as_of_date=args.date, limit=args.limit)
+    try:
+        result = service.list_hypotheses(request, RequestContext(request_id="cli-strategy-evolution-list"))
+    except sqlite3.OperationalError as exc:
+        stdout.write(
+            f"strategy-evolution list failed for {date_label}: "
+            f"database is not initialized or is incompatible: {exc}\n"
+        )
+        return 1
+
+    _write_strategy_evolution_list_result(stdout, command, date_label, db_path, result)
+    return 0 if result.ok else 1
+
+
+def _run_strategy_evolution_mark(
+    args: argparse.Namespace,
+    stdout: TextIO,
+    services: CommandServices,
+) -> int:
+    db_path = _normalized_db_path(args.db_path)
+    command = "strategy-evolution mark"
+    hypothesis_label = f"hypothesis-id={args.hypothesis_id}"
+
+    if not db_path.exists():
+        _write_routed_message(
+            stdout,
+            command,
+            hypothesis_label,
+            db_path,
+            "database not found; strategy evolution service was not run and no writes were performed",
+        )
+        return 1
+
+    service = services.strategy_evolution_service_factory(db_path)
+    request = MarkStrategyHypothesisRequest(hypothesis_id=args.hypothesis_id, status=args.status)
+    ctx = RequestContext(
+        request_id="cli-strategy-evolution-mark",
+        idempotency_key=args.idempotency_key,
+        operator=args.operator,
+        source="cli",
+    )
+    try:
+        result = service.mark_hypothesis(request, ctx)
+    except sqlite3.OperationalError as exc:
+        stdout.write(
+            f"strategy-evolution mark failed for {hypothesis_label}: "
+            f"database is not initialized or is incompatible: {exc}\n"
+        )
+        return 1
+
+    _write_strategy_evolution_mark_result(stdout, command, hypothesis_label, db_path, result)
+    return 0 if result.ok else 1
+
+
 def _run_report(args: argparse.Namespace, stdout: TextIO, services: CommandServices) -> int:
     db_path = _normalized_db_path(args.db_path)
     report_date = args.date
@@ -1280,6 +1686,16 @@ def _positive_float(value: str) -> float:
     return parsed
 
 
+def _coverage_float(value: str) -> float:
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"invalid number {value!r}") from exc
+    if parsed <= 0 or parsed > 1:
+        raise argparse.ArgumentTypeError(f"value must be greater than zero and at most one: {value!r}")
+    return parsed
+
+
 def _non_negative_float(value: str) -> float:
     try:
         parsed = float(value)
@@ -1442,6 +1858,130 @@ def _write_plan_result(
         f"free_position_slots={getattr(data, 'free_position_slots', 'n/a')} "
         f"idempotent={str(bool(getattr(data, 'idempotent', False))).lower()}\n"
     )
+
+
+def _write_market_review_result(stdout: TextIO, result: ServiceResult[object]) -> None:
+    data = result.data
+    stdout.write(f"market_review_status={result.status}\n")
+    if data is None:
+        _write_warnings_and_errors(stdout, result)
+        return
+
+    stdout.write(f"as_of_date={getattr(data, 'as_of_date', 'n/a')}\n")
+    stdout.write(f"regime={getattr(data, 'regime', 'unknown')}\n")
+    stdout.write(f"coverage_ratio={float(getattr(data, 'coverage_ratio', 0.0)):.4f}\n")
+    stdout.write(f"breadth_score={_display_optional_ratio(getattr(data, 'breadth_score', None))}\n")
+    stdout.write(f"trend_score={_display_optional_ratio(getattr(data, 'trend_score', None))}\n")
+    stdout.write(f"volume_score={_display_optional_ratio(getattr(data, 'volume_score', None))}\n")
+    stdout.write(f"persistence_score={_display_optional_ratio(getattr(data, 'persistence_score', None))}\n")
+    stdout.write(
+        f"market_review_run_id={_display_optional_int(getattr(data, 'market_review_run_id', None))}\n"
+    )
+    stdout.write(f"changed={result.lineage.get('changed', 'false')}\n")
+    stdout.write(f"summary={getattr(data, 'summary', '')}\n")
+    _write_warnings_and_errors(stdout, result)
+
+
+def _write_sector_membership_import_result(
+    stdout: TextIO,
+    command: str,
+    source_file: Path,
+    db_path: Path,
+    result: ServiceResult[object],
+) -> None:
+    _write_routed_message(
+        stdout,
+        command,
+        f"file={source_file}",
+        db_path,
+        f"service returned {result.status}",
+    )
+    _write_warnings_and_errors(stdout, result)
+    data = result.data
+    if data is None:
+        return
+
+    stdout.write(f"sector_import_status={result.status}\n")
+    stdout.write(f"as_of_date={getattr(data, 'as_of_date', 'n/a')}\n")
+    stdout.write(f"membership_as_of_date={getattr(data, 'membership_as_of_date', 'n/a')}\n")
+    stdout.write(f"provider={getattr(data, 'provider', 'n/a')}\n")
+    stdout.write(
+        f"market_review_run_id={_display_optional_int(getattr(data, 'market_review_run_id', None))}\n"
+    )
+    stdout.write(f"sectors={getattr(data, 'sector_count', 0)}\n")
+    stdout.write(f"members={getattr(data, 'member_count', 0)}\n")
+    stdout.write(f"missing_bars={getattr(data, 'missing_bar_count', 0)}\n")
+    stdout.write(
+        "sector_writes="
+        f"would_insert={getattr(data, 'would_insert_count', 0)} "
+        f"would_update={getattr(data, 'would_update_count', 0)} "
+        f"would_delete={getattr(data, 'would_delete_count', 0)} "
+        f"inserted={getattr(data, 'inserted_count', 0)} "
+        f"updated={getattr(data, 'updated_count', 0)} "
+        f"deleted={getattr(data, 'deleted_count', 0)} "
+        f"unchanged={getattr(data, 'unchanged_count', 0)}\n"
+    )
+    stdout.write(f"changed={str(bool(getattr(data, 'changed', False))).lower()}\n")
+    snapshots = getattr(data, "snapshots", [])
+    if snapshots:
+        top = sorted(
+            snapshots,
+            key=lambda snapshot: getattr(snapshot, "rank_overall", 999999) or 999999,
+        )[:3]
+        summary = ",".join(
+            f"{snapshot.sector_code}:{snapshot.rank_overall}:leaders={snapshot.leader_count}"
+            for snapshot in top
+        )
+        stdout.write(f"top_sectors={summary}\n")
+
+
+def _write_market_external_data_import_result(
+    stdout: TextIO,
+    command: str,
+    source_file: Path,
+    db_path: Path,
+    result: ServiceResult[object],
+) -> None:
+    _write_routed_message(
+        stdout,
+        command,
+        f"file={source_file}",
+        db_path,
+        f"service returned {result.status}",
+    )
+    _write_warnings_and_errors(stdout, result)
+    data = result.data
+    if data is None:
+        return
+
+    coverage_summary = getattr(data, "coverage_summary", {})
+    coverage_json = json.dumps(
+        coverage_summary,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    stdout.write(f"market_external_import_status={result.status}\n")
+    stdout.write(f"as_of_date={getattr(data, 'as_of_date', 'n/a')}\n")
+    stdout.write(f"rows={getattr(data, 'row_count', 0)}\n")
+    stdout.write(f"valid={getattr(data, 'valid_count', 0)}\n")
+    stdout.write(f"invalid={getattr(data, 'invalid_count', 0)}\n")
+    stdout.write(f"would_insert={getattr(data, 'would_insert_count', 0)}\n")
+    stdout.write(f"inserted={getattr(data, 'inserted_count', 0)}\n")
+    stdout.write(f"duplicates={getattr(data, 'duplicate_count', 0)}\n")
+    stdout.write(f"coverage_json={coverage_json}\n")
+    invalid_records = getattr(data, "invalid_records", [])
+    if invalid_records:
+        stdout.write("invalid_records:\n")
+        for issue in invalid_records:
+            field = getattr(issue, "field", None) or "record"
+            stdout.write(
+                "- "
+                f"record={getattr(issue, 'index', 'n/a')} "
+                f"field={field} "
+                f"code={getattr(issue, 'code', 'n/a')} "
+                f"message={getattr(issue, 'message', 'n/a')}\n"
+            )
 
 
 def _write_plan_cancel_result(
@@ -1664,6 +2204,87 @@ def _write_agent_external_data_import_result(
                 f"code={getattr(issue, 'code', 'n/a')} "
                 f"message={getattr(issue, 'message', 'n/a')}\n"
             )
+
+
+def _write_strategy_evolution_propose_result(
+    stdout: TextIO,
+    command: str,
+    date: str,
+    db_path: Path,
+    result: ServiceResult[object],
+) -> None:
+    _write_routed_message(stdout, command, date, db_path, f"service returned {result.status}")
+    _write_warnings_and_errors(stdout, result)
+    data = result.data
+    if data is None:
+        return
+
+    stdout.write(
+        "strategy_evolution="
+        f"generated={getattr(data, 'generated_count', 0)} "
+        f"would_insert={getattr(data, 'would_insert_count', 0)} "
+        f"inserted={getattr(data, 'inserted_count', 0)} "
+        f"skipped_existing={getattr(data, 'skipped_existing_count', 0)}\n"
+    )
+    hypotheses = getattr(data, "hypotheses", [])
+    if hypotheses:
+        stdout.write("hypotheses:\n")
+        for item in hypotheses:
+            stdout.write(
+                "- "
+                f"id={_display_optional_int(getattr(item, 'hypothesis_id', None))} "
+                f"date={getattr(item, 'as_of_date', 'n/a')} "
+                f"status={getattr(item, 'status', 'n/a')} "
+                f"type={getattr(item, 'hypothesis_type', 'n/a')} "
+                f"title={getattr(item, 'title', 'n/a')}\n"
+            )
+
+
+def _write_strategy_evolution_list_result(
+    stdout: TextIO,
+    command: str,
+    date_label: str,
+    db_path: Path,
+    result: ServiceResult[object],
+) -> None:
+    _write_routed_message(stdout, command, date_label, db_path, f"service returned {result.status}")
+    _write_warnings_and_errors(stdout, result)
+    data = result.data
+    hypotheses = getattr(data, "hypotheses", []) if data is not None else []
+    stdout.write(f"hypotheses_count={len(hypotheses)}\n")
+    for item in hypotheses:
+        stdout.write(
+            "- "
+            f"id={_display_optional_int(getattr(item, 'hypothesis_id', None))} "
+            f"date={getattr(item, 'as_of_date', 'n/a')} "
+            f"status={getattr(item, 'status', 'n/a')} "
+            f"type={getattr(item, 'hypothesis_type', 'n/a')} "
+            f"title={getattr(item, 'title', 'n/a')}\n"
+        )
+
+
+def _write_strategy_evolution_mark_result(
+    stdout: TextIO,
+    command: str,
+    hypothesis_label: str,
+    db_path: Path,
+    result: ServiceResult[object],
+) -> None:
+    _write_routed_message(stdout, command, hypothesis_label, db_path, f"service returned {result.status}")
+    _write_warnings_and_errors(stdout, result)
+    data = result.data
+    if data is None:
+        return
+
+    hypothesis = getattr(data, "hypothesis", None)
+    stdout.write(
+        "strategy_hypothesis="
+        f"id={_display_optional_int(getattr(hypothesis, 'hypothesis_id', None))} "
+        f"previous_status={getattr(data, 'previous_status', 'n/a')} "
+        f"status={getattr(hypothesis, 'status', 'n/a')} "
+        f"operator={getattr(data, 'operator', None) or 'none'} "
+        f"title={getattr(hypothesis, 'title', 'n/a')}\n"
+    )
 
 
 def _write_daily_pipeline_result(stdout: TextIO, result: ServiceResult[object]) -> None:

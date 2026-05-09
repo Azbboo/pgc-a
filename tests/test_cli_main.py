@@ -255,6 +255,7 @@ class CliMainTest(unittest.TestCase):
         for command in [
             "review",
             "daily-close",
+            "market-review",
             "plan",
             "plan-cancel",
             "report",
@@ -264,6 +265,7 @@ class CliMainTest(unittest.TestCase):
             "exits-evaluate",
             "paper-readiness",
             "agent",
+            "strategy-evolution",
             "ops",
         ]:
             self.assertIn(command, output)

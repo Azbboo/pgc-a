@@ -93,6 +93,21 @@ class OperationalRunbookStaticTest(unittest.TestCase):
         ]:
             self.assertIn(text, source)
 
+    def test_m40_runbook_documents_strategy_evolution_policy(self) -> None:
+        source = RUNBOOK.read_text(encoding="utf-8")
+
+        for text in [
+            "M40 策略演化假设治理",
+            "strategy-evolution propose",
+            "strategy-evolution list --status proposed",
+            "strategy-evolution mark --hypothesis-id 1 --status testing",
+            "hypothesis must pass replay/backtest before accepted",
+            "accepted hypothesis creates a separate strategy-version task",
+            "active paper/live strategy params are not mutated by reports",
+            "src/pgc_trading/strategies/params/*.json",
+        ]:
+            self.assertIn(text, source)
+
     def test_m20_deploy_script_is_guarded_and_parseable(self) -> None:
         self.assertTrue(DEPLOY_SCRIPT.exists(), f"missing {DEPLOY_SCRIPT}")
         source = DEPLOY_SCRIPT.read_text(encoding="utf-8")
