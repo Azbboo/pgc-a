@@ -9,12 +9,12 @@ This ledger is the single index for historical and active project work. Detailed
 | Field | Value |
 | --- | --- |
 | Branch | `codex/m14b-yfinance` |
-| Latest deployed commit | `8e3a36f` |
-| Latest release tag | `pgc-v0.1.0-20260509-g8e3a36f` |
+| Latest deployed commit | See release tag `pgc-v0.1.0-20260509-m41b-m46` |
+| Latest release tag | `pgc-v0.1.0-20260509-m41b-m46` |
 | Remote API | `http://150.158.121.150:8020` |
 | Remote migration state | `012_market_review`, `pending_migrations=none` |
 | Latest release health | `api_health_ok=true`, HTTP `200` |
-| Latest full verification | `327 passed, 3 skipped, 10 subtests passed` locally on 2026-05-09; deploy script previously ran `311 tests`, `OK (skipped=3)` |
+| Latest full verification | `327 passed, 3 skipped, 10 subtests passed` locally on 2026-05-09; deploy script ran `330 tests`, `OK (skipped=3)` |
 
 ## Status Legend
 
@@ -108,21 +108,21 @@ This ledger is the single index for historical and active project work. Detailed
 | M40 | Strategy hypotheses | Done, Deployed | `62d1b33` | Hypotheses generated from market-review observations. |
 | R0 | Release checkpoint for M28-M40 | Done, Deployed | `3ff703e` | Optional deploy write token handling, remote migration state preserved. |
 | M41A | Market review read API | Done, Deployed | `8e3a36f`, release `pgc-v0.1.0-20260509-g8e3a36f` | GET-only `/api/market-reviews...` routes. |
-| M41B | Dashboard full-market tab | Done / Local verification | Local verification 2026-05-09 | Adds read-only full-market Dashboard tab over `market-reviews` APIs; no market-review write calls. |
-| M42 | Daily pipeline market-review integration | Done / Local verification | Local verification 2026-05-09 | `daily-pipeline` and `run_daily_pipeline.sh` support `--include-market-review`; dry-run preserves no-write contract. |
+| M41B | Dashboard full-market tab | Done, Deployed | release `pgc-v0.1.0-20260509-m41b-m46` | Adds read-only full-market Dashboard tab over `market-reviews` APIs; no market-review write calls. |
+| M42 | Daily pipeline market-review integration | Done, Deployed | release `pgc-v0.1.0-20260509-m41b-m46` | `daily-pipeline` and `run_daily_pipeline.sh` support `--include-market-review`; dry-run preserves no-write contract. |
 | M43 | Production market-review data source policy | Done, Deployed | `8e3a36f`, release `pgc-v0.1.0-20260509-g8e3a36f` | Fixtures forbidden in production; missing evidence explicit. |
 | M44 | Strategy hypothesis backtest bridge | Done, Deployed | `8e3a36f`, release `pgc-v0.1.0-20260509-g8e3a36f` | Produces backtest request artifacts; no active param mutation. |
-| M45 | Open execution alignment with market-plan context | Done / Local verification | Local verification 2026-05-09 | Added read-only open-execution service/API/CLI/Dashboard context; shows alignment/risk/action and does not auto-cancel or execute trades. |
-| M46 | Scheduled post-close pipeline | Done / Local verification | Local verification 2026-05-09 | `latest-closed`, `/opt/pgc/logs`, `/opt/pgc/backups`, health precheck, and systemd timer installer added; remote timer not installed from this session. |
+| M45 | Open execution alignment with market-plan context | Done, Deployed | release `pgc-v0.1.0-20260509-m41b-m46` | Added read-only open-execution service/API/CLI/Dashboard context; shows alignment/risk/action and does not auto-cancel or execute trades. |
+| M46 | Scheduled post-close pipeline | Done, Deployed | release `pgc-v0.1.0-20260509-m41b-m46` | `latest-closed`, `/opt/pgc/logs`, `/opt/pgc/backups`, health precheck, and systemd timer installer added; remote timer preview passed but timer is not enabled yet. |
 
 ## Active Parallel Plan
 
 | Lane | Task | Status | Depends On | Review Focus |
 | --- | --- | --- | --- | --- |
-| A | M41B Dashboard full-market tab | Done / Local verification | M41A API | Usable full-market page, drawers/tables, no write endpoints. |
-| B | M42 Daily pipeline integration | Done / Local verification | M39 service, M36-M38 producers | Pipeline runs market-review/link-plan/report in order and keeps missing evidence explicit. |
-| C | M45 Open execution alignment | Done / Local verification | M41B/M42 payload clarity | Execution page explains market context without creating/cancelling/executing trades automatically. |
-| D | M46 Scheduled post-close pipeline | Done / Local verification | M42 local contract, deploy token stable | Backup, logs, health checks, operator, and repeatable schedule implemented locally; remote enable remains an ops action. |
+| A | M41B Dashboard full-market tab | Done, Deployed | M41A API | Usable full-market page, drawers/tables, no write endpoints. |
+| B | M42 Daily pipeline integration | Done, Deployed | M39 service, M36-M38 producers | Pipeline runs market-review/link-plan/report in order and keeps missing evidence explicit. |
+| C | M45 Open execution alignment | Done, Deployed | M41B/M42 payload clarity | Execution page explains market context without creating/cancelling/executing trades automatically. |
+| D | M46 Scheduled post-close pipeline | Done, Deployed | M42 local contract, deploy token stable | Backup, logs, health checks, operator, and repeatable schedule implemented locally; remote enable remains an ops action. |
 
 ## Review Rules For Future Sessions
 

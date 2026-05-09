@@ -13,7 +13,7 @@
 - Local branch: `codex/m14b-yfinance`
 - R0 release checkpoint is complete and remote is aligned through `8e3a36f`, release `pgc-v0.1.0-20260509-g8e3a36f`.
 - M39, M41A, M43, and M44 are implemented, pushed, and deployed in the current remote baseline.
-- M41B, M42, M45, and M46 are implemented and locally verified; they are not yet committed or deployed in this batch.
+- M41B, M42, M45, and M46 are implemented, committed, and deployed in release `pgc-v0.1.0-20260509-m41b-m46`.
 - Verification already run for M41B/M42/M45/M46:
   - targeted tests: `89 passed, 1 skipped, 1 subtests passed`
   - full tests: `327 passed, 3 skipped, 10 subtests passed`
@@ -32,19 +32,17 @@
 | R0 | Commit/push/deploy current M28-M40 and run `012_market_review` | Done | No | Current reviewed code | Release session |
 | M39 | Plan-context linking service and report section | Done | Yes | M36/M37/M38 outputs | Session A |
 | M41A | Market review read API | Done | Yes | M36-M39 tables | Session B |
-| M41B | Dashboard full-market tab | Done / Local verification | Yes | M41A route contract | Session C |
-| M42 | Daily pipeline integration and report output | Done / Local verification | Yes after M39 | M36-M39 services | Session D |
+| M41B | Dashboard full-market tab | Done, Deployed | Yes | M41A route contract | Session C |
+| M42 | Daily pipeline integration and report output | Done, Deployed | Yes after M39 | M36-M39 services | Session D |
 | M43 | Production market-review runbook and fixtures-to-real-data policy | Done | Yes | M36/M37/M38 CLI | Session E |
 | M44 | Strategy hypothesis backtest bridge | Done | Yes | `strategy_hypotheses`, existing replay/backtest tests | Session F |
-| M45 | M30 open-execution service alignment | Done / Local verification | Yes, separate product track | Existing execution services | Session G |
-| M46 | M31 scheduled post-close pipeline | Done / Local verification | After M42 and write-token deploy | `run_daily_pipeline.sh` | Ops session |
+| M45 | M30 open-execution service alignment | Done, Deployed | Yes, separate product track | Existing execution services | Session G |
+| M46 | M31 scheduled post-close pipeline | Done, Deployed | After M42 and write-token deploy | `run_daily_pipeline.sh` | Ops session |
 
 Recommended order from this checkpoint:
 
-1. Commit and push the locally verified M41B/M42/M45/M46 batch.
-2. Deploy the batch with a release tag, then run remote `ops health --require-current-migrations`.
-3. Keep M46 timer installation as an explicit ops action; preview with `--dry-run` before enabling a real schedule.
-4. Start the next planning wave from Dashboard usability, market evidence depth, and strategy evolution guardrails.
+1. Keep M46 timer installation as an explicit ops action; the `--dry-run` preview is verified, but the real timer is not enabled yet.
+2. Start the next planning wave from Dashboard usability, market evidence depth, and strategy evolution guardrails.
 
 ---
 
@@ -481,7 +479,5 @@ Also reject any change that:
 
 ## Immediate Next Actions
 
-1. Commit and push the M41B/M42/M45/M46 batch after review.
-2. Deploy the batch and confirm remote `ops health --require-current-migrations`.
-3. Preview M46 timer installation with `scripts/install_remote_daily_pipeline_timer.sh --dry-run`.
-4. Plan the next wave around market evidence quality, Dashboard interaction depth, and strategy hypothesis validation.
+1. Decide whether to enable the M46 systemd timer in apply mode.
+2. Plan the next wave around market evidence quality, Dashboard interaction depth, and strategy hypothesis validation.
