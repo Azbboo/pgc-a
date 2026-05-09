@@ -1,0 +1,18 @@
+{
+  "as_of_date": "20260508",
+  "ts_code": "301188.SZ",
+  "items": [
+    {
+      "source": "tushare",
+      "category": "fundamental",
+      "published_date": "20260508",
+      "title": "valuation snapshot",
+      "summary": "PE/PB/turnover fields from cached provider",
+      "payload": {
+        "pe_ttm": 31.2,
+        "pb": 2.6,
+        "turnover_rate": 4.1
+      }
+    }
+  ]
+}

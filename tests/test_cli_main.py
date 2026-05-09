@@ -138,10 +138,19 @@ class _FakeReadinessData:
     as_of_date: str = "20260507"
     readiness: str = "pass"
     trades_count: int = 10
+    closed_trades_count: int = 2
+    win_rate: float | None = 0.5
+    realized_pnl: float = 128.5
+    avg_slippage: float | None = None
+    last_pipeline_status: str | None = "success"
     open_positions_count: int = 0
     due_exit_positions_count: int = 0
     open_blockers_count: int = 0
     invariant_ok: bool = True
+    ledger_blockers_count: int = 0
+    invariant_violation_codes: list[str] = field(default_factory=list)
+    promotion_blockers: list[str] = field(default_factory=list)
+    promotion_warnings: list[str] = field(default_factory=lambda: ["AGENT_EVIDENCE_MISSING"])
 
 
 class _FakeReadinessService:
@@ -602,10 +611,16 @@ class CliMainTest(unittest.TestCase):
         self.assertIn("service returned success", output)
         self.assertIn("readiness=pass", output)
         self.assertIn("trades_count=10", output)
+        self.assertIn("closed_trades_count=2", output)
+        self.assertIn("win_rate=0.5", output)
+        self.assertIn("realized_pnl=128.5", output)
+        self.assertIn("avg_slippage=none", output)
+        self.assertIn("last_pipeline_status=success", output)
         self.assertIn("open_positions_count=0", output)
         self.assertIn("due_exit_positions_count=0", output)
         self.assertIn("open_blockers_count=0", output)
         self.assertIn("invariant_ok=true", output)
+        self.assertIn("promotion_warnings=AGENT_EVIDENCE_MISSING", output)
 
     def test_agent_review_routes_to_service_with_dry_run_context(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -114,6 +114,12 @@ class AgentReviewServiceTest(unittest.TestCase):
             self.assertEqual(snapshot["candidate"]["analysis_contexts"]["fundamental"]["status"], "unavailable")
             self.assertEqual(snapshot["candidate"]["analysis_contexts"]["news"]["status"], "unavailable")
             self.assertEqual(snapshot["candidate"]["analysis_contexts"]["sentiment"]["status"], "partial")
+            evidence_context = snapshot["candidate"]["evidence_context"]
+            self.assertEqual(evidence_context["system_review_facts"]["label"], "系统确定性复盘事实")
+            self.assertEqual(evidence_context["cached_technical_data"]["label"], "缓存技术数据")
+            self.assertEqual(evidence_context["cached_fundamental_data"]["status"], "unavailable")
+            self.assertTrue(any("新闻/公告未接入/数据不足" in item for item in evidence_context["missing_data_warnings"]))
+            self.assertIn("外部证据不直接改变交易计划。", evidence_context["source_boundary"])
             self.assertEqual(
                 snapshot["external_data_coverage"],
                 {

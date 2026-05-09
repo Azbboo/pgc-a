@@ -254,6 +254,12 @@ def _records_from_payload(
         "as_of_date",
         "trade_date",
     )
+    if _looks_like_normalized_fixture(payload):
+        return _records_from_normalized_fixture(
+            payload,
+            default_provider=default_provider,
+            default_published_date=default_published_date,
+        )
     for key in ("records", "items"):
         if key not in payload:
             continue
@@ -292,6 +298,128 @@ def _records_from_payload(
         "source_file JSON must be a list, an object with records/items, or structured keys like "
         "fundamental_snapshots, announcements, news, or sentiment_snippets.",
     )
+
+
+def _looks_like_normalized_fixture(payload: Mapping[str, Any]) -> bool:
+    return (
+        "items" in payload
+        and isinstance(payload.get("items"), list)
+        and _first_text(payload, "as_of_date") is not None
+        and _first_text(payload, "ts_code", "code", "symbol") is not None
+    )
+
+
+def _records_from_normalized_fixture(
+    payload: Mapping[str, Any],
+    *,
+    default_provider: str | None,
+    default_published_date: str | None,
+) -> list[Mapping[str, Any]] | ServiceError:
+    as_of_date = _compact_structured_date(
+        _first_text(payload, "as_of_date", "date", "trade_date") or default_published_date
+    )
+    ts_code = _first_text(payload, "ts_code", "code", "symbol")
+    if as_of_date is None or not _is_yyyymmdd(as_of_date):
+        return ServiceError("VALIDATION_ERROR", "as_of_date must be a compact YYYYMMDD date.")
+    if ts_code is None:
+        return ServiceError("VALIDATION_ERROR", "ts_code is required for normalized agent external fixture.")
+    items = payload.get("items")
+    if not isinstance(items, list):
+        return ServiceError("VALIDATION_ERROR", "source_file field items must be a list.")
+
+    normalized: list[Mapping[str, Any]] = []
+    for item in items:
+        if not isinstance(item, Mapping):
+            return ServiceError("VALIDATION_ERROR", "each external data record must be a JSON object.")
+        normalized.append(
+            _normalize_fixture_item(
+                item,
+                ts_code=ts_code,
+                as_of_date=as_of_date,
+                default_provider=default_provider,
+            )
+        )
+    return normalized
+
+
+def _normalize_fixture_item(
+    item: Mapping[str, Any],
+    *,
+    ts_code: str,
+    as_of_date: str,
+    default_provider: str | None,
+) -> dict[str, Any]:
+    source = _first_text(item, "source", "provider", "src", "data_source") or default_provider
+    category = _normalize_fixture_category(_first_text(item, "category", "item_type", "type"))
+    published_date = _compact_structured_date(
+        _first_text(item, "published_date", "publish_date", "ann_date", "trade_date", "date") or as_of_date
+    )
+    payload_value = item.get("payload", {})
+    metadata = item.get("metadata")
+    metadata_obj = dict(metadata) if isinstance(metadata, Mapping) else {}
+    metadata_obj.update(
+        {
+            "fixture_format": "agent_external_v2",
+            "as_of_date": as_of_date,
+            "source": source,
+            "category": category,
+            "payload": payload_value,
+        }
+    )
+    normalized = dict(item)
+    normalized["ts_code"] = ts_code
+    normalized["_as_of_date"] = as_of_date
+    if source:
+        normalized["provider"] = source
+    if category:
+        normalized["item_type"] = category
+    if published_date:
+        normalized["published_date"] = published_date
+    normalized["title"] = _first_text(item, "title", "headline", "name", "subject") or _structured_title(
+        normalized,
+        category or "research_note",
+    )
+    normalized["summary"] = _truncate_text(
+        _first_text(item, "summary", "abstract", "brief", "snippet", "content", "text", "description")
+        or _structured_summary(normalized, category or "research_note"),
+        600,
+    )
+    url = _first_text(item, "url", "link", "source_url")
+    if url:
+        normalized["url"] = url
+    sentiment = _first_text(item, "sentiment", "sentiment_label", "polarity")
+    if sentiment:
+        normalized["sentiment"] = _normalize_structured_sentiment(sentiment)
+    importance = _first_text(item, "importance", "priority", "level")
+    if importance:
+        normalized["importance"] = _normalize_structured_importance(importance)
+    normalized["metadata"] = metadata_obj
+    return normalized
+
+
+def _normalize_fixture_category(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    mapping = {
+        "fundamentals": "fundamental",
+        "fundamental_snapshot": "fundamental",
+        "fundamental_snapshots": "fundamental",
+        "announcement": "announcement",
+        "announcements": "announcement",
+        "company_announcement": "announcement",
+        "company_announcements": "announcement",
+        "news_snippet": "news",
+        "news_snippets": "news",
+        "sentiments": "sentiment",
+        "sentiment_snippet": "sentiment",
+        "sentiment_snippets": "sentiment",
+        "risk": "risk_note",
+        "risk_notes": "risk_note",
+        "research": "research_note",
+        "research_notes": "research_note",
+    }
+    return mapping.get(normalized, normalized)
 
 
 def _validated_import_records(
@@ -543,6 +671,16 @@ def _prepare_record(
                 message="published_date must be a compact YYYYMMDD date.",
             )
         )
+    as_of_date = _optional_as_of_date(record, index, issues)
+    if published_date and as_of_date and _is_yyyymmdd(published_date) and published_date > as_of_date:
+        issues.append(
+            AgentExternalDataValidationIssue(
+                index=index,
+                field="published_date",
+                code="FUTURE_PUBLISHED_DATE",
+                message="published_date must not be later than as_of_date.",
+            )
+        )
     if item_type and item_type not in VALID_AGENT_EXTERNAL_ITEM_TYPES:
         issues.append(
             AgentExternalDataValidationIssue(
@@ -625,6 +763,38 @@ def _required_text(
         )
         return None
     return value.strip()
+
+
+def _optional_as_of_date(
+    record: Mapping[str, Any],
+    index: int,
+    issues: list[AgentExternalDataValidationIssue],
+) -> str | None:
+    value = record.get("_as_of_date", record.get("as_of_date"))
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        issues.append(
+            AgentExternalDataValidationIssue(
+                index=index,
+                field="as_of_date",
+                code="INVALID_AS_OF_DATE",
+                message="as_of_date must be a compact YYYYMMDD date.",
+            )
+        )
+        return None
+    compact = _compact_structured_date(value.strip())
+    if compact is None or not _is_yyyymmdd(compact):
+        issues.append(
+            AgentExternalDataValidationIssue(
+                index=index,
+                field="as_of_date",
+                code="INVALID_AS_OF_DATE",
+                message="as_of_date must be a compact YYYYMMDD date.",
+            )
+        )
+        return None
+    return compact
 
 
 def _optional_text(

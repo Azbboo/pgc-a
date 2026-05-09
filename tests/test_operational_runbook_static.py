@@ -77,6 +77,22 @@ class OperationalRunbookStaticTest(unittest.TestCase):
         ]:
             self.assertIn(text, source)
 
+    def test_m28_runbook_documents_daily_pipeline_acceptance_gate(self) -> None:
+        source = RUNBOOK.read_text(encoding="utf-8")
+
+        for text in [
+            "M28 验收门禁",
+            "scripts/run_daily_pipeline.sh",
+            "ledger_audit_status=pass",
+            "pipeline_status=pass",
+            "backup before non-dry writes",
+            "TradingAgents review",
+            "operator",
+            "/api/health",
+            "/api/daily-reviews/20260508",
+        ]:
+            self.assertIn(text, source)
+
     def test_m20_deploy_script_is_guarded_and_parseable(self) -> None:
         self.assertTrue(DEPLOY_SCRIPT.exists(), f"missing {DEPLOY_SCRIPT}")
         source = DEPLOY_SCRIPT.read_text(encoding="utf-8")
@@ -97,6 +113,10 @@ class OperationalRunbookStaticTest(unittest.TestCase):
             "root@150.158.121.150",
             "/opt/pgc/data/pgc_trading.db",
             "/opt/pgc/releases",
+            "PGC_API_WRITE_TOKEN=<redacted>",
+            "PGC_API_WRITE_TOKEN=<preserve-existing-if-present>",
+            "preserve_existing_api_write_token",
+            "^Environment=PGC_API_WRITE_TOKEN=",
         ]:
             self.assertIn(text, source)
 

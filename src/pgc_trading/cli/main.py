@@ -1569,6 +1569,11 @@ def _write_paper_readiness_result(
 
     stdout.write(f"readiness={getattr(data, 'readiness', 'n/a')}\n")
     stdout.write(f"trades_count={getattr(data, 'trades_count', 0)}\n")
+    stdout.write(f"closed_trades_count={getattr(data, 'closed_trades_count', 0)}\n")
+    stdout.write(f"win_rate={_display_optional_ratio(getattr(data, 'win_rate', None))}\n")
+    stdout.write(f"realized_pnl={_display_float(getattr(data, 'realized_pnl', 0.0))}\n")
+    stdout.write(f"avg_slippage={_display_optional_ratio(getattr(data, 'avg_slippage', None))}\n")
+    stdout.write(f"last_pipeline_status={getattr(data, 'last_pipeline_status', None) or 'none'}\n")
     stdout.write(f"open_positions_count={getattr(data, 'open_positions_count', 0)}\n")
     stdout.write(f"due_exit_positions_count={getattr(data, 'due_exit_positions_count', 0)}\n")
     stdout.write(f"open_blockers_count={getattr(data, 'open_blockers_count', 0)}\n")
@@ -1576,6 +1581,8 @@ def _write_paper_readiness_result(
     stdout.write(f"invariant_ok={str(invariant_ok).lower()}\n")
     stdout.write(f"ledger_blockers_count={getattr(data, 'ledger_blockers_count', 0)}\n")
     stdout.write(f"invariant_violation_codes={_display_list(getattr(data, 'invariant_violation_codes', []))}\n")
+    stdout.write(f"promotion_blockers={_display_list(getattr(data, 'promotion_blockers', []))}\n")
+    stdout.write(f"promotion_warnings={_display_list(getattr(data, 'promotion_warnings', []))}\n")
 
 
 def _write_agent_review_result(
@@ -1824,6 +1831,19 @@ def _display_optional_int(value: int | None) -> str:
 
 def _display_optional_float(value: float | None) -> str:
     return "n/a" if value is None else f"{value:.2f}"
+
+
+def _display_optional_ratio(value: float | None) -> str:
+    return "none" if value is None else _display_float(value)
+
+
+def _display_float(value: float | int | None) -> str:
+    if value is None:
+        return "none"
+    text = f"{float(value):.4f}".rstrip("0").rstrip(".")
+    if "." not in text:
+        text = f"{text}.0"
+    return text
 
 
 def _display_list(values: list[str]) -> str:

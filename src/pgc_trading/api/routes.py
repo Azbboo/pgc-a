@@ -1,5 +1,6 @@
 """Route registration for the PGC HTTP API."""
 
+import hmac
 from datetime import datetime
 from typing import Any
 
@@ -31,7 +32,7 @@ from pgc_trading.strategies.cpb_6157 import STRATEGY_VERSION
 def register_routes(app: Any) -> None:
     """Register P0 API routes on a FastAPI app instance."""
 
-    from fastapi import Body, Response
+    from fastapi import Body, Request, Response
 
     @app.get("/api/health", tags=["system"])
     def health() -> dict[str, object]:
@@ -143,6 +144,7 @@ def register_routes(app: Any) -> None:
 
     @app.post("/api/trade-plans/generate", tags=["portfolio"])
     def generate_trade_plan_route(
+        request: Request,
         response: Response,
         payload: dict[str, Any] | None = Body(default=None),
     ) -> dict[str, object]:
@@ -151,18 +153,27 @@ def register_routes(app: Any) -> None:
             app.state.services,
             response,
             payload=payload or {},
+            write_token_header=_request_write_token(request),
         )
 
     @app.post("/api/review-runs", tags=["workflow"])
     def review_run(
+        request: Request,
         response: Response,
         payload: dict[str, Any] | None = Body(default=None),
     ) -> dict[str, object]:
-        return run_review_run(app.state.settings, app.state.services, response, payload=payload or {})
+        return run_review_run(
+            app.state.settings,
+            app.state.services,
+            response,
+            payload=payload or {},
+            write_token_header=_request_write_token(request),
+        )
 
     @app.post("/api/trade-plans/{trade_plan_id}/publish", tags=["portfolio"])
     def publish_trade_plan(
         trade_plan_id: int,
+        request: Request,
         response: Response,
         payload: dict[str, Any] | None = Body(default=None),
     ) -> dict[str, object]:
@@ -172,11 +183,13 @@ def register_routes(app: Any) -> None:
             response,
             trade_plan_id=trade_plan_id,
             payload=payload or {},
+            write_token_header=_request_write_token(request),
         )
 
     @app.post("/api/trade-plans/{trade_plan_id}/cancel", tags=["portfolio"])
     def cancel_trade_plan(
         trade_plan_id: int,
+        request: Request,
         response: Response,
         payload: dict[str, Any] | None = Body(default=None),
     ) -> dict[str, object]:
@@ -186,21 +199,36 @@ def register_routes(app: Any) -> None:
             response,
             trade_plan_id=trade_plan_id,
             payload=payload or {},
+            write_token_header=_request_write_token(request),
         )
 
     @app.post("/api/trades", tags=["portfolio"])
     def trade_execution(
+        request: Request,
         response: Response,
         payload: dict[str, Any] | None = Body(default=None),
     ) -> dict[str, object]:
-        return record_trade_execution(app.state.settings, app.state.services, response, payload=payload or {})
+        return record_trade_execution(
+            app.state.settings,
+            app.state.services,
+            response,
+            payload=payload or {},
+            write_token_header=_request_write_token(request),
+        )
 
     @app.post("/api/exits/evaluate", tags=["portfolio"])
     def exit_evaluation(
+        request: Request,
         response: Response,
         payload: dict[str, Any] | None = Body(default=None),
     ) -> dict[str, object]:
-        return evaluate_exits(app.state.settings, app.state.services, response, payload=payload or {})
+        return evaluate_exits(
+            app.state.settings,
+            app.state.services,
+            response,
+            payload=payload or {},
+            write_token_header=_request_write_token(request),
+        )
 
 
 def get_daily_review(
@@ -334,8 +362,15 @@ def generate_trade_plan(
     response: Any,
     *,
     payload: dict[str, Any],
+    write_token_header: str | None = None,
 ) -> dict[str, object]:
-    ctx_or_response = _write_context_or_response(settings, response, payload, allow_dry_run=True)
+    ctx_or_response = _write_context_or_response(
+        settings,
+        response,
+        payload,
+        allow_dry_run=True,
+        write_token_header=write_token_header,
+    )
     if isinstance(ctx_or_response, dict):
         return ctx_or_response
     ctx = ctx_or_response
@@ -378,8 +413,15 @@ def run_review_run(
     response: Any,
     *,
     payload: dict[str, Any],
+    write_token_header: str | None = None,
 ) -> dict[str, object]:
-    ctx_or_response = _write_context_or_response(settings, response, payload, allow_dry_run=True)
+    ctx_or_response = _write_context_or_response(
+        settings,
+        response,
+        payload,
+        allow_dry_run=True,
+        write_token_header=write_token_header,
+    )
     if isinstance(ctx_or_response, dict):
         return ctx_or_response
     ctx = ctx_or_response
@@ -415,8 +457,15 @@ def publish_plan(
     *,
     trade_plan_id: int,
     payload: dict[str, Any],
+    write_token_header: str | None = None,
 ) -> dict[str, object]:
-    ctx_or_response = _write_context_or_response(settings, response, payload, allow_dry_run=False)
+    ctx_or_response = _write_context_or_response(
+        settings,
+        response,
+        payload,
+        allow_dry_run=False,
+        write_token_header=write_token_header,
+    )
     if isinstance(ctx_or_response, dict):
         return ctx_or_response
     ctx = ctx_or_response
@@ -445,8 +494,15 @@ def cancel_plan(
     *,
     trade_plan_id: int,
     payload: dict[str, Any],
+    write_token_header: str | None = None,
 ) -> dict[str, object]:
-    ctx_or_response = _write_context_or_response(settings, response, payload, allow_dry_run=False)
+    ctx_or_response = _write_context_or_response(
+        settings,
+        response,
+        payload,
+        allow_dry_run=False,
+        write_token_header=write_token_header,
+    )
     if isinstance(ctx_or_response, dict):
         return ctx_or_response
     ctx = ctx_or_response
@@ -476,8 +532,15 @@ def record_trade_execution(
     response: Any,
     *,
     payload: dict[str, Any],
+    write_token_header: str | None = None,
 ) -> dict[str, object]:
-    ctx_or_response = _write_context_or_response(settings, response, payload, allow_dry_run=True)
+    ctx_or_response = _write_context_or_response(
+        settings,
+        response,
+        payload,
+        allow_dry_run=True,
+        write_token_header=write_token_header,
+    )
     if isinstance(ctx_or_response, dict):
         return ctx_or_response
     ctx = ctx_or_response
@@ -552,8 +615,15 @@ def evaluate_exits(
     response: Any,
     *,
     payload: dict[str, Any],
+    write_token_header: str | None = None,
 ) -> dict[str, object]:
-    ctx_or_response = _write_context_or_response(settings, response, payload, allow_dry_run=True)
+    ctx_or_response = _write_context_or_response(
+        settings,
+        response,
+        payload,
+        allow_dry_run=True,
+        write_token_header=write_token_header,
+    )
     if isinstance(ctx_or_response, dict):
         return ctx_or_response
     ctx = ctx_or_response
@@ -601,6 +671,7 @@ def _write_context_or_response(
     payload: dict[str, Any],
     *,
     allow_dry_run: bool,
+    write_token_header: str | None = None,
 ) -> RequestContext | dict[str, object]:
     errors: list[ServiceError] = []
     dry_run = _bool_field(payload, "dry_run", errors, default=False)
@@ -623,6 +694,19 @@ def _write_context_or_response(
                 )
             ],
         )
+    expected_write_token = _blank_to_none(settings.write_token)
+    if not dry_run and expected_write_token is not None and not _write_token_matches(expected_write_token, write_token_header):
+        return _api_error_response(
+            response,
+            "forbidden",
+            request_id,
+            [
+                ServiceError(
+                    code="API_WRITE_TOKEN_REQUIRED",
+                    message="valid X-PGC-Write-Token is required for non-dry API writes",
+                )
+            ],
+        )
     if not dry_run and operator is None:
         errors.append(ServiceError(code="VALIDATION_ERROR", message="operator is required for non-dry API writes."))
     if not dry_run and idempotency_key is None:
@@ -638,6 +722,16 @@ def _write_context_or_response(
         source="api",
         allow_live_writes=allow_live_writes,
     )
+
+
+def _request_write_token(request: Any) -> str | None:
+    return request.headers.get("X-PGC-Write-Token")
+
+
+def _write_token_matches(expected: str, candidate: str | None) -> bool:
+    if candidate is None:
+        return False
+    return hmac.compare_digest(candidate, expected)
 
 
 def _normalize_date(value: str) -> str:

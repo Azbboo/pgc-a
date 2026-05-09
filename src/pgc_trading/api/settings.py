@@ -16,11 +16,14 @@ _TRUE_VALUES = {"1", "true", "yes", "on"}
 class ApiSettings:
     db_path: Path
     enable_writes: bool = False
+    write_token: str | None = None
 
     @classmethod
     def from_env(cls) -> "ApiSettings":
         paths = Paths()
+        write_token = os.environ.get("PGC_API_WRITE_TOKEN", "").strip()
         return cls(
             db_path=Path(os.environ.get("PGC_DB_PATH", paths.db_path)),
             enable_writes=os.environ.get("PGC_API_ENABLE_WRITES", "").strip().lower() in _TRUE_VALUES,
+            write_token=write_token or None,
         )

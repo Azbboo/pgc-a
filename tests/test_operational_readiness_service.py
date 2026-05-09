@@ -195,7 +195,7 @@ class OperationalReadinessServiceTest(unittest.TestCase):
         self.assertEqual(result.data.open_positions_count, 2)
         self.assertIn("DUPLICATE_OPEN_POSITIONS", [error.code for error in result.errors])
 
-    def test_passes_when_paper_fixture_meets_gate(self) -> None:
+    def test_warns_when_agent_evidence_is_missing_but_paper_gate_is_met(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = self._migrated_seeded_db(tmp)
             with sqlite3.connect(db_path) as conn:
@@ -207,14 +207,64 @@ class OperationalReadinessServiceTest(unittest.TestCase):
             )
 
         self.assertEqual(result.status, "success")
-        self.assertEqual(result.data.readiness, "pass")
+        self.assertEqual(result.data.readiness, "warning")
         self.assertEqual(result.data.trades_count, 10)
+        self.assertEqual(result.data.closed_trades_count, 0)
+        self.assertIsNone(result.data.win_rate)
+        self.assertEqual(result.data.realized_pnl, 0.0)
         self.assertEqual(result.data.open_positions_count, 0)
         self.assertEqual(result.data.due_exit_positions_count, 0)
         self.assertEqual(result.data.open_blockers_count, 0)
         self.assertTrue(result.data.invariant_ok)
         self.assertEqual(result.errors, [])
-        self.assertEqual(result.warnings, [])
+        self.assertEqual([warning.code for warning in result.warnings], ["AGENT_EVIDENCE_MISSING"])
+        self.assertEqual(result.data.promotion_blockers, [])
+        self.assertEqual(result.data.promotion_warnings, ["AGENT_EVIDENCE_MISSING"])
+
+    def test_calculates_promotion_scorecard_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._migrated_seeded_db(tmp)
+            with sqlite3.connect(db_path) as conn:
+                account_id = self._paper_account_id(conn)
+                self._insert_executed_trades(conn, 6)
+                self._insert_closed_position_pair(
+                    conn,
+                    account_id=account_id,
+                    ts_code="100001.SZ",
+                    buy_price=10.0,
+                    sell_price=11.2,
+                    slippages=(0.01, 0.02),
+                )
+                self._insert_closed_position_pair(
+                    conn,
+                    account_id=account_id,
+                    ts_code="100002.SZ",
+                    buy_price=20.0,
+                    sell_price=19.0,
+                    slippages=(0.03, 0.04),
+                )
+                conn.execute(
+                    """
+                    INSERT INTO operation_requests
+                      (idempotency_key, request_id, operation_type, account_id, as_of_date, status, request_json, finished_at)
+                    VALUES
+                      ('daily-pipeline:test:20260507', 'req-pipeline', 'daily_review', ?, ?, 'success', '{}', CURRENT_TIMESTAMP)
+                    """,
+                    (account_id, AS_OF_DATE),
+                )
+
+            result = OperationalReadinessService(db_path).check_paper_readiness(
+                PaperReadinessRequest(as_of_date=AS_OF_DATE, account_key=ACCOUNT_KEY),
+                RequestContext(request_id="req-scorecard", source="cli", dry_run=True),
+            )
+
+        self.assertEqual(result.status, "success")
+        self.assertEqual(result.data.trades_count, 10)
+        self.assertEqual(result.data.closed_trades_count, 2)
+        self.assertEqual(result.data.win_rate, 0.5)
+        self.assertAlmostEqual(result.data.realized_pnl, 20.0)
+        self.assertAlmostEqual(result.data.avg_slippage, 0.025)
+        self.assertEqual(result.data.last_pipeline_status, "success")
 
     def _migrated_seeded_db(self, tmp: str) -> Path:
         db_path = Path(tmp) / "pgc.db"
@@ -262,6 +312,98 @@ class OperationalReadinessServiceTest(unittest.TestCase):
                 "SELECT id FROM portfolio_accounts WHERE account_key = ?",
                 (ACCOUNT_KEY,),
             ).fetchone()[0]
+        )
+
+    def _insert_closed_position_pair(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        account_id: int,
+        ts_code: str,
+        buy_price: float,
+        sell_price: float,
+        slippages: tuple[float, float],
+    ) -> None:
+        buy_amount = buy_price * 100
+        sell_amount = sell_price * 100
+        buy_cursor = conn.execute(
+            """
+            INSERT INTO trades
+              (
+                account_id,
+                ts_code,
+                name,
+                side,
+                planned_date,
+                executed_date,
+                executed_price,
+                amount,
+                shares,
+                fee,
+                tax,
+                slippage,
+                status,
+                source
+              )
+            VALUES
+              (?, ?, ?, 'buy', '20260501', '20260501', ?, ?, 100, 0, 0, ?, 'executed', 'paper_model')
+            """,
+            (account_id, ts_code, f"Closed {ts_code}", buy_price, buy_amount, slippages[0]),
+        )
+        sell_cursor = conn.execute(
+            """
+            INSERT INTO trades
+              (
+                account_id,
+                ts_code,
+                name,
+                side,
+                planned_date,
+                executed_date,
+                executed_price,
+                amount,
+                shares,
+                fee,
+                tax,
+                slippage,
+                status,
+                source
+              )
+            VALUES
+              (?, ?, ?, 'sell', '20260507', '20260507', ?, ?, 100, 0, 0, ?, 'executed', 'paper_model')
+            """,
+            (account_id, ts_code, f"Closed {ts_code}", sell_price, sell_amount, slippages[1]),
+        )
+        conn.execute(
+            """
+            INSERT INTO positions
+              (
+                account_id,
+                entry_trade_id,
+                exit_trade_id,
+                ts_code,
+                name,
+                buy_date,
+                buy_price,
+                shares,
+                cost,
+                planned_t2_date,
+                planned_t5_date,
+                status,
+                closed_at
+              )
+            VALUES
+              (?, ?, ?, ?, ?, '20260501', ?, 100, ?, '20260505', '20260508', 'closed', CURRENT_TIMESTAMP)
+            """,
+            (
+                account_id,
+                int(buy_cursor.lastrowid),
+                int(sell_cursor.lastrowid),
+                ts_code,
+                f"Closed {ts_code}",
+                buy_price,
+                buy_amount,
+            ),
         )
 
 

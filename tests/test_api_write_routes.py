@@ -141,6 +141,11 @@ class ApiWriteRoutesTest(unittest.TestCase):
         _FakePositionService.calls = []
         self.disabled = ApiSettings(db_path=Path("/tmp/api-write-routes.db"), enable_writes=False)
         self.enabled = ApiSettings(db_path=Path("/tmp/api-write-routes.db"), enable_writes=True)
+        self.token_enabled = ApiSettings(
+            db_path=Path("/tmp/api-write-routes.db"),
+            enable_writes=True,
+            write_token="secret-write-token",
+        )
         self.services = ApiServices(
             daily_close_workflow_service_factory=_FakeWorkflowService,
             execution_recording_service_factory=_FakeExecutionService,
@@ -166,6 +171,89 @@ class ApiWriteRoutesTest(unittest.TestCase):
         self.assertEqual(payload["status"], "forbidden")
         self.assertEqual(payload["errors"][0]["code"], "API_WRITES_DISABLED")
         self.assertEqual(_FakeWorkflowService.calls, [])
+
+    def test_non_dry_write_requires_valid_write_token_when_configured(self) -> None:
+        missing_response = _Response()
+
+        missing_payload = evaluate_exits(
+            self.token_enabled,
+            self.services,
+            missing_response,
+            payload={
+                "as_of_date": "20260507",
+                "account_key": "paper-main",
+                "operator": "tester",
+                "idempotency_key": "api:exits:missing-token",
+            },
+        )
+
+        self.assertEqual(missing_response.status_code, 403)
+        self.assertEqual(missing_payload["status"], "forbidden")
+        self.assertEqual(missing_payload["errors"][0]["code"], "API_WRITE_TOKEN_REQUIRED")
+        self.assertEqual(
+            missing_payload["errors"][0]["message"],
+            "valid X-PGC-Write-Token is required for non-dry API writes",
+        )
+        self.assertEqual(_FakePositionService.calls, [])
+
+        invalid_response = _Response()
+        invalid_payload = evaluate_exits(
+            self.token_enabled,
+            self.services,
+            invalid_response,
+            payload={
+                "as_of_date": "20260507",
+                "account_key": "paper-main",
+                "operator": "tester",
+                "idempotency_key": "api:exits:bad-token",
+            },
+            write_token_header="wrong-token",
+        )
+
+        self.assertEqual(invalid_response.status_code, 403)
+        self.assertEqual(invalid_payload["errors"][0]["code"], "API_WRITE_TOKEN_REQUIRED")
+        self.assertEqual(_FakePositionService.calls, [])
+
+    def test_non_dry_write_accepts_valid_write_token_when_configured(self) -> None:
+        response = _Response()
+
+        payload = evaluate_exits(
+            self.token_enabled,
+            self.services,
+            response,
+            payload={
+                "as_of_date": "20260507",
+                "account_key": "paper-main",
+                "operator": "tester",
+                "idempotency_key": "api:exits:valid-token",
+            },
+            write_token_header="secret-write-token",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["status"], "success")
+        _, _, ctx = _FakePositionService.calls[0]
+        self.assertEqual(ctx.operator, "tester")
+        self.assertEqual(ctx.idempotency_key, "api:exits:valid-token")
+
+    def test_dry_run_write_does_not_require_write_token(self) -> None:
+        response = _Response()
+
+        payload = run_review_run(
+            self.token_enabled,
+            self.services,
+            response,
+            payload={
+                "as_of_date": "2026-05-04",
+                "account_key": "paper-main",
+                "dry_run": True,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["status"], "success")
+        _, _, ctx = _FakeWorkflowService.calls[0]
+        self.assertTrue(ctx.dry_run)
 
     def test_dry_run_review_is_allowed_when_writes_disabled(self) -> None:
         response = _Response()

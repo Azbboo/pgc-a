@@ -436,9 +436,9 @@ Check:
 
 ---
 
-## M28: Ops Acceptance And Paper Promotion Gate
+## M28: Ops Acceptance And Runbook Refresh
 
-**Goal:** Define when the system is good enough to keep using daily without manual database inspection.
+**Goal:** Freeze the M24-M27 behavior into a repeatable acceptance gate and update the runbook so daily operations use the one-command pipeline instead of a hand-chained CLI flow.
 
 **Files:**
 - Modify: `reports/operational_runbook_design.md`
@@ -447,20 +447,20 @@ Check:
 
 **Acceptance checklist:**
 
-- Daily pipeline can be run with one command.
-- Ledger audit passes before and after daily pipeline.
-- Dashboard displays exact next action for `20260511`.
-- Reports can be regenerated from production DB without losing Agent artifacts.
-- Backups exist before every apply-mode pipeline run.
-- Paper-readiness progress is visible.
-- No manual SQL is needed for normal trade corrections.
+- Runbook names `scripts/run_daily_pipeline.sh` as the daily close primary command.
+- Runbook states that `daily-pipeline` performs ledger audit, daily close, TradingAgents review or reuse/skip, exit evaluation, Markdown and JSON report refresh, and backup before non-dry writes.
+- Runbook contains an `M28 验收门禁` section with local test, ledger audit, daily pipeline dry-run, health, and daily-review API checks.
+- Static tests assert the runbook contract so future edits do not drift back to the old hand-chained flow.
+- No manual SQL is needed for normal daily acceptance.
 
 **Final verification commands:**
 
 ```bash
+PYTHONPATH=src:. pytest -q tests/test_operational_runbook_static.py
 PYTHONPATH=src:. pytest -q
 git diff --check
-bash scripts/deploy_remote.sh --release-tag <tag>
+PYTHONPATH=src python3 -m pgc_trading.cli.main ops ledger-audit --account paper-main --date 20260508 --db-path data/pgc_trading.db
+./scripts/run_daily_pipeline.sh --date 20260508 --account paper-main --operator azboo --dry-run
 curl -fsS http://150.158.121.150:8020/api/health
 curl -fsS 'http://150.158.121.150:8020/api/daily-reviews/20260508?account_key=paper-main'
 ```
@@ -468,9 +468,11 @@ curl -fsS 'http://150.158.121.150:8020/api/daily-reviews/20260508?account_key=pa
 Expected:
 
 ```text
-health ok
+tests pass
 ledger_audit_status=pass
 pipeline_status=pass
+health status ok
+daily review API returns 200
 ```
 
 ---
@@ -544,4 +546,3 @@ PYTHONPATH=src:. pytest -q
    - writes production facts without backup/idempotency;
    - hides missing news/fundamental/sentiment data;
    - makes Dashboard write buttons available when date, account, or ledger state is unsafe.
-

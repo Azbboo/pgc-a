@@ -48,10 +48,16 @@ class DailyReportTest(unittest.TestCase):
             self.assertEqual(result.status, "success")
             self.assertIsNotNone(result.data)
             self.assertEqual(result.data.data_quality.readiness, "pass")
+            self.assertIsNotNone(result.data.paper_promotion)
+            self.assertEqual(result.data.paper_promotion.trades_count, 0)
+            self.assertIn("MIN_PAPER_TRADES_NOT_MET", result.data.paper_promotion.promotion_blockers)
             self.assertEqual(result.data.candidate.ts_code, "000001.SZ")
             self.assertEqual(result.data.buy_plan.status, "active")
 
             markdown = render_daily_report_markdown(result.data)
+            self.assertIn("## Paper 晋级分数卡", markdown)
+            self.assertIn("样本交易", markdown)
+            self.assertIn("晋级 live 前还差什么", markdown)
             self.assertIn("## 今日候选", markdown)
             self.assertIn("000001.SZ Report Pick", markdown)
             self.assertIn("下一交易日开盘买入", markdown)
@@ -60,6 +66,8 @@ class DailyReportTest(unittest.TestCase):
 
             payload = json.loads(render_daily_report_json(result.data))
             self.assertEqual(payload["as_of_date"], AS_OF_DATE)
+            self.assertIn("paper_promotion", payload)
+            self.assertIn("MIN_PAPER_TRADES_NOT_MET", payload["paper_promotion"]["promotion_blockers"])
             self.assertEqual(payload["candidate"]["daily_pick_id"], result.data.candidate.daily_pick_id)
             self.assertIn("data_quality", payload)
             self.assertIn("lineage", payload)
@@ -118,6 +126,13 @@ class DailyReportTest(unittest.TestCase):
                     "technical": "available",
                 },
             )
+            self.assertEqual([item.source_ref for item in advice.external_evidence], [
+                "agent_external_items:42",
+                "market_diagnostic_bars:yfinance:000001.SZ:20260504",
+            ])
+            self.assertEqual(advice.external_evidence[0].source, "tushare")
+            self.assertEqual(advice.external_evidence[0].category, "fundamental")
+            self.assertEqual(advice.missing_data_warnings, ["新闻/公告未接入/数据不足。"])
             self.assertEqual([report.analyst_key for report in advice.analyst_reports], ["technical", "fundamental"])
             self.assertEqual(advice.analyst_reports[0].summary, "技术面转强。")
             self.assertEqual(advice.report_markdown, "# Agent Report\n\nDetailed advisory.\n")
@@ -128,10 +143,14 @@ class DailyReportTest(unittest.TestCase):
             self.assertIn("score is strong", markdown)
             self.assertIn("风险提示", markdown)
             self.assertIn("数据覆盖", markdown)
+            self.assertIn("外部证据", markdown)
+            self.assertIn("未接入/缺失", markdown)
             payload = json.loads(render_daily_report_json(result.data))
             self.assertEqual(payload["agent_advice"]["supporting_points"], ["score is strong", "portfolio has room"])
             self.assertEqual(payload["agent_advice"]["source_refs"][0], "agent_external_items:42")
             self.assertEqual(payload["agent_advice"]["external_data_coverage"]["news"], "unavailable")
+            self.assertEqual(payload["agent_advice"]["external_evidence"][0]["source"], "tushare")
+            self.assertEqual(payload["agent_advice"]["missing_data_warnings"], ["新闻/公告未接入/数据不足。"])
             self.assertEqual(payload["agent_advice"]["analyst_reports"][1]["analyst_name"], "基本面")
             self.assertEqual(payload["agent_advice"]["artifacts"][1]["artifact_type"], "final_report")
             self.assertNotIn("path", payload["agent_advice"]["artifacts"][1])
@@ -315,7 +334,42 @@ class DailyReportTest(unittest.TestCase):
                             "news": "unavailable",
                             "sentiment": "partial",
                             "technical": "available",
-                        }
+                        },
+                        "candidate": {
+                            "ts_code": "000001.SZ",
+                            "external_data": {
+                                "items": {
+                                    "items": [
+                                        {
+                                            "id": 42,
+                                            "published_date": "20260504",
+                                            "item_type": "fundamental",
+                                            "provider": "tushare",
+                                            "title": "估值快照",
+                                            "summary": "PE/PB/turnover fields from cached provider",
+                                            "sentiment": "neutral",
+                                            "importance": "medium",
+                                        }
+                                    ]
+                                }
+                            },
+                            "analysis_contexts": {
+                                "technical": {
+                                    "external_market_diagnostics": {
+                                        "providers": [
+                                            {
+                                                "provider": "yfinance",
+                                                "last_trade_date": "20260504",
+                                                "last_close": 10.4,
+                                            }
+                                        ]
+                                    }
+                                }
+                            },
+                            "evidence_context": {
+                                "missing_data_warnings": ["新闻/公告未接入/数据不足。"]
+                            },
+                        },
                     },
                     ensure_ascii=False,
                 ),

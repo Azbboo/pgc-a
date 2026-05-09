@@ -19,6 +19,7 @@ const state = {
   asOfDate: localStorage.getItem("pgc.dashboard.asOfDate") || defaultReviewDate(),
   strategyVersion: localStorage.getItem("pgc.dashboard.strategyVersion") || DEFAULT_STRATEGY_VERSION,
   operator: dashboardOperator(),
+  writeToken: localStorage.getItem("pgc.dashboard.writeToken") || "",
   dryRun: dashboardDryRun(),
   activePage: "execution",
   busy: false,
@@ -56,6 +57,7 @@ function cacheElements() {
     "asOfDateInput",
     "strategyInput",
     "operatorInput",
+    "writeTokenInput",
     "apiBaseInput",
     "dryRunInput",
     "executionBadge",
@@ -63,6 +65,7 @@ function cacheElements() {
     "executionEvaluateExitsButton",
     "openingWorkflowGuide",
     "openingReadinessSummary",
+    "paperPromotionScorecard",
     "openingBlockerChip",
     "openingPlanBody",
     "preOpenChecklist",
@@ -229,6 +232,7 @@ function syncFormFromState() {
   els.reviewDateInput.value = dateInputValue(state.asOfDate);
   els.strategyInput.value = state.strategyVersion;
   els.operatorInput.value = state.operator;
+  els.writeTokenInput.value = state.writeToken;
   els.dryRunInput.checked = state.dryRun;
 }
 
@@ -240,6 +244,7 @@ function readContextForm() {
   state.asOfDate = normalizeDate(els.asOfDateInput.value);
   state.strategyVersion = els.strategyInput.value.trim() || DEFAULT_STRATEGY_VERSION;
   state.operator = els.operatorInput.value.trim();
+  state.writeToken = els.writeTokenInput.value.trim();
   state.dryRun = els.dryRunInput.checked;
   state.reviewDatePinned = true;
   if (preOpenContextKey() !== previousPreOpenContext) resetPreOpenChecks();
@@ -253,6 +258,7 @@ function persistContext() {
   localStorage.setItem("pgc.dashboard.asOfDate", state.asOfDate);
   localStorage.setItem("pgc.dashboard.strategyVersion", state.strategyVersion);
   localStorage.setItem("pgc.dashboard.operator", state.operator);
+  localStorage.setItem("pgc.dashboard.writeToken", state.writeToken);
   localStorage.setItem("pgc.dashboard.dryRun", String(state.dryRun));
 }
 
@@ -726,6 +732,7 @@ function renderOpeningExecution() {
   els.openingBlockerChip.textContent = blocked ? "数据阻断" : activePlans.length ? "可执行" : "无 active 买入计划";
   els.openingBlockerChip.className = `chip ${blocked ? "chip-red" : activePlans.length ? "chip-green" : "chip-neutral"}`;
   renderOpeningReadinessSummary(readiness);
+  renderPaperPromotionScorecard();
 
   if (blocked) {
     const blockers = blockingEvents().slice(0, 2).map((item) => escapeHtml(item.message || item.code || "数据阻断")).join("；");
@@ -1028,6 +1035,46 @@ function renderOpeningReadinessSummary(readiness) {
     </div>
     <p>录入锁定原因：${escapeHtml(readiness.ready ? "无，仍需按实际成交价和股数核对后提交。" : readiness.lockReason)}</p>
   `;
+}
+
+function renderPaperPromotionScorecard() {
+  const promotion = state.report?.paper_promotion;
+  if (!promotion) {
+    els.paperPromotionScorecard.innerHTML = emptyState("Paper 晋级分数卡暂无数据。");
+    return;
+  }
+  const blockers = listValue(promotion.promotion_blockers);
+  const warnings = listValue(promotion.promotion_warnings);
+  const nextSteps = promotionNextSteps(promotion, blockers, warnings);
+  const rows = [
+    ["样本交易", integerText(promotion.trades_count), promotion.trades_count >= 10 ? "ready" : "waiting"],
+    ["已闭环交易", integerText(promotion.closed_trades_count), promotion.closed_trades_count > 0 ? "ready" : "idle"],
+    ["累计实现盈亏", money(promotion.realized_pnl), Number(promotion.realized_pnl || 0) >= 0 ? "ready" : "danger"],
+    ["胜率", percent(promotion.win_rate), promotion.win_rate == null ? "idle" : "ready"],
+    ["当前阻断", blockers.length ? blockers.join(" / ") : "无", blockers.length ? "danger" : "ready"],
+    ["晋级 live 前还差什么", nextSteps, blockers.length ? "danger" : warnings.length ? "waiting" : "ready"],
+  ];
+  els.paperPromotionScorecard.innerHTML = `
+    <div class="paper-promotion-scorecard__head">
+      <span>Paper 晋级分数卡</span>
+      ${chipHtml(promotionReadinessText(promotion.readiness), promotionReadinessClass(promotion.readiness))}
+    </div>
+    <div class="paper-promotion-scorecard__grid">
+      ${rows.map(([label, value, tone]) => `
+        <div class="paper-promotion-scorecard__item paper-promotion-scorecard__item--${tone}">
+          <span>${escapeHtml(label)}</span>
+          <strong>${escapeHtml(value)}</strong>
+        </div>
+      `).join("")}
+    </div>
+    <p>最近 pipeline：${escapeHtml(promotion.last_pipeline_status || "无记录")}；平均滑点：${escapeHtml(percent(promotion.avg_slippage))}；晋级警告：${escapeHtml(warnings.length ? warnings.join(" / ") : "无")}</p>
+  `;
+}
+
+function promotionNextSteps(promotion, blockers = listValue(promotion?.promotion_blockers), warnings = listValue(promotion?.promotion_warnings)) {
+  if (blockers.length) return blockers.join(" / ");
+  if (warnings.length) return warnings.join(" / ");
+  return "已满足当前 paper 晋级检查";
 }
 
 function openingPlanCard(plan, executionDay) {
@@ -1396,6 +1443,8 @@ function renderAgentAdvice(advice, { expanded }) {
       <div class="agent-analyst-grid">
         ${analystReports.map(renderAgentAnalystCard).join("")}
       </div>
+      ${renderAgentEvidence(advice.external_evidence)}
+      ${renderAgentMissingDataWarnings(advice.missing_data_warnings)}
       ${renderAgentSourceRefs(sourceRefs)}
       ${artifacts.length ? `
         <div class="agent-artifacts">
@@ -1427,6 +1476,7 @@ function renderAgentAdvice(advice, { expanded }) {
       <div class="agent-source-boundary" aria-label="Agent 来源边界">
         <span>TradingAgents 输出：意见、置信度、风险和分析摘要</span>
         <span>系统复盘原始数据：候选、计划、数据质量和成交事实</span>
+        <span>外部证据：仅展示已缓存的技术、基本面、新闻公告和情绪资料</span>
       </div>
       <div class="action-meta agent-report-metrics">
         <div class="metric"><span>运行状态</span><strong>${agentRunStatusText(advice.status)}</strong></div>
@@ -1522,6 +1572,47 @@ function renderAgentCoverage(coverage) {
           </div>
         `).join("")}
       </div>
+    </section>
+  `;
+}
+
+function renderAgentEvidence(evidence) {
+  const rows = Array.isArray(evidence) ? evidence.filter(Boolean).slice(0, 24) : [];
+  return `
+    <section class="agent-evidence" aria-label="Agent 外部证据">
+      <div class="agent-evidence__head">
+        <span>外部证据</span>
+        ${chipHtml(rows.length ? `${rows.length} 条缓存` : "未接入/缺失", rows.length ? "chip-indigo" : "chip-neutral")}
+      </div>
+      ${rows.length ? `
+        <div class="agent-evidence-list">
+          ${rows.map((item) => `
+            <article class="agent-evidence-item">
+              <div>
+                <strong>${escapeHtml(item.title || "外部证据")}</strong>
+                <span>${escapeHtml(agentEvidenceCategoryText(item.category))} · ${escapeHtml(item.source || "unknown")} · ${dash(item.published_date)}</span>
+              </div>
+              <p>${escapeHtml(item.summary || "已缓存，暂无摘要。")}</p>
+            </article>
+          `).join("")}
+        </div>
+      ` : `<p class="muted">未接入/缺失：没有可展示的外部证据，Agent 不得补写或猜测外部资料。</p>`}
+    </section>
+  `;
+}
+
+function renderAgentMissingDataWarnings(warnings) {
+  const rows = listValue(warnings);
+  if (!rows.length) return "";
+  return `
+    <section class="agent-missing-data" aria-label="Agent 未接入或缺失数据">
+      <div class="agent-missing-data__head">
+        <span>未接入/缺失</span>
+        ${chipHtml(`${rows.length} 条提醒`, "chip-neutral")}
+      </div>
+      <ul>
+        ${rows.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+      </ul>
     </section>
   `;
 }
@@ -2198,6 +2289,9 @@ async function apiRequest(path, options = {}) {
     method: options.method || "GET",
     headers: { Accept: "application/json" },
   };
+  if (shouldAttachWriteToken(options)) {
+    fetchOptions.headers["X-PGC-Write-Token"] = state.writeToken;
+  }
   if (options.body !== undefined) {
     fetchOptions.headers["Content-Type"] = "application/json";
     fetchOptions.body = JSON.stringify(stripUndefined(options.body));
@@ -2214,6 +2308,15 @@ async function apiRequest(path, options = {}) {
     throw new Error(`API 请求失败：${response.status}`);
   }
   return payload;
+}
+
+function shouldAttachWriteToken(options = {}) {
+  if (!state.writeToken) return false;
+  const method = String(options.method || "GET").toUpperCase();
+  if (method === "GET") return false;
+  const body = options.body || {};
+  if (body.dry_run === true) return false;
+  return Boolean(body.operator && body.idempotency_key);
 }
 
 function supportedWritePayload(scope, body) {
@@ -2817,8 +2920,24 @@ function readinessText(value) {
   return {
     pass: "可交易",
     warning: "警告",
+    blocked: "阻断",
     blocker: "阻断",
   }[value] || "-";
+}
+
+function promotionReadinessText(value) {
+  return {
+    pass: "可晋级",
+    warning: "警告",
+    blocked: "阻断",
+  }[value] || readinessText(value);
+}
+
+function promotionReadinessClass(value) {
+  if (value === "pass") return "chip-green";
+  if (value === "warning") return "chip-amber";
+  if (value === "blocked") return "chip-red";
+  return "chip-neutral";
 }
 
 function statusText(value) {
@@ -2946,6 +3065,18 @@ function agentCoverageClass(value) {
     partial: "chip-amber",
     unavailable: "chip-neutral",
   }[value] || "chip-neutral";
+}
+
+function agentEvidenceCategoryText(value) {
+  return {
+    technical: "技术面",
+    fundamental: "基本面",
+    news: "新闻",
+    announcement: "公告",
+    sentiment: "情绪",
+    risk_note: "风险提示",
+    research_note: "研究摘要",
+  }[value] || (value || "外部证据");
 }
 
 function agentAnalystStatusClass(value) {

@@ -16,6 +16,11 @@ from pgc_trading.services.data_quality_service import (
     DailyReviewReadinessRequest,
     DataQualityService,
 )
+from pgc_trading.services.operational_readiness_service import (
+    OperationalReadinessService,
+    PaperReadinessRequest,
+    PaperReadinessResult,
+)
 from pgc_trading.storage.database import connect
 from pgc_trading.storage.invariant_checks import InvariantReport, check_database
 from pgc_trading.strategies.cpb_6157 import STRATEGY_VERSION
@@ -165,6 +170,18 @@ class AgentAnalystReport:
 
 
 @dataclass(frozen=True)
+class AgentExternalEvidenceReport:
+    source_ref: str
+    source: str
+    category: str
+    published_date: str | None
+    title: str
+    summary: str
+    sentiment: str | None = None
+    importance: str | None = None
+
+
+@dataclass(frozen=True)
 class AgentAdviceReport:
     agent_run_id: int | None
     agent_decision_id: int | None
@@ -178,6 +195,8 @@ class AgentAdviceReport:
     risk_points: list[str] = field(default_factory=list)
     source_refs: list[str] = field(default_factory=list)
     external_data_coverage: dict[str, str] = field(default_factory=dict)
+    external_evidence: list[AgentExternalEvidenceReport] = field(default_factory=list)
+    missing_data_warnings: list[str] = field(default_factory=list)
     analyst_reports: list[AgentAnalystReport] = field(default_factory=list)
     artifacts: list[AgentArtifactReport] = field(default_factory=list)
     report_markdown: str | None = None
@@ -221,6 +240,7 @@ class DailyReport:
     strategy_version: str
     account: AccountReport
     data_quality: DataQualityReport
+    paper_promotion: PaperReadinessResult | None
     candidate: CandidateReport | None
     no_candidate_reason: str | None
     buy_plan: BuyPlanReport | None
@@ -261,6 +281,7 @@ class ReportingQueryService:
             ),
         )
         invariant_report = check_database(self.db_path)
+        paper_promotion = _paper_promotion_report(self.db_path, request, context)
 
         with connect(self.db_path) as conn:
             account = _load_account(conn, request)
@@ -292,6 +313,7 @@ class ReportingQueryService:
             strategy_version=request.strategy_version,
             account=account,
             data_quality=data_quality,
+            paper_promotion=paper_promotion,
             candidate=candidate,
             no_candidate_reason=no_candidate_reason,
             buy_plan=buy_plan,
@@ -376,6 +398,9 @@ def render_daily_report_markdown(report: DailyReport) -> str:
         f"- 当前持仓：{report.account.open_positions}",
         f"- 空闲仓位：{_none_dash(report.account.free_position_slots)}",
         f"- 最新权益：{_money(report.account.total_equity)}",
+    ]
+    lines.extend(_paper_promotion_lines(report.paper_promotion))
+    lines.extend([
         "",
         "## 数据状态",
         "",
@@ -384,7 +409,7 @@ def render_daily_report_markdown(report: DailyReport) -> str:
         f"- 有效入池事件：{report.data_quality.valid_raw_count}",
         f"- 阻断 / 警告：{report.data_quality.blocker_count} / {report.data_quality.warning_count}",
         f"- 缺失行情：{report.data_quality.missing_market_bar_count}",
-    ]
+    ])
     if report.data_quality.event_ids:
         lines.append(f"- 质量事件：{', '.join(str(event_id) for event_id in report.data_quality.event_ids)}")
 
@@ -444,6 +469,16 @@ def render_daily_report_markdown(report: DailyReport) -> str:
                 f"情绪面 {_agent_coverage_text(coverage.get('sentiment'))}",
             ]
         )
+    if report.agent_advice.external_evidence:
+        lines.extend(["", "外部证据："])
+        for evidence in report.agent_advice.external_evidence:
+            lines.append(
+                f"- [{_agent_evidence_category_text(evidence.category)}] {evidence.source} "
+                f"{_date_text(evidence.published_date)} {evidence.title}：{evidence.summary}"
+            )
+    if report.agent_advice.missing_data_warnings:
+        lines.extend(["", "未接入/缺失："])
+        lines.extend(f"- {warning}" for warning in report.agent_advice.missing_data_warnings)
     if report.agent_advice.supporting_points:
         lines.extend(["", "支持依据："])
         lines.extend(f"- {point}" for point in report.agent_advice.supporting_points)
@@ -574,6 +609,27 @@ def _invariant_report_errors(report: InvariantReport) -> list[ServiceError]:
             severity="blocker",
         )
     ]
+
+
+def _paper_promotion_report(
+    db_path: Path,
+    request: DailyReportRequest,
+    context: RequestContext,
+) -> PaperReadinessResult | None:
+    result = OperationalReadinessService(db_path).check_paper_readiness(
+        PaperReadinessRequest(
+            as_of_date=request.as_of_date,
+            account_key=request.account_key,
+            account_id=request.account_id,
+        ),
+        RequestContext(
+            request_id=f"{context.request_id}:paper-promotion" if context.request_id else None,
+            dry_run=True,
+            operator=context.operator,
+            source=context.source,
+        ),
+    )
+    return result.data
 
 
 def _load_account(conn: Any, request: DailyReportRequest) -> AccountReport:
@@ -921,6 +977,7 @@ def _load_agent_advice(conn: Any, candidate: CandidateReport | None) -> AgentAdv
         return placeholder
     status = row["status"]
     raw_decision = _loads_json_object(row["raw_decision_json"])
+    payload = _loads_json_object(row["payload_json"])
     supporting_points = _loads_json_list(row["supporting_points_json"])
     if not supporting_points:
         supporting_points = _string_list(raw_decision.get("supporting_points"))
@@ -928,7 +985,9 @@ def _load_agent_advice(conn: Any, candidate: CandidateReport | None) -> AgentAdv
     if not risk_points:
         risk_points = _string_list(raw_decision.get("risk_points"))
     source_refs = _loads_json_list(row["source_refs_json"])
-    external_data_coverage = _load_agent_external_data_coverage(row["payload_json"], raw_decision)
+    external_data_coverage = _load_agent_external_data_coverage(payload, raw_decision)
+    external_evidence = _load_agent_external_evidence(payload)
+    missing_data_warnings = _load_agent_missing_data_warnings(payload, raw_decision, external_data_coverage)
     analyst_reports = _load_agent_analyst_reports(raw_decision.get("analyst_reports"))
     artifacts, final_report_path = _load_agent_artifacts(conn, int(row["agent_run_id"]))
     return AgentAdviceReport(
@@ -944,14 +1003,15 @@ def _load_agent_advice(conn: Any, candidate: CandidateReport | None) -> AgentAdv
         risk_points=risk_points,
         source_refs=source_refs,
         external_data_coverage=external_data_coverage,
+        external_evidence=external_evidence,
+        missing_data_warnings=missing_data_warnings,
         analyst_reports=analyst_reports,
         artifacts=artifacts,
         report_markdown=_load_agent_report_markdown(final_report_path),
     )
 
 
-def _load_agent_external_data_coverage(payload_json: str | None, raw_decision: dict[str, Any]) -> dict[str, str]:
-    payload = _loads_json_object(payload_json)
+def _load_agent_external_data_coverage(payload: dict[str, Any], raw_decision: dict[str, Any]) -> dict[str, str]:
     raw_coverage = payload.get("external_data_coverage")
     if not isinstance(raw_coverage, dict):
         candidate = payload.get("candidate")
@@ -966,6 +1026,113 @@ def _load_agent_external_data_coverage(payload_json: str | None, raw_decision: d
         if status in {"available", "partial", "unavailable"}:
             coverage[key] = status
     return coverage
+
+
+def _load_agent_external_evidence(payload: dict[str, Any]) -> list[AgentExternalEvidenceReport]:
+    candidate = payload.get("candidate")
+    if not isinstance(candidate, dict):
+        return []
+    evidence: list[AgentExternalEvidenceReport] = []
+    external_data = candidate.get("external_data")
+    external_items = _external_items_from_snapshot(external_data)
+    for item in external_items:
+        if not isinstance(item, dict):
+            continue
+        item_id = item.get("id")
+        category = str(item.get("item_type") or "external")
+        source = str(item.get("provider") or item.get("source") or "unknown")
+        evidence.append(
+            AgentExternalEvidenceReport(
+                source_ref=f"agent_external_items:{item_id}" if item_id is not None else f"{source}:{category}",
+                source=source,
+                category=category,
+                published_date=_optional_text_value(item.get("published_date")),
+                title=str(item.get("title") or "外部证据"),
+                summary=str(item.get("summary") or ""),
+                sentiment=_optional_text_value(item.get("sentiment")),
+                importance=_optional_text_value(item.get("importance")),
+            )
+        )
+    evidence.extend(_technical_evidence_from_snapshot(candidate))
+    return evidence[:24]
+
+
+def _external_items_from_snapshot(external_data: Any) -> list[Any]:
+    if not isinstance(external_data, dict):
+        return []
+    items_section = external_data.get("items")
+    if not isinstance(items_section, dict):
+        return []
+    items = items_section.get("items")
+    return items if isinstance(items, list) else []
+
+
+def _technical_evidence_from_snapshot(candidate: dict[str, Any]) -> list[AgentExternalEvidenceReport]:
+    analysis_contexts = candidate.get("analysis_contexts")
+    technical = analysis_contexts.get("technical") if isinstance(analysis_contexts, dict) else None
+    diagnostics = technical.get("external_market_diagnostics") if isinstance(technical, dict) else None
+    if not isinstance(diagnostics, dict):
+        external_data = candidate.get("external_data")
+        diagnostics = external_data.get("market_diagnostics") if isinstance(external_data, dict) else None
+    if not isinstance(diagnostics, dict):
+        return []
+    ts_code = str(candidate.get("ts_code") or "")
+    rows: list[AgentExternalEvidenceReport] = []
+    providers = diagnostics.get("providers")
+    if not isinstance(providers, list):
+        return rows
+    for provider in providers:
+        if not isinstance(provider, dict):
+            continue
+        provider_name = str(provider.get("provider") or "unknown")
+        last_trade_date = _optional_text_value(provider.get("last_trade_date"))
+        summary_parts = []
+        if provider.get("last_close") is not None:
+            summary_parts.append(f"last_close={provider.get('last_close')}")
+        if provider.get("recent_5d_ret") is not None:
+            summary_parts.append(f"recent_5d_ret={provider.get('recent_5d_ret')}")
+        if provider.get("recent_10d_ret") is not None:
+            summary_parts.append(f"recent_10d_ret={provider.get('recent_10d_ret')}")
+        rows.append(
+            AgentExternalEvidenceReport(
+                source_ref=f"market_diagnostic_bars:{provider_name}:{ts_code}:{last_trade_date}",
+                source=provider_name,
+                category="technical",
+                published_date=last_trade_date,
+                title="诊断行情缓存",
+                summary="；".join(summary_parts) if summary_parts else "诊断行情缓存已接入。",
+                sentiment=None,
+                importance=None,
+            )
+        )
+    return rows
+
+
+def _load_agent_missing_data_warnings(
+    payload: dict[str, Any],
+    raw_decision: dict[str, Any],
+    external_data_coverage: dict[str, str],
+) -> list[str]:
+    candidate = payload.get("candidate")
+    evidence_context = candidate.get("evidence_context") if isinstance(candidate, dict) else None
+    if isinstance(evidence_context, dict):
+        warnings = _string_list(evidence_context.get("missing_data_warnings"))
+        if warnings:
+            return warnings
+    warnings = _string_list(raw_decision.get("missing_data_warnings"))
+    if warnings:
+        return warnings
+    labels = {
+        "technical": "技术面",
+        "fundamental": "基本面",
+        "news": "新闻/公告",
+        "sentiment": "情绪面",
+    }
+    return [
+        f"{labels[key]}未接入/数据不足。"
+        for key, status in external_data_coverage.items()
+        if status == "unavailable"
+    ]
 
 
 def _load_agent_analyst_reports(value: Any) -> list[AgentAnalystReport]:
@@ -1229,6 +1396,13 @@ def _string_list(value: Any) -> list[str]:
     return [str(item).strip() for item in value if str(item).strip()]
 
 
+def _optional_text_value(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
 def _optional_int(value: object) -> int | None:
     if value is None:
         return None
@@ -1239,6 +1413,47 @@ def _optional_float(value: object) -> float | None:
     if value is None:
         return None
     return float(value)
+
+
+def _paper_promotion_lines(promotion: PaperReadinessResult | None) -> list[str]:
+    if promotion is None:
+        return [
+            "",
+            "## Paper 晋级分数卡",
+            "",
+            "- 状态：未计算",
+        ]
+
+    blockers = ", ".join(promotion.promotion_blockers) if promotion.promotion_blockers else "无"
+    warnings = ", ".join(promotion.promotion_warnings) if promotion.promotion_warnings else "无"
+    next_steps = _promotion_next_steps(promotion)
+    return [
+        "",
+        "## Paper 晋级分数卡",
+        "",
+        f"- 状态：{_readiness_text(promotion.readiness)}",
+        f"- 样本交易：{promotion.trades_count}",
+        f"- 已闭环交易：{promotion.closed_trades_count}",
+        f"- 累计实现盈亏：{_money(promotion.realized_pnl)}",
+        f"- 胜率：{_ratio_text(promotion.win_rate)}",
+        f"- 平均滑点：{_ratio_text(promotion.avg_slippage)}",
+        f"- 最近 pipeline：{promotion.last_pipeline_status or '无记录'}",
+        f"- 当前阻断：{blockers}",
+        f"- 晋级 live 前还差什么：{next_steps}",
+        f"- 晋级警告：{warnings}",
+    ]
+
+
+def _promotion_next_steps(promotion: PaperReadinessResult) -> str:
+    if promotion.promotion_blockers:
+        return ", ".join(promotion.promotion_blockers)
+    if promotion.promotion_warnings:
+        return ", ".join(promotion.promotion_warnings)
+    return "已满足当前 paper 晋级检查。"
+
+
+def _ratio_text(value: float | None) -> str:
+    return "-" if value is None else f"{value * 100:.2f}%"
 
 
 def _date_text(value: str | None) -> str:
@@ -1267,6 +1482,7 @@ def _readiness_text(value: str) -> str:
     return {
         "pass": "可交易",
         "warning": "有警告，可继续但需留意",
+        "blocked": "阻断，不能晋级 live",
         "blocker": "阻断，不能生成交易动作",
     }.get(value, value)
 
@@ -1343,6 +1559,18 @@ def _agent_coverage_text(value: str | None) -> str:
         "partial": "部分",
         "unavailable": "未接入",
     }.get(value or "", value or "未知")
+
+
+def _agent_evidence_category_text(value: str) -> str:
+    return {
+        "technical": "技术面",
+        "fundamental": "基本面",
+        "news": "新闻",
+        "announcement": "公告",
+        "sentiment": "情绪",
+        "risk_note": "风险提示",
+        "research_note": "研究摘要",
+    }.get(value, value)
 
 
 def _due_text(value: str) -> str:

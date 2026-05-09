@@ -26,6 +26,7 @@ class DashboardStaticTest(unittest.TestCase):
             [
                 (DASHBOARD_DIR / "index.html").read_text(encoding="utf-8"),
                 (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "styles.css").read_text(encoding="utf-8"),
             ]
         )
 
@@ -59,6 +60,7 @@ class DashboardStaticTest(unittest.TestCase):
             [
                 (DASHBOARD_DIR / "index.html").read_text(encoding="utf-8"),
                 (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "styles.css").read_text(encoding="utf-8"),
             ]
         )
 
@@ -73,14 +75,25 @@ class DashboardStaticTest(unittest.TestCase):
             "计划日是执行日",
             "数据质量 blocker",
             "录入锁定原因",
+            "Paper 晋级分数卡",
+            "样本交易",
+            "已闭环交易",
+            "累计实现盈亏",
+            "胜率",
+            "当前阻断",
+            "晋级 live 前还差什么",
         ]:
             self.assertIn(label, source)
         self.assertIn('id="openingReadinessSummary"', source)
+        self.assertIn('id="paperPromotionScorecard"', source)
         self.assertIn("function openingReadiness", source)
+        self.assertIn("function renderPaperPromotionScorecard", source)
+        self.assertIn("function promotionNextSteps", source)
         self.assertIn("function openingRecordReady", source)
         self.assertIn("function manualPreOpenChecksComplete", source)
         self.assertIn("function resetPreOpenChecks", source)
         self.assertIn("function preOpenContextKey", source)
+        self.assertIn(".paper-promotion-scorecard", source)
 
     def test_dashboard_m17_execution_guidance_is_visible(self) -> None:
         source = "\n".join(
@@ -159,6 +172,7 @@ class DashboardStaticTest(unittest.TestCase):
             [
                 (DASHBOARD_DIR / "index.html").read_text(encoding="utf-8"),
                 (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "styles.css").read_text(encoding="utf-8"),
             ]
         )
 
@@ -253,10 +267,12 @@ class DashboardStaticTest(unittest.TestCase):
         for label in [
             "TradingAgents 输出",
             "系统复盘原始数据",
+            "外部证据",
             "中文复核报告",
             "来源边界 source_refs",
             "数据覆盖 external_data_coverage",
             "Agent 是否影响交易计划：否，仅供参考",
+            "未接入/缺失",
             "未接入/数据不足",
             "技术面",
             "基本面",
@@ -267,14 +283,19 @@ class DashboardStaticTest(unittest.TestCase):
             self.assertIn(label, source)
         self.assertIn("function renderAgentSourceRefs", source)
         self.assertIn("function renderAgentCoverage", source)
+        self.assertIn("function renderAgentEvidence", source)
+        self.assertIn("function renderAgentMissingDataWarnings", source)
         self.assertIn("function normalizedAgentCoverage", source)
         self.assertIn("function normalizedAgentAnalystReports", source)
         self.assertIn("advice.external_data_coverage", source)
+        self.assertIn("advice.external_evidence", source)
+        self.assertIn("advice.missing_data_warnings", source)
         self.assertIn("agent_external_items:", source)
         self.assertIn("market_diagnostic_bars:", source)
         self.assertIn("advice.source_refs", source)
         self.assertIn("agent-source-boundary", source)
         self.assertIn("agent-coverage", source)
+        self.assertIn("agent-evidence", source)
 
     def test_dashboard_p1_cancel_and_execution_guardrails_are_visible(self) -> None:
         source = "\n".join(
@@ -325,6 +346,10 @@ class DashboardStaticTest(unittest.TestCase):
         self.assertIn("operator: dashboardOperator()", script)
         self.assertIn("function dashboardOperator()", script)
         self.assertIn("dryRun: dashboardDryRun()", script)
+        self.assertIn('writeToken: localStorage.getItem("pgc.dashboard.writeToken") || ""', script)
+        self.assertIn('localStorage.setItem("pgc.dashboard.writeToken", state.writeToken)', script)
+        self.assertIn('fetchOptions.headers["X-PGC-Write-Token"] = state.writeToken', script)
+        self.assertIn("function shouldAttachWriteToken", script)
         self.assertIn("reviewDatePinned: false", script)
         self.assertIn('const DRY_RUN_DEFAULT_VERSION = "20260508-live-writes-1"', script)
         self.assertIn('localStorage.setItem("pgc.dashboard.dryRun", "false")', script)
@@ -341,6 +366,16 @@ class DashboardStaticTest(unittest.TestCase):
         self.assertIn('els.recordPrice.value = positionPriceIsStale(position) ? "" : inputNumber(position.latest_close)', script)
         self.assertIn("function recordLockReasonForPlan", script)
         self.assertIn("function recordLockReasonForPlanAction", script)
+
+    def test_dashboard_write_token_field_is_password_and_not_summarized(self) -> None:
+        index = (DASHBOARD_DIR / "index.html").read_text(encoding="utf-8")
+        script = (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("写入令牌", index)
+        self.assertIn('id="writeTokenInput"', index)
+        self.assertIn('type="password"', index)
+        self.assertIn("writeTokenInput", script)
+        self.assertNotIn("写入令牌", script)
 
     def test_dashboard_guardrails_are_visible_in_client(self) -> None:
         script = (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8")

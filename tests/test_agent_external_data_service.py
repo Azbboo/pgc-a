@@ -190,6 +190,78 @@ class AgentExternalDataServiceTest(unittest.TestCase):
             self.assertEqual(by_type["sentiment"]["sentiment"], "positive")
             self.assertEqual(json.loads(by_type["fundamental"]["metadata_json"])["cache_item_type"], "fundamental")
 
+    def test_apply_imports_normalized_agent_external_fixture(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._migrated_db(tmp)
+            source_file = Path(__file__).parent / "fixtures" / "agent_external" / "20260508_301188.json"
+
+            result = AgentExternalDataService(db_path).import_external_data(
+                ImportAgentExternalDataRequest(source_file=source_file),
+                RequestContext(request_id="test-normalized-fixture", dry_run=False, operator="tester"),
+            )
+
+            self.assertTrue(result.ok)
+            self.assertEqual(result.data.inserted_count, 1)
+            with sqlite3.connect(db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                item = conn.execute(
+                    """
+                    SELECT ts_code, published_date, item_type, provider, title, summary, metadata_json
+                    FROM agent_external_items
+                    """
+                ).fetchone()
+                self.assertEqual(self._count(conn, "market_bars"), 0)
+                self.assertEqual(self._count(conn, "strategy_signals"), 0)
+            metadata = json.loads(item["metadata_json"])
+            self.assertEqual(item["ts_code"], "301188.SZ")
+            self.assertEqual(item["published_date"], "20260508")
+            self.assertEqual(item["item_type"], "fundamental")
+            self.assertEqual(item["provider"], "tushare")
+            self.assertEqual(item["title"], "valuation snapshot")
+            self.assertEqual(item["summary"], "PE/PB/turnover fields from cached provider")
+            self.assertEqual(metadata["fixture_format"], "agent_external_v2")
+            self.assertEqual(metadata["as_of_date"], "20260508")
+            self.assertEqual(metadata["source"], "tushare")
+            self.assertEqual(metadata["category"], "fundamental")
+            self.assertEqual(metadata["payload"]["pe_ttm"], 31.2)
+
+    def test_rejects_normalized_fixture_items_after_as_of_date(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._migrated_db(tmp)
+            source_file = Path(tmp) / "future_agent_cache.json"
+            source_file.write_text(
+                json.dumps(
+                    {
+                        "as_of_date": "20260508",
+                        "ts_code": "301188.SZ",
+                        "items": [
+                            {
+                                "source": "tushare",
+                                "category": "fundamental",
+                                "published_date": "20260509",
+                                "title": "future valuation snapshot",
+                                "summary": "Future data must not enter the review snapshot.",
+                                "payload": {"pe_ttm": 30.1},
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            result = AgentExternalDataService(db_path).import_external_data(
+                ImportAgentExternalDataRequest(source_file=source_file),
+                RequestContext(request_id="test-normalized-future", dry_run=False, operator="tester"),
+            )
+
+            self.assertFalse(result.ok)
+            self.assertEqual(result.status, "validation_failed")
+            self.assertEqual(result.data.valid_count, 0)
+            self.assertEqual(result.errors[0].code, "FUTURE_PUBLISHED_DATE")
+            with sqlite3.connect(db_path) as conn:
+                self.assertEqual(self._count(conn, "agent_external_items"), 0)
+
     def test_apply_rejects_invalid_records_without_partial_writes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = self._migrated_db(tmp)

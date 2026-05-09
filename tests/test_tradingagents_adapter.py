@@ -86,6 +86,9 @@ class TradingAgentsAdapterTest(unittest.TestCase):
         self.assertEqual(client_calls[0]["model"], "deepseek-v4-pro")
         self.assertIn("只允许使用下方本地数据库快照", prompt_calls[0])
         self.assertIn("external_data_coverage", prompt_calls[0])
+        self.assertIn("candidate.evidence_context", prompt_calls[0])
+        self.assertIn("系统确定性复盘事实", prompt_calls[0])
+        self.assertIn("未接入/缺失警告", prompt_calls[0])
         self.assertIn("所有自然语言必须使用简体中文", prompt_calls[0])
         self.assertIn('"ts_code": "000001.SZ"', prompt_calls[0])
         self.assertNotIn("tradingagents.graph.trading_graph", imported_modules)
@@ -138,6 +141,30 @@ def _snapshot() -> dict[str, object]:
                 "news": "unavailable",
                 "sentiment": "partial",
                 "technical": "available",
+            },
+            "evidence_context": {
+                "system_review_facts": {
+                    "label": "系统确定性复盘事实",
+                    "status": "available",
+                },
+                "cached_technical_data": {
+                    "label": "缓存技术数据",
+                    "status": "available",
+                },
+                "cached_fundamental_data": {
+                    "label": "缓存基本面数据",
+                    "status": "partial",
+                },
+                "cached_news_announcement_data": {
+                    "label": "缓存新闻/公告数据",
+                    "status": "unavailable",
+                },
+                "cached_sentiment_data": {
+                    "label": "缓存情绪数据",
+                    "status": "partial",
+                },
+                "missing_data_warnings": ["新闻/公告未接入/数据不足。"],
+                "source_boundary": ["外部证据不直接改变交易计划。"],
             },
         },
         "source_refs": ["daily_picks:1"],

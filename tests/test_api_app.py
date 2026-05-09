@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import unittest
 from pathlib import Path
 
@@ -25,7 +26,13 @@ class ApiAppTest(unittest.TestCase):
         self.assertIn("python3 -m pip install -e '.[api]'", str(raised.exception))
 
     def test_health_payload_is_stable_and_non_sensitive(self) -> None:
-        payload = build_health_payload(ApiSettings(db_path=Path("/tmp/pgc-secret-name.db"), enable_writes=False))
+        payload = build_health_payload(
+            ApiSettings(
+                db_path=Path("/tmp/pgc-secret-name.db"),
+                enable_writes=False,
+                write_token="secret-write-token",
+            )
+        )
 
         self.assertEqual(
             payload,
@@ -38,6 +45,37 @@ class ApiAppTest(unittest.TestCase):
             },
         )
         self.assertNotIn("pgc-secret-name", repr(payload))
+        self.assertNotIn("secret-write-token", repr(payload))
+        self.assertFalse(any("token" in key for key in payload))
+
+    def test_api_settings_reads_write_token_from_environment_without_exposing_it(self) -> None:
+        old_db_path = os.environ.get("PGC_DB_PATH")
+        old_enable_writes = os.environ.get("PGC_API_ENABLE_WRITES")
+        old_write_token = os.environ.get("PGC_API_WRITE_TOKEN")
+        try:
+            os.environ["PGC_DB_PATH"] = "/tmp/pgc-env.db"
+            os.environ["PGC_API_ENABLE_WRITES"] = "1"
+            os.environ["PGC_API_WRITE_TOKEN"] = " env-secret-token "
+
+            settings = ApiSettings.from_env()
+        finally:
+            if old_db_path is None:
+                os.environ.pop("PGC_DB_PATH", None)
+            else:
+                os.environ["PGC_DB_PATH"] = old_db_path
+            if old_enable_writes is None:
+                os.environ.pop("PGC_API_ENABLE_WRITES", None)
+            else:
+                os.environ["PGC_API_ENABLE_WRITES"] = old_enable_writes
+            if old_write_token is None:
+                os.environ.pop("PGC_API_WRITE_TOKEN", None)
+            else:
+                os.environ["PGC_API_WRITE_TOKEN"] = old_write_token
+
+        self.assertEqual(settings.db_path, Path("/tmp/pgc-env.db"))
+        self.assertTrue(settings.enable_writes)
+        self.assertEqual(settings.write_token, "env-secret-token")
+        self.assertNotIn("env-secret-token", repr(build_health_payload(settings)))
 
     def test_create_app_registers_health_when_fastapi_is_available(self) -> None:
         if importlib.util.find_spec("fastapi") is None:

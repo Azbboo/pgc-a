@@ -341,6 +341,9 @@ def _build_local_snapshot_prompt(snapshot: dict[str, Any], config: TradingAgents
 确定性策略和组合系统仍是事实来源；你的输出只作为复核意见，不是交易指令。
 快照里的 external_data、analysis_contexts 和 external_data_coverage 是已落库资料；
 可以引用，但不得补写未提供事实。
+快照里的 candidate.evidence_context 已分离为：
+系统确定性复盘事实、缓存技术数据、缓存基本面数据、缓存新闻/公告数据、
+缓存情绪数据、未接入/缺失警告。请优先使用这个分层来组织结论。
 
 请分别扮演技术面、基本面、新闻面、情绪面四个分析师，基于 snapshot.analysis_contexts
 对应分区给出分析。若 external_data_coverage 标记某个分区为 unavailable，

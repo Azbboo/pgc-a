@@ -287,6 +287,17 @@ def _load_candidate(conn: sqlite3.Connection, request: ReviewDailyPickRequest) -
         external_items=external_items,
         portfolio_context=portfolio_context,
     )
+    evidence_context = _build_evidence_context(
+        ts_code=row["ts_code"],
+        name=row["name"],
+        review_date=row["review_date"],
+        planned_buy_date=row["planned_buy_date"],
+        score=float(row["daily_pick_score"]),
+        signal_rank=row["signal_rank"],
+        selection_reason=row["selection_reason"],
+        analysis_contexts=analysis_contexts,
+        portfolio_context=portfolio_context,
+    )
     return {
         "daily_pick_id": int(row["daily_pick_id"]),
         "signal_id": int(row["signal_id"]),
@@ -313,6 +324,7 @@ def _load_candidate(conn: sqlite3.Connection, request: ReviewDailyPickRequest) -
             "items": _external_items_context(external_items),
         },
         "analysis_contexts": analysis_contexts,
+        "evidence_context": evidence_context,
         "external_data_coverage": _external_data_coverage(analysis_contexts),
         "portfolio_context": portfolio_context,
         "source_refs": source_refs,
@@ -542,6 +554,84 @@ def _external_data_coverage(analysis_contexts: dict[str, Any]) -> dict[str, str]
     return coverage
 
 
+def _build_evidence_context(
+    *,
+    ts_code: str,
+    name: str,
+    review_date: str,
+    planned_buy_date: str | None,
+    score: float,
+    signal_rank: Any,
+    selection_reason: str | None,
+    analysis_contexts: dict[str, Any],
+    portfolio_context: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "system_review_facts": {
+            "label": "系统确定性复盘事实",
+            "status": "available",
+            "source": "PGC strategy, daily_picks, trade_plans, portfolio and data-quality tables",
+            "facts": {
+                "ts_code": ts_code,
+                "name": name,
+                "review_date": review_date,
+                "planned_buy_date": planned_buy_date,
+                "score": score,
+                "signal_rank": signal_rank,
+                "selection_reason": selection_reason,
+                "portfolio_context": portfolio_context,
+            },
+            "limitations": ["这些是系统复盘事实，不是外部证据。"],
+        },
+        "cached_technical_data": {
+            "label": "缓存技术数据",
+            **dict(analysis_contexts.get("technical", {})),
+        },
+        "cached_fundamental_data": {
+            "label": "缓存基本面数据",
+            **dict(analysis_contexts.get("fundamental", {})),
+        },
+        "cached_news_announcement_data": {
+            "label": "缓存新闻/公告数据",
+            **dict(analysis_contexts.get("news", {})),
+        },
+        "cached_sentiment_data": {
+            "label": "缓存情绪数据",
+            **dict(analysis_contexts.get("sentiment", {})),
+        },
+        "missing_data_warnings": _missing_data_warnings(analysis_contexts),
+        "source_boundary": [
+            "TradingAgents 只能引用本地快照中已经缓存的外部证据。",
+            "未接入/缺失的数据必须明确说明，不得补写或猜测。",
+            "外部证据不直接改变交易计划。",
+        ],
+    }
+
+
+def _missing_data_warnings(analysis_contexts: dict[str, Any]) -> list[str]:
+    warnings: list[str] = []
+    labels = {
+        "technical": "技术面",
+        "fundamental": "基本面",
+        "news": "新闻/公告",
+        "sentiment": "情绪面",
+    }
+    for key in ("technical", "fundamental", "news", "sentiment"):
+        context = analysis_contexts.get(key, {})
+        if not isinstance(context, dict):
+            warnings.append(f"{labels[key]}未接入/数据不足。")
+            continue
+        status = context.get("status")
+        note = str(context.get("note") or "").strip()
+        limitations = [str(item).strip() for item in context.get("limitations", []) if str(item).strip()]
+        if status == "unavailable":
+            detail = note or "没有可用于 Agent 复核的本地缓存。"
+            warnings.append(f"{labels[key]}未接入/数据不足：{detail}")
+        elif status == "partial" and limitations:
+            warnings.append(f"{labels[key]}仅部分接入：{limitations[0]}")
+    return warnings
+
+
 def _technical_context(
     features: dict[str, Any],
     market_summary: dict[str, Any],
@@ -737,6 +827,7 @@ def _build_snapshot_record(candidate: dict[str, Any]) -> dict[str, Any]:
         "daily_basic": candidate["daily_basic"],
         "external_data": candidate["external_data"],
         "analysis_contexts": candidate["analysis_contexts"],
+        "evidence_context": candidate["evidence_context"],
         "external_data_coverage": candidate["external_data_coverage"],
         "portfolio_context": candidate["portfolio_context"],
     }

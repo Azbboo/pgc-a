@@ -12,6 +12,7 @@ REMOTE_REVISION_PATH="${PGC_REMOTE_REVISION_PATH:-/opt/pgc/.deployed-revision}"
 REMOTE_RELEASE_MARKER="${PGC_REMOTE_RELEASE_MARKER:-/opt/pgc/.deployed-release}"
 ARTIFACT_DIR="${PGC_ARTIFACT_DIR:-.pgc-release}"
 RELEASE_TAG="${PGC_RELEASE_TAG:-}"
+API_WRITE_TOKEN="${PGC_API_WRITE_TOKEN:-}"
 
 usage() {
   cat <<'USAGE'
@@ -33,6 +34,7 @@ Environment overrides:
   PGC_REMOTE_RELEASE_MARKER default: /opt/pgc/.deployed-release
   PGC_RELEASE_TAG         optional explicit release tag
   PGC_ARTIFACT_DIR        default: .pgc-release
+  PGC_API_WRITE_TOKEN     optional API write-token value for remote systemd
 
 Examples:
   scripts/deploy_remote.sh --dry-run
@@ -121,7 +123,11 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   printf 'would_create_artifact=git archive --format=tar.gz -o %s HEAD\n' "$ARTIFACT_PATH"
   printf 'would_upload=scp %s %s:%s\n' "$ARTIFACT_PATH" "$REMOTE_HOST" "$REMOTE_ARTIFACT_PATH"
   printf 'would_remote_migrate=PYTHONPATH=<release>/src python3 -m pgc_trading.storage.migrate --db-path %s\n' "$REMOTE_DB_PATH"
-  printf 'would_systemd_override=WorkingDirectory=%s PYTHONPATH=%s/src PGC_DB_PATH=%s\n' "$REMOTE_CURRENT_DIR" "$REMOTE_CURRENT_DIR" "$REMOTE_DB_PATH"
+  if [[ -n "$API_WRITE_TOKEN" ]]; then
+    printf 'would_systemd_override=WorkingDirectory=%s PYTHONPATH=%s/src PGC_DB_PATH=%s PGC_API_WRITE_TOKEN=<redacted>\n' "$REMOTE_CURRENT_DIR" "$REMOTE_CURRENT_DIR" "$REMOTE_DB_PATH"
+  else
+    printf 'would_systemd_override=WorkingDirectory=%s PYTHONPATH=%s/src PGC_DB_PATH=%s PGC_API_WRITE_TOKEN=<preserve-existing-if-present>\n' "$REMOTE_CURRENT_DIR" "$REMOTE_CURRENT_DIR" "$REMOTE_DB_PATH"
+  fi
   printf 'would_restart=systemctl restart %s\n' "$REMOTE_SERVICE"
   printf 'would_health_check=curl -fsS %s\n' "$REMOTE_HEALTH_URL"
   printf 'would_write_revision=%s\n' "$REMOTE_REVISION_PATH"
@@ -173,7 +179,8 @@ ssh "$REMOTE_HOST" 'bash -s' -- \
   "$REMOTE_ARTIFACT_PATH" \
   "$GIT_SHA_FULL" \
   "$REMOTE_REVISION_PATH" \
-  "$REMOTE_RELEASE_MARKER" <<'REMOTE_DEPLOY'
+  "$REMOTE_RELEASE_MARKER" \
+  "$API_WRITE_TOKEN" <<'REMOTE_DEPLOY'
 set -euo pipefail
 
 release_tag="$1"
@@ -186,9 +193,24 @@ artifact_path="$7"
 git_sha="$8"
 revision_path="$9"
 release_marker="${10}"
+api_write_token="${11}"
 release_dir="${release_root}/${release_tag}"
 service_override_dir="/etc/systemd/system/${service}.d"
 service_override_path="${service_override_dir}/pgc-release.conf"
+
+systemd_env_value() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  printf '"%s"' "$value"
+}
+
+preserve_existing_api_write_token() {
+  local path="$1"
+  if [[ -f "$path" ]]; then
+    grep -E '^Environment=PGC_API_WRITE_TOKEN=' "$path" | tail -n 1 || true
+  fi
+}
 
 if [[ -e "$release_dir" ]]; then
   printf 'deploy error: release directory already exists: %s\n' "$release_dir" >&2
@@ -206,12 +228,21 @@ tar -xzf "$artifact_path" -C "$release_dir"
 PYTHONPATH="${release_dir}/src" python3 -m pgc_trading.storage.migrate --db-path "$db_path"
 ln -sfn "$release_dir" "$current_dir"
 mkdir -p "$service_override_dir"
+api_write_token_line=""
+if [[ -n "$api_write_token" ]]; then
+  api_write_token_line="Environment=PGC_API_WRITE_TOKEN=$(systemd_env_value "$api_write_token")"
+else
+  api_write_token_line="$(preserve_existing_api_write_token "$service_override_path")"
+fi
 cat > "$service_override_path" <<SERVICE_OVERRIDE
 [Service]
 WorkingDirectory=$current_dir
 Environment=PYTHONPATH=$current_dir/src
 Environment=PGC_DB_PATH=$db_path
 SERVICE_OVERRIDE
+if [[ -n "$api_write_token_line" ]]; then
+  printf '%s\n' "$api_write_token_line" >> "$service_override_path"
+fi
 systemctl daemon-reload
 systemctl restart "$service"
 
