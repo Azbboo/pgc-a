@@ -40,6 +40,7 @@ This ledger is the single index for historical and active project work. Detailed
 | M28-M34 operating loop wave | `docs/plans/2026-05-09-m28-m34-operating-loop-plan.md` |
 | M35-M42 market review strategy wave | `docs/plans/2026-05-09-m35-m42-market-review-strategy-evolution-plan.md` |
 | M39-M46 integration wave | `docs/plans/2026-05-09-m39-m46-market-review-integration-plan.md` |
+| M47-M52 market intelligence next wave | `docs/plans/2026-05-09-m47-m52-market-intelligence-next-wave-plan.md` |
 
 ## DEV Work Packages
 
@@ -114,15 +115,23 @@ This ledger is the single index for historical and active project work. Detailed
 | M44 | Strategy hypothesis backtest bridge | Done, Deployed | `8e3a36f`, release `pgc-v0.1.0-20260509-g8e3a36f` | Produces backtest request artifacts; no active param mutation. |
 | M45 | Open execution alignment with market-plan context | Done, Deployed | release `pgc-v0.1.0-20260509-m41b-m46` | Added read-only open-execution service/API/CLI/Dashboard context; shows alignment/risk/action and does not auto-cancel or execute trades. |
 | M46 | Scheduled post-close pipeline | Done, Deployed | release `pgc-v0.1.0-20260509-m41b-m46` | `latest-closed`, `/opt/pgc/logs`, `/opt/pgc/backups`, health precheck, and systemd timer installer added; remote timer preview passed but timer is not enabled yet. |
+| M47 | Data evidence closed loop | Next | `docs/plans/2026-05-09-m47-m52-market-intelligence-next-wave-plan.md` | Provider-tagged market/sector/stock news, sentiment, policy, and research evidence with freshness/coverage states; no live web fetch in trading path. |
+| M48 | Full-market Dashboard interaction upgrade | Next | `docs/plans/2026-05-09-m47-m52-market-intelligence-next-wave-plan.md` | Drill-down drawers, evidence details, cross-day selector, and plan relationship view; market-review UI remains read-only. |
+| M49 | TradingAgents Chinese structured report | Next | `docs/plans/2026-05-09-m47-m52-market-intelligence-next-wave-plan.md` | Chinese source-labeled TradingAgents sections for fundamentals, news, sentiment, technicals, sector context, risks, and conclusion. |
+| M50 | Strategy evolution validation loop | Next | `docs/plans/2026-05-09-m47-m52-market-intelligence-next-wave-plan.md` | Hypothesis evidence/backtest gates before acceptance; accepted hypotheses create future strategy-version tasks only. |
+| M51 | Review timeline and cross-day comparison | Next | `docs/plans/2026-05-09-m47-m52-market-intelligence-next-wave-plan.md` | Compare daily review, full-market review, plan context, and open-execution state across dates without changing execution context accidentally. |
+| M52 | Scheduled pipeline activation and ops monitor | Next | `docs/plans/2026-05-09-m47-m52-market-intelligence-next-wave-plan.md` | Formal timer activation checklist, health/journal/rollback commands, and duplicate-write guardrails; timer still requires explicit operator enablement. |
 
 ## Active Parallel Plan
 
 | Lane | Task | Status | Depends On | Review Focus |
 | --- | --- | --- | --- | --- |
-| A | M41B Dashboard full-market tab | Done, Deployed | M41A API | Usable full-market page, drawers/tables, no write endpoints. |
-| B | M42 Daily pipeline integration | Done, Deployed | M39 service, M36-M38 producers | Pipeline runs market-review/link-plan/report in order and keeps missing evidence explicit. |
-| C | M45 Open execution alignment | Done, Deployed | M41B/M42 payload clarity | Execution page explains market context without creating/cancelling/executing trades automatically. |
-| D | M46 Scheduled post-close pipeline | Done, Deployed | M42 local contract, deploy token stable | Backup, logs, health checks, operator, and repeatable schedule implemented locally; remote enable remains an ops action. |
+| A | M47A Evidence import and coverage contract | Next | M43 source policy, M41A read APIs | Provider/date/source-hash validation, freshness/coverage states, no live web fetch, no secrets. |
+| B | M48A Full-market Dashboard interaction upgrade | Next | M41B full-market tab | Drilldowns/drawers, cross-day selector, no POST/write calls from market-review UI. |
+| C | M49A TradingAgents Chinese structured report | Next | M15/M26 agent bridge, external evidence cache | Chinese source-labeled sections, raw artifacts preserved, unavailable state remains honest. |
+| D | M50A Strategy hypothesis validation loop | Next | M44 backtest bridge, M40 hypotheses | Evidence/backtest gates before accepted; no active strategy or trading behavior mutation. |
+| E | M51 Review timeline and cross-day comparison | Next | M47/M48 data shape stable | Cross-day navigation must not override execution-date context. |
+| F | M52 Scheduled pipeline activation and ops monitor | Next | M46 timer installer, M47/M49 evidence gates stable | Dry-run first, explicit operator enablement, journal/status/rollback documented. |
 
 ## Review Rules For Future Sessions
 
@@ -142,3 +151,10 @@ When a task finishes:
 3. Add the strongest verification result available.
 4. Move newly unblocked tasks into the Active Parallel Plan.
 5. Keep old plan docs as detailed history; do not duplicate their full specs here.
+
+When planning new task IDs:
+
+1. Create or update the detailed plan doc first.
+2. Add every new task ID to the Milestone Ledger in the same turn.
+3. Update Active Parallel Plan before telling the user to open child sessions.
+4. Do not announce a new parallel task name unless it is discoverable from this ledger.
