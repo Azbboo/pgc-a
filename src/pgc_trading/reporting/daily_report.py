@@ -214,6 +214,45 @@ class MarketPlanContextReport:
 
 
 @dataclass(frozen=True)
+class MarketSectorReport:
+    sector_code: str
+    sector_name: str
+    rank_overall: int | None
+    persistence_score: float | None
+    breadth_score: float | None
+    volume_score: float | None
+    leader_count: int
+    return_1d: float | None
+    return_3d: float | None
+
+
+@dataclass(frozen=True)
+class StrategyHypothesisSummaryReport:
+    hypothesis_id: int
+    hypothesis_type: str
+    title: str
+    status: str
+    rationale: str
+
+
+@dataclass(frozen=True)
+class MarketReviewReport:
+    market_review_run_id: int
+    status: str
+    regime: str
+    summary: str
+    breadth_score: float | None
+    trend_score: float | None
+    volume_score: float | None
+    sentiment_score: float | None
+    persistence_score: float | None
+    top_sectors: list[MarketSectorReport] = field(default_factory=list)
+    sector_persistence: list[MarketSectorReport] = field(default_factory=list)
+    external_evidence_coverage: dict[str, Any] = field(default_factory=dict)
+    strategy_hypotheses: list[StrategyHypothesisSummaryReport] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class PositionReport:
     position_id: int
     ts_code: str
@@ -256,6 +295,7 @@ class DailyReport:
     candidate: CandidateReport | None
     no_candidate_reason: str | None
     buy_plan: BuyPlanReport | None
+    market_review: MarketReviewReport | None
     market_plan_context: MarketPlanContextReport | None
     agent_advice: AgentAdviceReport
     positions: list[PositionReport]
@@ -300,6 +340,7 @@ class ReportingQueryService:
             account = _load_account(conn, request)
             candidate = _load_candidate(conn, request)
             buy_plan = _load_buy_plan(conn, candidate, account)
+            market_review = _load_market_review(conn, request.as_of_date)
             market_plan_context = _load_market_plan_context(conn, buy_plan, request.as_of_date)
             agent_advice = _load_agent_advice(conn, candidate)
             positions = _load_positions(conn, request.as_of_date, account.account_id)
@@ -315,7 +356,13 @@ class ReportingQueryService:
             daily_pick_id=candidate.daily_pick_id if candidate else None,
             signal_id=candidate.signal_id if candidate else None,
             trade_plan_id=buy_plan.trade_plan_id if buy_plan else None,
-            market_review_run_id=market_plan_context.market_review_run_id if market_plan_context else None,
+            market_review_run_id=(
+                market_review.market_review_run_id
+                if market_review
+                else market_plan_context.market_review_run_id
+                if market_plan_context
+                else None
+            ),
             agent_run_id=agent_advice.agent_run_id,
             agent_decision_id=agent_advice.agent_decision_id,
             data_quality_event_ids=data_quality.event_ids,
@@ -332,6 +379,7 @@ class ReportingQueryService:
             candidate=candidate,
             no_candidate_reason=no_candidate_reason,
             buy_plan=buy_plan,
+            market_review=market_review,
             market_plan_context=market_plan_context,
             agent_advice=agent_advice,
             positions=positions,
@@ -465,6 +513,7 @@ def render_daily_report_markdown(report: DailyReport) -> str:
             ]
         )
 
+    lines.extend(_market_review_lines(report.market_review))
     lines.extend(_market_plan_context_lines(report.market_plan_context))
 
     lines.extend(["", "## Agent 复核", ""])
@@ -952,6 +1001,172 @@ def _load_buy_plan(
         price_reference=_optional_float(payload.get("price_reference")),
         price_reference_date=payload.get("price_reference_date"),
     )
+
+
+def _load_market_review(conn: Any, as_of_date: str) -> MarketReviewReport | None:
+    row = conn.execute(
+        """
+        SELECT
+          mrr.id AS market_review_run_id,
+          mrr.status,
+          mrs.regime,
+          mrs.breadth_score,
+          mrs.trend_score,
+          mrs.volume_score,
+          mrs.sentiment_score,
+          mrs.persistence_score,
+          mrs.summary
+        FROM market_review_runs mrr
+        LEFT JOIN market_regime_snapshots mrs ON mrs.market_review_run_id = mrr.id
+        WHERE mrr.as_of_date = ?
+        ORDER BY mrr.id DESC
+        LIMIT 1
+        """,
+        (as_of_date,),
+    ).fetchone()
+    if row is None:
+        return None
+    run_id = int(row["market_review_run_id"])
+    return MarketReviewReport(
+        market_review_run_id=run_id,
+        status=row["status"],
+        regime=row["regime"] or "unknown",
+        summary=row["summary"] or "",
+        breadth_score=_optional_float(row["breadth_score"]),
+        trend_score=_optional_float(row["trend_score"]),
+        volume_score=_optional_float(row["volume_score"]),
+        sentiment_score=_optional_float(row["sentiment_score"]),
+        persistence_score=_optional_float(row["persistence_score"]),
+        top_sectors=_load_market_review_top_sectors(conn, run_id),
+        sector_persistence=_load_market_review_sector_persistence(conn, run_id),
+        external_evidence_coverage=_load_market_external_evidence_coverage(conn, as_of_date),
+        strategy_hypotheses=_load_strategy_hypothesis_summaries(conn, as_of_date),
+    )
+
+
+def _load_market_review_top_sectors(conn: Any, market_review_run_id: int) -> list[MarketSectorReport]:
+    rows = conn.execute(
+        """
+        SELECT
+          sector_code,
+          sector_name,
+          rank_overall,
+          persistence_score,
+          breadth_score,
+          volume_score,
+          leader_count,
+          return_1d,
+          return_3d
+        FROM sector_daily_snapshots
+        WHERE market_review_run_id = ?
+        ORDER BY rank_overall IS NULL, rank_overall, persistence_score DESC, sector_code
+        LIMIT 5
+        """,
+        (market_review_run_id,),
+    ).fetchall()
+    return [_market_sector_report(row) for row in rows]
+
+
+def _load_market_review_sector_persistence(conn: Any, market_review_run_id: int) -> list[MarketSectorReport]:
+    rows = conn.execute(
+        """
+        SELECT
+          sector_code,
+          sector_name,
+          rank_overall,
+          persistence_score,
+          breadth_score,
+          volume_score,
+          leader_count,
+          return_1d,
+          return_3d
+        FROM sector_daily_snapshots
+        WHERE market_review_run_id = ?
+          AND persistence_score IS NOT NULL
+        ORDER BY persistence_score DESC, rank_overall IS NULL, rank_overall, sector_code
+        LIMIT 5
+        """,
+        (market_review_run_id,),
+    ).fetchall()
+    return [_market_sector_report(row) for row in rows]
+
+
+def _market_sector_report(row: Any) -> MarketSectorReport:
+    return MarketSectorReport(
+        sector_code=row["sector_code"],
+        sector_name=row["sector_name"],
+        rank_overall=_optional_int(row["rank_overall"]),
+        persistence_score=_optional_float(row["persistence_score"]),
+        breadth_score=_optional_float(row["breadth_score"]),
+        volume_score=_optional_float(row["volume_score"]),
+        leader_count=int(row["leader_count"] or 0),
+        return_1d=_optional_float(row["return_1d"]),
+        return_3d=_optional_float(row["return_3d"]),
+    )
+
+
+def _load_market_external_evidence_coverage(conn: Any, as_of_date: str) -> dict[str, Any]:
+    rows = conn.execute(
+        """
+        SELECT scope_type, item_type, sentiment, importance, provider, COUNT(*) AS count
+        FROM market_external_items
+        WHERE as_of_date = ?
+        GROUP BY scope_type, item_type, sentiment, importance, provider
+        ORDER BY scope_type, item_type, sentiment, importance, provider
+        """,
+        (as_of_date,),
+    ).fetchall()
+    total_count = 0
+    by_scope: dict[str, int] = {}
+    by_item_type: dict[str, int] = {}
+    by_sentiment: dict[str, int] = {}
+    by_importance: dict[str, int] = {}
+    by_provider: dict[str, int] = {}
+    for row in rows:
+        count = int(row["count"] or 0)
+        total_count += count
+        _increment_count(by_scope, row["scope_type"], count)
+        _increment_count(by_item_type, row["item_type"], count)
+        _increment_count(by_sentiment, row["sentiment"], count)
+        _increment_count(by_importance, row["importance"], count)
+        _increment_count(by_provider, row["provider"], count)
+    return {
+        "total_count": total_count,
+        "coverage": "available" if total_count else "missing",
+        "by_scope": by_scope,
+        "by_item_type": by_item_type,
+        "by_sentiment": by_sentiment,
+        "by_importance": by_importance,
+        "by_provider": by_provider,
+    }
+
+
+def _increment_count(target: dict[str, int], key: object, count: int) -> None:
+    label = str(key or "unknown")
+    target[label] = target.get(label, 0) + count
+
+
+def _load_strategy_hypothesis_summaries(conn: Any, as_of_date: str) -> list[StrategyHypothesisSummaryReport]:
+    rows = conn.execute(
+        """
+        SELECT id, hypothesis_type, title, status, rationale
+        FROM strategy_hypotheses
+        WHERE as_of_date = ?
+        ORDER BY id
+        LIMIT 5
+        """,
+        (as_of_date,),
+    ).fetchall()
+    return [
+        StrategyHypothesisSummaryReport(
+            hypothesis_id=int(row["id"]),
+            hypothesis_type=row["hypothesis_type"],
+            title=row["title"],
+            status=row["status"],
+            rationale=row["rationale"],
+        )
+        for row in rows
+    ]
 
 
 def _load_market_plan_context(
@@ -1502,6 +1717,35 @@ def _paper_promotion_lines(promotion: PaperReadinessResult | None) -> list[str]:
     ]
 
 
+def _market_review_lines(review: MarketReviewReport | None) -> list[str]:
+    lines = ["", "## 全市场复盘", ""]
+    if review is None:
+        lines.append("- 状态：未生成全市场复盘。")
+        lines.append("- 外部证据覆盖：未接入。")
+        lines.append("- 策略假设：未生成。")
+        return lines
+
+    regime_payload = {
+        "regime": review.regime,
+        "breadth_score": review.breadth_score,
+        "trend_score": review.trend_score,
+        "volume_score": review.volume_score,
+        "persistence_score": review.persistence_score,
+        "summary": review.summary,
+    }
+    top_sector_payloads = [asdict(sector) for sector in review.top_sectors]
+    lines.extend(
+        [
+            f"- 状态：{_status_text(review.status)}；{_market_regime_text(regime_payload)}",
+            f"- Top 5 板块：{_top_sectors_text(top_sector_payloads)}",
+            f"- 板块持续性：{_sector_persistence_text(review.sector_persistence)}",
+            f"- 外部证据覆盖：{_external_coverage_text(review.external_evidence_coverage)}",
+            f"- 策略假设：{_strategy_hypotheses_text(review.strategy_hypotheses)}",
+        ]
+    )
+    return lines
+
+
 def _market_plan_context_lines(context: MarketPlanContextReport | None) -> list[str]:
     lines = ["", "## 全市场复盘与明日计划关系", ""]
     if context is None:
@@ -1601,6 +1845,49 @@ def _external_fit_text(items: list[dict[str, Any]]) -> str:
     sentiment = str(first.get("sentiment") or "unknown")
     importance = str(first.get("importance") or "unknown")
     return f"{len(items)} 条证据，高重要度负面 {high_negative_count} 条；首要证据：{title}（{sentiment}/{importance}）"
+
+
+def _sector_persistence_text(sectors: list[MarketSectorReport]) -> str:
+    if not sectors:
+        return "未找到持续性板块数据"
+    parts = []
+    for sector in sectors[:5]:
+        persistence = _optional_float_from_any(sector.persistence_score)
+        persistence_text = f"{persistence:.2f}" if persistence is not None else "未知"
+        rank_text = f"#{sector.rank_overall}" if sector.rank_overall is not None else "#-"
+        parts.append(f"{sector.sector_name or sector.sector_code}{rank_text} 持续 {persistence_text}")
+    return "；".join(parts)
+
+
+def _external_coverage_text(coverage: dict[str, Any]) -> str:
+    total_count = _optional_int_from_any(coverage.get("total_count")) or 0
+    if total_count <= 0:
+        return "未找到全市场新闻/情绪证据"
+    scope = coverage.get("by_scope")
+    sentiment = coverage.get("by_sentiment")
+    provider = coverage.get("by_provider")
+    scope_text = _count_dict_text(scope if isinstance(scope, dict) else {})
+    sentiment_text = _count_dict_text(sentiment if isinstance(sentiment, dict) else {})
+    provider_text = _count_dict_text(provider if isinstance(provider, dict) else {})
+    return f"{total_count} 条；范围 {scope_text}；情绪 {sentiment_text}；来源 {provider_text}"
+
+
+def _strategy_hypotheses_text(hypotheses: list[StrategyHypothesisSummaryReport]) -> str:
+    if not hypotheses:
+        return "未生成策略假设"
+    parts = [f"{item.title}（{_status_text(item.status)}）" for item in hypotheses[:3]]
+    suffix = f"；另有 {len(hypotheses) - 3} 条" if len(hypotheses) > 3 else ""
+    return f"{len(hypotheses)} 条；" + "；".join(parts) + suffix
+
+
+def _count_dict_text(counts: dict[Any, Any]) -> str:
+    if not counts:
+        return "无"
+    parts = []
+    for key in sorted(counts):
+        value = _optional_int_from_any(counts[key]) or 0
+        parts.append(f"{key} {value}")
+    return " / ".join(parts)
 
 
 def _optional_int_from_any(value: Any) -> int | None:

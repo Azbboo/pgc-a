@@ -42,6 +42,7 @@ class DashboardStaticTest(unittest.TestCase):
         for endpoint in [
             "/api/daily-reviews/",
             "/api/trade-plans",
+            "/api/open-execution",
             "/api/data-quality",
             "/api/accounts/",
             "/api/review-runs",
@@ -109,6 +110,7 @@ class DashboardStaticTest(unittest.TestCase):
             "今天该做什么",
             "为什么不能做",
             "下一步点哪里",
+            "市场计划关系",
             "定位检查清单",
             "查看数据质量",
             "录入买入成交",
@@ -117,10 +119,38 @@ class DashboardStaticTest(unittest.TestCase):
             self.assertIn(label, source)
         self.assertIn('id="openingWorkflowGuide"', source)
         self.assertIn("function renderOpeningWorkflowGuide", source)
+        self.assertIn("function openExecutionGuidance", source)
+        self.assertIn("function loadOpenExecution", source)
+        self.assertIn("function marketPlanContextExecutionText", source)
         self.assertIn("function openingWorkflowGuidance", source)
         self.assertIn("function onWorkflowGuideClick", source)
         self.assertIn('data-guidance-action="${escapeHtml(action.action)}"', source)
         self.assertIn(".execution-command-center", source)
+
+    def test_dashboard_m45_open_execution_market_context_is_advisory(self) -> None:
+        source = "\n".join(
+            [
+                (DASHBOARD_DIR / "index.html").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "styles.css").read_text(encoding="utf-8"),
+            ]
+        )
+        script = (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8")
+
+        for label in [
+            "/api/open-execution?",
+            "openExecutionEnvelope",
+            "open-execution 找到执行日匹配的 active 买入计划",
+            "market-plan context 只给提示，不会自动取消或执行计划",
+            "仅提示考虑取消，不会自动取消计划",
+            "plan-market-context-note",
+        ]:
+            self.assertIn(label, source)
+        self.assertIn("function openExecutionGuidance", script)
+        self.assertIn("function marketContextForPlan", script)
+        self.assertIn("function marketContextPlanNote", script)
+        self.assertNotIn("openExecution.cancel", script)
+        self.assertNotIn("consider_cancel_plan", script)
 
     def test_dashboard_m21_detail_drawer_entries_are_visible(self) -> None:
         source = "\n".join(
@@ -296,6 +326,63 @@ class DashboardStaticTest(unittest.TestCase):
         self.assertIn("agent-source-boundary", source)
         self.assertIn("agent-coverage", source)
         self.assertIn("agent-evidence", source)
+
+    def test_dashboard_m41b_full_market_view_is_read_only_and_traceable(self) -> None:
+        source = "\n".join(
+            [
+                (DASHBOARD_DIR / "index.html").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "styles.css").read_text(encoding="utf-8"),
+            ]
+        )
+        script = (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8")
+
+        for label in [
+            "全市场",
+            "market-reviews",
+            "板块轮动",
+            "持续性",
+            "情绪",
+            "明日计划关系",
+            "策略假设",
+            "个股领涨",
+            "provider/date/sentiment",
+            "市场复盘不会自动改变明日计划",
+        ]:
+            self.assertIn(label, source)
+        for html_id in [
+            'id="marketBadge"',
+            'id="marketRegimeStrip"',
+            'id="marketSectorBody"',
+            'id="marketPlanContextPanel"',
+            'id="marketSentimentSummary"',
+            'id="marketHypothesesList"',
+        ]:
+            self.assertIn(html_id, source)
+        for endpoint in [
+            "/api/market-reviews?limit=20",
+            "/api/market-reviews/${asOfDate}",
+            "/api/market-reviews/${asOfDate}/sectors",
+            "/api/market-reviews/${asOfDate}/external-items",
+            "/api/market-reviews/${asOfDate}/hypotheses?limit=20",
+            "/api/market-reviews/${asOfDate}/plan-context",
+        ]:
+            self.assertIn(endpoint, script)
+        for fn_name in [
+            "function loadMarketReview",
+            "function renderMarketReview",
+            "function renderMarketSectors",
+            "function openMarketSectorDrawer",
+            "function openMarketNewsDrawer",
+            "function renderMarketHypotheses",
+            "function marketPlanContextApiPath",
+        ]:
+            self.assertIn(fn_name, source)
+        self.assertIn("data-market-sector-action=\"detail\"", source)
+        self.assertIn('data-evidence-columns="provider/date/sentiment"', source)
+        self.assertNotIn("POST /api/market-reviews", source)
+        self.assertNotIn('apiRequest("/api/market-reviews", { method: "POST"', script)
+        self.assertNotIn("market-review write", source.lower())
 
     def test_dashboard_p1_cancel_and_execution_guardrails_are_visible(self) -> None:
         source = "\n".join(

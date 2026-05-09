@@ -105,6 +105,9 @@ class DailyPipelineServiceTest(unittest.TestCase):
             self.assertTrue(Path(first.data.backup_path).exists())
             self.assertTrue(Path(first.data.report_markdown).exists())
             self.assertTrue(Path(first.data.report_json).exists())
+            self.assertEqual(first.data.market_review_status, "skipped")
+            self.assertEqual(first.data.market_plan_context_status, "skipped")
+            self.assertFalse(first.data.market_review_would_write)
 
             self.assertTrue(second.ok)
             self.assertEqual(second.data.pipeline_status, "pass")
@@ -137,7 +140,61 @@ class DailyPipelineServiceTest(unittest.TestCase):
                 self.assertEqual(count_rows(conn, "trade_plans"), 1)
                 self.assertEqual(count_rows(conn, "agent_runs"), 1)
                 self.assertEqual(count_rows(conn, "agent_decisions"), 1)
+                self.assertEqual(count_rows(conn, "market_review_runs"), 0)
+                self.assertEqual(count_rows(conn, "market_plan_contexts"), 0)
                 self.assertEqual(count_rows(conn, "exit_decisions"), 0)
+
+    def test_include_market_review_apply_persists_review_context_and_reports(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = migrated_seeded_daily_close_db(root)
+            with sqlite3.connect(db_path) as conn:
+                insert_open_calendar(conn)
+                insert_contracting_pullback_case(conn, "000001.SZ", "Pipeline Market Review")
+
+            runner = _FakeTradingAgentsRunner()
+            service = DailyPipelineService(
+                db_path,
+                reports_dir=root / "reports",
+                agent_review_service_factory=self._agent_factory(root, runner),
+            )
+            request = RunDailyPipelineRequest(
+                as_of_date=AS_OF_DATE,
+                account_key=PAPER_ACCOUNT_KEY,
+                include_market_review=True,
+            )
+            ctx = RequestContext(
+                request_id="pipeline-market-review-1",
+                idempotency_key="daily-pipeline:market-review",
+                dry_run=False,
+                operator="tester",
+                source="test",
+            )
+
+            first = service.run_daily_pipeline(request, ctx)
+            second = service.run_daily_pipeline(
+                request,
+                RequestContext(
+                    request_id="pipeline-market-review-2",
+                    idempotency_key="daily-pipeline:market-review",
+                    dry_run=False,
+                    operator="tester",
+                    source="test",
+                ),
+            )
+
+            self.assertTrue(first.ok)
+            self.assertEqual(first.data.market_review_status, "success")
+            self.assertEqual(first.data.market_plan_context_status, "success")
+            self.assertIsNotNone(first.data.market_review_run_id)
+            self.assertFalse(first.data.market_review_would_write)
+            self.assertIn("## 全市场复盘", Path(first.data.report_markdown).read_text(encoding="utf-8"))
+
+            self.assertTrue(second.ok)
+            self.assertEqual(second.data.market_review_run_id, first.data.market_review_run_id)
+            with sqlite3.connect(db_path) as conn:
+                self.assertEqual(count_rows(conn, "market_review_runs"), 1)
+                self.assertEqual(count_rows(conn, "market_plan_contexts"), 1)
 
     def test_dry_run_previews_without_persisting_pipeline_writes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -181,6 +238,45 @@ class DailyPipelineServiceTest(unittest.TestCase):
                 self.assertEqual(count_rows(conn, "daily_picks"), 0)
                 self.assertEqual(count_rows(conn, "trade_plans"), 0)
                 self.assertEqual(count_rows(conn, "agent_runs"), 0)
+
+    def test_include_market_review_dry_run_does_not_persist_market_review_or_reports(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = migrated_seeded_daily_close_db(root)
+            with sqlite3.connect(db_path) as conn:
+                insert_open_calendar(conn)
+                insert_contracting_pullback_case(conn, "000001.SZ", "Pipeline Market Preview")
+
+            runner = _FakeTradingAgentsRunner()
+            result = DailyPipelineService(
+                db_path,
+                reports_dir=root / "reports",
+                agent_review_service_factory=self._agent_factory(root, runner),
+            ).run_daily_pipeline(
+                RunDailyPipelineRequest(
+                    as_of_date=AS_OF_DATE,
+                    account_key=PAPER_ACCOUNT_KEY,
+                    include_market_review=True,
+                ),
+                RequestContext(
+                    request_id="pipeline-market-dry-run",
+                    idempotency_key="daily-pipeline:market-dry",
+                    dry_run=True,
+                    operator="tester",
+                    source="test",
+                ),
+            )
+
+            self.assertTrue(result.ok)
+            self.assertEqual(result.data.pipeline_status, "pass")
+            self.assertEqual(result.data.market_review_status, "success")
+            self.assertIsNone(result.data.market_review_run_id)
+            self.assertTrue(result.data.market_review_would_write)
+            self.assertEqual(result.data.market_plan_context_status, "skipped")
+            self.assertFalse(Path(result.data.report_markdown).exists())
+            with sqlite3.connect(db_path) as conn:
+                self.assertEqual(count_rows(conn, "market_review_runs"), 0)
+                self.assertEqual(count_rows(conn, "market_plan_contexts"), 0)
 
     def _agent_factory(
         self,

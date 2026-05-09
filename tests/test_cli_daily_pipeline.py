@@ -30,6 +30,11 @@ class _FakePipelineData:
     exit_status: str | None = "success"
     report_status: str | None = "success"
     report_would_write: bool = False
+    market_review_run_id: int | None = None
+    market_review_status: str | None = "skipped"
+    market_plan_context_status: str | None = "skipped"
+    market_review_would_write: bool = False
+    market_plan_context_would_write: bool = False
 
 
 class _FakeDailyPipelineService:
@@ -80,6 +85,7 @@ class CliDailyPipelineTest(unittest.TestCase):
         self.assertEqual(called_db_path, db_path)
         self.assertEqual(request.as_of_date, "20260508")
         self.assertEqual(request.account_key, "paper-main")
+        self.assertFalse(request.include_market_review)
         self.assertTrue(ctx.dry_run)
         self.assertEqual(ctx.operator, "azboo")
         self.assertEqual(ctx.idempotency_key, "daily-pipeline:paper-main:20260508:cpb_6157@2026-05-03:paper")
@@ -91,11 +97,43 @@ class CliDailyPipelineTest(unittest.TestCase):
         self.assertIn("daily_pick_id=2", output)
         self.assertIn("trade_plan_id=2", output)
         self.assertIn("agent_run_id=6", output)
+        self.assertIn("market_review_run_id=none", output)
         self.assertIn("exit_decisions=0", output)
         self.assertIn("report_markdown=reports/daily_review_20260508.md", output)
         self.assertIn("report_json=reports/daily_review_20260508.json", output)
         self.assertIn("changed=false", output)
         self.assertIn("report_would_write=false", output)
+        self.assertIn("market_review_status=skipped", output)
+        self.assertIn("market_plan_context_status=skipped", output)
+        self.assertIn("market_review_would_write=false", output)
+
+    def test_ops_daily_pipeline_include_market_review_flag_reaches_service(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc.db"
+            db_path.touch()
+            stdout = io.StringIO()
+            code = main(
+                [
+                    "ops",
+                    "daily-pipeline",
+                    "--date",
+                    "20260508",
+                    "--account",
+                    "paper-main",
+                    "--operator",
+                    "azboo",
+                    "--db-path",
+                    str(db_path),
+                    "--include-market-review",
+                    "--dry-run",
+                ],
+                stdout=stdout,
+                services=CommandServices(daily_pipeline_service_factory=_FakeDailyPipelineService),
+            )
+
+        self.assertEqual(code, 0)
+        _, request, _ = _FakeDailyPipelineService.calls[0]
+        self.assertTrue(request.include_market_review)
 
     def test_apply_without_operator_fails_before_pipeline_steps(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

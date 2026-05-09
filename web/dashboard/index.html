@@ -4,8 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>PGC 操作台</title>
-    <link rel="stylesheet" href="/dashboard/assets/styles.css?v=20260509-m27-modals-1" />
-    <script defer src="/dashboard/assets/app.js?v=20260509-m27-modals-1"></script>
+    <link rel="stylesheet" href="/dashboard/assets/styles.css?v=20260509-m41b-market-1" />
+    <script defer src="/dashboard/assets/app.js?v=20260509-m41b-market-1"></script>
   </head>
   <body>
     <div class="app-shell">
@@ -32,6 +32,13 @@
             </span>
             <span>每日复盘</span>
             <b id="reviewBadge">0</b>
+          </button>
+          <button class="nav-item" type="button" data-page-button="market">
+            <span class="nav-glyph">
+              <img src="/dashboard/assets/icon-favorites.svg" alt="" aria-hidden="true" />
+            </span>
+            <span>全市场</span>
+            <b id="marketBadge">0</b>
           </button>
           <button class="nav-item" type="button" data-page-button="plans">
             <span class="nav-glyph">
@@ -349,6 +356,76 @@
                 </div>
               </div>
               <div id="agentSummary" class="agent-summary"></div>
+            </div>
+          </section>
+        </section>
+
+        <section class="page" data-page="market">
+          <div class="page-heading">
+            <div>
+              <h1>全市场</h1>
+              <p>读取 market-reviews 只读结果，核对市场状态、板块轮动、外部证据和明日计划关系。</p>
+            </div>
+            <div class="toolbar">
+              <span id="marketReviewDateLabel" class="review-scope-chip">复盘日 -</span>
+              <button type="button" id="reloadMarketButton">刷新全市场</button>
+            </div>
+          </div>
+
+          <section class="market-regime-strip" id="marketRegimeStrip" aria-live="polite"></section>
+
+          <div class="market-layout">
+            <section class="panel market-sector-panel">
+              <div class="panel-heading">
+                <h2>板块轮动</h2>
+                <span id="marketSectorState" class="muted">-</span>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>排名</th>
+                      <th>板块</th>
+                      <th class="num">1日</th>
+                      <th class="num">5日</th>
+                      <th class="num">持续性</th>
+                      <th>情绪</th>
+                      <th class="num">领涨</th>
+                      <th>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody id="marketSectorBody"></tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="panel market-plan-context-panel">
+              <div class="panel-heading">
+                <h2>明日计划关系</h2>
+                <span class="chip chip-agent">只读 advisory</span>
+              </div>
+              <div id="marketPlanContextPanel" class="market-plan-context"></div>
+            </section>
+          </div>
+
+          <section class="split-panels market-secondary-grid">
+            <div class="panel">
+              <div class="panel-heading">
+                <h2>新闻 / 情绪</h2>
+                <div class="panel-heading-actions">
+                  <span id="marketSentimentState" class="review-scope-chip">情绪 -</span>
+                  <button type="button" class="link-button" id="openMarketNewsDrawerButton">证据详情</button>
+                </div>
+              </div>
+              <div id="marketSentimentSummary" class="market-sentiment-summary"></div>
+            </div>
+
+            <div class="panel">
+              <div class="panel-heading">
+                <h2>策略假设</h2>
+                <span id="marketHypothesisState" class="muted">-</span>
+              </div>
+              <div id="marketHypothesesList" class="market-hypotheses-list"></div>
             </div>
           </section>
         </section>

@@ -236,6 +236,46 @@ class _UnexpectedAgentExternalDataService:
         raise AssertionError(f"agent external data service should not be built for missing db: {db_path}")
 
 
+@dataclass(frozen=True)
+class _FakeOpenExecutionContextData:
+    trade_plan_id: int = 22
+    alignment: str = "aligned"
+    risk_level: str = "medium"
+    management_action: str = "manual_review"
+
+
+@dataclass(frozen=True)
+class _FakeOpenExecutionData:
+    as_of_date: str
+    account_key: str = "paper-main"
+    status: str = "ready"
+    next_action: str = "record_buy"
+    blocked_reasons: list[str] = field(default_factory=list)
+    primary_plan_id: int | None = 22
+    primary_position_id: int | None = None
+    target_stock: str | None = "000001.SZ"
+    target_name: str | None = "PGC Candidate"
+    planned_trade_date: str | None = "20260511"
+    planned_shares: int | None = 1000
+    operator_required: bool = True
+    market_plan_context: _FakeOpenExecutionContextData | None = field(default_factory=_FakeOpenExecutionContextData)
+
+
+class _FakeOpenExecutionService:
+    calls: list[tuple[Path, object, RequestContext]] = []
+
+    def __init__(self, db_path: Path):
+        self.db_path = db_path
+
+    def get_open_execution(self, request, ctx: RequestContext) -> ServiceResult[_FakeOpenExecutionData]:
+        self.calls.append((self.db_path, request, ctx))
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data=_FakeOpenExecutionData(as_of_date=request.as_of_date, account_key=request.account_key),
+        )
+
+
 class CliMainTest(unittest.TestCase):
     def setUp(self) -> None:
         _FakeReviewService.calls = []
@@ -244,6 +284,7 @@ class CliMainTest(unittest.TestCase):
         _FakeReadinessService.calls = []
         _FakeAgentReviewService.calls = []
         _FakeAgentExternalDataService.calls = []
+        _FakeOpenExecutionService.calls = []
 
     def test_help_lists_command_surface(self) -> None:
         stdout = io.StringIO()
@@ -835,6 +876,40 @@ class CliMainTest(unittest.TestCase):
             self.assertFalse(db_path.exists())
             self.assertIn("database not found", stdout.getvalue())
             self.assertIn("external_items.json", stdout.getvalue())
+
+    def test_ops_open_execution_routes_to_service_and_prints_market_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc_open_execution.db"
+            db_path.touch()
+            stdout = io.StringIO()
+            code = main(
+                [
+                    "ops",
+                    "open-execution",
+                    "--date",
+                    "2026-05-11",
+                    "--account",
+                    "paper-main",
+                    "--db-path",
+                    str(db_path),
+                ],
+                stdout=stdout,
+                services=CommandServices(open_execution_service_factory=_FakeOpenExecutionService),
+            )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(len(_FakeOpenExecutionService.calls), 1)
+        called_db_path, request, ctx = _FakeOpenExecutionService.calls[0]
+        self.assertEqual(called_db_path, db_path)
+        self.assertEqual(request.as_of_date, "20260511")
+        self.assertEqual(request.account_key, "paper-main")
+        self.assertTrue(ctx.dry_run)
+        self.assertEqual(ctx.source, "cli")
+        output = stdout.getvalue()
+        self.assertIn("open_execution_status=ready", output)
+        self.assertIn("next_action=record_buy", output)
+        self.assertIn("trade_plan_id=22", output)
+        self.assertIn("market_plan_context=trade_plan_id=22 alignment=aligned risk_level=medium", output)
 
     def test_ops_version_prints_standard_release_tag(self) -> None:
         stdout = io.StringIO()

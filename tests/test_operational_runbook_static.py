@@ -12,6 +12,8 @@ MARKET_REVIEW_DATA_SOURCE_DESIGN = ROOT / "reports" / "market_review_data_source
 BACKUP_SCRIPT = ROOT / "scripts" / "backup_remote_pgc_db.sh"
 RESTORE_SCRIPT = ROOT / "scripts" / "restore_remote_pgc_db.sh"
 DEPLOY_SCRIPT = ROOT / "scripts" / "deploy_remote.sh"
+DAILY_PIPELINE_SCRIPT = ROOT / "scripts" / "run_daily_pipeline.sh"
+DAILY_PIPELINE_TIMER_SCRIPT = ROOT / "scripts" / "install_remote_daily_pipeline_timer.sh"
 
 
 class OperationalRunbookStaticTest(unittest.TestCase):
@@ -109,6 +111,30 @@ class OperationalRunbookStaticTest(unittest.TestCase):
         ]:
             self.assertIn(text, source)
 
+    def test_m42_runbook_documents_market_review_daily_pipeline_contract(self) -> None:
+        source = RUNBOOK.read_text(encoding="utf-8")
+
+        for text in [
+            "M42 之后，带全市场复盘的收盘后主入口增加显式开关",
+            "./scripts/run_daily_pipeline.sh --date S --account paper-main --operator azboo --include-market-review --dry-run",
+            "./scripts/run_daily_pipeline.sh --date S --account paper-main --operator azboo --include-market-review --apply",
+            "market review",
+            "plan-context linking",
+            "market_review_would_write=true",
+            "report_would_write=true",
+            "market_review_runs",
+            "market_plan_contexts",
+            "market_review_run_id + trade_plan_id",
+            "## 全市场复盘",
+            "## 全市场复盘与明日计划关系",
+            "market regime summary",
+            "top 5 sectors",
+            "sector persistence",
+            "external evidence coverage",
+            "strategy hypotheses generated",
+        ]:
+            self.assertIn(text, source)
+
     def test_m43_runbook_documents_market_review_data_source_policy(self) -> None:
         source = RUNBOOK.read_text(encoding="utf-8")
 
@@ -183,6 +209,72 @@ class OperationalRunbookStaticTest(unittest.TestCase):
         if bash is None:
             self.skipTest("bash is not installed")
         subprocess.run([bash, "-n", str(DEPLOY_SCRIPT)], check=True)
+
+    def test_m46_scheduled_pipeline_documents_timer_and_apply_guards(self) -> None:
+        source = RUNBOOK.read_text(encoding="utf-8")
+
+        for text in [
+            "M46 收盘后定时流水线",
+            "scripts/install_remote_daily_pipeline_timer.sh --dry-run",
+            "scripts/install_remote_daily_pipeline_timer.sh --operator system-daily-pipeline --mode apply",
+            "systemctl status pgc-daily-pipeline.timer --no-pager",
+            "journalctl -u pgc-daily-pipeline.service -n 100 --no-pager",
+            "systemctl disable --now pgc-daily-pipeline.timer",
+            "./scripts/run_daily_pipeline.sh --date latest-closed --account paper-main --operator system-daily-pipeline --include-market-review --apply",
+            "resolved_date=YYYYMMDD",
+            "/opt/pgc/logs",
+            "/opt/pgc/backups",
+            "/api/health",
+            "PGC_API_WRITE_TOKEN=<preserve-existing-if-present>",
+        ]:
+            self.assertIn(text, source)
+
+    def test_m46_daily_pipeline_scripts_are_guarded_and_parseable(self) -> None:
+        self.assertTrue(DAILY_PIPELINE_SCRIPT.exists(), f"missing {DAILY_PIPELINE_SCRIPT}")
+        self.assertTrue(DAILY_PIPELINE_TIMER_SCRIPT.exists(), f"missing {DAILY_PIPELINE_TIMER_SCRIPT}")
+
+        pipeline_source = DAILY_PIPELINE_SCRIPT.read_text(encoding="utf-8")
+        for text in [
+            "latest-closed",
+            "resolved_date=",
+            "market data missing for resolved_date",
+            "PGC_DAILY_PIPELINE_LOG_DIR",
+            "--backup-dir",
+            "--include-market-review",
+        ]:
+            self.assertIn(text, pipeline_source)
+
+        timer_source = DAILY_PIPELINE_TIMER_SCRIPT.read_text(encoding="utf-8")
+        for text in [
+            "pgc-daily-pipeline.service",
+            "pgc-daily-pipeline.timer",
+            "Mon..Fri *-*-* 16:20:00 Asia/Shanghai",
+            'REMOTE_CURRENT_DIR="${PGC_REMOTE_CURRENT_DIR:-/opt/pgc/app}"',
+            'REMOTE_DB_PATH="${PGC_REMOTE_DB_PATH:-/opt/pgc/data/pgc_trading.db}"',
+            'REMOTE_BACKUP_DIR="${PGC_REMOTE_BACKUP_DIR:-/opt/pgc/backups}"',
+            'REMOTE_LOG_DIR="${PGC_REMOTE_LOG_DIR:-/opt/pgc/logs}"',
+            "WorkingDirectory=$working_dir",
+            "Environment=PGC_DB_PATH=$db_path",
+            "Environment=PGC_DAILY_PIPELINE_LOG_DIR=$log_dir",
+            "ExecStartPre=/usr/bin/curl -fsS",
+            "--date latest-closed",
+            "--operator ${OPERATOR}",
+            "--backup-dir ${REMOTE_BACKUP_DIR}",
+            "--include-market-review ${MODE_FLAG}",
+            "systemctl enable --now",
+            "journalctl -u",
+            "systemctl disable --now",
+        ]:
+            self.assertIn(text, timer_source)
+
+        self.assertNotIn("rm -rf", timer_source)
+        self.assertNotIn("rm -f", timer_source)
+
+        bash = shutil.which("bash")
+        if bash is None:
+            self.skipTest("bash is not installed")
+        for script in [DAILY_PIPELINE_SCRIPT, DAILY_PIPELINE_TIMER_SCRIPT]:
+            subprocess.run([bash, "-n", str(script)], check=True)
 
 
 if __name__ == "__main__":

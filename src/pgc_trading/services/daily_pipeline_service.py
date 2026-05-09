@@ -21,6 +21,11 @@ from pgc_trading.services.daily_close_workflow_service import (
     DailyCloseWorkflowService,
     RunDailyCloseWorkflowRequest,
 )
+from pgc_trading.services.market_plan_context_service import (
+    LinkMarketPlanContextRequest,
+    MarketPlanContextService,
+)
+from pgc_trading.services.market_review_service import MarketReviewService, RunMarketReviewRequest
 from pgc_trading.services.position_lifecycle_service import EvaluateExitsRequest, PositionLifecycleService
 from pgc_trading.storage.database import connect
 from pgc_trading.storage.invariant_checks import check_database
@@ -30,6 +35,8 @@ from pgc_trading.strategies.cpb_6157 import STRATEGY_VERSION
 
 DailyCloseFactory = Callable[[Path], DailyCloseWorkflowService]
 AgentReviewFactory = Callable[[Path], AgentReviewService]
+MarketReviewFactory = Callable[[Path], MarketReviewService]
+MarketPlanContextFactory = Callable[[Path], MarketPlanContextService]
 PositionLifecycleFactory = Callable[[Path], PositionLifecycleService]
 ReportFactory = Callable[[Path], ReportingQueryService]
 BackupFunc = Callable[[Path, Path | None, str], Path]
@@ -46,6 +53,9 @@ _CHANGE_TABLES = (
     "agent_runs",
     "agent_artifacts",
     "agent_decisions",
+    "market_review_runs",
+    "market_regime_snapshots",
+    "market_plan_contexts",
     "exit_decisions",
 )
 
@@ -58,6 +68,7 @@ class RunDailyPipelineRequest:
     strategy_version: str = STRATEGY_VERSION
     run_type: str = "paper"
     backup_dir: Path | None = None
+    include_market_review: bool = False
 
 
 @dataclass(frozen=True)
@@ -86,6 +97,11 @@ class DailyPipelineResult:
     exit_status: str | None = None
     report_status: str | None = None
     report_would_write: bool = False
+    market_review_run_id: int | None = None
+    market_review_status: str | None = None
+    market_plan_context_status: str | None = None
+    market_review_would_write: bool = False
+    market_plan_context_would_write: bool = False
     invariant_violation_codes: list[str] = field(default_factory=list)
     step_summaries: dict[str, PipelineStepSummary] = field(default_factory=dict)
 
@@ -100,6 +116,8 @@ class DailyPipelineService:
         reports_dir: Path | None = None,
         daily_close_service_factory: DailyCloseFactory = DailyCloseWorkflowService,
         agent_review_service_factory: AgentReviewFactory = AgentReviewService,
+        market_review_service_factory: MarketReviewFactory = MarketReviewService,
+        market_plan_context_service_factory: MarketPlanContextFactory = MarketPlanContextService,
         position_service_factory: PositionLifecycleFactory = PositionLifecycleService,
         report_service_factory: ReportFactory = ReportingQueryService,
         backup_func: BackupFunc = backup_database,
@@ -108,6 +126,8 @@ class DailyPipelineService:
         self.reports_dir = reports_dir or Paths().reports_dir
         self.daily_close_service_factory = daily_close_service_factory
         self.agent_review_service_factory = agent_review_service_factory
+        self.market_review_service_factory = market_review_service_factory
+        self.market_plan_context_service_factory = market_plan_context_service_factory
         self.position_service_factory = position_service_factory
         self.report_service_factory = report_service_factory
         self.backup_func = backup_func
@@ -233,6 +253,102 @@ class DailyPipelineService:
                 errors=agent_result.errors,
             )
 
+        market_review_run_id: int | None = None
+        market_review_status = "skipped"
+        market_plan_context_status = "skipped"
+        market_review_would_write = False
+        market_plan_context_would_write = False
+
+        if request.include_market_review:
+            market_review = self.market_review_service_factory(self.db_path).run_market_review(
+                RunMarketReviewRequest(as_of_date=request.as_of_date),
+                _child_context(ctx, base_key, "market-review"),
+            )
+            warnings.extend(market_review.warnings)
+            market_review_status = market_review.status
+            market_review_would_write = ctx.dry_run
+            step_summaries["market_review"] = PipelineStepSummary(status=market_review.status)
+            if not market_review.ok or market_review.data is None:
+                return _failed_pipeline_result(
+                    request=request,
+                    ctx=ctx,
+                    status=market_review.status,
+                    backup_path=backup_path,
+                    ledger_audit_ok=True,
+                    daily_close_status=daily_close.status,
+                    agent_status=agent_result.status,
+                    next_trade_date=next_trade_date,
+                    daily_pick_id=daily_pick_id,
+                    trade_plan_id=trade_plan_id,
+                    agent_run_id=agent_result.data.agent_run_id,
+                    agent_decision_id=agent_result.data.agent_decision_id,
+                    market_review_status=market_review_status,
+                    market_review_would_write=market_review_would_write,
+                    step_summaries=step_summaries,
+                    warnings=warnings,
+                    errors=market_review.errors,
+                )
+            market_review_run_id = market_review.data.market_review_run_id
+        else:
+            step_summaries["market_review"] = PipelineStepSummary(status="skipped", detail="not_requested")
+
+        if request.include_market_review and trade_plan_id is not None:
+            if ctx.dry_run and market_review_run_id is None:
+                market_plan_context_would_write = True
+                step_summaries["market_plan_context"] = PipelineStepSummary(
+                    status="skipped",
+                    detail="market_review_not_persisted_in_dry_run",
+                )
+                warnings.append(
+                    ServiceWarning(
+                        code="MARKET_PLAN_CONTEXT_DRY_RUN_PENDING_REVIEW",
+                        message=(
+                            "Market-plan context would be linked after an apply run persists "
+                            "the market review."
+                        ),
+                    )
+                )
+            else:
+                plan_context = self.market_plan_context_service_factory(self.db_path).link_plan_context(
+                    LinkMarketPlanContextRequest(
+                        as_of_date=request.as_of_date,
+                        trade_plan_id=trade_plan_id,
+                    ),
+                    _child_context(ctx, base_key, f"market-plan-context:trade-plan-{trade_plan_id}"),
+                )
+                warnings.extend(plan_context.warnings)
+                market_plan_context_status = plan_context.status
+                market_plan_context_would_write = ctx.dry_run
+                step_summaries["market_plan_context"] = PipelineStepSummary(status=plan_context.status)
+                if not plan_context.ok or plan_context.data is None:
+                    return _failed_pipeline_result(
+                        request=request,
+                        ctx=ctx,
+                        status=plan_context.status,
+                        backup_path=backup_path,
+                        ledger_audit_ok=True,
+                        daily_close_status=daily_close.status,
+                        agent_status=agent_result.status,
+                        next_trade_date=next_trade_date,
+                        daily_pick_id=daily_pick_id,
+                        trade_plan_id=trade_plan_id,
+                        agent_run_id=agent_result.data.agent_run_id,
+                        agent_decision_id=agent_result.data.agent_decision_id,
+                        market_review_run_id=market_review_run_id,
+                        market_review_status=market_review_status,
+                        market_plan_context_status=market_plan_context_status,
+                        market_review_would_write=market_review_would_write,
+                        market_plan_context_would_write=market_plan_context_would_write,
+                        step_summaries=step_summaries,
+                        warnings=warnings,
+                        errors=plan_context.errors,
+                    )
+        else:
+            step_summaries["market_plan_context"] = PipelineStepSummary(
+                status="skipped",
+                detail="no_trade_plan" if request.include_market_review else "not_requested",
+            )
+
         exits = self.position_service_factory(self.db_path).evaluate_exits(
             EvaluateExitsRequest(
                 as_of_date=request.as_of_date,
@@ -257,6 +373,11 @@ class DailyPipelineService:
                 trade_plan_id=trade_plan_id,
                 agent_run_id=agent_result.data.agent_run_id,
                 agent_decision_id=agent_result.data.agent_decision_id,
+                market_review_run_id=market_review_run_id,
+                market_review_status=market_review_status,
+                market_plan_context_status=market_plan_context_status,
+                market_review_would_write=market_review_would_write,
+                market_plan_context_would_write=market_plan_context_would_write,
                 step_summaries=step_summaries,
                 warnings=warnings,
                 errors=exits.errors,
@@ -281,6 +402,11 @@ class DailyPipelineService:
                 agent_run_id=agent_result.data.agent_run_id,
                 agent_decision_id=agent_result.data.agent_decision_id,
                 exit_decisions=_exit_decision_count(exits.data),
+                market_review_run_id=market_review_run_id,
+                market_review_status=market_review_status,
+                market_plan_context_status=market_plan_context_status,
+                market_review_would_write=market_review_would_write,
+                market_plan_context_would_write=market_plan_context_would_write,
                 step_summaries=step_summaries,
                 warnings=warnings,
                 errors=report_result.errors,
@@ -307,6 +433,11 @@ class DailyPipelineService:
             exit_status=exits.status,
             report_status=report_result.status,
             report_would_write=report_result.data.would_write,
+            market_review_run_id=market_review_run_id,
+            market_review_status=market_review_status,
+            market_plan_context_status=market_plan_context_status,
+            market_review_would_write=market_review_would_write,
+            market_plan_context_would_write=market_plan_context_would_write,
             step_summaries=step_summaries,
         )
         return ServiceResult(
@@ -320,6 +451,7 @@ class DailyPipelineService:
                 "daily_pick_id": daily_pick_id,
                 "trade_plan_id": trade_plan_id,
                 "agent_run_id": agent_result.data.agent_run_id,
+                "market_review_run_id": market_review_run_id,
             },
         )
 
@@ -508,6 +640,11 @@ def _failed_pipeline_result(
     trade_plan_id: int | None = None,
     agent_run_id: int | None = None,
     agent_decision_id: int | None = None,
+    market_review_run_id: int | None = None,
+    market_review_status: str | None = None,
+    market_plan_context_status: str | None = None,
+    market_review_would_write: bool = False,
+    market_plan_context_would_write: bool = False,
     exit_decisions: int = 0,
 ) -> ServiceResult[DailyPipelineResult]:
     pipeline_status = "blocked" if status == "blocked" else "failed"
@@ -532,6 +669,11 @@ def _failed_pipeline_result(
             agent_status=agent_status,
             exit_status=exit_status,
             report_status=None,
+            market_review_run_id=market_review_run_id,
+            market_review_status=market_review_status,
+            market_plan_context_status=market_plan_context_status,
+            market_review_would_write=market_review_would_write,
+            market_plan_context_would_write=market_plan_context_would_write,
             step_summaries=step_summaries,
         ),
         warnings=warnings,

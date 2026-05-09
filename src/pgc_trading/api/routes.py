@@ -27,6 +27,7 @@ from pgc_trading.services.market_review_service import (
     ListMarketReviewsRequest,
     ListMarketReviewSectorsRequest,
 )
+from pgc_trading.services.open_execution_service import OpenExecutionRequest
 from pgc_trading.services.portfolio_planning_service import (
     CancelTradePlanRequest,
     GenerateBuyPlanRequest,
@@ -196,6 +197,24 @@ def register_routes(app: Any) -> None:
             layer=_blank_to_none(layer),
             trade_date=_normalize_optional_date(trade_date),
             limit=limit,
+        )
+
+    @app.get("/api/open-execution", tags=["portfolio"])
+    def open_execution(
+        as_of_date: str,
+        response: Response,
+        account_key: str | None = DEFAULT_ACCOUNT_KEY,
+        account_id: int | None = None,
+        request_id: str | None = None,
+    ) -> dict[str, object]:
+        return get_open_execution(
+            app.state.settings,
+            app.state.services,
+            response,
+            as_of_date=as_of_date,
+            account_key=_blank_to_none(account_key),
+            account_id=account_id,
+            request_id=request_id,
         )
 
     @app.get("/api/accounts/{account_id}/positions", tags=["portfolio"])
@@ -503,6 +522,29 @@ def list_data_quality_events(
             trade_date=_normalize_optional_date(trade_date),
             limit=limit,
         )
+    )
+    return _service_response(result, response)
+
+
+def get_open_execution(
+    settings: ApiSettings,
+    services: ApiServices,
+    response: Any,
+    *,
+    as_of_date: str,
+    account_key: str | None = DEFAULT_ACCOUNT_KEY,
+    account_id: int | None = None,
+    request_id: str | None = None,
+) -> dict[str, object]:
+    normalized_date = _normalize_date(as_of_date)
+    service = services.open_execution_service_factory(settings.db_path)
+    result = service.get_open_execution(
+        OpenExecutionRequest(
+            as_of_date=normalized_date,
+            account_key=account_key,
+            account_id=account_id,
+        ),
+        RequestContext(request_id=request_id, dry_run=True, source="api"),
     )
     return _service_response(result, response)
 

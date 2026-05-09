@@ -90,6 +90,11 @@ class DailyReportTest(unittest.TestCase):
             self.assertEqual(result.data.lineage.market_review_run_id, market_review_run_id)
 
             markdown = render_daily_report_markdown(result.data)
+            self.assertIn("## 全市场复盘", markdown)
+            self.assertIn("Top 5 板块", markdown)
+            self.assertIn("板块持续性", markdown)
+            self.assertIn("外部证据覆盖", markdown)
+            self.assertIn("策略假设", markdown)
             self.assertIn("## 全市场复盘与明日计划关系", markdown)
             self.assertIn("市场状态", markdown)
             self.assertIn("强势板块", markdown)
@@ -98,6 +103,10 @@ class DailyReportTest(unittest.TestCase):
             self.assertIn("不会自动创建、取消或执行交易计划", markdown)
 
             payload = json.loads(render_daily_report_json(result.data))
+            self.assertEqual(payload["market_review"]["market_review_run_id"], market_review_run_id)
+            self.assertEqual(payload["market_review"]["top_sectors"][0]["sector_name"], "人工智能")
+            self.assertEqual(payload["market_review"]["external_evidence_coverage"]["total_count"], 1)
+            self.assertEqual(payload["market_review"]["strategy_hypotheses"][0]["status"], "proposed")
             self.assertEqual(payload["market_plan_context"]["management_action"], "proceed")
             self.assertEqual(payload["lineage"]["market_review_run_id"], market_review_run_id)
             self.assertEqual(payload["market_plan_context"]["evidence"]["top_sectors"][0]["sector_name"], "人工智能")
@@ -492,6 +501,58 @@ class DailyReportTest(unittest.TestCase):
               (?, ?, 'risk_on', 0.72, 0.68, 0.66, 0.61, 0.80, 'Market review supports the plan.')
             """,
             (run_id, AS_OF_DATE),
+        )
+        conn.execute(
+            """
+            INSERT INTO sector_daily_snapshots
+              (
+                market_review_run_id,
+                as_of_date,
+                sector_code,
+                sector_name,
+                provider,
+                rank_overall,
+                return_1d,
+                return_3d,
+                breadth_score,
+                volume_score,
+                persistence_score,
+                leader_count
+              )
+            VALUES
+              (?, ?, 'AI', '人工智能', 'manual_test', 1, 0.023, 0.061, 0.82, 0.74, 0.80, 3)
+            """,
+            (run_id, AS_OF_DATE),
+        )
+        conn.execute(
+            """
+            INSERT INTO market_external_items
+              (
+                as_of_date,
+                scope_type,
+                scope_key,
+                item_type,
+                provider,
+                title,
+                summary,
+                sentiment,
+                importance,
+                published_date,
+                source_hash
+              )
+            VALUES
+              (?, 'sector', 'AI', 'news', 'manual_test', '行业景气度改善', '需求改善。', 'positive', 'medium', ?, 'daily-report-ai-news')
+            """,
+            (AS_OF_DATE, AS_OF_DATE),
+        )
+        conn.execute(
+            """
+            INSERT INTO strategy_hypotheses
+              (as_of_date, hypothesis_type, title, rationale, evidence_json, proposed_change_json, status)
+            VALUES
+              (?, 'sector_filter', '提高持续性板块权重', '人工智能板块持续性较强。', '{}', '{}', 'proposed')
+            """,
+            (AS_OF_DATE,),
         )
         evidence = {
             "market_regime": {

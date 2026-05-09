@@ -11,14 +11,18 @@
 ## Current State
 
 - Local branch: `codex/m14b-yfinance`
-- R0 release checkpoint is complete and remote is aligned through `3ff703e`.
-- M39, M41A, M43, and M44 are implemented in this checkpoint.
-- M41B, M42, M45, and M46 remain as the next integration wave.
-- Verification already run for M39/M41A/M43/M44:
-  - targeted tests: `54 passed, 2 skipped`
-  - full tests: `308 passed, 3 skipped, 10 subtests passed`
+- R0 release checkpoint is complete and remote is aligned through `8e3a36f`, release `pgc-v0.1.0-20260509-g8e3a36f`.
+- M39, M41A, M43, and M44 are implemented, pushed, and deployed in the current remote baseline.
+- M41B, M42, M45, and M46 are implemented and locally verified; they are not yet committed or deployed in this batch.
+- Verification already run for M41B/M42/M45/M46:
+  - targeted tests: `89 passed, 1 skipped, 1 subtests passed`
+  - full tests: `327 passed, 3 skipped, 10 subtests passed`
+  - `node --check web/dashboard/app.js`: pass
+  - `bash -n scripts/run_daily_pipeline.sh scripts/install_remote_daily_pipeline_timer.sh`: pass
+  - `python3 -m py_compile` on changed Python entrypoints/services: pass
   - `git diff --check`: pass
-  - `market-review run --dry-run --date 20260508`: works locally
+  - `ops open-execution --dry-run --date 20260508`: pass, read-only waiting state
+  - `run_daily_pipeline.sh --date 20260508 --include-market-review --dry-run`: pass
 - Local and remote databases must be checked with `ops health --require-current-migrations` before running M39/M44 commands against a formal database.
 
 ## Parallel Work Map
@@ -28,20 +32,19 @@
 | R0 | Commit/push/deploy current M28-M40 and run `012_market_review` | Done | No | Current reviewed code | Release session |
 | M39 | Plan-context linking service and report section | Done | Yes | M36/M37/M38 outputs | Session A |
 | M41A | Market review read API | Done | Yes | M36-M39 tables | Session B |
-| M41B | Dashboard full-market tab | Next | Yes | M41A route contract | Session C |
-| M42 | Daily pipeline integration and report output | Next | Yes after M39 | M36-M39 services | Session D |
+| M41B | Dashboard full-market tab | Done / Local verification | Yes | M41A route contract | Session C |
+| M42 | Daily pipeline integration and report output | Done / Local verification | Yes after M39 | M36-M39 services | Session D |
 | M43 | Production market-review runbook and fixtures-to-real-data policy | Done | Yes | M36/M37/M38 CLI | Session E |
 | M44 | Strategy hypothesis backtest bridge | Done | Yes | `strategy_hypotheses`, existing replay/backtest tests | Session F |
-| M45 | M30 open-execution service alignment | Next | Yes, separate product track | Existing execution services | Session G |
-| M46 | M31 scheduled post-close pipeline | Next | After M42 and write-token deploy | `run_daily_pipeline.sh` | Ops session |
+| M45 | M30 open-execution service alignment | Done / Local verification | Yes, separate product track | Existing execution services | Session G |
+| M46 | M31 scheduled post-close pipeline | Done / Local verification | After M42 and write-token deploy | `run_daily_pipeline.sh` | Ops session |
 
 Recommended order from this checkpoint:
 
-1. Release the M39/M41A/M43/M44 checkpoint with a normal commit, push, deploy, and migration health check.
-2. Run local and remote migration health checks before formal M39/M44 commands.
-3. Start M41B and M42 in parallel.
-4. Start M45 after the Dashboard contract is clear enough to show market-plan context in the open-execution flow.
-5. Start M46 only after M42 is accepted and the scheduled command is stable.
+1. Commit and push the locally verified M41B/M42/M45/M46 batch.
+2. Deploy the batch with a release tag, then run remote `ops health --require-current-migrations`.
+3. Keep M46 timer installation as an explicit ops action; preview with `--dry-run` before enabling a real schedule.
+4. Start the next planning wave from Dashboard usability, market evidence depth, and strategy evolution guardrails.
 
 ---
 
@@ -478,7 +481,7 @@ Also reject any change that:
 
 ## Immediate Next Actions
 
-1. Push and deploy the M39/M41A/M43/M44 checkpoint after review.
-2. Run `ops health --require-current-migrations` locally and remotely.
-3. Start M41B Dashboard full-market tab and M42 daily pipeline/report integration in parallel.
-4. Keep M45 and M46 as follow-up tasks after M41B/M42 contracts are stable.
+1. Commit and push the M41B/M42/M45/M46 batch after review.
+2. Deploy the batch and confirm remote `ops health --require-current-migrations`.
+3. Preview M46 timer installation with `scripts/install_remote_daily_pipeline_timer.sh --dry-run`.
+4. Plan the next wave around market evidence quality, Dashboard interaction depth, and strategy hypothesis validation.

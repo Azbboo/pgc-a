@@ -21,12 +21,25 @@ const state = {
   operator: dashboardOperator(),
   writeToken: localStorage.getItem("pgc.dashboard.writeToken") || "",
   dryRun: dashboardDryRun(),
-  activePage: "execution",
+  activePage: initialPage(),
   busy: false,
   reviewDatePinned: false,
   report: null,
   reportEnvelope: null,
   reviewHistory: [],
+  openExecution: null,
+  openExecutionEnvelope: null,
+  marketReviewHistory: [],
+  marketReview: null,
+  marketReviewEnvelope: null,
+  marketSectors: [],
+  marketSectorsEnvelope: null,
+  marketExternalItems: [],
+  marketExternalEnvelope: null,
+  marketHypotheses: [],
+  marketHypothesesEnvelope: null,
+  marketPlanContexts: [],
+  marketPlanContextEnvelope: null,
   tradePlans: [],
   positions: [],
   qualityEvents: [],
@@ -46,6 +59,7 @@ document.addEventListener("DOMContentLoaded", () => {
   cacheElements();
   bindEvents();
   syncFormFromState();
+  setActivePage(state.activePage);
   refreshAll();
 });
 
@@ -80,6 +94,18 @@ function cacheElements() {
     "statusQuality",
     "noticeLine",
     "reviewBadge",
+    "marketBadge",
+    "reloadMarketButton",
+    "marketReviewDateLabel",
+    "marketRegimeStrip",
+    "marketSectorState",
+    "marketSectorBody",
+    "marketPlanContextPanel",
+    "marketSentimentState",
+    "openMarketNewsDrawerButton",
+    "marketSentimentSummary",
+    "marketHypothesisState",
+    "marketHypothesesList",
     "plansBadge",
     "recordBadge",
     "positionsBadge",
@@ -185,6 +211,10 @@ function bindEvents() {
   els.reviewLatestDateButton.addEventListener("click", setLatestReviewDate);
   els.reloadReviewHistoryButton.addEventListener("click", loadReviewHistoryAndRender);
   els.reviewHistoryList.addEventListener("click", onReviewHistoryClick);
+  els.reloadMarketButton.addEventListener("click", loadMarketReviewAndRender);
+  els.marketSectorBody.addEventListener("click", onMarketSectorClick);
+  els.openMarketNewsDrawerButton.addEventListener("click", () => openMarketNewsDrawer());
+  els.marketHypothesesList.addEventListener("click", onMarketHypothesisClick);
   els.reloadExecutionButton.addEventListener("click", refreshAll);
   els.executionEvaluateExitsButton.addEventListener("click", evaluateExits);
   els.publishReviewPlanButton.addEventListener("click", () => {
@@ -319,7 +349,7 @@ async function refreshAll(options = {}) {
       persistContext();
     }
     await loadDailyReport();
-    await Promise.all([loadPlans(), loadQuality(), loadPositions()]);
+    await Promise.all([loadPlans(), loadQuality(), loadPositions(), loadMarketReview(), loadOpenExecution()]);
     renderAll();
   } catch (error) {
     showNotice(error.message || String(error));
@@ -360,6 +390,57 @@ async function loadReviewHistory() {
     throw new Error(errorMessages(envelope).join("；") || "无法读取复盘历史列表。");
   }
   state.reviewHistory = envelope.data?.items || [];
+}
+
+async function loadOpenExecution() {
+  const accountId = resolvedAccountId();
+  if (!accountId && !state.accountKey) {
+    state.openExecution = null;
+    state.openExecutionEnvelope = null;
+    return;
+  }
+  const params = new URLSearchParams();
+  params.set("as_of_date", executionDate());
+  params.set("request_id", requestId("open-execution"));
+  if (accountId) {
+    params.set("account_id", accountId);
+  } else if (state.accountKey) {
+    params.set("account_key", state.accountKey);
+  }
+  const envelope = await apiRequest(`/api/open-execution?${params.toString()}`);
+  state.openExecutionEnvelope = envelope;
+  state.openExecution = envelope.data || null;
+}
+
+async function loadMarketReview() {
+  const asOfDate = normalizeDate(state.asOfDate);
+  const contextPath = marketPlanContextApiPath(asOfDate);
+  const [
+    historyEnvelope,
+    reviewEnvelope,
+    sectorsEnvelope,
+    externalEnvelope,
+    hypothesesEnvelope,
+    planContextEnvelope,
+  ] = await Promise.all([
+    apiRequest("/api/market-reviews?limit=20"),
+    apiRequest(`/api/market-reviews/${asOfDate}`),
+    apiRequest(`/api/market-reviews/${asOfDate}/sectors`),
+    apiRequest(`/api/market-reviews/${asOfDate}/external-items`),
+    apiRequest(`/api/market-reviews/${asOfDate}/hypotheses?limit=20`),
+    apiRequest(contextPath),
+  ]);
+  state.marketReviewHistory = historyEnvelope.data?.reviews || [];
+  state.marketReviewEnvelope = reviewEnvelope;
+  state.marketReview = reviewEnvelope.data || null;
+  state.marketSectorsEnvelope = sectorsEnvelope;
+  state.marketSectors = sectorsEnvelope.data?.sectors || [];
+  state.marketExternalEnvelope = externalEnvelope;
+  state.marketExternalItems = externalEnvelope.data?.items || [];
+  state.marketHypothesesEnvelope = hypothesesEnvelope;
+  state.marketHypotheses = hypothesesEnvelope.data?.hypotheses || [];
+  state.marketPlanContextEnvelope = planContextEnvelope;
+  state.marketPlanContexts = planContextEnvelope.data?.contexts || [];
 }
 
 function latestReviewHistoryDate() {
@@ -458,6 +539,14 @@ async function loadReviewHistoryAndRender() {
   await runWithNotice(async () => {
     await loadReviewHistory();
     renderReviewHistory();
+  });
+}
+
+async function loadMarketReviewAndRender() {
+  await runWithNotice(async () => {
+    await loadMarketReview();
+    renderMarketReview();
+    renderBadges();
   });
 }
 
@@ -709,6 +798,7 @@ function renderAll() {
   renderReviewHistory();
   renderReviewScopeMarkers();
   renderReview();
+  renderMarketReview();
   renderPlans();
   renderRecordQueue();
   renderPositions();
@@ -764,7 +854,9 @@ function renderOpeningExecution() {
 }
 
 function renderOpeningWorkflowGuide(readiness, executionPlans, executionDay) {
-  const guidance = openingWorkflowGuidance(readiness, executionPlans, executionDay);
+  const guidance = state.openExecution
+    ? openExecutionGuidance(state.openExecution, readiness, executionPlans, executionDay)
+    : openingWorkflowGuidance(readiness, executionPlans, executionDay);
   els.openingWorkflowGuide.className = `execution-command-center execution-command-center--${guidance.tone}`;
   els.openingWorkflowGuide.innerHTML = `
     <div class="workflow-guide__main">
@@ -776,11 +868,159 @@ function renderOpeningWorkflowGuide(readiness, executionPlans, executionDay) {
       ${workflowFact("今天该做什么", guidance.what, guidance.whatTone)}
       ${workflowFact("为什么不能做", guidance.why, guidance.whyTone)}
       ${workflowFact("下一步点哪里", guidance.next, guidance.nextTone)}
+      ${workflowFact("市场计划关系", guidance.marketContext || "未关联 market-plan context", guidance.marketContextTone || "idle")}
     </div>
     <div class="workflow-guide__actions">
       ${guidance.actions.map(workflowActionButton).join("")}
     </div>
   `;
+}
+
+function openExecutionGuidance(openExecution, readiness, executionPlans, executionDay) {
+  const target = openExecutionTargetText(openExecution);
+  const marketContext = marketPlanContextExecutionText(openExecution.market_plan_context);
+  const marketContextTone = marketPlanContextExecutionTone(openExecution.market_plan_context);
+  const contextFields = { marketContext, marketContextTone };
+
+  if (openExecution.status === "blocked" || openExecution.next_action === "blocked") {
+    const reason = (openExecution.blocked_reasons || [])[0] || errorMessages(state.openExecutionEnvelope).join("；") || "账本 invariant blocker 未处理。";
+    return {
+      ...contextFields,
+      tone: "blocked",
+      title: "今天先处理账本或数据阻断",
+      detail: reason,
+      what: "暂停开盘执行动作",
+      why: reason,
+      next: "检查数据质量和账本审计后刷新执行台",
+      whatTone: "blocked",
+      whyTone: "blocked",
+      nextTone: "action",
+      actions: [
+        { label: "查看数据质量", action: "quality", primary: true },
+        { label: "刷新执行台", action: "refresh" },
+      ],
+    };
+  }
+
+  if (readiness.blocked) {
+    return {
+      ...openingWorkflowGuidance(readiness, executionPlans, executionDay),
+      ...contextFields,
+    };
+  }
+
+  if (openExecution.next_action === "record_sell") {
+    return {
+      ...contextFields,
+      tone: "ready",
+      title: `按 active 退出计划录入 ${target} 卖出成交`,
+      detail: "退出计划来自持仓生命周期；成交录入仍需人工确认日期、价格、股数和写入凭证。",
+      what: `${displayDate(executionDay)} 录入人工纸面卖出成交`,
+      why: "open-execution 找到执行日匹配的 active 卖出计划",
+      next: "点“录入卖出成交”进入成交录入页",
+      whatTone: "ready",
+      whyTone: "ready",
+      nextTone: "action",
+      actions: [
+        { label: "录入卖出成交", action: "record-plan", planId: openExecution.primary_plan_id, primary: true },
+        { label: "查看交易计划", action: "plans" },
+      ],
+    };
+  }
+
+  if (openExecution.next_action === "record_buy" && readiness.manualComplete) {
+    return {
+      ...contextFields,
+      tone: "ready",
+      title: `按 active 计划录入 ${target} 买入成交`,
+      detail: "开盘检查已完成；market-plan context 只给提示，不会自动取消或执行计划。",
+      what: `${displayDate(executionDay)} 录入人工纸面买入成交`,
+      why: "open-execution 找到执行日匹配的 active 买入计划",
+      next: "点“录入买入成交”进入成交录入页",
+      whatTone: "ready",
+      whyTone: "ready",
+      nextTone: "action",
+      actions: [
+        { label: "录入买入成交", action: "record-plan", planId: openExecution.primary_plan_id, primary: true },
+        { label: "查看计划详情", action: "plan-detail", planId: openExecution.primary_plan_id },
+      ],
+    };
+  }
+
+  if (openExecution.next_action === "record_buy") {
+    const unchecked = uncheckedPreOpenLabels();
+    return {
+      ...contextFields,
+      tone: "waiting",
+      title: "先完成开盘检查，再录入买入成交",
+      detail: unchecked.length ? `待确认：${unchecked.join("、")}。` : "待确认开盘检查项。",
+      what: `核对 ${target} 的开盘可交易条件`,
+      why: "open-execution 已找到 active 买入计划，但人工开盘检查未完成",
+      next: "点“定位检查清单”，逐项确认后再点录入",
+      whatTone: "warning",
+      whyTone: "blocked",
+      nextTone: "action",
+      actions: [
+        { label: "定位检查清单", action: "checklist", primary: true },
+        { label: "查看计划详情", action: "plan-detail", planId: openExecution.primary_plan_id },
+      ],
+    };
+  }
+
+  if (openExecution.next_action === "evaluate_exit") {
+    return {
+      ...contextFields,
+      tone: "waiting",
+      title: `今天优先评估 ${target} 的退出动作`,
+      detail: "open-execution 找到 T+2 / T+5 到期待处理持仓；评估按钮仍走显式写入确认。",
+      what: `${displayDate(executionDay)} 评估退出并按实际成交录入卖出`,
+      why: "存在到期待处理持仓，尚未生成执行日卖出计划",
+      next: "点“评估退出”生成决策/计划，或直接进入卖出录入",
+      whatTone: "warning",
+      whyTone: "ready",
+      nextTone: "action",
+      actions: [
+        { label: "评估退出", action: "exits", primary: true },
+        { label: "卖出录入", action: "record-position", positionId: openExecution.primary_position_id },
+      ],
+    };
+  }
+
+  if (openExecution.next_action === "wait") {
+    return {
+      ...contextFields,
+      tone: "idle",
+      title: "有 active 计划，但还没到执行日",
+      detail: `下一计划交易日：${displayDate(openExecution.planned_trade_date)}。`,
+      what: "等待计划交易日，不错日录入",
+      why: "open-execution 未找到今天到期的 active 执行计划",
+      next: "点“查看交易计划”核对具体日期",
+      whatTone: "idle",
+      whyTone: "blocked",
+      nextTone: "action",
+      actions: [
+        { label: "查看交易计划", action: "plans", primary: true },
+        { label: "刷新执行台", action: "refresh" },
+      ],
+    };
+  }
+
+  return {
+    ...contextFields,
+    tone: "idle",
+    title: "今天没有主动买入或退出任务",
+    detail: "open-execution 没有找到执行日计划或到期持仓。",
+    what: "保留观察，必要时刷新复盘和计划列表",
+    why: "没有 active 计划、卖出计划或 T+2 / T+5 退出任务",
+    next: "点“查看每日复盘”确认无候选原因",
+    whatTone: "idle",
+    whyTone: "ready",
+    nextTone: "action",
+    actions: [
+      { label: "查看每日复盘", action: "review", primary: true },
+      { label: "刷新执行台", action: "refresh" },
+    ],
+  };
 }
 
 function openingWorkflowGuidance(readiness, executionPlans, executionDay) {
@@ -994,6 +1234,28 @@ function workflowActionButton(action) {
   return `<button type="button" ${attrs} class="${action.primary ? "primary-button" : ""}">${escapeHtml(action.label)}</button>`;
 }
 
+function openExecutionTargetText(openExecution) {
+  const stock = [openExecution?.target_stock, openExecution?.target_name].filter(Boolean).join(" ");
+  if (stock) return stock;
+  if (openExecution?.primary_plan_id) return `计划 ${openExecution.primary_plan_id}`;
+  if (openExecution?.primary_position_id) return `持仓 ${openExecution.primary_position_id}`;
+  return "当前标的";
+}
+
+function marketPlanContextExecutionText(context) {
+  if (!context) return "未关联 market-plan context";
+  const action = managementActionText(context.management_action);
+  return `${alignmentText(context.alignment)} / ${riskText(context.risk_level)} / ${action}`;
+}
+
+function marketPlanContextExecutionTone(context) {
+  if (!context) return "idle";
+  if (context.management_action === "consider_cancel" || context.alignment === "conflict") return "blocked";
+  if (context.management_action === "manual_review" || context.risk_level === "medium") return "warning";
+  if (context.management_action === "proceed" && context.alignment === "aligned") return "ready";
+  return "idle";
+}
+
 function primaryBlockerReason() {
   const blockers = blockingEvents();
   const first = blockers[0];
@@ -1083,6 +1345,7 @@ function openingPlanCard(plan, executionDay) {
   const lockReason = recordLockReasonForPlan(plan, executionDay);
   const canRecord = !lockReason;
   const canCancel = ["draft", "active"].includes(plan.status);
+  const marketContext = marketContextForPlan(plan.id);
   return `
     <div class="execution-plan-card">
       <div class="plan-title-line">
@@ -1105,7 +1368,26 @@ function openingPlanCard(plan, executionDay) {
         <button type="button" data-plan-action="detail" data-plan-id="${plan.id}">详情</button>
       </div>
       ${lockReason ? `<p class="plan-lock-note">录入锁定：${escapeHtml(lockReason)}</p>` : ""}
+      ${marketContextPlanNote(marketContext)}
     </div>
+  `;
+}
+
+function marketContextForPlan(planId) {
+  const openContext = state.openExecution?.market_plan_context;
+  if (openContext && Number(openContext.trade_plan_id) === Number(planId)) return openContext;
+  return (state.marketPlanContexts || []).find((context) => Number(context.trade_plan_id) === Number(planId)) || null;
+}
+
+function marketContextPlanNote(context) {
+  if (!context) return "";
+  const warning = context.management_action === "consider_cancel"
+    ? "；仅提示考虑取消，不会自动取消计划"
+    : "";
+  return `
+    <p class="plan-market-context-note">
+      市场计划关系：${escapeHtml(marketPlanContextExecutionText(context))}${escapeHtml(warning)}
+    </p>
   `;
 }
 
@@ -1415,6 +1697,194 @@ function renderAgent() {
     </div>
   `;
   els.agentPageBody.querySelector("[data-agent-drawer-open]")?.addEventListener("click", openAgentDrawer);
+}
+
+function renderMarketReview() {
+  renderMarketScopeMarkers();
+  renderMarketRegimeStrip();
+  renderMarketSectors();
+  renderMarketPlanContext();
+  renderMarketSentimentSummary();
+  renderMarketHypotheses();
+}
+
+function renderMarketScopeMarkers() {
+  const selected = `复盘日 ${displayDate(state.asOfDate)}`;
+  const latest = state.marketReviewHistory[0]?.as_of_date;
+  els.marketReviewDateLabel.textContent = latest && latest !== state.asOfDate
+    ? `${selected} / 最新全市场 ${displayDate(latest)}`
+    : selected;
+}
+
+function renderMarketRegimeStrip() {
+  const review = state.marketReview;
+  const regime = review?.regime;
+  const exists = marketReviewExists();
+  if (!exists) {
+    const missing = marketMissingDataText(review);
+    els.marketRegimeStrip.innerHTML = `
+      <div class="market-regime-card market-regime-card--empty">
+        <span class="market-regime-kicker">market-reviews</span>
+        <strong>暂无全市场复盘</strong>
+        <p>${escapeHtml(missing || `复盘日 ${displayDate(state.asOfDate)} 尚未生成 market-reviews 记录。`)}</p>
+      </div>
+    `;
+    return;
+  }
+
+  els.marketRegimeStrip.innerHTML = `
+    <div class="market-regime-card market-regime-card--hero">
+      <span class="market-regime-kicker">market-reviews</span>
+      <strong>${escapeHtml(marketRegimeText(regime?.regime || review.status))}</strong>
+      <p>${escapeHtml(regime?.summary || review.regime_summary || marketSummaryText(review.summary))}</p>
+    </div>
+    ${marketRegimeMetric("宽度", regime?.breadth_score ?? review.scores?.breadth, "breadth")}
+    ${marketRegimeMetric("趋势", regime?.trend_score ?? review.scores?.trend, "trend")}
+    ${marketRegimeMetric("量能", regime?.volume_score ?? review.scores?.volume, "volume")}
+    ${marketRegimeMetric("持续性", regime?.persistence_score ?? review.scores?.persistence, "persistence")}
+    ${marketRegimeMetric("情绪", regime?.sentiment_score, "sentiment")}
+  `;
+}
+
+function marketRegimeMetric(label, value, key) {
+  return `
+    <div class="market-regime-card market-regime-card--metric" data-regime-metric="${escapeHtml(key)}">
+      <span>${escapeHtml(label)}</span>
+      <strong>${scoreText(value)}</strong>
+    </div>
+  `;
+}
+
+function renderMarketSectors() {
+  const sectors = orderedMarketSectors();
+  els.marketSectorState.textContent = sectors.length
+    ? `${sectors.length} 个板块 / ${marketConstituentCount()} 只成分股`
+    : "无板块快照";
+  els.marketSectorBody.innerHTML = sectors.length
+    ? sectors.map((sector) => {
+      const sentiment = sectorSentiment(sector);
+      return `
+        <tr>
+          <td>${dash(sector.rank_overall)}</td>
+          <td>
+            <strong>${escapeHtml(sector.sector_name || sector.sector_code)}</strong>
+            <span class="table-subtext">${escapeHtml(sector.sector_code || "-")} · ${escapeHtml(sector.provider || "unknown")}</span>
+          </td>
+          <td class="num">${percent(sector.return_1d)}</td>
+          <td class="num">${percent(sector.return_5d)}</td>
+          <td class="num">${scoreText(sector.persistence_score)}</td>
+          <td>${chipHtml(sentimentText(sentiment), sentimentClass(sentiment))}</td>
+          <td class="num">${integerText(sector.leader_count ?? sector.constituents?.length)}</td>
+          <td><button type="button" data-market-sector-action="detail" data-sector-code="${escapeHtml(sector.sector_code)}">详情</button></td>
+        </tr>
+      `;
+    }).join("")
+    : emptyRow(8, marketMissingDataText(state.marketSectorsEnvelope?.data) || "暂无板块轮动数据。");
+}
+
+function renderMarketPlanContext() {
+  const planId = marketContextPlanId();
+  const contexts = state.marketPlanContexts || [];
+  const header = `
+    <p class="market-readonly-note">Plan-context 只读：市场复盘不会自动改变明日计划，不会发布、取消、修改或执行 trade_plans。</p>
+  `;
+  if (!contexts.length) {
+    const missing = marketMissingDataText(state.marketPlanContextEnvelope?.data);
+    els.marketPlanContextPanel.innerHTML = `
+      ${header}
+      ${actionMetrics([
+        ["关联计划", planId ? `计划 ${planId}` : "当前无明日计划"],
+        ["上下文记录", "0"],
+        ["来源", "market_plan_contexts"],
+        ["状态", missing || "暂无关系记录"],
+      ])}
+    `;
+    return;
+  }
+
+  els.marketPlanContextPanel.innerHTML = `
+    ${header}
+    <div class="market-context-list">
+      ${contexts.map((context) => `
+        <article class="market-context-card">
+          <div class="market-context-card__head">
+            <strong>计划 ${escapeHtml(context.trade_plan_id)}</strong>
+            <span>
+              ${chipHtml(alignmentText(context.alignment), alignmentClass(context.alignment))}
+              ${chipHtml(riskText(context.risk_level), riskClass(context.risk_level))}
+            </span>
+          </div>
+          <p>${escapeHtml(context.rationale || "暂无 rationale。")}</p>
+          <dl class="market-context-meta">
+            <dt>管理建议</dt>
+            <dd>${escapeHtml(managementActionText(context.management_action))}</dd>
+            <dt>创建时间</dt>
+            <dd>${escapeHtml(displayTimestamp(context.created_at))}</dd>
+          </dl>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderMarketSentimentSummary() {
+  const items = state.marketExternalItems || [];
+  const counts = state.marketExternalEnvelope?.data?.coverage?.by_sentiment || {};
+  const dominant = dominantSentiment(counts);
+  els.marketSentimentState.textContent = items.length
+    ? `情绪 ${sentimentText(dominant)} · ${items.length} 条`
+    : "情绪 -";
+  els.openMarketNewsDrawerButton.disabled = items.length === 0;
+  if (!items.length) {
+    els.marketSentimentSummary.innerHTML = emptyState(marketMissingDataText(state.marketExternalEnvelope?.data) || "暂无新闻 / 情绪证据。");
+    return;
+  }
+  const countChips = Object.entries(counts)
+    .map(([sentiment, count]) => chipHtml(`${sentimentText(sentiment)} ${count}`, sentimentClass(sentiment)))
+    .join("");
+  els.marketSentimentSummary.innerHTML = `
+    <div class="market-sentiment-chips">${countChips}</div>
+    <div class="market-evidence-list market-evidence-list--compact">
+      ${items.slice(0, 4).map(renderMarketEvidenceItem).join("")}
+    </div>
+  `;
+}
+
+function renderMarketHypotheses() {
+  const hypotheses = state.marketHypotheses || [];
+  els.marketHypothesisState.textContent = hypotheses.length ? `${hypotheses.length} 条` : "无策略假设";
+  els.marketHypothesesList.innerHTML = hypotheses.length
+    ? hypotheses.map((item) => `
+      <article class="market-hypothesis-card">
+        <div class="market-hypothesis-card__head">
+          <strong>${escapeHtml(item.title)}</strong>
+          ${chipHtml(hypothesisStatusText(item.status), hypothesisStatusClass(item.status))}
+        </div>
+        <p>${escapeHtml(item.rationale || "暂无 rationale。")}</p>
+        <button type="button" class="link-button" data-market-hypothesis-id="${escapeHtml(item.hypothesis_id)}">假设详情</button>
+      </article>
+    `).join("")
+    : emptyState(marketMissingDataText(state.marketHypothesesEnvelope?.data) || "暂无策略假设。");
+}
+
+function renderMarketEvidenceItem(item) {
+  return `
+    <article class="market-evidence-item" data-evidence-columns="provider/date/sentiment">
+      <div class="market-evidence-item__head">
+        <strong>${escapeHtml(item.title || "外部证据")}</strong>
+        ${chipHtml(sentimentText(item.sentiment), sentimentClass(item.sentiment))}
+      </div>
+      <p>${escapeHtml(item.summary || "暂无摘要。")}</p>
+      <dl>
+        <dt>provider</dt>
+        <dd>${escapeHtml(item.provider || "unknown")}</dd>
+        <dt>date</dt>
+        <dd>${displayDate(item.published_date)}</dd>
+        <dt>scope</dt>
+        <dd>${escapeHtml(scopeText(item.scope_type, item.scope_key))}</dd>
+      </dl>
+    </article>
+  `;
 }
 
 function renderAgentAdvice(advice, { expanded }) {
@@ -1781,6 +2251,7 @@ function renderBadges() {
   const due = duePositions().length;
   els.executionBadge.textContent = String(todaysBuyPlans().filter((plan) => plan.status === "active").length + due);
   els.reviewBadge.textContent = blockers ? String(blockers) : state.report?.buy_plan ? "1" : "0";
+  els.marketBadge.textContent = state.marketReview?.exists ? String(state.marketSectors.length || 1) : "0";
   els.plansBadge.textContent = String(activePlans + draftPlans);
   els.recordBadge.textContent = String(activePlans + due);
   els.positionsBadge.textContent = String(state.positions.length);
@@ -1862,6 +2333,20 @@ function onQualityTableClick(event) {
   if (qualityEvent) openQualityEventDrawer(qualityEvent);
 }
 
+function onMarketSectorClick(event) {
+  const button = event.target.closest("button[data-market-sector-action]");
+  if (!button) return;
+  const sector = findMarketSector(button.dataset.sectorCode);
+  if (sector) openMarketSectorDrawer(sector);
+}
+
+function onMarketHypothesisClick(event) {
+  const button = event.target.closest("button[data-market-hypothesis-id]");
+  if (!button) return;
+  const hypothesis = findMarketHypothesis(Number(button.dataset.marketHypothesisId));
+  if (hypothesis) openMarketHypothesisDrawer(hypothesis);
+}
+
 function onDrawerActionClick(event) {
   const button = event.target.closest("button[data-drawer-action]");
   if (!button) return;
@@ -1875,6 +2360,7 @@ function onDrawerActionClick(event) {
   if (action === "lineage") openLineageDrawer();
   if (action === "candidate") openCandidateDrawer();
   if (action === "agent") openAgentDrawer();
+  if (action === "market-news") openMarketNewsDrawer(button.dataset.scopeType, button.dataset.scopeKey);
   if (action === "record-plan" && plan) selectPlan(plan, { openRecordPage: true });
   if (action === "publish-plan" && planId) publishPlan(planId);
   if (action === "cancel-plan" && planId) cancelPlan(planId);
@@ -2179,6 +2665,81 @@ function openQualityEventDrawer(event) {
   });
 }
 
+function openMarketSectorDrawer(sector) {
+  const sectorItems = marketItemsForScope("sector", sector.sector_code);
+  openDetailDrawer({
+    kicker: "板块详情",
+    title: `${sector.sector_name || sector.sector_code}`,
+    subtitle: "板块详情展示持续性、个股领涨和已缓存的新闻 / 情绪证据；只读，不改写计划。",
+    meta: [
+      [`排名 ${dash(sector.rank_overall)}`, "chip-blue"],
+      [`持续性 ${scoreText(sector.persistence_score)}`, persistenceClass(sector.persistence_score)],
+      [sentimentText(sectorSentiment(sector)), sentimentClass(sectorSentiment(sector))],
+    ],
+    actions: [
+      { label: "证据详情", action: "market-news", scopeType: "sector", scopeKey: sector.sector_code },
+      { label: "全市场页", action: "page", page: "market" },
+    ],
+    sections: [
+      detailSection("板块轮动", detailMetrics([
+        ["1日涨跌", percent(sector.return_1d)],
+        ["3日涨跌", percent(sector.return_3d)],
+        ["5日涨跌", percent(sector.return_5d)],
+        ["10日涨跌", percent(sector.return_10d)],
+        ["宽度", scoreText(sector.breadth_score)],
+        ["量能", scoreText(sector.volume_score)],
+      ])),
+      detailSection("个股领涨", marketLeadershipTable(sector.constituents || [])),
+      detailSection("新闻 / 情绪", sectorItems.length ? marketEvidenceTable(sectorItems) : emptyState("该板块暂无外部证据。")),
+    ],
+  });
+}
+
+function openMarketNewsDrawer(scopeType = "", scopeKey = "") {
+  const items = scopeType && scopeKey ? marketItemsForScope(scopeType, scopeKey) : state.marketExternalItems;
+  const title = scopeType && scopeKey ? `证据 · ${scopeText(scopeType, scopeKey)}` : "新闻 / 情绪证据";
+  const counts = countBy(items || [], "sentiment");
+  openDetailDrawer({
+    kicker: "新闻 / 情绪",
+    title,
+    subtitle: "证据抽屉按 provider/date/sentiment 追溯来源，结论只用于人工复核。",
+    meta: [
+      [`证据 ${items.length}`, "chip-blue"],
+      [sentimentText(dominantSentiment(counts)), sentimentClass(dominantSentiment(counts))],
+      [`复盘日 ${displayDate(state.asOfDate)}`, "chip-neutral"],
+    ],
+    actions: [
+      { label: "全市场页", action: "page", page: "market" },
+    ],
+    sections: [
+      detailSection("证据列表", items.length ? marketEvidenceTable(items) : emptyState("暂无新闻 / 情绪证据。")),
+    ],
+  });
+}
+
+function openMarketHypothesisDrawer(hypothesis) {
+  openDetailDrawer({
+    kicker: "策略假设",
+    title: hypothesis.title || `假设 ${hypothesis.hypothesis_id}`,
+    subtitle: "策略假设进入研究和回测流程，不直接改策略参数或交易计划。",
+    meta: [
+      [hypothesisStatusText(hypothesis.status), hypothesisStatusClass(hypothesis.status)],
+      [dash(hypothesis.hypothesis_type), "chip-neutral"],
+      [`复盘日 ${displayDate(hypothesis.as_of_date)}`, "chip-neutral"],
+    ],
+    sections: [
+      detailSection("假设摘要", detailRows([
+        ["假设 ID", hypothesis.hypothesis_id],
+        ["状态", hypothesisStatusText(hypothesis.status)],
+        ["创建时间", displayTimestamp(hypothesis.created_at)],
+        ["Rationale", hypothesis.rationale || "-"],
+      ])),
+      detailSection("证据", marketObjectRows(hypothesis.evidence)),
+      detailSection("拟议变更", marketObjectRows(hypothesis.proposed_change)),
+    ],
+  });
+}
+
 function openAgentDrawer() {
   const advice = state.report?.agent_advice;
   if (!advice) {
@@ -2233,6 +2794,8 @@ function drawerActionButton(action) {
     action.planId ? `data-plan-id="${escapeHtml(action.planId)}"` : "",
     action.positionId ? `data-position-id="${escapeHtml(action.positionId)}"` : "",
     action.page ? `data-page="${escapeHtml(action.page)}"` : "",
+    action.scopeType ? `data-scope-type="${escapeHtml(action.scopeType)}"` : "",
+    action.scopeKey ? `data-scope-key="${escapeHtml(action.scopeKey)}"` : "",
     action.title ? `title="${escapeHtml(action.title)}"` : "",
     action.disabled ? "disabled" : "",
   ].filter(Boolean).join(" ");
@@ -2740,6 +3303,145 @@ function selectedRecordPlan(id) {
   return null;
 }
 
+function marketPlanContextApiPath(asOfDate) {
+  const params = new URLSearchParams();
+  const planId = marketContextPlanId();
+  if (planId) params.set("trade_plan_id", planId);
+  const suffix = params.toString();
+  return `/api/market-reviews/${asOfDate}/plan-context${suffix ? `?${suffix}` : ""}`;
+}
+
+function marketContextPlanId() {
+  const reportPlanId = state.report?.buy_plan?.trade_plan_id || state.report?.buy_plan?.id;
+  if (reportPlanId) return reportPlanId;
+  const executionDay = executionDate();
+  const plan = state.tradePlans.find((item) => {
+    return ["draft", "active"].includes(item.status) && planTradeDate(item) === executionDay;
+  });
+  return plan?.id || "";
+}
+
+function marketReviewExists() {
+  return Boolean(state.marketReview?.exists || state.marketReview?.market_review_run_id);
+}
+
+function marketMissingDataText(payload) {
+  const missing = payload?.missing_data || [];
+  if (!missing.length) return "";
+  return `缺少 ${missing.join(", ")}`;
+}
+
+function marketSummaryText(summary) {
+  if (!summary || typeof summary !== "object") return "暂无市场摘要。";
+  const parts = [];
+  if (summary.summary) parts.push(summary.summary);
+  if (summary.regime) parts.push(`regime=${summary.regime}`);
+  if (summary.coverage_ratio != null) parts.push(`coverage=${percent(summary.coverage_ratio)}`);
+  return parts.join(" / ") || JSON.stringify(summary);
+}
+
+function orderedMarketSectors() {
+  return [...(state.marketSectors || [])].sort((a, b) => {
+    const aRank = Number.isFinite(Number(a.rank_overall)) ? Number(a.rank_overall) : 999999;
+    const bRank = Number.isFinite(Number(b.rank_overall)) ? Number(b.rank_overall) : 999999;
+    if (aRank !== bRank) return aRank - bRank;
+    return String(a.sector_code || "").localeCompare(String(b.sector_code || ""));
+  });
+}
+
+function marketConstituentCount() {
+  return (state.marketSectors || []).reduce((total, sector) => total + (sector.constituents || []).length, 0);
+}
+
+function findMarketSector(sectorCode) {
+  return (state.marketSectors || []).find((sector) => String(sector.sector_code) === String(sectorCode));
+}
+
+function findMarketHypothesis(id) {
+  return (state.marketHypotheses || []).find((item) => Number(item.hypothesis_id) === Number(id));
+}
+
+function marketItemsForScope(scopeType, scopeKey) {
+  const normalizedType = String(scopeType || "").toLowerCase();
+  const normalizedKey = String(scopeKey || "");
+  const sector = normalizedType === "sector" ? findMarketSector(normalizedKey) : null;
+  return (state.marketExternalItems || []).filter((item) => {
+    if (String(item.scope_type || "").toLowerCase() !== normalizedType) return false;
+    if (String(item.scope_key || "") === normalizedKey) return true;
+    if (sector && String(item.scope_key || "") === String(sector.sector_name || "")) return true;
+    return false;
+  });
+}
+
+function sectorSentiment(sector) {
+  const counts = countBy(marketItemsForScope("sector", sector.sector_code), "sentiment");
+  return dominantSentiment(counts);
+}
+
+function dominantSentiment(counts) {
+  const entries = Object.entries(counts || {}).sort((a, b) => Number(b[1]) - Number(a[1]));
+  return entries[0]?.[0] || "unknown";
+}
+
+function countBy(items, key) {
+  const counts = {};
+  for (const item of items || []) {
+    const value = item?.[key] == null || item?.[key] === "" ? "unknown" : String(item[key]);
+    counts[value] = (counts[value] || 0) + 1;
+  }
+  return counts;
+}
+
+function marketLeadershipTable(constituents) {
+  const rows = [...(constituents || [])].sort((a, b) => {
+    const aRank = Number.isFinite(Number(a.rank_in_sector)) ? Number(a.rank_in_sector) : 999999;
+    const bRank = Number.isFinite(Number(b.rank_in_sector)) ? Number(b.rank_in_sector) : 999999;
+    return aRank - bRank;
+  });
+  if (!rows.length) return emptyState("该板块暂无个股领涨数据。");
+  return `
+    <div class="table-wrap market-leadership-table">
+      <table>
+        <thead>
+          <tr>
+            <th>排名</th>
+            <th>股票</th>
+            <th>角色</th>
+            <th class="num">评分</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map((item) => `
+            <tr>
+              <td>${dash(item.rank_in_sector)}</td>
+              <td>${escapeHtml(item.ts_code)} ${escapeHtml(item.name || "")}</td>
+              <td>${escapeHtml(marketRoleText(item.role))}</td>
+              <td class="num">${scoreText(item.score)}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function marketEvidenceTable(items) {
+  return `
+    <div class="market-evidence-list">
+      ${(items || []).map(renderMarketEvidenceItem).join("")}
+    </div>
+  `;
+}
+
+function marketObjectRows(value) {
+  if (!value || typeof value !== "object") return emptyState("暂无结构化数据。");
+  const rows = Object.entries(value).map(([key, item]) => [
+    key,
+    typeof item === "object" ? JSON.stringify(item) : String(item ?? "-"),
+  ]);
+  return rows.length ? detailRows(rows) : emptyState("暂无结构化数据。");
+}
+
 function setBusy(value) {
   state.busy = value;
   document.querySelectorAll("button, input, select").forEach((control) => {
@@ -2825,6 +3527,13 @@ function defaultReviewDate() {
     date.setDate(date.getDate() - 1);
   }
   return compactDate(date);
+}
+
+function initialPage() {
+  const page = String(window.location.hash || "").replace(/^#/, "");
+  return ["execution", "review", "market", "plans", "record", "positions", "quality", "agent"].includes(page)
+    ? page
+    : "execution";
 }
 
 function offsetBusinessDate(value, offset) {
@@ -3000,6 +3709,106 @@ function riskClass(value) {
     high: "chip-red",
     unknown: "chip-neutral",
   }[value] || "chip-neutral";
+}
+
+function marketRegimeText(value) {
+  return {
+    risk_on: "风险偏好回升",
+    neutral: "中性震荡",
+    risk_off: "风险偏好回落",
+    completed: "复盘完成",
+    missing: "复盘缺失",
+    success: "复盘成功",
+    blocked: "复盘阻断",
+  }[value] || dash(value);
+}
+
+function sentimentText(value) {
+  return {
+    positive: "正面",
+    neutral: "中性",
+    negative: "负面",
+    mixed: "分歧",
+    unknown: "未知",
+  }[value] || dash(value);
+}
+
+function sentimentClass(value) {
+  return {
+    positive: "chip-green",
+    neutral: "chip-blue",
+    negative: "chip-red",
+    mixed: "chip-amber",
+    unknown: "chip-neutral",
+  }[value] || "chip-neutral";
+}
+
+function persistenceClass(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "chip-neutral";
+  if (number >= 0.66) return "chip-green";
+  if (number >= 0.4) return "chip-amber";
+  return "chip-red";
+}
+
+function alignmentText(value) {
+  return {
+    aligned: "顺风",
+    neutral: "中性",
+    conflict: "冲突",
+    unknown: "未知",
+  }[value] || dash(value);
+}
+
+function alignmentClass(value) {
+  return {
+    aligned: "chip-green",
+    neutral: "chip-blue",
+    conflict: "chip-red",
+    unknown: "chip-neutral",
+  }[value] || "chip-neutral";
+}
+
+function managementActionText(value) {
+  return {
+    proceed: "按原计划进入人工开盘检查",
+    manual_review: "人工复核后再执行",
+    consider_cancel: "考虑取消但不自动取消",
+    unknown: "未知，保持计划不变",
+  }[value] || dash(value);
+}
+
+function hypothesisStatusText(value) {
+  return {
+    proposed: "待验证",
+    testing: "验证中",
+    accepted: "已接受",
+    rejected: "已拒绝",
+    archived: "已归档",
+  }[value] || dash(value);
+}
+
+function hypothesisStatusClass(value) {
+  return {
+    proposed: "chip-blue",
+    testing: "chip-amber",
+    accepted: "chip-green",
+    rejected: "chip-red",
+    archived: "chip-neutral",
+  }[value] || "chip-neutral";
+}
+
+function marketRoleText(value) {
+  return {
+    leader: "领涨",
+    strong: "强势",
+    neutral: "中性",
+    weak: "弱势",
+  }[value] || dash(value);
+}
+
+function scopeText(scopeType, scopeKey) {
+  return `${dash(scopeType)}:${dash(scopeKey)}`;
 }
 
 function featureLabel(key) {
@@ -3300,6 +4109,13 @@ function numberText(value, digits = 2) {
   const number = Number(value);
   if (!Number.isFinite(number)) return "-";
   return number.toFixed(digits);
+}
+
+function scoreText(value) {
+  if (value == null || value === "") return "-";
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "-";
+  return number.toFixed(2);
 }
 
 function integerText(value) {

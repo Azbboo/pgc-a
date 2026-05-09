@@ -56,6 +56,7 @@ from pgc_trading.services.market_plan_context_service import (
     MarketPlanContextService,
 )
 from pgc_trading.services.market_review_service import MarketReviewService, RunMarketReviewRequest
+from pgc_trading.services.open_execution_service import OpenExecutionRequest, OpenExecutionService
 from pgc_trading.services.position_lifecycle_service import (
     EvaluateExitsRequest,
     ListPositionsRequest,
@@ -95,6 +96,7 @@ DailyPipelineServiceFactory = Callable[[Path], DailyPipelineService]
 MarketExternalDataServiceFactory = Callable[[Path], MarketExternalDataService]
 MarketPlanContextServiceFactory = Callable[[Path], MarketPlanContextService]
 MarketReviewServiceFactory = Callable[[Path], MarketReviewService]
+OpenExecutionServiceFactory = Callable[[Path], OpenExecutionService]
 StrategyEvolutionServiceFactory = Callable[[Path], StrategyEvolutionService]
 StrategyHypothesisBacktestServiceFactory = Callable[[Path], StrategyHypothesisBacktestService]
 
@@ -114,6 +116,7 @@ class CommandServices:
     market_external_data_service_factory: MarketExternalDataServiceFactory = MarketExternalDataService
     market_plan_context_service_factory: MarketPlanContextServiceFactory = MarketPlanContextService
     market_review_service_factory: MarketReviewServiceFactory = MarketReviewService
+    open_execution_service_factory: OpenExecutionServiceFactory = OpenExecutionService
     strategy_evolution_service_factory: StrategyEvolutionServiceFactory = StrategyEvolutionService
     strategy_hypothesis_backtest_service_factory: StrategyHypothesisBacktestServiceFactory = (
         StrategyHypothesisBacktestService
@@ -731,6 +734,17 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
     ops_ledger_repair.add_argument("--backup-dir", type=Path, help="backup destination directory for --apply")
     ops_ledger_repair.set_defaults(handler=_run_ops_ledger_repair)
 
+    ops_open_execution = ops_subparsers.add_parser(
+        "open-execution",
+        help="summarize the next opening execution action without writing",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    _add_report_date_argument(ops_open_execution)
+    _add_account_arguments(ops_open_execution)
+    _add_db_path_argument(ops_open_execution)
+    ops_open_execution.set_defaults(handler=_run_ops_open_execution)
+
     ops_daily_pipeline = ops_subparsers.add_parser(
         "daily-pipeline",
         help="run the repeatable daily operating pipeline",
@@ -753,6 +767,11 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
     ops_daily_pipeline.add_argument("--operator", help="operator name; required with --apply")
     ops_daily_pipeline.add_argument("--idempotency-key", help="optional base idempotency key for pipeline steps")
     ops_daily_pipeline.add_argument("--backup-dir", type=Path, help="backup destination directory for --apply")
+    ops_daily_pipeline.add_argument(
+        "--include-market-review",
+        action="store_true",
+        help="include market review and market-plan context linking in the daily pipeline",
+    )
     _add_live_write_guard_argument(ops_daily_pipeline)
     _add_db_path_argument(ops_daily_pipeline)
     ops_daily_pipeline.set_defaults(handler=_run_ops_daily_pipeline)
@@ -1679,6 +1698,30 @@ def _run_ops_ledger_repair(args: argparse.Namespace, stdout: TextIO, services: C
     return 0 if result.data is not None and result.data.status in {"clean", "would_apply", "applied"} else 1
 
 
+def _run_ops_open_execution(args: argparse.Namespace, stdout: TextIO, services: CommandServices) -> int:
+    db_path = _normalized_db_path(args.db_path)
+    as_of_date = args.date
+
+    if not db_path.exists():
+        stdout.write("open_execution_status=failed\n")
+        stdout.write(f"as_of_date={as_of_date}\n")
+        stdout.write(f"database={db_path}\n")
+        stdout.write("error=database not found; open-execution was not run and no writes were performed\n")
+        return 1
+
+    service = services.open_execution_service_factory(db_path)
+    result = service.get_open_execution(
+        OpenExecutionRequest(
+            as_of_date=as_of_date,
+            account_key=args.account_key,
+            account_id=args.account_id,
+        ),
+        RequestContext(request_id="cli-ops-open-execution", dry_run=True, operator="cli", source="cli"),
+    )
+    _write_open_execution_result(stdout, result)
+    return 0 if result.data is not None and result.data.status != "blocked" and result.ok else 1
+
+
 def _run_ops_daily_pipeline(args: argparse.Namespace, stdout: TextIO, services: CommandServices) -> int:
     db_path = _normalized_db_path(args.db_path)
     as_of_date = args.date
@@ -1698,6 +1741,7 @@ def _run_ops_daily_pipeline(args: argparse.Namespace, stdout: TextIO, services: 
         strategy_version=args.strategy_version,
         run_type=args.run_type,
         backup_dir=_normalized_db_path(args.backup_dir) if args.backup_dir is not None else None,
+        include_market_review=args.include_market_review,
     )
     account_ref = args.account_key or f"account-id-{args.account_id}"
     ctx = RequestContext(
@@ -2483,6 +2527,41 @@ def _write_strategy_evolution_backtest_result(
         stdout.write(f"artifact_path={artifact_path}\n")
 
 
+def _write_open_execution_result(stdout: TextIO, result: ServiceResult[object]) -> None:
+    data = result.data
+    if data is None:
+        stdout.write(f"open_execution_status={result.status}\n")
+        _write_warnings_and_errors(stdout, result)
+        return
+
+    stdout.write(f"open_execution_status={getattr(data, 'status', result.status)}\n")
+    stdout.write(f"next_action={getattr(data, 'next_action', 'none')}\n")
+    stdout.write(f"account_key={getattr(data, 'account_key', 'none')}\n")
+    stdout.write(f"as_of_date={getattr(data, 'as_of_date', 'n/a')}\n")
+    stdout.write(f"trade_plan_id={_display_optional_int(getattr(data, 'primary_plan_id', None))}\n")
+    stdout.write(f"position_id={_display_optional_int(getattr(data, 'primary_position_id', None))}\n")
+    target_stock = getattr(data, "target_stock", None)
+    target_name = getattr(data, "target_name", None)
+    stdout.write(f"target={target_stock or 'none'}{f' {target_name}' if target_name else ''}\n")
+    stdout.write(f"planned_trade_date={_display_date(getattr(data, 'planned_trade_date', None))}\n")
+    stdout.write(f"planned_shares={_display_optional_int(getattr(data, 'planned_shares', None))}\n")
+    stdout.write(f"operator_required={_display_bool(getattr(data, 'operator_required', False))}\n")
+    blocked_reasons = getattr(data, "blocked_reasons", []) or []
+    stdout.write(f"blocked_reasons={'; '.join(blocked_reasons) if blocked_reasons else 'none'}\n")
+    context = getattr(data, "market_plan_context", None)
+    if context is None:
+        stdout.write("market_plan_context=none\n")
+    else:
+        stdout.write(
+            "market_plan_context="
+            f"trade_plan_id={getattr(context, 'trade_plan_id', 'n/a')} "
+            f"alignment={getattr(context, 'alignment', 'unknown')} "
+            f"risk_level={getattr(context, 'risk_level', 'unknown')} "
+            f"management_action={getattr(context, 'management_action', 'unknown')}\n"
+        )
+    _write_warnings_and_errors(stdout, result)
+
+
 def _write_daily_pipeline_result(stdout: TextIO, result: ServiceResult[object]) -> None:
     data = result.data
     if data is None:
@@ -2497,6 +2576,7 @@ def _write_daily_pipeline_result(stdout: TextIO, result: ServiceResult[object]) 
     stdout.write(f"trade_plan_id={_display_optional_int(getattr(data, 'trade_plan_id', None))}\n")
     stdout.write(f"agent_run_id={_display_optional_int(getattr(data, 'agent_run_id', None))}\n")
     stdout.write(f"agent_decision_id={_display_optional_int(getattr(data, 'agent_decision_id', None))}\n")
+    stdout.write(f"market_review_run_id={_display_optional_int(getattr(data, 'market_review_run_id', None))}\n")
     stdout.write(f"exit_decisions={getattr(data, 'exit_decisions', 0)}\n")
     stdout.write(f"report_markdown={getattr(data, 'report_markdown', None) or 'none'}\n")
     stdout.write(f"report_json={getattr(data, 'report_json', None) or 'none'}\n")
@@ -2505,9 +2585,16 @@ def _write_daily_pipeline_result(stdout: TextIO, result: ServiceResult[object]) 
     stdout.write(f"ledger_audit_ok={str(bool(getattr(data, 'ledger_audit_ok', False))).lower()}\n")
     stdout.write(f"daily_close_status={getattr(data, 'daily_close_status', None) or 'none'}\n")
     stdout.write(f"agent_status={getattr(data, 'agent_status', None) or 'none'}\n")
+    stdout.write(f"market_review_status={getattr(data, 'market_review_status', None) or 'none'}\n")
+    stdout.write(f"market_plan_context_status={getattr(data, 'market_plan_context_status', None) or 'none'}\n")
     stdout.write(f"exit_status={getattr(data, 'exit_status', None) or 'none'}\n")
     stdout.write(f"report_status={getattr(data, 'report_status', None) or 'none'}\n")
     stdout.write(f"report_would_write={str(bool(getattr(data, 'report_would_write', False))).lower()}\n")
+    stdout.write(f"market_review_would_write={str(bool(getattr(data, 'market_review_would_write', False))).lower()}\n")
+    stdout.write(
+        "market_plan_context_would_write="
+        f"{str(bool(getattr(data, 'market_plan_context_would_write', False))).lower()}\n"
+    )
     _write_warnings_and_errors(stdout, result)
 
 

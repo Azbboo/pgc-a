@@ -6,6 +6,7 @@ from pathlib import Path
 
 from pgc_trading.api.routes import (
     get_daily_review,
+    get_open_execution,
     get_market_review,
     get_market_review_plan_context,
     list_account_positions,
@@ -137,6 +138,32 @@ class _FakePositionService:
         )
 
 
+class _FakeOpenExecutionService:
+    calls: list[tuple[Path, object, object]] = []
+
+    def __init__(self, db_path: Path):
+        self.db_path = db_path
+
+    def get_open_execution(self, request, ctx):
+        self.calls.append((self.db_path, request, ctx))
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data={
+                "as_of_date": request.as_of_date,
+                "account_key": request.account_key,
+                "account_id": request.account_id,
+                "next_action": "record_buy",
+                "market_plan_context": {
+                    "alignment": "aligned",
+                    "risk_level": "medium",
+                    "management_action": "manual_review",
+                },
+            },
+            lineage={"as_of_date": request.as_of_date},
+        )
+
+
 class _FakePortfolioService:
     calls: list[tuple[Path, object, object]] = []
 
@@ -164,6 +191,7 @@ class ApiReadRoutesTest(unittest.TestCase):
         _FakeReportService.calls = []
         _FakeDataQualityService.calls = []
         _FakeMarketReviewReadService.calls = []
+        _FakeOpenExecutionService.calls = []
         _FakePositionService.calls = []
         _FakePortfolioService.calls = []
         self.settings = ApiSettings(db_path=Path("/tmp/api-read-routes.db"))
@@ -171,6 +199,7 @@ class ApiReadRoutesTest(unittest.TestCase):
             report_service_factory=_FakeReportService,
             data_quality_service_factory=_FakeDataQualityService,
             market_review_service_factory=_FakeMarketReviewReadService,
+            open_execution_service_factory=_FakeOpenExecutionService,
             portfolio_planning_service_factory=_FakePortfolioService,
             position_lifecycle_service_factory=_FakePositionService,
         )
@@ -352,6 +381,31 @@ class ApiReadRoutesTest(unittest.TestCase):
         self.assertIsNone(request.account_key)
         self.assertEqual(request.as_of_date, "20260507")
         self.assertEqual(ctx.source, "api")
+
+    def test_open_execution_route_normalizes_date_and_returns_market_context(self) -> None:
+        response = _Response()
+
+        payload = get_open_execution(
+            self.settings,
+            self.services,
+            response,
+            as_of_date="2026-05-11",
+            account_key="paper-main",
+            account_id=None,
+            request_id="req-open-execution",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["data"]["next_action"], "record_buy")
+        self.assertEqual(payload["data"]["market_plan_context"]["management_action"], "manual_review")
+        db_path, request, ctx = _FakeOpenExecutionService.calls[0]
+        self.assertEqual(db_path, self.settings.db_path)
+        self.assertEqual(request.as_of_date, "20260511")
+        self.assertEqual(request.account_key, "paper-main")
+        self.assertTrue(ctx.dry_run)
+        self.assertEqual(ctx.source, "api")
+        self.assertEqual(ctx.request_id, "req-open-execution")
 
     def test_trade_plans_route_calls_service_read_method(self) -> None:
         response = _Response()
