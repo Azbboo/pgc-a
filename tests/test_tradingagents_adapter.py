@@ -78,12 +78,14 @@ class TradingAgentsAdapterTest(unittest.TestCase):
         self.assertEqual(result.risk_points, ["注意开盘波动"])
         self.assertEqual(result.analyst_reports["technical"]["summary"], "技术面转强")
         self.assertEqual(result.analyst_reports["news"]["status"], "unavailable")
+        self.assertEqual(result.raw_decision["external_data_coverage"]["news"], "unavailable")
         self.assertIn("# TradingAgents 本地快照复核", result.final_report)
         self.assertIn("## 技术面", result.final_report)
         self.assertIn("## 基本面", result.final_report)
         self.assertEqual(client_calls[0]["provider"], "deepseek")
         self.assertEqual(client_calls[0]["model"], "deepseek-v4-pro")
         self.assertIn("只允许使用下方本地数据库快照", prompt_calls[0])
+        self.assertIn("external_data_coverage", prompt_calls[0])
         self.assertIn("所有自然语言必须使用简体中文", prompt_calls[0])
         self.assertIn('"ts_code": "000001.SZ"', prompt_calls[0])
         self.assertNotIn("tradingagents.graph.trading_graph", imported_modules)
@@ -107,6 +109,12 @@ def _snapshot() -> dict[str, object]:
         "schema_version": "1.0",
         "as_of_date": "20260507",
         "snapshot_type": "tradingagents_candidate_review",
+        "external_data_coverage": {
+            "fundamental": "partial",
+            "news": "unavailable",
+            "sentiment": "partial",
+            "technical": "available",
+        },
         "candidate": {
             "daily_pick_id": 1,
             "signal_id": 1,
@@ -124,6 +132,12 @@ def _snapshot() -> dict[str, object]:
                 "account_key": "paper-main",
                 "open_positions": 0,
                 "free_slots": 3,
+            },
+            "external_data_coverage": {
+                "fundamental": "partial",
+                "news": "unavailable",
+                "sentiment": "partial",
+                "technical": "available",
             },
         },
         "source_refs": ["daily_picks:1"],

@@ -276,6 +276,17 @@ def _load_candidate(conn: sqlite3.Connection, request: ReviewDailyPickRequest) -
         source_refs.append(f"daily_basic_snapshots:{row['ts_code']}:{daily_basic['trade_date']}")
     source_refs.extend(_diagnostic_market_refs(row["ts_code"], diagnostic_market))
     source_refs.extend(f"agent_external_items:{item['id']}" for item in external_items)
+    analysis_contexts = _build_analysis_contexts(
+        ts_code=row["ts_code"],
+        name=row["name"],
+        review_date=row["review_date"],
+        features=features,
+        market_summary=market_summary,
+        daily_basic=daily_basic,
+        diagnostic_market=diagnostic_market,
+        external_items=external_items,
+        portfolio_context=portfolio_context,
+    )
     return {
         "daily_pick_id": int(row["daily_pick_id"]),
         "signal_id": int(row["signal_id"]),
@@ -301,17 +312,8 @@ def _load_candidate(conn: sqlite3.Connection, request: ReviewDailyPickRequest) -
             "market_diagnostics": diagnostic_market,
             "items": _external_items_context(external_items),
         },
-        "analysis_contexts": _build_analysis_contexts(
-            ts_code=row["ts_code"],
-            name=row["name"],
-            review_date=row["review_date"],
-            features=features,
-            market_summary=market_summary,
-            daily_basic=daily_basic,
-            diagnostic_market=diagnostic_market,
-            external_items=external_items,
-            portfolio_context=portfolio_context,
-        ),
+        "analysis_contexts": analysis_contexts,
+        "external_data_coverage": _external_data_coverage(analysis_contexts),
         "portfolio_context": portfolio_context,
         "source_refs": source_refs,
     }
@@ -531,6 +533,15 @@ def _build_analysis_contexts(
     }
 
 
+def _external_data_coverage(analysis_contexts: dict[str, Any]) -> dict[str, str]:
+    coverage: dict[str, str] = {}
+    for key in ("fundamental", "news", "sentiment", "technical"):
+        context = analysis_contexts.get(key, {})
+        status = context.get("status") if isinstance(context, dict) else None
+        coverage[key] = status if status in {"available", "partial", "unavailable"} else "unavailable"
+    return coverage
+
+
 def _technical_context(
     features: dict[str, Any],
     market_summary: dict[str, Any],
@@ -726,6 +737,7 @@ def _build_snapshot_record(candidate: dict[str, Any]) -> dict[str, Any]:
         "daily_basic": candidate["daily_basic"],
         "external_data": candidate["external_data"],
         "analysis_contexts": candidate["analysis_contexts"],
+        "external_data_coverage": candidate["external_data_coverage"],
         "portfolio_context": candidate["portfolio_context"],
     }
     return build_input_snapshot(agent_candidate, candidate["review_date"], candidate["source_refs"])

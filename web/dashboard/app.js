@@ -84,19 +84,25 @@ function cacheElements() {
     "runReviewButton",
     "publishReviewPlanButton",
     "recordReviewPlanButton",
+    "currentReviewDateLabel",
     "reviewDateInput",
     "reviewPrevDateButton",
     "reviewNextDateButton",
+    "reviewLatestDateButton",
     "reviewApplyDateButton",
     "reviewHistoryState",
     "reloadReviewHistoryButton",
     "reviewHistoryList",
     "nextActionDate",
+    "blockerReviewScope",
     "nextActionBody",
     "blockerList",
+    "candidateReviewScope",
     "candidateSummary",
     "rankedSignalsBody",
+    "dueReviewScope",
     "duePositionsBody",
+    "agentReviewScope",
     "agentSummary",
     "agentPageBody",
     "openCandidateDetailButton",
@@ -118,6 +124,8 @@ function cacheElements() {
     "recordTax",
     "recordSlippage",
     "recordPrefillHint",
+    "recordPlanReference",
+    "recordLockReasonInline",
     "recordValidationPanel",
     "recordModeChip",
     "clearRecordButton",
@@ -139,6 +147,7 @@ function cacheElements() {
     "confirmDialog",
     "confirmTitle",
     "confirmBody",
+    "confirmSummary",
     "confirmInputLabel",
     "confirmInputText",
     "confirmInput",
@@ -170,6 +179,7 @@ function bindEvents() {
   els.reviewDateInput.addEventListener("change", applyReviewDateInput);
   els.reviewPrevDateButton.addEventListener("click", () => shiftReviewDate(-1));
   els.reviewNextDateButton.addEventListener("click", () => shiftReviewDate(1));
+  els.reviewLatestDateButton.addEventListener("click", setLatestReviewDate);
   els.reloadReviewHistoryButton.addEventListener("click", loadReviewHistoryAndRender);
   els.reviewHistoryList.addEventListener("click", onReviewHistoryClick);
   els.reloadExecutionButton.addEventListener("click", refreshAll);
@@ -251,7 +261,23 @@ async function applyReviewDateInput() {
 }
 
 async function shiftReviewDate(offset) {
-  await setReviewDate(offsetBusinessDate(state.asOfDate, offset));
+  const adjacent = adjacentReviewHistoryDate(offset);
+  if (!adjacent) {
+    showNotice(offset < 0 ? "没有更早的复盘历史。" : "没有更新的复盘历史。");
+    renderReviewHistoryNavigation();
+    return;
+  }
+  await setReviewDate(adjacent);
+}
+
+async function setLatestReviewDate() {
+  const latestDate = latestReviewHistoryDate();
+  if (!latestDate) {
+    showNotice("暂无可用复盘历史。");
+    renderReviewHistoryNavigation();
+    return;
+  }
+  await setReviewDate(latestDate);
 }
 
 async function setReviewDate(value) {
@@ -259,9 +285,13 @@ async function setReviewDate(value) {
   if (!/^\d{8}$/.test(nextDate)) {
     showNotice("复盘日需要选择有效日期。");
     syncFormFromState();
+    renderReviewHistoryNavigation();
     return;
   }
-  if (nextDate === state.asOfDate) return;
+  if (nextDate === state.asOfDate) {
+    renderReviewHistoryNavigation();
+    return;
+  }
   state.asOfDate = nextDate;
   state.reviewDatePinned = true;
   resetPreOpenChecks();
@@ -327,11 +357,25 @@ async function loadReviewHistory() {
 }
 
 function latestReviewHistoryDate() {
-  const dates = (state.reviewHistory || [])
-    .map((item) => normalizeDate(item.review_date))
-    .filter((value) => /^\d{8}$/.test(value))
-    .sort();
+  const dates = reviewHistoryDates();
   return dates.length ? dates[dates.length - 1] : "";
+}
+
+function reviewHistoryDates() {
+  return [...new Set((state.reviewHistory || [])
+    .map((item) => normalizeDate(item.review_date))
+    .filter((value) => /^\d{8}$/.test(value)))]
+    .sort();
+}
+
+function adjacentReviewHistoryDate(offset) {
+  const dates = reviewHistoryDates();
+  const current = normalizeDate(state.asOfDate);
+  if (!dates.length || !/^\d{8}$/.test(current)) return "";
+  if (offset < 0) {
+    return [...dates].reverse().find((date) => date < current) || "";
+  }
+  return dates.find((date) => date > current) || "";
 }
 
 function shouldAdoptLatestReviewDate(options = {}) {
@@ -425,6 +469,16 @@ async function runWithNotice(task) {
 
 async function runReview() {
   await runWithNotice(async () => {
+    const ok = await confirmAction({
+      title: "确认运行日终复盘",
+      body: `将对复盘日 ${displayDate(state.asOfDate)} 运行日终复盘流程，可能生成候选和交易计划。`,
+      details: writeConfirmationDetails({
+        targetStock: reviewTargetText(),
+        executionDay: state.report?.next_trade_date || executionDate(),
+      }),
+      submitLabel: confirmationSubmitLabel(),
+    });
+    if (!ok.confirmed) return;
     const payload = supportedWritePayload("review", {
       as_of_date: state.asOfDate,
       strategy_version: state.strategyVersion,
@@ -432,13 +486,6 @@ async function runReview() {
       max_daily_picks: 1,
       ...selectedAccountPayload(),
     });
-    if (!state.dryRun) {
-      const ok = await confirmAction({
-        title: "确认运行复盘",
-        body: `将对复盘日 ${displayDate(state.asOfDate)} 写入复盘结果和计划。`,
-      });
-      if (!ok.confirmed) return;
-    }
     const envelope = await apiRequest("/api/review-runs", { method: "POST", body: payload });
     handleMutationEnvelope(envelope, mutationSuccessText("复盘请求已完成", "复盘 dry run 成功，未写入复盘结果。"));
     await refreshAll({ keepNotice: true });
@@ -450,13 +497,22 @@ async function publishPlan(tradePlanId) {
     showNotice("存在数据质量 blocker，不能发布计划。");
     return;
   }
-  const payload = requiredWritePayload(`publish:${tradePlanId}`, selectedAccountPayload());
+  const plan = selectedRecordPlan(tradePlanId);
   const ok = await confirmAction({
     title: "确认发布计划",
     body: `计划 ${tradePlanId} 将进入 active 状态。此操作不支持 dry run。`,
+    details: writeConfirmationDetails({
+      targetStock: planStockText(plan),
+      planId: tradePlanId,
+      executionDay: planTradeDate(plan) || executionDate(),
+      dryRunSupported: false,
+      applyOnly: true,
+    }),
+    submitLabel: confirmationSubmitLabel(true),
   });
   if (!ok.confirmed) return;
   await runWithNotice(async () => {
+    const payload = requiredWritePayload(`publish:${tradePlanId}`, selectedAccountPayload());
     const envelope = await apiRequest(`/api/trade-plans/${tradePlanId}/publish`, {
       method: "POST",
       body: payload,
@@ -467,11 +523,20 @@ async function publishPlan(tradePlanId) {
 }
 
 async function cancelPlan(tradePlanId) {
+  const plan = selectedRecordPlan(tradePlanId);
   const ok = await confirmAction({
     title: "确认取消计划",
     body: `计划 ${tradePlanId} 将被标记为 cancelled。此操作不支持 dry run。`,
     inputLabel: "取消原因",
     quickChoices: CANCEL_REASON_CHOICES,
+    details: writeConfirmationDetails({
+      targetStock: planStockText(plan),
+      planId: tradePlanId,
+      executionDay: planTradeDate(plan) || executionDate(),
+      dryRunSupported: false,
+      applyOnly: true,
+    }),
+    submitLabel: confirmationSubmitLabel(true),
   });
   if (!ok.confirmed) return;
   const cancelReason = ok.value.trim();
@@ -479,11 +544,11 @@ async function cancelPlan(tradePlanId) {
     showNotice("取消计划需要填写原因。");
     return;
   }
-  const payload = requiredWritePayload(`cancel:${tradePlanId}`, {
-    ...selectedAccountPayload(),
-    cancel_reason: cancelReason,
-  });
   await runWithNotice(async () => {
+    const payload = requiredWritePayload(`cancel:${tradePlanId}`, {
+      ...selectedAccountPayload(),
+      cancel_reason: cancelReason,
+    });
     const envelope = await apiRequest(`/api/trade-plans/${tradePlanId}/cancel`, {
       method: "POST",
       body: payload,
@@ -517,7 +582,7 @@ async function submitTradeRecord(event) {
         throw new Error("只有 active 计划才能录入成交。");
       }
     }
-    const payload = supportedWritePayload(`trade:${tradePlanId || positionId}`, {
+    const basePayload = {
       trade_plan_id: tradePlanId || undefined,
       position_id: positionId || undefined,
       side: positionId ? undefined : els.recordSide.value,
@@ -529,14 +594,24 @@ async function submitTradeRecord(event) {
       slippage: optionalNumber(els.recordSlippage.value),
       source: "manual",
       ...selectedAccountPayload(),
+    };
+    const recordPlan = tradePlanId ? selectedRecordPlan(tradePlanId) : null;
+    const recordPosition = positionId ? findPosition(positionId) : null;
+    const targetStock = recordPlan ? planStockText(recordPlan) : positionStockText(recordPosition);
+    const recordSideText = positionId || basePayload.side === "sell" ? "卖出" : "买入";
+    const ok = await confirmAction({
+      title: recordSideText === "卖出" ? "确认记录卖出成交" : "确认记录买入成交",
+      body: `将记录 ${displayDate(basePayload.executed_date)} 的人工纸面${recordSideText}成交：${numberText(basePayload.executed_price, 4)} 元 / ${integerText(basePayload.shares)} 股。Dashboard 不会向券商下单。`,
+      details: writeConfirmationDetails({
+        targetStock,
+        planId: tradePlanId,
+        positionId,
+        executionDay: basePayload.executed_date,
+      }),
+      submitLabel: confirmationSubmitLabel(),
     });
-    if (!state.dryRun) {
-      const ok = await confirmAction({
-        title: "确认记录成交",
-        body: `将写入成交日期 ${displayDate(payload.executed_date)} 的成交事实；Dashboard 不会向券商下单。`,
-      });
-      if (!ok.confirmed) return;
-    }
+    if (!ok.confirmed) return;
+    const payload = supportedWritePayload(`trade:${tradePlanId || positionId}`, basePayload);
     const envelope = await apiRequest("/api/trades", { method: "POST", body: payload });
     handleMutationEnvelope(envelope, mutationSuccessText(
       "成交录入请求已完成，持仓和计划状态已刷新。",
@@ -549,18 +624,23 @@ async function submitTradeRecord(event) {
 
 async function evaluateExits() {
   await runWithNotice(async () => {
+    const due = duePositions();
+    const ok = await confirmAction({
+      title: "确认评估退出",
+      body: `将对复盘日 ${displayDate(state.asOfDate)} 到期持仓生成退出决策/卖出计划，不会记录卖出成交。`,
+      details: writeConfirmationDetails({
+        targetStock: due.length ? due.map(positionStockText).join("；") : "到期持仓",
+        positionId: due.length === 1 ? due[0].position_id : due.length ? due.map((position) => position.position_id).join(", ") : "",
+        executionDay: state.asOfDate,
+      }),
+      submitLabel: confirmationSubmitLabel(),
+    });
+    if (!ok.confirmed) return;
     const payload = supportedWritePayload("exits", {
       as_of_date: state.asOfDate,
       generate_sell_plans: true,
       ...selectedAccountPayload(),
     });
-    if (!state.dryRun) {
-      const ok = await confirmAction({
-        title: "确认评估退出",
-        body: `将对复盘日 ${displayDate(state.asOfDate)} 到期持仓生成退出决策/卖出计划，不会记录卖出成交。`,
-      });
-      if (!ok.confirmed) return;
-    }
     const envelope = await apiRequest("/api/exits/evaluate", { method: "POST", body: payload });
     handleMutationEnvelope(envelope, mutationSuccessText("退出评估请求已完成", "退出评估 dry run 成功，未写入退出决策/计划。"));
     await refreshAll({ keepNotice: true });
@@ -579,10 +659,49 @@ function mutationSuccessText(writeText, dryRunText) {
   return state.dryRun ? dryRunText : writeText;
 }
 
+function writeConfirmationDetails({ targetStock = "-", planId = "", positionId = "", executionDay = executionDate(), dryRunSupported = true, applyOnly = false } = {}) {
+  const idText = planId
+    ? `计划 ${planId}`
+    : positionId
+      ? `持仓 ${positionId}`
+      : "-";
+  const operatorText = applyOnly || !state.dryRun
+    ? `apply 必填：${state.operator || "未填写"}`
+    : `dry-run 可预演；apply 必填：${state.operator || "未填写"}`;
+  const modeText = applyOnly
+    ? "Apply：此操作不支持 dry run"
+    : state.dryRun
+      ? "Dry run：预演不落库"
+      : "Apply：服务端开启写入时会落库";
+  return [
+    ["账户", accountContextText()],
+    ["复盘日", displayDate(state.asOfDate)],
+    ["执行日", displayDate(executionDay)],
+    ["目标股票", targetStock || "-"],
+    ["计划/持仓 ID", idText],
+    ["操作者要求", operatorText],
+    ["Dry-run / Apply", dryRunSupported ? modeText : "Apply：此操作不支持 dry run"],
+  ];
+}
+
+function accountContextText() {
+  const account = state.report?.account;
+  const parts = [];
+  if (state.accountKey || account?.account_key) parts.push(`key=${state.accountKey || account.account_key}`);
+  if (resolvedAccountId()) parts.push(`id=${resolvedAccountId()}`);
+  return parts.join(" / ") || "-";
+}
+
+function confirmationSubmitLabel(applyOnly = false) {
+  if (applyOnly) return "确认 apply";
+  return state.dryRun ? "确认 dry run" : "确认 apply";
+}
+
 function renderAll() {
   renderOpeningExecution();
   renderStatusBand();
   renderReviewHistory();
+  renderReviewScopeMarkers();
   renderReview();
   renderPlans();
   renderRecordQueue();
@@ -610,13 +729,16 @@ function renderOpeningExecution() {
 
   if (blocked) {
     const blockers = blockingEvents().slice(0, 2).map((item) => escapeHtml(item.message || item.code || "数据阻断")).join("；");
+    const ledgerCount = ledgerBlockerCount();
     els.openingPlanBody.innerHTML = `
-      <h3 class="action-title">数据质量 blocker，买入执行按钮已禁用</h3>
+      <h3 class="action-title">数据质量 / 账本 blocker，买入执行按钮已禁用</h3>
       <p class="muted">${blockers || "请先处理数据质量页面中的 blocker。"}</p>
+      ${ledgerCount ? `<p class="ledger-blocker-note">账本 invariant blocker 未清除前，发布、取消和成交录入会保持锁定。</p>` : ""}
       ${actionMetrics([
         ["执行日", displayDate(executionDay)],
         ["active 买入计划", String(activePlans.length)],
         ["阻断数", String(blockingEvents().length)],
+        ["账本 blocker", String(ledgerCount)],
         ["账户容量", capacityText(state.report?.account)],
       ])}
     `;
@@ -1048,6 +1170,30 @@ function renderReviewHistory() {
       `;
     }).join("")
     : emptyState("暂无复盘历史；运行复盘后会出现在这里。");
+  renderReviewHistoryNavigation();
+}
+
+function renderReviewHistoryNavigation() {
+  const previousDate = adjacentReviewHistoryDate(-1);
+  const nextDate = adjacentReviewHistoryDate(1);
+  const latestDate = latestReviewHistoryDate();
+  const hasHistory = reviewHistoryDates().length > 0;
+  els.reviewPrevDateButton.disabled = !previousDate;
+  els.reviewNextDateButton.disabled = !nextDate;
+  els.reviewLatestDateButton.disabled = !hasHistory || latestDate === normalizeDate(state.asOfDate);
+  els.reviewPrevDateButton.title = previousDate ? `上一复盘日 ${displayDate(previousDate)}` : "没有更早的复盘历史";
+  els.reviewNextDateButton.title = nextDate ? `下一复盘日 ${displayDate(nextDate)}` : "没有更新的复盘历史";
+  els.reviewLatestDateButton.title = latestDate ? `最新可用复盘日 ${displayDate(latestDate)}` : "暂无复盘历史";
+}
+
+function renderReviewScopeMarkers() {
+  const selected = `复盘日 ${displayDate(state.asOfDate)}`;
+  const execution = `执行日 ${displayDate(state.report?.next_trade_date)}`;
+  els.currentReviewDateLabel.textContent = `当前复盘日：${displayDate(state.asOfDate)}`;
+  els.blockerReviewScope.textContent = selected;
+  els.candidateReviewScope.textContent = selected;
+  els.dueReviewScope.textContent = `${selected} / ${execution}`;
+  els.agentReviewScope.textContent = selected;
 }
 
 function renderNextAction() {
@@ -1288,6 +1434,7 @@ function renderAgentAdvice(advice, { expanded }) {
         <div class="metric"><span>风险等级</span><strong>${riskText(advice.risk_level)}</strong></div>
         <div class="metric"><span>置信度</span><strong>${advice.confidence == null ? "-" : numberText(advice.confidence, 2)}</strong></div>
       </div>
+      ${renderAgentCoverage(advice.external_data_coverage)}
       <p class="agent-summary-text">${escapeHtml(summary)}</p>
       ${!expanded ? renderAgentSourceRefs(sourceRefs, { compact: true }) : ""}
       ${quickPoints}
@@ -1347,6 +1494,36 @@ function normalizedAgentAnalystReports(advice) {
       risk_points: [],
     };
   });
+}
+
+function normalizedAgentCoverage(coverage) {
+  const source = coverage && typeof coverage === "object" ? coverage : {};
+  return AGENT_ANALYST_SECTIONS.map(([key, name]) => {
+    const status = ["available", "partial", "unavailable"].includes(source[key])
+      ? source[key]
+      : "unavailable";
+    return { key, name, status };
+  });
+}
+
+function renderAgentCoverage(coverage) {
+  const items = normalizedAgentCoverage(coverage);
+  return `
+    <section class="agent-coverage" aria-label="Agent 外部数据覆盖">
+      <div class="agent-coverage__head">
+        <span>数据覆盖 external_data_coverage</span>
+        ${chipHtml("Agent 是否影响交易计划：否，仅供参考", "chip-agent")}
+      </div>
+      <div class="agent-coverage__grid">
+        ${items.map((item) => `
+          <div class="agent-coverage__item">
+            <span>${escapeHtml(item.name)}</span>
+            ${chipHtml(agentCoverageText(item.status), agentCoverageClass(item.status))}
+          </div>
+        `).join("")}
+      </div>
+    </section>
+  `;
 }
 
 function renderAgentSourceRefs(sourceRefs, { compact = false } = {}) {
@@ -1720,7 +1897,15 @@ function fillRecordFromPlan(plan) {
   els.recordFee.value = "0";
   els.recordTax.value = "0";
   els.recordSlippage.value = "";
-  els.recordPrefillHint.textContent = `已从计划 ${plan.id} 预填：成交日期 ${displayDate(recordDate)}、股数 ${integerText(shares)}${price != null ? `、参考价 ${inputNumber(price)}` : ""}。成交价请按实际开盘成交核对。`;
+  setRecordDateConstraint(recordDate);
+  renderRecordReferencePanel([
+    ["计划 ID", plan.id],
+    ["计划日期", displayDate(recordDate)],
+    ["计划价格参考", price != null ? inputNumber(price) : "-"],
+    ["计划股数", integerText(shares)],
+    ["目标股票", planStockText(plan)],
+  ]);
+  els.recordPrefillHint.textContent = `已从计划 ${plan.id} 预填：计划日期 ${displayDate(recordDate)}、计划股数 ${integerText(shares)}${price != null ? `、计划价格参考 ${inputNumber(price)}` : ""}。计划日期已用日期选择器锁定，成交价请按实际开盘成交核对。`;
   els.recordModeChip.textContent = plan.status === "active" ? "按 active 计划录入" : "计划未激活";
   els.recordModeChip.className = `chip ${plan.status === "active" ? "chip-blue" : "chip-amber"}`;
   setRecordFormState();
@@ -1737,6 +1922,14 @@ function fillRecordFromPosition(position) {
   els.recordFee.value = "0";
   els.recordTax.value = "0";
   els.recordSlippage.value = "";
+  setRecordDateConstraint("");
+  renderRecordReferencePanel([
+    ["持仓 ID", position.position_id],
+    ["买入日", displayDate(position.buy_date)],
+    ["持仓股数", integerText(position.shares)],
+    ["最近收盘价", position.latest_close != null ? inputNumber(position.latest_close) : "-"],
+    ["目标股票", positionStockText(position)],
+  ]);
   const priceHint = position.latest_close != null
     ? `、最近收盘价 ${inputNumber(position.latest_close)}（行情日 ${displayDate(position.latest_trade_date)}，不是实时现价）`
     : "";
@@ -1756,12 +1949,38 @@ function clearRecordForm(resetChip = true) {
   els.recordFee.value = "0";
   els.recordTax.value = "0";
   els.recordSlippage.value = "";
+  setRecordDateConstraint("");
+  clearRecordReferencePanel();
   els.recordPrefillHint.textContent = "从待录入队列选择计划后，会自动带出计划 ID、方向、成交日期、股数和参考价。";
   if (resetChip) {
     els.recordModeChip.textContent = "未选择";
     els.recordModeChip.className = "chip chip-neutral";
   }
   setRecordFormState();
+}
+
+function setRecordDateConstraint(plannedDate) {
+  const inputDate = dateInputValue(plannedDate);
+  els.recordDate.min = inputDate;
+  els.recordDate.max = inputDate;
+  els.recordDate.title = inputDate
+    ? `计划日期已锁定为 ${displayDate(plannedDate)}`
+    : "请选择实际成交日期";
+}
+
+function renderRecordReferencePanel(rows) {
+  els.recordPlanReference.hidden = false;
+  els.recordPlanReference.innerHTML = `
+    <strong>计划参考</strong>
+    <dl class="record-reference-grid">
+      ${rows.map(([label, value]) => `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(String(value ?? "-"))}</dd>`).join("")}
+    </dl>
+  `;
+}
+
+function clearRecordReferencePanel() {
+  els.recordPlanReference.hidden = true;
+  els.recordPlanReference.innerHTML = "";
 }
 
 function openLineageDrawer() {
@@ -2053,7 +2272,7 @@ function openingReadiness(activePlans, executionDay, blocked = hasBlockingQualit
   const totalChecks = Object.keys(state.preOpenChecks).length + 1;
   let lockReason = "";
   if (blocked) {
-    lockReason = "数据质量 blocker 未处理";
+    lockReason = ledgerBlockerCount() ? "账本 invariant blocker 未处理" : "数据质量 blocker 未处理";
   } else if (!hasExecutionPlan) {
     lockReason = "没有计划交易日匹配执行日的 active 买入计划";
   } else if (!manualComplete) {
@@ -2091,7 +2310,7 @@ function openingRecordReady(activePlans, executionDay, blocked = hasBlockingQual
 }
 
 function recordLockReasonForPlan(plan, executionDay) {
-  if (hasBlockingQuality()) return "数据质量 blocker 未处理";
+  if (hasBlockingQuality()) return ledgerBlockerCount() ? "账本 invariant blocker 未处理" : "数据质量 blocker 未处理";
   if (plan.status !== "active") return "计划不是 active";
   if (planTradeDate(plan) !== executionDay) return "计划交易日与执行日不一致";
   if (!manualPreOpenChecksComplete()) return "开盘检查未完成";
@@ -2100,7 +2319,7 @@ function recordLockReasonForPlan(plan, executionDay) {
 
 function recordLockReasonForPlanAction(plan, executionDay = executionDate()) {
   if (isBuyPlan(plan)) return recordLockReasonForPlan(plan, executionDay);
-  if (hasBlockingQuality()) return "数据质量 blocker 未处理";
+  if (hasBlockingQuality()) return ledgerBlockerCount() ? "账本 invariant blocker 未处理" : "数据质量 blocker 未处理";
   if (plan.status !== "active") return "计划不是 active";
   return "";
 }
@@ -2109,15 +2328,27 @@ function blockingEvents() {
   const envelopeErrors = (state.reportEnvelope?.errors || []).filter((error) => {
     return error.severity === "blocker" || error.code === "VALIDATION_ERROR";
   });
+  const ledgerErrors = envelopeErrors.filter(isLedgerInvariantError);
+  const otherEnvelopeErrors = envelopeErrors.filter((error) => !isLedgerInvariantError(error));
   const qualityBlockers = state.qualityEvents.filter((event) => event.severity === "blocker");
   const readinessBlocker = state.report?.data_quality?.readiness === "blocker"
     ? [{
       severity: "blocker",
       code: "READINESS_BLOCKER",
-      message: `复盘日 ${displayDate(state.asOfDate)} 数据状态为 blocker。`,
+      message: ledgerErrors.length
+        ? `复盘日 ${displayDate(state.asOfDate)} 账本 invariant 检查失败。`
+        : `复盘日 ${displayDate(state.asOfDate)} 数据状态为 blocker。`,
     }]
     : [];
-  return [...readinessBlocker, ...envelopeErrors, ...qualityBlockers];
+  return [...ledgerErrors, ...readinessBlocker, ...otherEnvelopeErrors, ...qualityBlockers];
+}
+
+function isLedgerInvariantError(error) {
+  return error?.code === "DATABASE_INVARIANTS_FAILED" || String(error?.code || "").includes("INVARIANT");
+}
+
+function ledgerBlockerCount() {
+  return (state.reportEnvelope?.errors || []).filter(isLedgerInvariantError).length;
 }
 
 function duePositions() {
@@ -2217,6 +2448,22 @@ function planStockText(plan) {
   return tsCode || name || "-";
 }
 
+function positionStockText(position) {
+  if (!position) return "-";
+  const tsCode = position.ts_code || position.stock_code || position.symbol;
+  const name = position.name || position.stock_name;
+  if (tsCode && name) return `${tsCode} ${name}`;
+  return tsCode || name || "-";
+}
+
+function reviewTargetText() {
+  const plan = state.report?.buy_plan ? planFromReport(state.report.buy_plan) : null;
+  if (plan) return planStockText(plan);
+  const candidate = state.report?.candidate;
+  if (candidate) return `${candidate.ts_code || ""} ${candidate.name || ""}`.trim();
+  return "策略按复盘日自动选择";
+}
+
 function plannedShares(plan) {
   return plan?.planned_shares ?? plan?.shares ?? plan?.plan_json?.planned_shares ?? plan?.plan_json?.shares ?? null;
 }
@@ -2273,6 +2520,10 @@ function setRecordFormState() {
   const issues = recordFormIssues();
   const recordBlockers = issues.filter((issue) => issue.severity === "blocker");
   els.submitRecordButton.disabled = recordBlockers.length > 0;
+  els.recordLockReasonInline.hidden = recordBlockers.length === 0;
+  els.recordLockReasonInline.textContent = recordBlockers.length
+    ? `录入锁定原因：${recordBlockers.map((issue) => issue.text).join("；")}`
+    : "";
   renderRecordValidationPanel(issues);
 }
 
@@ -2355,6 +2606,9 @@ function recordFormIssues() {
   if (!/^\d{8}$/.test(recordDate)) {
     issues.push({ severity: "blocker", text: "成交日期必须是有效日期。" });
   }
+  if (!state.dryRun && !state.operator) {
+    issues.push({ severity: "blocker", text: "非 dry-run 成交录入需要填写操作者。" });
+  }
   if (price == null) {
     issues.push({ severity: "blocker", text: "成交价必须大于 0，且来自实际成交。" });
   }
@@ -2405,14 +2659,22 @@ function showNotice(message, tone = "error") {
   els.noticeLine.style.color = tone === "ok" ? "#065f46" : "#991b1b";
 }
 
-function confirmAction({ title, body, inputLabel, quickChoices = [] }) {
+function confirmAction({ title, body, inputLabel, quickChoices = [], details = [], submitLabel = "确认" }) {
+  const summaryText = details.map(([label, value]) => `${label}: ${value ?? "-"}`).join("\n");
   if (!els.confirmDialog.showModal) {
-    const confirmed = window.confirm(body);
+    const confirmed = window.confirm(summaryText ? `${body}\n\n${summaryText}` : body);
     const value = inputLabel && confirmed ? window.prompt(inputLabel, "") || "" : "";
     return Promise.resolve({ confirmed, value });
   }
   els.confirmTitle.textContent = title;
   els.confirmBody.textContent = body;
+  els.confirmSummary.hidden = details.length === 0;
+  els.confirmSummary.innerHTML = details.map(([label, value]) => `
+    <div class="confirm-summary__item">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(String(value ?? "-"))}</strong>
+    </div>
+  `).join("");
   els.confirmInput.value = "";
   els.confirmInputLabel.hidden = !inputLabel;
   els.confirmInputText.textContent = inputLabel || "";
@@ -2427,7 +2689,7 @@ function confirmAction({ title, body, inputLabel, quickChoices = [] }) {
       els.confirmInput.focus();
     });
   });
-  els.confirmSubmit.textContent = "确认";
+  els.confirmSubmit.textContent = submitLabel;
   return new Promise((resolve) => {
     const onClose = () => {
       els.confirmDialog.removeEventListener("close", onClose);
@@ -2668,6 +2930,22 @@ function agentAnalystStatusText(value) {
     partial: "部分数据",
     unavailable: "未接入",
   }[value] || dash(value);
+}
+
+function agentCoverageText(value) {
+  return {
+    available: "已接入",
+    partial: "部分数据",
+    unavailable: "未接入",
+  }[value] || "未接入";
+}
+
+function agentCoverageClass(value) {
+  return {
+    available: "chip-green",
+    partial: "chip-amber",
+    unavailable: "chip-neutral",
+  }[value] || "chip-neutral";
 }
 
 function agentAnalystStatusClass(value) {

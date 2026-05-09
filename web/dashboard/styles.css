@@ -799,6 +799,35 @@ code {
   box-shadow: var(--shadow-soft);
 }
 
+.review-scope-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border: 1px solid #dfe7ff;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  vertical-align: middle;
+}
+
+.review-scope-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
 .review-date-field {
   display: grid;
   gap: 4px;
@@ -1030,6 +1059,17 @@ code {
   line-height: 1.35;
 }
 
+.ledger-blocker-note {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border: 1px solid #f2c3b6;
+  border-radius: 6px;
+  background: #fff4f1;
+  color: #8f2d1c;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .action-meta {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1252,6 +1292,60 @@ code {
   line-height: 1.5;
 }
 
+.record-reference-panel {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid #d7f1ea;
+  border-radius: 6px;
+  background: #f0fbf8;
+}
+
+.record-reference-panel[hidden] {
+  display: none !important;
+}
+
+.record-reference-panel strong {
+  color: #0f766e;
+  font-size: 12px;
+}
+
+.record-reference-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.record-reference-grid dt {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.record-reference-grid dd {
+  margin: 2px 0 0;
+  min-width: 0;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.record-lock-inline {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 9px 12px;
+  border: 1px solid #fdd0c4;
+  border-radius: 6px;
+  background: #fff2ee;
+  color: #a0341b;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
 .summary-footnote {
   margin: 10px 0 0;
   color: var(--muted);
@@ -1463,6 +1557,53 @@ td > .empty-state {
 
 .agent-report-metrics {
   margin-top: 0;
+}
+
+.agent-coverage {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.agent-coverage__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.agent-coverage__head > span {
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.agent-coverage__grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.agent-coverage__item {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-soft);
+}
+
+.agent-coverage__item > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
 }
 
 .agent-source-refs {
@@ -1850,6 +1991,44 @@ td > .empty-state {
   line-height: 1.6;
 }
 
+.confirm-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.confirm-summary[hidden] {
+  display: none !important;
+}
+
+.confirm-summary__item {
+  min-width: 0;
+  padding: 8px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.confirm-summary__item span {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.confirm-summary__item strong {
+  display: block;
+  margin-top: 3px;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 .confirm-dialog label {
   display: grid;
   gap: 4px;
@@ -2049,9 +2228,12 @@ td > .empty-state {
   .review-history-list,
   .action-meta,
   .drawer-metrics,
+  .record-reference-grid,
+  .confirm-summary,
   .readiness-steps,
   .workflow-guide__facts,
   .agent-source-boundary,
+  .agent-coverage__grid,
   .agent-detail-grid,
   .agent-analyst-grid {
     grid-template-columns: 1fr;

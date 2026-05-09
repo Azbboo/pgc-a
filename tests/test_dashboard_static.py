@@ -188,6 +188,59 @@ class DashboardStaticTest(unittest.TestCase):
         self.assertIn("创建 ${displayTimestamp(item.created_at)}", source)
         self.assertIn("els.reviewDateInput.value = dateInputValue(state.asOfDate)", source)
 
+    def test_dashboard_m27_operation_modals_and_review_navigation_are_visible(self) -> None:
+        source = "\n".join(
+            [
+                (DASHBOARD_DIR / "index.html").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "styles.css").read_text(encoding="utf-8"),
+            ]
+        )
+
+        for label in [
+            "运行日终复盘",
+            "最新可用",
+            "当前复盘日",
+            "计划价格参考",
+            "计划日期已用日期选择器锁定",
+            "录入锁定原因：",
+            "Dry-run / Apply",
+            "操作者要求",
+            "Apply：此操作不支持 dry run",
+            "Dry run：预演不落库",
+            "确认记录买入成交",
+            "确认记录卖出成交",
+            "确认评估退出",
+        ]:
+            self.assertIn(label, source)
+        for html_id in [
+            'id="reviewLatestDateButton"',
+            'id="currentReviewDateLabel"',
+            'id="blockerReviewScope"',
+            'id="candidateReviewScope"',
+            'id="dueReviewScope"',
+            'id="agentReviewScope"',
+            'id="recordPlanReference"',
+            'id="recordLockReasonInline"',
+            'id="confirmSummary"',
+        ]:
+            self.assertIn(html_id, source)
+        for fn_name in [
+            "function writeConfirmationDetails",
+            "function renderReviewHistoryNavigation",
+            "function adjacentReviewHistoryDate",
+            "function setLatestReviewDate",
+            "function renderReviewScopeMarkers",
+            "function setRecordDateConstraint",
+            "function renderRecordReferencePanel",
+        ]:
+            self.assertIn(fn_name, source)
+        self.assertIn("els.reviewPrevDateButton.disabled = !previousDate", source)
+        self.assertIn("els.reviewNextDateButton.disabled = !nextDate", source)
+        self.assertIn("els.reviewLatestDateButton.disabled", source)
+        self.assertIn("els.recordDate.min = inputDate", source)
+        self.assertIn("els.recordDate.max = inputDate", source)
+
     def test_dashboard_agent_report_display_is_chinese_and_traceable(self) -> None:
         source = "\n".join(
             [
@@ -202,6 +255,8 @@ class DashboardStaticTest(unittest.TestCase):
             "系统复盘原始数据",
             "中文复核报告",
             "来源边界 source_refs",
+            "数据覆盖 external_data_coverage",
+            "Agent 是否影响交易计划：否，仅供参考",
             "未接入/数据不足",
             "技术面",
             "基本面",
@@ -211,11 +266,15 @@ class DashboardStaticTest(unittest.TestCase):
         ]:
             self.assertIn(label, source)
         self.assertIn("function renderAgentSourceRefs", source)
+        self.assertIn("function renderAgentCoverage", source)
+        self.assertIn("function normalizedAgentCoverage", source)
         self.assertIn("function normalizedAgentAnalystReports", source)
+        self.assertIn("advice.external_data_coverage", source)
         self.assertIn("agent_external_items:", source)
         self.assertIn("market_diagnostic_bars:", source)
         self.assertIn("advice.source_refs", source)
         self.assertIn("agent-source-boundary", source)
+        self.assertIn("agent-coverage", source)
 
     def test_dashboard_p1_cancel_and_execution_guardrails_are_visible(self) -> None:
         source = "\n".join(
@@ -249,6 +308,10 @@ class DashboardStaticTest(unittest.TestCase):
         self.assertIn("refreshAll({ keepNotice: true })", source)
         self.assertIn("recordReviewPlanButton.disabled = blocked", source)
         self.assertIn("submitRecordButton.disabled", source)
+        self.assertIn("数据质量 / 账本 blocker，买入执行按钮已禁用", source)
+        self.assertIn("账本 invariant blocker 未处理", source)
+        self.assertIn("function ledgerBlockerCount", source)
+        self.assertIn("DATABASE_INVARIANTS_FAILED", source)
 
     def test_dashboard_p1_defaults_and_exit_queue_are_scoped(self) -> None:
         script = (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8")

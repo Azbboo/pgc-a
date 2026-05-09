@@ -114,6 +114,16 @@ class AgentReviewServiceTest(unittest.TestCase):
             self.assertEqual(snapshot["candidate"]["analysis_contexts"]["fundamental"]["status"], "unavailable")
             self.assertEqual(snapshot["candidate"]["analysis_contexts"]["news"]["status"], "unavailable")
             self.assertEqual(snapshot["candidate"]["analysis_contexts"]["sentiment"]["status"], "partial")
+            self.assertEqual(
+                snapshot["external_data_coverage"],
+                {
+                    "fundamental": "unavailable",
+                    "news": "unavailable",
+                    "sentiment": "partial",
+                    "technical": "available",
+                },
+            )
+            self.assertEqual(snapshot["candidate"]["external_data_coverage"], snapshot["external_data_coverage"])
             self.assertFalse(config.online_tools)
             self.assertEqual(config.llm_provider, "deepseek")
             self.assertEqual(config.deep_think_llm, "deepseek-v4-pro")
@@ -170,6 +180,15 @@ class AgentReviewServiceTest(unittest.TestCase):
             self.assertEqual(contexts["fundamental"]["status"], "partial")
             self.assertEqual(contexts["fundamental"]["external_items"][0]["title"], "财务摘要")
             self.assertEqual(contexts["sentiment"]["external_items"][0]["sentiment"], "neutral")
+            self.assertEqual(
+                snapshot["external_data_coverage"],
+                {
+                    "fundamental": "partial",
+                    "news": "available",
+                    "sentiment": "partial",
+                    "technical": "available",
+                },
+            )
             diagnostics = contexts["technical"]["external_market_diagnostics"]
             self.assertEqual(diagnostics["status"], "partial")
             self.assertEqual(diagnostics["providers"][0]["provider"], "yfinance")

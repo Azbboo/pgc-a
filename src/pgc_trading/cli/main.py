@@ -25,6 +25,10 @@ from pgc_trading.services.agent_external_data_service import (
 )
 from pgc_trading.services.agent_review_service import AgentReviewService, ReviewDailyPickRequest
 from pgc_trading.services.common import RequestContext, ServiceResult
+from pgc_trading.services.daily_pipeline_service import (
+    DailyPipelineService,
+    RunDailyPipelineRequest,
+)
 from pgc_trading.services.daily_close_workflow_service import (
     DEFAULT_ACCOUNT_KEY,
     DailyCloseWorkflowService,
@@ -33,6 +37,8 @@ from pgc_trading.services.daily_close_workflow_service import (
 from pgc_trading.services.daily_review_service import DailyReviewService, RunDailyReviewRequest
 from pgc_trading.services.execution_recording_service import (
     ExecutionRecordingService,
+    LedgerAuditRequest,
+    LedgerRepairRequest,
     RecordPositionSellRequest,
     RecordTradeRequest,
 )
@@ -63,6 +69,7 @@ OperationalReadinessServiceFactory = Callable[[Path], OperationalReadinessServic
 PlanningServiceFactory = Callable[[Path], PortfolioPlanningService]
 AgentReviewServiceFactory = Callable[[Path], AgentReviewService]
 AgentExternalDataServiceFactory = Callable[[Path], AgentExternalDataService]
+DailyPipelineServiceFactory = Callable[[Path], DailyPipelineService]
 
 
 @dataclass(frozen=True)
@@ -76,6 +83,7 @@ class CommandServices:
     planning_service_factory: PlanningServiceFactory = PortfolioPlanningService
     agent_review_service_factory: AgentReviewServiceFactory = AgentReviewService
     agent_external_data_service_factory: AgentExternalDataServiceFactory = AgentExternalDataService
+    daily_pipeline_service_factory: DailyPipelineServiceFactory = DailyPipelineService
 
 
 class PgcArgumentParser(argparse.ArgumentParser):
@@ -382,7 +390,17 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
         stdout=stdout,
         stderr=stderr,
     )
-    external_data_import.add_argument("--file", dest="source_file", type=Path, required=True)
+    external_data_import.add_argument("--file", "--input", dest="source_file", type=Path, required=True)
+    external_data_import.add_argument(
+        "--date",
+        dest="import_date",
+        help="default compact YYYYMMDD published date for structured cached items",
+    )
+    external_data_import.add_argument(
+        "--source",
+        dest="import_source",
+        help="default provider/source for structured cached items",
+    )
     external_data_import.add_argument(
         "--apply",
         action="store_true",
@@ -452,6 +470,70 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
         help="return non-zero when storage migrations are pending",
     )
     ops_health.set_defaults(handler=_run_ops_health)
+
+    ops_ledger_audit = ops_subparsers.add_parser(
+        "ledger-audit",
+        help="run read-only ledger consistency checks for an account",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    _add_report_date_argument(ops_ledger_audit)
+    _add_account_arguments(ops_ledger_audit)
+    _add_db_path_argument(ops_ledger_audit)
+    ops_ledger_audit.set_defaults(handler=_run_ops_ledger_audit)
+
+    ops_ledger_repair = ops_subparsers.add_parser(
+        "ledger-repair",
+        help="preview or apply known ledger consistency repairs for an account",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    _add_report_date_argument(ops_ledger_repair)
+    _add_account_arguments(ops_ledger_repair)
+    _add_db_path_argument(ops_ledger_repair)
+    ledger_repair_mode = ops_ledger_repair.add_mutually_exclusive_group()
+    ledger_repair_mode.add_argument(
+        "--dry-run",
+        dest="dry_run",
+        action="store_true",
+        default=True,
+        help="preview repair SQL intents without writing; this is the default",
+    )
+    ledger_repair_mode.add_argument(
+        "--apply",
+        dest="dry_run",
+        action="store_false",
+        help="apply known repairs after printing SQL intents",
+    )
+    ops_ledger_repair.add_argument("--operator", help="operator name; required with --apply")
+    ops_ledger_repair.add_argument("--backup-dir", type=Path, help="backup destination directory for --apply")
+    ops_ledger_repair.set_defaults(handler=_run_ops_ledger_repair)
+
+    ops_daily_pipeline = ops_subparsers.add_parser(
+        "daily-pipeline",
+        help="run the repeatable daily operating pipeline",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    _add_report_date_argument(ops_daily_pipeline)
+    _add_account_arguments(ops_daily_pipeline)
+    ops_daily_pipeline.add_argument("--strategy-version", default=STRATEGY_VERSION, help="strategy version to run")
+    ops_daily_pipeline.add_argument(
+        "--run-type",
+        choices=["research", "backtest", "validation", "paper", "live"],
+        default="paper",
+        help="workflow run type",
+    )
+    mode = ops_daily_pipeline.add_mutually_exclusive_group()
+    mode.add_argument("--dry-run", dest="apply", action="store_false", help="preview pipeline writes")
+    mode.add_argument("--apply", dest="apply", action="store_true", help="persist daily pipeline writes")
+    ops_daily_pipeline.set_defaults(apply=False)
+    ops_daily_pipeline.add_argument("--operator", help="operator name; required with --apply")
+    ops_daily_pipeline.add_argument("--idempotency-key", help="optional base idempotency key for pipeline steps")
+    ops_daily_pipeline.add_argument("--backup-dir", type=Path, help="backup destination directory for --apply")
+    _add_live_write_guard_argument(ops_daily_pipeline)
+    _add_db_path_argument(ops_daily_pipeline)
+    ops_daily_pipeline.set_defaults(handler=_run_ops_daily_pipeline)
 
     return parser
 
@@ -843,7 +925,11 @@ def _run_agent_external_data_import(
         return 1
 
     service = services.agent_external_data_service_factory(db_path)
-    request = ImportAgentExternalDataRequest(source_file=source_file)
+    request = ImportAgentExternalDataRequest(
+        source_file=source_file,
+        default_provider=args.import_source,
+        default_published_date=args.import_date,
+    )
     ctx = RequestContext(
         request_id="cli-agent-external-data-import",
         idempotency_key=args.idempotency_key,
@@ -992,6 +1078,100 @@ def _run_ops_health(args: argparse.Namespace, stdout: TextIO, services: CommandS
     if args.require_current_migrations and result.pending_migrations:
         return 1
     return 0
+
+
+def _run_ops_ledger_audit(args: argparse.Namespace, stdout: TextIO, services: CommandServices) -> int:
+    db_path = _normalized_db_path(args.db_path)
+    if not db_path.exists():
+        stdout.write("ledger_audit_status=failed\n")
+        stdout.write(f"account_key={args.account_key or 'none'}\n")
+        stdout.write(f"as_of_date={args.date}\n")
+        stdout.write(f"database={db_path}\n")
+        stdout.write("error=database not found; ledger audit was not run and no writes were performed\n")
+        return 1
+
+    service = services.execution_service_factory(db_path)
+    result = service.audit_ledger(
+        LedgerAuditRequest(
+            as_of_date=args.date,
+            account_key=args.account_key,
+            account_id=args.account_id,
+        ),
+        RequestContext(request_id="cli-ops-ledger-audit", dry_run=True, operator="cli", source="cli"),
+    )
+    _write_ledger_audit_result(stdout, result)
+    return 0 if result.data is not None and result.data.ok else 1
+
+
+def _run_ops_ledger_repair(args: argparse.Namespace, stdout: TextIO, services: CommandServices) -> int:
+    db_path = _normalized_db_path(args.db_path)
+    if not db_path.exists():
+        stdout.write("ledger_repair_status=failed\n")
+        stdout.write(f"account_key={args.account_key or 'none'}\n")
+        stdout.write(f"as_of_date={args.date}\n")
+        stdout.write(f"database={db_path}\n")
+        stdout.write("error=database not found; ledger repair was not run and no writes were performed\n")
+        return 1
+
+    service = services.execution_service_factory(db_path)
+    result = service.repair_ledger(
+        LedgerRepairRequest(
+            as_of_date=args.date,
+            account_key=args.account_key,
+            account_id=args.account_id,
+            backup_dir=_normalized_db_path(args.backup_dir) if args.backup_dir is not None else None,
+        ),
+        RequestContext(
+            request_id="cli-ops-ledger-repair",
+            dry_run=args.dry_run,
+            operator=args.operator,
+            source="cli",
+        ),
+    )
+    _write_ledger_repair_result(stdout, result)
+    return 0 if result.data is not None and result.data.status in {"clean", "would_apply", "applied"} else 1
+
+
+def _run_ops_daily_pipeline(args: argparse.Namespace, stdout: TextIO, services: CommandServices) -> int:
+    db_path = _normalized_db_path(args.db_path)
+    as_of_date = args.date
+
+    if not db_path.exists():
+        stdout.write(f"pipeline_status=failed\n")
+        stdout.write(f"review_date={as_of_date}\n")
+        stdout.write(f"database={db_path}\n")
+        stdout.write("error=database not found; daily pipeline was not run and no writes were performed\n")
+        return 1
+
+    service = services.daily_pipeline_service_factory(db_path)
+    request = RunDailyPipelineRequest(
+        as_of_date=as_of_date,
+        account_key=args.account_key,
+        account_id=args.account_id,
+        strategy_version=args.strategy_version,
+        run_type=args.run_type,
+        backup_dir=_normalized_db_path(args.backup_dir) if args.backup_dir is not None else None,
+    )
+    account_ref = args.account_key or f"account-id-{args.account_id}"
+    ctx = RequestContext(
+        request_id="cli-daily-pipeline",
+        idempotency_key=args.idempotency_key
+        or f"daily-pipeline:{account_ref}:{as_of_date}:{args.strategy_version}:{args.run_type}",
+        dry_run=not args.apply,
+        operator=args.operator or ("cli" if not args.apply else None),
+        source="cli",
+        allow_live_writes=args.allow_live_writes,
+    )
+    try:
+        result = service.run_daily_pipeline(request, ctx)
+    except sqlite3.OperationalError as exc:
+        stdout.write("pipeline_status=failed\n")
+        stdout.write(f"review_date={as_of_date}\n")
+        stdout.write(f"database_error={exc}\n")
+        return 1
+
+    _write_daily_pipeline_result(stdout, result)
+    return 0 if result.ok else 1
 
 
 def _add_date_argument(parser: argparse.ArgumentParser) -> None:
@@ -1394,6 +1574,8 @@ def _write_paper_readiness_result(
     stdout.write(f"open_blockers_count={getattr(data, 'open_blockers_count', 0)}\n")
     invariant_ok = bool(getattr(data, "invariant_ok", False))
     stdout.write(f"invariant_ok={str(invariant_ok).lower()}\n")
+    stdout.write(f"ledger_blockers_count={getattr(data, 'ledger_blockers_count', 0)}\n")
+    stdout.write(f"invariant_violation_codes={_display_list(getattr(data, 'invariant_violation_codes', []))}\n")
 
 
 def _write_agent_review_result(
@@ -1475,6 +1657,140 @@ def _write_agent_external_data_import_result(
                 f"code={getattr(issue, 'code', 'n/a')} "
                 f"message={getattr(issue, 'message', 'n/a')}\n"
             )
+
+
+def _write_daily_pipeline_result(stdout: TextIO, result: ServiceResult[object]) -> None:
+    data = result.data
+    if data is None:
+        stdout.write(f"pipeline_status={result.status}\n")
+        _write_warnings_and_errors(stdout, result)
+        return
+
+    stdout.write(f"pipeline_status={getattr(data, 'pipeline_status', result.status)}\n")
+    stdout.write(f"review_date={getattr(data, 'review_date', 'n/a')}\n")
+    stdout.write(f"next_trade_date={getattr(data, 'next_trade_date', None) or 'none'}\n")
+    stdout.write(f"daily_pick_id={_display_optional_int(getattr(data, 'daily_pick_id', None))}\n")
+    stdout.write(f"trade_plan_id={_display_optional_int(getattr(data, 'trade_plan_id', None))}\n")
+    stdout.write(f"agent_run_id={_display_optional_int(getattr(data, 'agent_run_id', None))}\n")
+    stdout.write(f"agent_decision_id={_display_optional_int(getattr(data, 'agent_decision_id', None))}\n")
+    stdout.write(f"exit_decisions={getattr(data, 'exit_decisions', 0)}\n")
+    stdout.write(f"report_markdown={getattr(data, 'report_markdown', None) or 'none'}\n")
+    stdout.write(f"report_json={getattr(data, 'report_json', None) or 'none'}\n")
+    stdout.write(f"backup_path={getattr(data, 'backup_path', None) or 'none'}\n")
+    stdout.write(f"changed={str(bool(getattr(data, 'changed', False))).lower()}\n")
+    stdout.write(f"ledger_audit_ok={str(bool(getattr(data, 'ledger_audit_ok', False))).lower()}\n")
+    stdout.write(f"daily_close_status={getattr(data, 'daily_close_status', None) or 'none'}\n")
+    stdout.write(f"agent_status={getattr(data, 'agent_status', None) or 'none'}\n")
+    stdout.write(f"exit_status={getattr(data, 'exit_status', None) or 'none'}\n")
+    stdout.write(f"report_status={getattr(data, 'report_status', None) or 'none'}\n")
+    stdout.write(f"report_would_write={str(bool(getattr(data, 'report_would_write', False))).lower()}\n")
+    _write_warnings_and_errors(stdout, result)
+
+
+def _write_ledger_audit_result(stdout: TextIO, result: ServiceResult[object]) -> None:
+    data = result.data
+    if data is None:
+        stdout.write("ledger_audit_status=failed\n")
+        _write_warnings_and_errors(stdout, result)
+        return
+
+    violations = getattr(data, "violations", [])
+    stdout.write(f"ledger_audit_status={'pass' if not violations else 'fail'}\n")
+    stdout.write(f"account_key={getattr(data, 'account_key', 'n/a')}\n")
+    stdout.write(f"account_id={getattr(data, 'account_id', 'n/a')}\n")
+    stdout.write(f"as_of_date={getattr(data, 'as_of_date', 'n/a')}\n")
+    stdout.write(f"open_positions={getattr(data, 'open_positions', 0)}\n")
+    stdout.write(f"active_plans={getattr(data, 'active_plans', 0)}\n")
+    stdout.write(f"violations={len(violations)}\n")
+    _write_invariant_violation_lines(stdout, violations)
+
+
+def _write_ledger_repair_result(stdout: TextIO, result: ServiceResult[object]) -> None:
+    data = result.data
+    if data is None:
+        stdout.write("ledger_repair_status=failed\n")
+        _write_warnings_and_errors(stdout, result)
+        return
+
+    actions = getattr(data, "actions", [])
+    unknown = getattr(data, "unknown_violations", [])
+    remaining = getattr(data, "remaining_violations", [])
+    stdout.write(f"ledger_repair_status={getattr(data, 'status', result.status)}\n")
+    stdout.write(f"account_key={getattr(data, 'account_key', 'n/a')}\n")
+    stdout.write(f"account_id={getattr(data, 'account_id', 'n/a')}\n")
+    stdout.write(f"as_of_date={getattr(data, 'as_of_date', 'n/a')}\n")
+    stdout.write(f"dry_run={str(bool(getattr(data, 'dry_run', True))).lower()}\n")
+    stdout.write(f"backup_required={str(bool(getattr(data, 'backup_required', False))).lower()}\n")
+    stdout.write(f"backup_path={getattr(data, 'backup_path', None) or 'none'}\n")
+    stdout.write(f"repair_actions={len(actions)}\n")
+    for action in actions:
+        stdout.write(
+            "repair_action="
+            f"code={getattr(action, 'code', 'n/a')} "
+            f"entity={getattr(action, 'entity', 'database')} "
+            f"intent={_shell_value(getattr(action, 'intent', 'n/a'))} "
+            f"sql={_shell_value(getattr(action, 'sql', ''))} "
+            f"params={_shell_value(_display_params(getattr(action, 'params', ())))}\n"
+        )
+    if unknown:
+        stdout.write(f"unknown_violations={len(unknown)}\n")
+        _write_invariant_violation_lines(stdout, unknown)
+    if getattr(data, "status", "") == "applied_with_remaining_violations":
+        stdout.write(f"remaining_violations={len(remaining)}\n")
+        _write_invariant_violation_lines(stdout, remaining)
+    _write_warnings_and_errors(stdout, result)
+
+
+def _write_invariant_violation_lines(stdout: TextIO, violations: list[object]) -> None:
+    for violation in violations:
+        code = getattr(violation, "code", "UNKNOWN")
+        severity = getattr(violation, "severity", "blocker")
+        for entity in _violation_entities(violation):
+            stdout.write(f"violation_code={code} entity={entity} severity={severity}\n")
+
+
+def _violation_entities(violation: object) -> list[str]:
+    details = getattr(violation, "details", {}) or {}
+    rows = details.get("rows") if isinstance(details, dict) else None
+    if isinstance(rows, list) and rows:
+        return [_entity_for_row(row) for row in rows if isinstance(row, dict)] or ["database"]
+    for key, prefix in (
+        ("position_ids", "position"),
+        ("trade_ids", "trade"),
+        ("trade_plan_ids", "trade_plan"),
+        ("equity_snapshot_ids", "equity_snapshot"),
+    ):
+        values = details.get(key) if isinstance(details, dict) else None
+        if isinstance(values, list) and values:
+            return [f"{prefix}:{value}" for value in values]
+    return ["database"]
+
+
+def _entity_for_row(row: dict[str, object]) -> str:
+    for key, prefix in (
+        ("position_id", "position"),
+        ("trade_id", "trade"),
+        ("trade_plan_id", "trade_plan"),
+        ("equity_snapshot_id", "equity_snapshot"),
+        ("account_id", "account"),
+    ):
+        value = row.get(key)
+        if value is not None:
+            return f"{prefix}:{value}"
+    return "database"
+
+
+def _display_params(params: tuple[object, ...]) -> str:
+    return "[" + ",".join("null" if value is None else str(value) for value in params) + "]"
+
+
+def _shell_value(value: object) -> str:
+    text = str(value).replace("\n", " ")
+    if not text:
+        return "''"
+    if any(char.isspace() for char in text):
+        return repr(text)
+    return text
 
 
 def _write_warnings_and_errors(stdout: TextIO, result: ServiceResult[object]) -> None:

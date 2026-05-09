@@ -25,6 +25,16 @@ VALID_AGENT_EXTERNAL_ITEM_TYPES = {
 }
 VALID_AGENT_EXTERNAL_SENTIMENTS = {"positive", "neutral", "negative", "mixed", "unknown"}
 VALID_AGENT_EXTERNAL_IMPORTANCE = {"low", "medium", "high", "unknown"}
+STRUCTURED_EXTERNAL_COLLECTIONS = {
+    "fundamental_snapshots": "fundamental",
+    "fundamentals": "fundamental",
+    "announcements": "announcement",
+    "company_announcements": "announcement",
+    "news": "news",
+    "news_snippets": "news",
+    "sentiments": "sentiment",
+    "sentiment_snippets": "sentiment",
+}
 
 
 @dataclass(frozen=True)
@@ -32,6 +42,8 @@ class ImportAgentExternalDataRequest:
     source_file: Path | None = None
     records: list[Mapping[str, Any]] | None = None
     encoding: str = "utf-8"
+    default_provider: str | None = None
+    default_published_date: str | None = None
 
 
 @dataclass(frozen=True)
@@ -194,10 +206,11 @@ def _load_request_records(request: ImportAgentExternalDataRequest) -> list[Mappi
     if request.source_file is not None and request.records is not None:
         return ServiceError("VALIDATION_ERROR", "choose either source_file or records, not both.")
     if request.records is not None:
-        records = list(request.records)
-        if not all(isinstance(record, Mapping) for record in records):
-            return ServiceError("VALIDATION_ERROR", "each external data record must be a JSON object.")
-        return records
+        return _validated_import_records(
+            list(request.records),
+            default_provider=request.default_provider,
+            default_published_date=request.default_published_date,
+        )
 
     source_file = Path(request.source_file) if request.source_file is not None else None
     if source_file is None:
@@ -214,21 +227,284 @@ def _load_request_records(request: ImportAgentExternalDataRequest) -> list[Mappi
     except json.JSONDecodeError as exc:
         return ServiceError("VALIDATION_ERROR", f"source_file is not valid JSON: {exc}")
 
+    return _records_from_payload(payload, request)
+
+
+def _records_from_payload(
+    payload: Any,
+    request: ImportAgentExternalDataRequest,
+) -> list[Mapping[str, Any]] | ServiceError:
     if isinstance(payload, list):
-        records = payload
-    elif isinstance(payload, dict) and isinstance(payload.get("records"), list):
-        records = payload["records"]
-    elif isinstance(payload, dict) and isinstance(payload.get("items"), list):
-        records = payload["items"]
-    else:
+        return _validated_import_records(
+            payload,
+            default_provider=request.default_provider,
+            default_published_date=request.default_published_date,
+        )
+    if not isinstance(payload, Mapping):
         return ServiceError(
             "VALIDATION_ERROR",
-            "source_file JSON must be a list, or an object with a records/items list.",
+            "source_file JSON must be a list, records/items object, or supported structured cache object.",
         )
 
+    default_provider = request.default_provider or _first_text(payload, "provider", "source", "data_source")
+    default_published_date = request.default_published_date or _first_text(
+        payload,
+        "published_date",
+        "date",
+        "as_of_date",
+        "trade_date",
+    )
+    for key in ("records", "items"):
+        if key not in payload:
+            continue
+        records = payload[key]
+        if not isinstance(records, list):
+            return ServiceError("VALIDATION_ERROR", f"source_file field {key} must be a list.")
+        return _validated_import_records(
+            records,
+            default_provider=default_provider,
+            default_published_date=default_published_date,
+        )
+
+    normalized: list[Mapping[str, Any]] = []
+    for collection_key, item_type in STRUCTURED_EXTERNAL_COLLECTIONS.items():
+        if collection_key not in payload:
+            continue
+        collection = payload[collection_key]
+        if not isinstance(collection, list):
+            return ServiceError("VALIDATION_ERROR", f"source_file field {collection_key} must be a list.")
+        for record in collection:
+            if not isinstance(record, Mapping):
+                return ServiceError("VALIDATION_ERROR", "each external data record must be a JSON object.")
+            normalized.append(
+                _normalize_structured_external_record(
+                    record,
+                    item_type=item_type,
+                    default_provider=default_provider,
+                    default_published_date=default_published_date,
+                )
+            )
+
+    if normalized:
+        return normalized
+    return ServiceError(
+        "VALIDATION_ERROR",
+        "source_file JSON must be a list, an object with records/items, or structured keys like "
+        "fundamental_snapshots, announcements, news, or sentiment_snippets.",
+    )
+
+
+def _validated_import_records(
+    records: list[Any],
+    *,
+    default_provider: str | None,
+    default_published_date: str | None,
+) -> list[Mapping[str, Any]] | ServiceError:
     if not all(isinstance(record, Mapping) for record in records):
         return ServiceError("VALIDATION_ERROR", "each external data record must be a JSON object.")
-    return list(records)
+    return [
+        _apply_import_defaults(
+            record,
+            default_provider=default_provider,
+            default_published_date=default_published_date,
+        )
+        for record in records
+    ]
+
+
+def _apply_import_defaults(
+    record: Mapping[str, Any],
+    *,
+    default_provider: str | None,
+    default_published_date: str | None,
+) -> dict[str, Any]:
+    normalized = dict(record)
+    provider = _first_text(normalized, "provider", "source", "src", "data_source") or default_provider
+    published_date = _first_text(normalized, "published_date") or default_published_date
+    if provider and not _first_text(normalized, "provider"):
+        normalized["provider"] = provider
+    if published_date and not _first_text(normalized, "published_date"):
+        normalized["published_date"] = published_date
+    return normalized
+
+
+def _normalize_structured_external_record(
+    record: Mapping[str, Any],
+    *,
+    item_type: str,
+    default_provider: str | None,
+    default_published_date: str | None,
+) -> dict[str, Any]:
+    published_date = _first_text(
+        record,
+        "published_date",
+        "publish_date",
+        "ann_date",
+        "trade_date",
+        "date",
+        "report_date",
+        "end_date",
+    )
+    provider = _first_text(record, "provider", "source", "src", "data_source") or default_provider
+    normalized = dict(record)
+    normalized["item_type"] = _first_text(record, "item_type") or item_type
+    if provider:
+        normalized["provider"] = provider
+    if published_date or default_published_date:
+        normalized["published_date"] = _compact_structured_date(published_date or default_published_date)
+    title = _first_text(record, "title", "headline", "name", "subject") or _structured_title(record, item_type)
+    summary = _first_text(
+        record,
+        "summary",
+        "abstract",
+        "brief",
+        "snippet",
+        "content",
+        "text",
+        "description",
+    ) or _structured_summary(record, item_type)
+    normalized["title"] = title
+    normalized["summary"] = _truncate_text(summary, 600)
+    url = _first_text(record, "url", "link", "source_url")
+    if url:
+        normalized["url"] = url
+    sentiment = _first_text(record, "sentiment", "sentiment_label", "polarity")
+    if sentiment:
+        normalized["sentiment"] = _normalize_structured_sentiment(sentiment)
+    importance = _first_text(record, "importance", "priority", "level")
+    if importance:
+        normalized["importance"] = _normalize_structured_importance(importance)
+    normalized["metadata"] = _structured_metadata(record, item_type)
+    return normalized
+
+
+def _first_text(source: Mapping[str, Any], *keys: str) -> str | None:
+    for key in keys:
+        value = source.get(key)
+        text = _text_value(value)
+        if text:
+            return text
+    return None
+
+
+def _text_value(value: Any) -> str | None:
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, str):
+        stripped = value.strip()
+        return stripped or None
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return None
+
+
+def _compact_structured_date(value: str | None) -> str | None:
+    if value is None:
+        return None
+    text = value.strip()
+    if len(text) == 8 and text.isdigit():
+        return text
+    try:
+        return datetime.strptime(text[:10], "%Y-%m-%d").strftime("%Y%m%d")
+    except ValueError:
+        return text
+
+
+def _structured_title(record: Mapping[str, Any], item_type: str) -> str:
+    ts_code = _first_text(record, "ts_code", "code", "symbol") or "unknown"
+    published_date = _compact_structured_date(
+        _first_text(record, "published_date", "publish_date", "ann_date", "trade_date", "date", "report_date", "end_date")
+    )
+    date_text = f" {published_date}" if published_date else ""
+    return {
+        "fundamental": f"{ts_code} 基本面快照{date_text}",
+        "announcement": f"{ts_code} 公告摘要{date_text}",
+        "news": f"{ts_code} 新闻摘要{date_text}",
+        "sentiment": f"{ts_code} 情绪摘要{date_text}",
+    }.get(item_type, f"{ts_code} 外部资料{date_text}")
+
+
+def _structured_summary(record: Mapping[str, Any], item_type: str) -> str:
+    if item_type == "fundamental":
+        metrics = []
+        for key, label in (
+            ("pe", "PE"),
+            ("pe_ttm", "PE-TTM"),
+            ("pb", "PB"),
+            ("ps", "PS"),
+            ("ps_ttm", "PS-TTM"),
+            ("dv_ratio", "股息率"),
+            ("turnover_rate", "换手率"),
+            ("volume_ratio", "量比"),
+            ("total_mv", "总市值"),
+            ("circ_mv", "流通市值"),
+            ("revenue", "营业收入"),
+            ("net_profit", "净利润"),
+        ):
+            if record.get(key) is not None:
+                metrics.append(f"{label}={record[key]}")
+        return "；".join(metrics) if metrics else "基本面快照已缓存；详细字段见 metadata。"
+    if item_type == "sentiment":
+        sentiment = _first_text(record, "sentiment", "sentiment_label", "polarity") or "unknown"
+        score = _first_text(record, "score", "sentiment_score")
+        if score:
+            return f"情绪标签 {sentiment}，分数 {score}；详细字段见 metadata。"
+        return f"情绪标签 {sentiment}；详细字段见 metadata。"
+    return "外部资料摘要已缓存；详细字段见 metadata。"
+
+
+def _truncate_text(value: str, limit: int) -> str:
+    compact = " ".join(value.split())
+    if len(compact) <= limit:
+        return compact
+    return compact[: limit - 3].rstrip() + "..."
+
+
+def _normalize_structured_sentiment(value: str) -> str:
+    normalized = value.strip().lower()
+    mapping = {
+        "bullish": "positive",
+        "positive": "positive",
+        "pos": "positive",
+        "利好": "positive",
+        "bearish": "negative",
+        "negative": "negative",
+        "neg": "negative",
+        "利空": "negative",
+        "neutral": "neutral",
+        "中性": "neutral",
+        "mixed": "mixed",
+        "分歧": "mixed",
+        "unknown": "unknown",
+    }
+    return mapping.get(normalized, normalized if normalized in VALID_AGENT_EXTERNAL_SENTIMENTS else "unknown")
+
+
+def _normalize_structured_importance(value: str) -> str:
+    normalized = value.strip().lower()
+    mapping = {
+        "high": "high",
+        "important": "high",
+        "重大": "high",
+        "medium": "medium",
+        "normal": "medium",
+        "中": "medium",
+        "low": "low",
+        "minor": "low",
+        "低": "low",
+        "unknown": "unknown",
+    }
+    return mapping.get(normalized, normalized if normalized in VALID_AGENT_EXTERNAL_IMPORTANCE else "unknown")
+
+
+def _structured_metadata(record: Mapping[str, Any], item_type: str) -> dict[str, Any]:
+    existing = record.get("metadata")
+    metadata = dict(existing) if isinstance(existing, Mapping) else {}
+    metadata["cache_item_type"] = item_type
+    metadata["raw"] = {key: value for key, value in record.items() if key != "metadata"}
+    return metadata
 
 
 def _prepare_records(

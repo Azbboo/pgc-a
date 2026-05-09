@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Iterable
 
 from pgc_trading.config import Paths
+from pgc_trading.portfolio.state_machines import OPEN_POSITION_STATUSES
 from pgc_trading.storage.database import connect
 
 
@@ -50,12 +51,14 @@ class InvariantViolation:
     code: str
     message: str
     details: dict[str, object] = field(default_factory=dict)
+    severity: str = "blocker"
 
     def to_dict(self) -> dict[str, object]:
         return {
             "code": self.code,
             "message": self.message,
             "details": self.details,
+            "severity": self.severity,
         }
 
 
@@ -112,6 +115,11 @@ def check_connection(conn: sqlite3.Connection, db_path: Path | None = None) -> I
         )
         violations.extend(_check_positions_entry_trade_contract(conn))
         violations.extend(_check_position_entry_trade_account_match(conn))
+        violations.extend(_check_executed_trade_amounts(conn))
+        violations.extend(_check_position_entry_trade_facts(conn))
+        violations.extend(_check_executed_buy_plan_status(conn))
+        violations.extend(_check_stale_active_buy_plans(conn))
+        violations.extend(_check_latest_equity_snapshots(conn))
         violations.extend(_check_no_live_model_trades(conn))
         violations.extend(_check_daily_pick_uniqueness(conn))
         violations.extend(_check_account_scoped_tables(conn))
@@ -286,6 +294,265 @@ def _check_position_entry_trade_account_match(conn: sqlite3.Connection) -> list[
     ]
 
 
+def _check_executed_trade_amounts(conn: sqlite3.Connection) -> list[InvariantViolation]:
+    if not _table_exists(conn, "trades"):
+        return []
+
+    rows = conn.execute(
+        """
+        SELECT id AS trade_id,
+               account_id,
+               side,
+               executed_price,
+               shares,
+               amount,
+               ROUND(executed_price * shares, 6) AS expected_amount
+        FROM trades
+        WHERE status = 'executed'
+          AND executed_price IS NOT NULL
+          AND shares IS NOT NULL
+          AND amount IS NOT NULL
+          AND ABS(amount - (executed_price * shares)) > 0.01
+        ORDER BY id
+        """
+    ).fetchall()
+    if not rows:
+        return []
+
+    return [
+        InvariantViolation(
+            code="TRADE_AMOUNT_MISMATCH",
+            message="Executed trades must store amount as executed_price * shares.",
+            details={"rows": [_row_to_dict(row) for row in rows]},
+        )
+    ]
+
+
+def _check_position_entry_trade_facts(conn: sqlite3.Connection) -> list[InvariantViolation]:
+    if not (_table_exists(conn, "positions") and _table_exists(conn, "trades")):
+        return []
+
+    violations: list[InvariantViolation] = []
+    entry_rows = conn.execute(
+        """
+        SELECT p.id AS position_id,
+               p.account_id,
+               p.entry_trade_id AS trade_id,
+               t.side AS trade_side,
+               t.status AS trade_status
+        FROM positions p
+        JOIN trades t ON t.id = p.entry_trade_id
+        WHERE t.side <> 'buy'
+           OR t.status <> 'executed'
+        ORDER BY p.id
+        """
+    ).fetchall()
+    if entry_rows:
+        violations.append(
+            InvariantViolation(
+                code="POSITION_ENTRY_TRADE_MISMATCH",
+                message="positions.entry_trade_id must point to an executed buy trade.",
+                details={"rows": [_row_to_dict(row) for row in entry_rows]},
+            )
+        )
+
+    fact_rows = conn.execute(
+        """
+        SELECT p.id AS position_id,
+               p.account_id,
+               p.entry_trade_id AS trade_id,
+               p.buy_price,
+               t.executed_price AS expected_buy_price,
+               p.shares,
+               t.shares AS expected_shares,
+               p.cost,
+               ROUND((t.executed_price * t.shares) + COALESCE(t.fee, 0) + COALESCE(t.tax, 0), 6) AS expected_cost
+        FROM positions p
+        JOIN trades t ON t.id = p.entry_trade_id
+        WHERE t.side = 'buy'
+          AND t.status = 'executed'
+          AND t.executed_price IS NOT NULL
+          AND t.shares IS NOT NULL
+          AND t.amount IS NOT NULL
+          AND (
+            ABS(p.buy_price - t.executed_price) > 0.01
+            OR p.shares <> t.shares
+            OR ABS(p.cost - ((t.executed_price * t.shares) + COALESCE(t.fee, 0) + COALESCE(t.tax, 0))) > 0.01
+          )
+        ORDER BY p.id
+        """
+    ).fetchall()
+    if fact_rows:
+        violations.append(
+            InvariantViolation(
+                code="POSITION_ENTRY_TRADE_FACT_MISMATCH",
+                message="Position entry facts must match the executed buy trade.",
+                details={"rows": [_row_to_dict(row) for row in fact_rows]},
+            )
+        )
+
+    return violations
+
+
+def _check_executed_buy_plan_status(conn: sqlite3.Connection) -> list[InvariantViolation]:
+    if not (_table_exists(conn, "trades") and _table_exists(conn, "trade_plans")):
+        return []
+
+    rows = conn.execute(
+        """
+        SELECT t.id AS trade_id,
+               t.trade_plan_id,
+               p.status AS trade_plan_status,
+               t.account_id,
+               t.executed_date
+        FROM trades t
+        JOIN trade_plans p ON p.id = t.trade_plan_id
+        WHERE t.side = 'buy'
+          AND t.status = 'executed'
+          AND p.status <> 'executed'
+        ORDER BY t.id
+        """
+    ).fetchall()
+    if not rows:
+        return []
+
+    return [
+        InvariantViolation(
+            code="TRADE_PLAN_NOT_EXECUTED_FOR_BUY",
+            message="Executed buy trades must point to an executed trade plan.",
+            details={"rows": [_row_to_dict(row) for row in rows]},
+        )
+    ]
+
+
+def _check_stale_active_buy_plans(conn: sqlite3.Connection) -> list[InvariantViolation]:
+    if not (_table_exists(conn, "trade_plans") and _table_exists(conn, "trades")):
+        return []
+
+    rows = conn.execute(
+        """
+        SELECT p.id AS trade_plan_id,
+               p.account_id,
+               p.signal_id,
+               p.planned_trade_date,
+               t.id AS trade_id,
+               t.executed_date
+        FROM trade_plans p
+        JOIN trades t
+          ON t.account_id = p.account_id
+         AND t.signal_id IS p.signal_id
+         AND t.side = 'buy'
+         AND t.status = 'executed'
+        WHERE p.action = 'buy_next_open'
+          AND p.status = 'active'
+          AND p.planned_trade_date IS NOT NULL
+          AND t.executed_date IS NOT NULL
+          AND p.planned_trade_date <= t.executed_date
+        ORDER BY p.id
+        """
+    ).fetchall()
+    if not rows:
+        return []
+
+    return [
+        InvariantViolation(
+            code="ACTIVE_BUY_PLAN_WITH_EXECUTED_TRADE",
+            message="Active buy plans may not remain open after a matching buy trade is executed.",
+            details={"rows": [_row_to_dict(row) for row in rows]},
+        )
+    ]
+
+
+def _check_latest_equity_snapshots(conn: sqlite3.Connection) -> list[InvariantViolation]:
+    if not (_table_exists(conn, "equity_snapshots") and _table_exists(conn, "positions")):
+        return []
+
+    latest_rows = conn.execute(
+        """
+        WITH latest AS (
+          SELECT account_id, MAX(as_of_date) AS as_of_date
+          FROM equity_snapshots
+          GROUP BY account_id
+        ),
+        latest_ids AS (
+          SELECT s.account_id, s.as_of_date, MAX(s.id) AS id
+          FROM equity_snapshots s
+          JOIN latest l
+            ON l.account_id = s.account_id
+           AND l.as_of_date = s.as_of_date
+          GROUP BY s.account_id, s.as_of_date
+        )
+        SELECT s.id AS equity_snapshot_id,
+               s.account_id,
+               s.as_of_date,
+               s.cash,
+               s.market_value,
+               s.total_equity,
+               ROUND(s.cash + s.market_value, 6) AS expected_total_equity
+        FROM equity_snapshots s
+        JOIN latest_ids l ON l.id = s.id
+        WHERE ABS((s.cash + s.market_value) - s.total_equity) > 0.01
+        ORDER BY s.account_id
+        """
+    ).fetchall()
+
+    violations: list[InvariantViolation] = []
+    if latest_rows:
+        violations.append(
+            InvariantViolation(
+                code="EQUITY_SNAPSHOT_TOTAL_MISMATCH",
+                message="Latest equity snapshots must satisfy cash + market_value = total_equity.",
+                details={"rows": [_row_to_dict(row) for row in latest_rows]},
+            )
+        )
+
+    open_statuses = tuple(sorted(OPEN_POSITION_STATUSES))
+    market_rows = conn.execute(
+        f"""
+        WITH latest AS (
+          SELECT account_id, MAX(as_of_date) AS as_of_date
+          FROM equity_snapshots
+          GROUP BY account_id
+        ),
+        latest_ids AS (
+          SELECT s.account_id, s.as_of_date, MAX(s.id) AS id
+          FROM equity_snapshots s
+          JOIN latest l
+            ON l.account_id = s.account_id
+           AND l.as_of_date = s.as_of_date
+          GROUP BY s.account_id, s.as_of_date
+        ),
+        open_costs AS (
+          SELECT account_id, COALESCE(SUM(cost), 0) AS expected_market_value
+          FROM positions
+          WHERE status IN ({_placeholders(open_statuses)})
+          GROUP BY account_id
+        )
+        SELECT s.id AS equity_snapshot_id,
+               s.account_id,
+               s.as_of_date,
+               s.market_value,
+               COALESCE(o.expected_market_value, 0) AS expected_market_value
+        FROM equity_snapshots s
+        JOIN latest_ids l ON l.id = s.id
+        LEFT JOIN open_costs o ON o.account_id = s.account_id
+        WHERE ABS(s.market_value - COALESCE(o.expected_market_value, 0)) > 0.01
+        ORDER BY s.account_id
+        """,
+        open_statuses,
+    ).fetchall()
+    if market_rows:
+        violations.append(
+            InvariantViolation(
+                code="EQUITY_SNAPSHOT_MARKET_VALUE_MISMATCH",
+                message="Latest equity snapshot market_value must equal open position cost under paper accounting.",
+                details={"rows": [_row_to_dict(row) for row in market_rows]},
+            )
+        )
+
+    return violations
+
+
 def _check_no_live_model_trades(conn: sqlite3.Connection) -> list[InvariantViolation]:
     if not (_table_exists(conn, "trades") and _table_exists(conn, "portfolio_accounts")):
         return []
@@ -395,6 +662,10 @@ def _has_account_leading_index(conn: sqlite3.Connection, table_name: str) -> boo
         if columns and columns[0] == "account_id":
             return True
     return False
+
+
+def _placeholders(values: Iterable[object]) -> str:
+    return ", ".join("?" for _ in values)
 
 
 def _table_exists(conn: sqlite3.Connection, table_name: str) -> bool:

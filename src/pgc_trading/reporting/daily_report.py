@@ -17,6 +17,7 @@ from pgc_trading.services.data_quality_service import (
     DataQualityService,
 )
 from pgc_trading.storage.database import connect
+from pgc_trading.storage.invariant_checks import InvariantReport, check_database
 from pgc_trading.strategies.cpb_6157 import STRATEGY_VERSION
 
 
@@ -176,6 +177,7 @@ class AgentAdviceReport:
     supporting_points: list[str] = field(default_factory=list)
     risk_points: list[str] = field(default_factory=list)
     source_refs: list[str] = field(default_factory=list)
+    external_data_coverage: dict[str, str] = field(default_factory=dict)
     analyst_reports: list[AgentAnalystReport] = field(default_factory=list)
     artifacts: list[AgentArtifactReport] = field(default_factory=list)
     report_markdown: str | None = None
@@ -258,6 +260,7 @@ class ReportingQueryService:
                 source=context.source,
             ),
         )
+        invariant_report = check_database(self.db_path)
 
         with connect(self.db_path) as conn:
             account = _load_account(conn, request)
@@ -269,7 +272,7 @@ class ReportingQueryService:
             latest_market_date = _latest_market_date(conn, request.as_of_date)
             next_trade_date = _next_trade_date(conn, request.as_of_date)
 
-        data_quality = _data_quality_report(readiness)
+        data_quality = _data_quality_report(readiness, invariant_report)
         lineage = ReportLineage(
             feature_run_id=candidate.feature_run_id if candidate else _latest_feature_run_id(self.db_path, request),
             strategy_run_id=candidate.strategy_run_id if candidate else _latest_strategy_run_id(self.db_path, request),
@@ -302,7 +305,7 @@ class ReportingQueryService:
             request_id=context.request_id,
             data=report,
             warnings=readiness.warnings,
-            errors=readiness.errors,
+            errors=[*readiness.errors, *_invariant_report_errors(invariant_report)],
             lineage={
                 "as_of_date": request.as_of_date,
                 "strategy_version": request.strategy_version,
@@ -431,6 +434,16 @@ def render_daily_report_markdown(report: DailyReport) -> str:
             "- 提醒：Agent 只提供复核意见，不会自动改变交易计划。",
         ]
     )
+    if report.agent_advice.external_data_coverage:
+        coverage = report.agent_advice.external_data_coverage
+        lines.extend(
+            [
+                f"- 数据覆盖：技术面 {_agent_coverage_text(coverage.get('technical'))} / "
+                f"基本面 {_agent_coverage_text(coverage.get('fundamental'))} / "
+                f"新闻面 {_agent_coverage_text(coverage.get('news'))} / "
+                f"情绪面 {_agent_coverage_text(coverage.get('sentiment'))}",
+            ]
+        )
     if report.agent_advice.supporting_points:
         lines.extend(["", "支持依据："])
         lines.extend(f"- {point}" for point in report.agent_advice.supporting_points)
@@ -515,13 +528,17 @@ def _validate_history_request(request: DailyReviewHistoryRequest) -> list[Servic
     return errors
 
 
-def _data_quality_report(result: ServiceResult[Any]) -> DataQualityReport:
+def _data_quality_report(
+    result: ServiceResult[Any],
+    invariant_report: InvariantReport | None = None,
+) -> DataQualityReport:
     data = result.data
+    invariant_blockers = 0 if invariant_report is None or invariant_report.ok else len(invariant_report.violations)
     if data is None:
         return DataQualityReport(
             readiness="blocker",
             can_trade=False,
-            blocker_count=len(result.errors),
+            blocker_count=len(result.errors) + invariant_blockers,
             warning_count=len(result.warnings),
             valid_raw_count=0,
             market_coverage_ok=False,
@@ -530,10 +547,11 @@ def _data_quality_report(result: ServiceResult[Any]) -> DataQualityReport:
             account_ok=False,
             missing_market_bar_count=0,
         )
+    readiness = "blocker" if invariant_blockers else data.readiness
     return DataQualityReport(
-        readiness=data.readiness,
-        can_trade=data.readiness != "blocker",
-        blocker_count=data.blocker_count,
+        readiness=readiness,
+        can_trade=readiness != "blocker",
+        blocker_count=data.blocker_count + invariant_blockers,
         warning_count=data.warning_count,
         valid_raw_count=data.valid_raw_count,
         market_coverage_ok=data.market_coverage_ok,
@@ -543,6 +561,19 @@ def _data_quality_report(result: ServiceResult[Any]) -> DataQualityReport:
         missing_market_bar_count=data.missing_market_bar_count,
         event_ids=list(data.data_quality_event_ids),
     )
+
+
+def _invariant_report_errors(report: InvariantReport) -> list[ServiceError]:
+    if report.ok:
+        return []
+    codes = ", ".join(violation.code for violation in report.violations)
+    return [
+        ServiceError(
+            code="DATABASE_INVARIANTS_FAILED",
+            message=f"Ledger/database invariant check failed: {codes}.",
+            severity="blocker",
+        )
+    ]
 
 
 def _load_account(conn: Any, request: DailyReportRequest) -> AccountReport:
@@ -875,7 +906,8 @@ def _load_agent_advice(conn: Any, candidate: CandidateReport | None) -> AgentAdv
           ad.supporting_points_json,
           ad.risk_points_json,
           ad.raw_decision_json,
-          ins.source_refs_json
+          ins.source_refs_json,
+          ins.payload_json
         FROM agent_runs ar
         LEFT JOIN agent_decisions ad ON ad.agent_run_id = ar.id
         LEFT JOIN input_snapshots ins ON ins.id = ar.input_snapshot_id
@@ -896,6 +928,7 @@ def _load_agent_advice(conn: Any, candidate: CandidateReport | None) -> AgentAdv
     if not risk_points:
         risk_points = _string_list(raw_decision.get("risk_points"))
     source_refs = _loads_json_list(row["source_refs_json"])
+    external_data_coverage = _load_agent_external_data_coverage(row["payload_json"], raw_decision)
     analyst_reports = _load_agent_analyst_reports(raw_decision.get("analyst_reports"))
     artifacts, final_report_path = _load_agent_artifacts(conn, int(row["agent_run_id"]))
     return AgentAdviceReport(
@@ -910,10 +943,29 @@ def _load_agent_advice(conn: Any, candidate: CandidateReport | None) -> AgentAdv
         supporting_points=supporting_points,
         risk_points=risk_points,
         source_refs=source_refs,
+        external_data_coverage=external_data_coverage,
         analyst_reports=analyst_reports,
         artifacts=artifacts,
         report_markdown=_load_agent_report_markdown(final_report_path),
     )
+
+
+def _load_agent_external_data_coverage(payload_json: str | None, raw_decision: dict[str, Any]) -> dict[str, str]:
+    payload = _loads_json_object(payload_json)
+    raw_coverage = payload.get("external_data_coverage")
+    if not isinstance(raw_coverage, dict):
+        candidate = payload.get("candidate")
+        raw_coverage = candidate.get("external_data_coverage") if isinstance(candidate, dict) else None
+    if not isinstance(raw_coverage, dict):
+        raw_coverage = raw_decision.get("external_data_coverage")
+    if not isinstance(raw_coverage, dict):
+        return {}
+    coverage: dict[str, str] = {}
+    for key in ("fundamental", "news", "sentiment", "technical"):
+        status = str(raw_coverage.get(key) or "").strip().lower()
+        if status in {"available", "partial", "unavailable"}:
+            coverage[key] = status
+    return coverage
 
 
 def _load_agent_analyst_reports(value: Any) -> list[AgentAnalystReport]:
@@ -1283,6 +1335,14 @@ def _risk_text(value: str) -> str:
         "high": "高",
         "unknown": "未知",
     }.get(value, value)
+
+
+def _agent_coverage_text(value: str | None) -> str:
+    return {
+        "available": "可用",
+        "partial": "部分",
+        "unavailable": "未接入",
+    }.get(value or "", value or "未知")
 
 
 def _due_text(value: str) -> str:

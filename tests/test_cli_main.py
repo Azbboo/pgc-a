@@ -762,8 +762,12 @@ class CliMainTest(unittest.TestCase):
                     "agent",
                     "external-data",
                     "import",
-                    "--file",
+                    "--input",
                     str(source_file),
+                    "--date",
+                    "20260508",
+                    "--source",
+                    "tushare",
                     "--db-path",
                     str(db_path),
                     "--apply",
@@ -781,6 +785,8 @@ class CliMainTest(unittest.TestCase):
         self.assertEqual(code, 0)
         _, request, ctx = _FakeAgentExternalDataService.calls[0]
         self.assertEqual(request.source_file, source_file)
+        self.assertEqual(request.default_published_date, "20260508")
+        self.assertEqual(request.default_provider, "tushare")
         self.assertFalse(ctx.dry_run)
         self.assertEqual(ctx.operator, "azboo")
         self.assertEqual(ctx.idempotency_key, "external-data:test")

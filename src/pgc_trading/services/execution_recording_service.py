@@ -25,6 +25,8 @@ from pgc_trading.services.portfolio_planning_service import (
     _resolve_account,
 )
 from pgc_trading.storage.database import connect
+from pgc_trading.storage.invariant_checks import InvariantViolation, check_connection
+from pgc_trading.storage.migrators.backup import backup_database
 
 
 @dataclass(frozen=True)
@@ -68,11 +70,64 @@ class RecordTradeResult:
     slippage: float | None = None
 
 
+@dataclass(frozen=True)
+class LedgerAuditRequest:
+    as_of_date: str
+    account_key: str | None = None
+    account_id: int | None = None
+
+
+@dataclass(frozen=True)
+class LedgerAuditResult:
+    account_key: str
+    account_id: int
+    as_of_date: str
+    open_positions: int
+    active_plans: int
+    violations: list[InvariantViolation]
+
+    @property
+    def ok(self) -> bool:
+        return not self.violations
+
+
+@dataclass(frozen=True)
+class LedgerRepairRequest:
+    as_of_date: str
+    account_key: str | None = None
+    account_id: int | None = None
+    backup_dir: Path | None = None
+
+
+@dataclass(frozen=True)
+class LedgerRepairAction:
+    code: str
+    entity: str
+    intent: str
+    sql: str
+    params: tuple[object, ...]
+
+
+@dataclass(frozen=True)
+class LedgerRepairResult:
+    status: str
+    account_key: str
+    account_id: int
+    as_of_date: str
+    dry_run: bool
+    backup_required: bool
+    backup_path: str | None
+    actions: list[LedgerRepairAction]
+    remaining_violations: list[InvariantViolation]
+    unknown_violations: list[InvariantViolation]
+
+
 class ExecutionRecordingService:
     """Record executed trades and move position state from trade facts."""
 
-    def __init__(self, db_path: Path | None = None):
+    def __init__(self, db_path: Path | None = None, *, backup_func=backup_database):
         self.db_path = db_path or Paths().db_path
+        self.backup_func = backup_func
 
     def record_trade(
         self,
@@ -133,6 +188,548 @@ class ExecutionRecordingService:
             except Exception:
                 conn.rollback()
                 raise
+
+    def audit_ledger(
+        self,
+        request: LedgerAuditRequest,
+        ctx: RequestContext,
+    ) -> ServiceResult[LedgerAuditResult]:
+        errors = _validate_ledger_request(request)
+        if errors:
+            return ServiceResult(
+                status="validation_failed",
+                request_id=ctx.request_id,
+                data=None,
+                errors=errors,
+            )
+
+        with connect(self.db_path) as conn:
+            account = _resolve_account(
+                conn,
+                request.account_key,
+                request.account_id,
+                allow_live_dry_run=True,
+            )
+            if isinstance(account, ServiceError):
+                return ServiceResult(
+                    status="validation_failed",
+                    request_id=ctx.request_id,
+                    data=None,
+                    errors=[account],
+                )
+            report = check_connection(conn, db_path=self.db_path)
+            result = LedgerAuditResult(
+                account_key=account.account_key,
+                account_id=account.id,
+                as_of_date=request.as_of_date,
+                open_positions=_count_open_positions(conn, account.id),
+                active_plans=_count_active_plans(conn, account.id, request.as_of_date),
+                violations=report.violations,
+            )
+            return ServiceResult(
+                status="success" if result.ok else "blocked",
+                request_id=ctx.request_id,
+                data=result,
+                errors=_ledger_errors(report.violations),
+                lineage={"account_id": account.id, "as_of_date": request.as_of_date},
+            )
+
+    def repair_ledger(
+        self,
+        request: LedgerRepairRequest,
+        ctx: RequestContext,
+    ) -> ServiceResult[LedgerRepairResult]:
+        errors = _validate_ledger_request(request)
+        if not ctx.dry_run and not ctx.operator:
+            errors.append(
+                ServiceError(
+                    code="OPERATOR_REQUIRED",
+                    message="Non-dry-run ledger repair requires --operator.",
+                    severity="blocker",
+                )
+            )
+        if errors:
+            return ServiceResult(
+                status="validation_failed",
+                request_id=ctx.request_id,
+                data=None,
+                errors=errors,
+            )
+
+        with connect(self.db_path) as conn:
+            if ctx.dry_run:
+                return _repair_ledger_in_tx(conn, self.db_path, request, ctx, write=False)
+
+            preview = _repair_ledger_in_tx(conn, self.db_path, request, ctx, write=False)
+            if not _ledger_repair_needs_backup(preview):
+                return preview
+            backup_path = _backup_before_ledger_repair(self.db_path, request, ctx, preview, self.backup_func)
+            if isinstance(backup_path, ServiceResult):
+                return backup_path
+
+            conn.execute("BEGIN")
+            try:
+                result = _repair_ledger_in_tx(
+                    conn,
+                    self.db_path,
+                    request,
+                    ctx,
+                    write=True,
+                    backup_path=backup_path,
+                )
+                conn.commit()
+                return result
+            except Exception:
+                conn.rollback()
+                raise
+
+
+LEDGER_REPAIRABLE_CODES = {
+    "TRADE_AMOUNT_MISMATCH",
+    "POSITION_ENTRY_TRADE_FACT_MISMATCH",
+    "TRADE_PLAN_NOT_EXECUTED_FOR_BUY",
+    "ACTIVE_BUY_PLAN_WITH_EXECUTED_TRADE",
+    "EQUITY_SNAPSHOT_TOTAL_MISMATCH",
+    "EQUITY_SNAPSHOT_MARKET_VALUE_MISMATCH",
+}
+
+
+def _validate_ledger_request(request: LedgerAuditRequest | LedgerRepairRequest) -> list[ServiceError]:
+    errors: list[ServiceError] = []
+    if not is_yyyymmdd(request.as_of_date):
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="as_of_date must use YYYYMMDD format."))
+    if request.account_id is None and not request.account_key:
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="account_key or account_id is required."))
+    return errors
+
+
+def _count_open_positions(conn: sqlite3.Connection, account_id: int) -> int:
+    return int(
+        conn.execute(
+            f"""
+            SELECT COUNT(*)
+            FROM positions
+            WHERE account_id = ?
+              AND status IN ({_status_placeholders()})
+            """,
+            (account_id, *_open_status_tuple()),
+        ).fetchone()[0]
+    )
+
+
+def _count_active_plans(conn: sqlite3.Connection, account_id: int, _as_of_date: str) -> int:
+    return int(
+        conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM trade_plans
+            WHERE account_id = ?
+              AND status = 'active'
+            """,
+            (account_id,),
+        ).fetchone()[0]
+    )
+
+
+def _ledger_errors(violations: list[InvariantViolation]) -> list[ServiceError]:
+    return [
+        ServiceError(
+            code=violation.code,
+            message=violation.message,
+            severity=violation.severity,
+        )
+        for violation in violations
+    ]
+
+
+def _repair_ledger_in_tx(
+    conn: sqlite3.Connection,
+    db_path: Path,
+    request: LedgerRepairRequest,
+    ctx: RequestContext,
+    *,
+    write: bool,
+    backup_path: Path | None = None,
+) -> ServiceResult[LedgerRepairResult]:
+    account = _resolve_account(
+        conn,
+        request.account_key,
+        request.account_id,
+        allow_live_dry_run=ctx.dry_run,
+    )
+    if isinstance(account, ServiceError):
+        return ServiceResult(
+            status="validation_failed",
+            request_id=ctx.request_id,
+            data=None,
+            errors=[account],
+        )
+
+    report = check_connection(conn, db_path=db_path)
+    violations = _account_relevant_violations(report.violations, account.id)
+    actions = _ledger_repair_actions(conn, account.id, request.as_of_date, ctx.operator)
+    unknown_violations = [
+        violation
+        for violation in violations
+        if violation.code not in LEDGER_REPAIRABLE_CODES
+    ]
+    if violations and not actions and not unknown_violations:
+        unknown_violations = violations
+
+    status = "clean"
+    remaining_violations = violations
+    if unknown_violations:
+        status = "refused"
+    elif actions:
+        status = "applied" if write else "would_apply"
+
+    if write and actions and not unknown_violations:
+        for action in actions:
+            conn.execute(action.sql, action.params)
+        post_report = check_connection(conn, db_path=db_path)
+        remaining_violations = _account_relevant_violations(post_report.violations, account.id)
+        if remaining_violations:
+            status = "applied_with_remaining_violations"
+
+    data = LedgerRepairResult(
+        status=status,
+        account_key=account.account_key,
+        account_id=account.id,
+        as_of_date=request.as_of_date,
+        dry_run=ctx.dry_run,
+        backup_required=bool(actions),
+        backup_path=str(backup_path) if backup_path is not None else None,
+        actions=actions,
+        remaining_violations=remaining_violations,
+        unknown_violations=unknown_violations,
+    )
+    error_violations = unknown_violations
+    if not error_violations and status.endswith("violations"):
+        error_violations = remaining_violations
+    return ServiceResult(
+        status="success" if status in {"clean", "would_apply", "applied"} else "blocked",
+        request_id=ctx.request_id,
+        data=data,
+        errors=_ledger_errors(error_violations),
+        lineage={"account_id": account.id, "as_of_date": request.as_of_date},
+    )
+
+
+def _ledger_repair_needs_backup(result: ServiceResult[LedgerRepairResult]) -> bool:
+    return (
+        result.data is not None
+        and result.data.status == "would_apply"
+        and bool(result.data.actions)
+        and not result.data.unknown_violations
+    )
+
+
+def _backup_before_ledger_repair(
+    db_path: Path,
+    request: LedgerRepairRequest,
+    ctx: RequestContext,
+    preview: ServiceResult[LedgerRepairResult],
+    backup_func,
+) -> Path | ServiceResult[LedgerRepairResult]:
+    try:
+        return backup_func(
+            db_path,
+            backup_dir=request.backup_dir,
+            label=f"before_ledger_repair_{request.as_of_date}",
+        )
+    except (FileNotFoundError, ValueError, FileExistsError, OSError) as exc:
+        error = ServiceError(
+            code="LEDGER_REPAIR_BACKUP_FAILED",
+            message=f"Ledger repair apply refused because backup failed: {exc}",
+            severity="blocker",
+        )
+        data = None
+        if preview.data is not None:
+            data = LedgerRepairResult(
+                status="backup_failed",
+                account_key=preview.data.account_key,
+                account_id=preview.data.account_id,
+                as_of_date=preview.data.as_of_date,
+                dry_run=ctx.dry_run,
+                backup_required=True,
+                backup_path=None,
+                actions=preview.data.actions,
+                remaining_violations=preview.data.remaining_violations,
+                unknown_violations=preview.data.unknown_violations,
+            )
+        return ServiceResult(
+            status="blocked",
+            request_id=ctx.request_id,
+            data=data,
+            errors=[error],
+            lineage=preview.lineage,
+        )
+
+
+def _account_relevant_violations(
+    violations: list[InvariantViolation],
+    account_id: int,
+) -> list[InvariantViolation]:
+    relevant: list[InvariantViolation] = []
+    for violation in violations:
+        rows = violation.details.get("rows")
+        if isinstance(rows, list) and rows:
+            matching_rows = [
+                row
+                for row in rows
+                if isinstance(row, dict) and _row_mentions_account(row, account_id)
+            ]
+            if matching_rows:
+                relevant.append(
+                    InvariantViolation(
+                        code=violation.code,
+                        message=violation.message,
+                        details={**violation.details, "rows": matching_rows},
+                        severity=violation.severity,
+                    )
+                )
+            continue
+        relevant.append(violation)
+    return relevant
+
+
+def _row_mentions_account(row: dict[str, object], account_id: int) -> bool:
+    for key in ("account_id", "position_account_id", "trade_account_id"):
+        value = row.get(key)
+        if value is not None and int(value) == account_id:
+            return True
+    return False
+
+
+def _ledger_repair_actions(
+    conn: sqlite3.Connection,
+    account_id: int,
+    as_of_date: str,
+    operator: str | None,
+) -> list[LedgerRepairAction]:
+    actions: list[LedgerRepairAction] = []
+    seen: set[tuple[str, tuple[object, ...]]] = set()
+
+    def add(action: LedgerRepairAction) -> None:
+        key = (action.sql, action.params)
+        if key in seen:
+            return
+        seen.add(key)
+        actions.append(action)
+
+    for row in _trade_amount_repairs(conn, account_id, as_of_date):
+        expected_amount = float(row["expected_amount"])
+        trade_id = int(row["trade_id"])
+        add(
+            LedgerRepairAction(
+                code="TRADE_AMOUNT_MISMATCH",
+                entity=f"trade:{trade_id}",
+                intent=f"set trade amount to {expected_amount:.2f}",
+                sql="UPDATE trades SET amount = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                params=(expected_amount, trade_id),
+            )
+        )
+
+    for row in _position_fact_repairs(conn, account_id, as_of_date):
+        position_id = int(row["position_id"])
+        expected_buy_price = float(row["expected_buy_price"])
+        expected_shares = int(row["expected_shares"])
+        expected_cost = float(row["expected_cost"])
+        add(
+            LedgerRepairAction(
+                code="POSITION_ENTRY_TRADE_FACT_MISMATCH",
+                entity=f"position:{position_id}",
+                intent="align position buy_price, shares, and cost with entry trade",
+                sql="UPDATE positions SET buy_price = ?, shares = ?, cost = ? WHERE id = ?",
+                params=(expected_buy_price, expected_shares, expected_cost, position_id),
+            )
+        )
+
+    for row in _linked_plan_repairs(conn, account_id, as_of_date):
+        plan_id = int(row["trade_plan_id"])
+        add(
+            LedgerRepairAction(
+                code="TRADE_PLAN_NOT_EXECUTED_FOR_BUY",
+                entity=f"trade_plan:{plan_id}",
+                intent="mark linked buy trade plan executed",
+                sql=(
+                    "UPDATE trade_plans SET status = 'executed', operator = ?, "
+                    "updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+                ),
+                params=(operator, plan_id),
+            )
+        )
+
+    for row in _stale_active_plan_repairs(conn, account_id, as_of_date):
+        plan_id = int(row["trade_plan_id"])
+        trade_id = int(row["trade_id"])
+        if plan_id == int(row["trade_plan_id_for_trade"] or 0):
+            continue
+        else:
+            status = "superseded"
+            cancel_reason = f"superseded by executed trade {trade_id}"
+            intent = "mark stale duplicate active buy plan superseded"
+        add(
+            LedgerRepairAction(
+                code="ACTIVE_BUY_PLAN_WITH_EXECUTED_TRADE",
+                entity=f"trade_plan:{plan_id}",
+                intent=intent,
+                sql=(
+                    "UPDATE trade_plans SET status = ?, cancel_reason = ?, operator = ?, "
+                    "updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+                ),
+                params=(status, cancel_reason, operator, plan_id),
+            )
+        )
+
+    equity_row = _equity_snapshot_repair(conn, account_id, as_of_date)
+    if equity_row is not None:
+        snapshot_id = int(equity_row["equity_snapshot_id"])
+        expected_market_value = float(equity_row["expected_market_value"])
+        expected_total_equity = float(equity_row["expected_total_equity"])
+        add(
+            LedgerRepairAction(
+                code="EQUITY_SNAPSHOT_RECONCILE",
+                entity=f"equity_snapshot:{snapshot_id}",
+                intent="recompute latest snapshot market_value and total_equity from open position cost",
+                sql="UPDATE equity_snapshots SET market_value = ?, total_equity = ? WHERE id = ?",
+                params=(expected_market_value, expected_total_equity, snapshot_id),
+            )
+        )
+
+    return actions
+
+
+def _trade_amount_repairs(conn: sqlite3.Connection, account_id: int, as_of_date: str) -> list[sqlite3.Row]:
+    return conn.execute(
+        """
+        SELECT id AS trade_id,
+               ROUND(executed_price * shares, 6) AS expected_amount
+        FROM trades
+        WHERE account_id = ?
+          AND status = 'executed'
+          AND executed_date <= ?
+          AND executed_price IS NOT NULL
+          AND shares IS NOT NULL
+          AND amount IS NOT NULL
+          AND ABS(amount - (executed_price * shares)) > 0.01
+        ORDER BY id
+        """,
+        (account_id, as_of_date),
+    ).fetchall()
+
+
+def _position_fact_repairs(conn: sqlite3.Connection, account_id: int, as_of_date: str) -> list[sqlite3.Row]:
+    return conn.execute(
+        """
+        SELECT p.id AS position_id,
+               t.executed_price AS expected_buy_price,
+               t.shares AS expected_shares,
+               ROUND((t.executed_price * t.shares) + COALESCE(t.fee, 0) + COALESCE(t.tax, 0), 6) AS expected_cost
+        FROM positions p
+        JOIN trades t ON t.id = p.entry_trade_id
+        WHERE p.account_id = ?
+          AND p.buy_date <= ?
+          AND t.side = 'buy'
+          AND t.status = 'executed'
+          AND t.executed_price IS NOT NULL
+          AND t.shares IS NOT NULL
+          AND t.amount IS NOT NULL
+          AND (
+            ABS(p.buy_price - t.executed_price) > 0.01
+            OR p.shares <> t.shares
+            OR ABS(p.cost - ((t.executed_price * t.shares) + COALESCE(t.fee, 0) + COALESCE(t.tax, 0))) > 0.01
+          )
+        ORDER BY p.id
+        """,
+        (account_id, as_of_date),
+    ).fetchall()
+
+
+def _linked_plan_repairs(conn: sqlite3.Connection, account_id: int, as_of_date: str) -> list[sqlite3.Row]:
+    return conn.execute(
+        """
+        SELECT t.trade_plan_id
+        FROM trades t
+        JOIN trade_plans p ON p.id = t.trade_plan_id
+        WHERE t.account_id = ?
+          AND t.side = 'buy'
+          AND t.status = 'executed'
+          AND t.executed_date <= ?
+          AND p.status <> 'executed'
+        ORDER BY t.trade_plan_id
+        """,
+        (account_id, as_of_date),
+    ).fetchall()
+
+
+def _stale_active_plan_repairs(conn: sqlite3.Connection, account_id: int, as_of_date: str) -> list[sqlite3.Row]:
+    return conn.execute(
+        """
+        SELECT p.id AS trade_plan_id,
+               t.id AS trade_id,
+               t.trade_plan_id AS trade_plan_id_for_trade
+        FROM trade_plans p
+        JOIN trades t
+          ON t.account_id = p.account_id
+         AND t.signal_id IS p.signal_id
+         AND t.side = 'buy'
+         AND t.status = 'executed'
+        WHERE p.account_id = ?
+          AND p.action = 'buy_next_open'
+          AND p.status = 'active'
+          AND p.planned_trade_date IS NOT NULL
+          AND p.planned_trade_date <= ?
+          AND t.executed_date IS NOT NULL
+          AND p.planned_trade_date <= t.executed_date
+        ORDER BY p.id
+        """,
+        (account_id, as_of_date),
+    ).fetchall()
+
+
+def _equity_snapshot_repair(
+    conn: sqlite3.Connection,
+    account_id: int,
+    as_of_date: str,
+) -> sqlite3.Row | None:
+    return conn.execute(
+        f"""
+        WITH latest AS (
+          SELECT id, cash, market_value, total_equity
+          FROM equity_snapshots
+          WHERE account_id = ?
+            AND as_of_date <= ?
+          ORDER BY as_of_date DESC, id DESC
+          LIMIT 1
+        ),
+        open_cost AS (
+          SELECT COALESCE(SUM(
+            CASE
+              WHEN t.side = 'buy'
+               AND t.status = 'executed'
+               AND t.executed_price IS NOT NULL
+               AND t.shares IS NOT NULL
+              THEN (t.executed_price * t.shares) + COALESCE(t.fee, 0) + COALESCE(t.tax, 0)
+              ELSE p.cost
+            END
+          ), 0) AS expected_market_value
+          FROM positions p
+          LEFT JOIN trades t ON t.id = p.entry_trade_id
+          WHERE p.account_id = ?
+            AND p.status IN ({_status_placeholders()})
+        )
+        SELECT latest.id AS equity_snapshot_id,
+               latest.market_value,
+               open_cost.expected_market_value,
+               latest.total_equity,
+               ROUND(latest.cash + open_cost.expected_market_value, 6) AS expected_total_equity
+        FROM latest, open_cost
+        WHERE ABS(latest.market_value - open_cost.expected_market_value) > 0.01
+           OR ABS(latest.total_equity - (latest.cash + open_cost.expected_market_value)) > 0.01
+        """,
+        (account_id, as_of_date, account_id, *_open_status_tuple()),
+    ).fetchone()
 
 
 def _record_trade_in_tx(

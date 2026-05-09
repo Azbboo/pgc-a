@@ -195,6 +195,179 @@ class CliExecutionRecordingTest(unittest.TestCase):
                 self.assertEqual(conn.execute("SELECT status FROM positions").fetchone()[0], "waiting_t2")
                 self.assertEqual(conn.execute("SELECT COUNT(*) FROM trades WHERE side = 'sell'").fetchone()[0], 0)
 
+    def test_ops_ledger_audit_reports_pass_for_consistent_ledger(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._migrated_seeded_db(tmp)
+            plan_id = self._ready_buy_plan(db_path)
+            self._record_buy(db_path, plan_id)
+
+            stdout = io.StringIO()
+            code = main(
+                [
+                    "ops",
+                    "ledger-audit",
+                    "--account",
+                    ACCOUNT_KEY,
+                    "--date",
+                    BUY_DATE,
+                    "--db-path",
+                    str(db_path),
+                ],
+                stdout=stdout,
+            )
+
+            self.assertEqual(code, 0, stdout.getvalue())
+            output = stdout.getvalue()
+            self.assertIn("ledger_audit_status=pass", output)
+            self.assertIn(f"account_key={ACCOUNT_KEY}", output)
+            self.assertIn(f"as_of_date={BUY_DATE}", output)
+            self.assertIn("open_positions=1", output)
+            self.assertIn("violations=0", output)
+
+    def test_ops_ledger_repair_dry_run_prints_known_actions_without_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._migrated_seeded_db(tmp)
+            plan_id = self._ready_buy_plan(db_path)
+            self._record_buy(db_path, plan_id)
+            self._corrupt_buy_ledger(db_path)
+
+            stdout = io.StringIO()
+            code = main(
+                [
+                    "ops",
+                    "ledger-repair",
+                    "--account",
+                    ACCOUNT_KEY,
+                    "--date",
+                    BUY_DATE,
+                    "--db-path",
+                    str(db_path),
+                    "--dry-run",
+                ],
+                stdout=stdout,
+            )
+
+            self.assertEqual(code, 0, stdout.getvalue())
+            output = stdout.getvalue()
+            self.assertIn("ledger_repair_status=would_apply", output)
+            self.assertIn("backup_required=true", output)
+            self.assertIn("repair_action=code=TRADE_AMOUNT_MISMATCH", output)
+            self.assertIn("repair_action=code=POSITION_ENTRY_TRADE_FACT_MISMATCH", output)
+            with sqlite3.connect(db_path) as conn:
+                self.assertEqual(conn.execute("SELECT amount FROM trades WHERE id = 1").fetchone()[0], 999.0)
+
+    def test_ops_ledger_repair_apply_requires_operator(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._migrated_seeded_db(tmp)
+            plan_id = self._ready_buy_plan(db_path)
+            self._record_buy(db_path, plan_id)
+            self._corrupt_buy_ledger(db_path)
+
+            stdout = io.StringIO()
+            code = main(
+                [
+                    "ops",
+                    "ledger-repair",
+                    "--account",
+                    ACCOUNT_KEY,
+                    "--date",
+                    BUY_DATE,
+                    "--db-path",
+                    str(db_path),
+                    "--apply",
+                ],
+                stdout=stdout,
+            )
+
+            self.assertEqual(code, 1)
+            self.assertIn("ledger_repair_status=failed", stdout.getvalue())
+            self.assertIn("OPERATOR_REQUIRED", stdout.getvalue())
+
+    def test_ops_ledger_repair_apply_fixes_known_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._migrated_seeded_db(tmp)
+            plan_id = self._ready_buy_plan(db_path)
+            self._record_buy(db_path, plan_id)
+            self._corrupt_buy_ledger(db_path)
+
+            stdout = io.StringIO()
+            code = main(
+                [
+                    "ops",
+                    "ledger-repair",
+                    "--account",
+                    ACCOUNT_KEY,
+                    "--date",
+                    BUY_DATE,
+                    "--db-path",
+                    str(db_path),
+                    "--operator",
+                    "tester",
+                    "--apply",
+                ],
+                stdout=stdout,
+            )
+
+            self.assertEqual(code, 0, stdout.getvalue())
+            output = stdout.getvalue()
+            self.assertIn("ledger_repair_status=applied", output)
+            backup_line = next(line for line in output.splitlines() if line.startswith("backup_path="))
+            backup_path = Path(backup_line.removeprefix("backup_path="))
+            self.assertTrue(backup_path.exists())
+            audit_stdout = io.StringIO()
+            audit_code = main(
+                [
+                    "ops",
+                    "ledger-audit",
+                    "--account",
+                    ACCOUNT_KEY,
+                    "--date",
+                    BUY_DATE,
+                    "--db-path",
+                    str(db_path),
+                ],
+                stdout=audit_stdout,
+            )
+            self.assertEqual(audit_code, 0, audit_stdout.getvalue())
+            self.assertIn("ledger_audit_status=pass", audit_stdout.getvalue())
+
+    def test_ops_ledger_repair_apply_refuses_when_backup_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._migrated_seeded_db(tmp)
+            plan_id = self._ready_buy_plan(db_path)
+            self._record_buy(db_path, plan_id)
+            self._corrupt_buy_ledger(db_path)
+            blocked_backup_dir = Path(tmp) / "not-a-directory"
+            blocked_backup_dir.write_text("block backup mkdir", encoding="utf-8")
+
+            stdout = io.StringIO()
+            code = main(
+                [
+                    "ops",
+                    "ledger-repair",
+                    "--account",
+                    ACCOUNT_KEY,
+                    "--date",
+                    BUY_DATE,
+                    "--db-path",
+                    str(db_path),
+                    "--operator",
+                    "tester",
+                    "--backup-dir",
+                    str(blocked_backup_dir),
+                    "--apply",
+                ],
+                stdout=stdout,
+            )
+
+            self.assertEqual(code, 1)
+            output = stdout.getvalue()
+            self.assertIn("ledger_repair_status=backup_failed", output)
+            self.assertIn("backup_path=none", output)
+            self.assertIn("LEDGER_REPAIR_BACKUP_FAILED", output)
+            with sqlite3.connect(db_path) as conn:
+                self.assertEqual(conn.execute("SELECT amount FROM trades WHERE id = 1").fetchone()[0], 999.0)
+
     def _migrated_seeded_db(self, tmp: str) -> Path:
         db_path = Path(tmp) / "pgc.db"
         run_migrations(db_path)
@@ -236,6 +409,12 @@ class CliExecutionRecordingTest(unittest.TestCase):
         self.assertEqual(code, 0, stdout.getvalue())
         with sqlite3.connect(db_path) as conn:
             return int(conn.execute("SELECT id FROM positions").fetchone()[0])
+
+    def _corrupt_buy_ledger(self, db_path: Path) -> None:
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("UPDATE trades SET amount = 999 WHERE side = 'buy'")
+            conn.execute("UPDATE positions SET buy_price = 9.0, shares = 900, cost = 999 WHERE id = 1")
+            conn.execute("UPDATE equity_snapshots SET market_value = 999, total_equity = cash + 999 WHERE id = 1")
 
     def _insert_calendar(self, conn: sqlite3.Connection) -> None:
         conn.executemany(

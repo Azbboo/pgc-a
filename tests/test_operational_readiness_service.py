@@ -83,7 +83,10 @@ class OperationalReadinessServiceTest(unittest.TestCase):
 
         self.assertEqual(result.status, "blocked")
         self.assertFalse(result.data.invariant_ok)
+        self.assertEqual(result.data.ledger_blockers_count, 1)
+        self.assertEqual(result.data.invariant_violation_codes, ["synthetic_violation"])
         self.assertIn("DATABASE_INVARIANTS_FAILED", [error.code for error in result.errors])
+        self.assertIn("blocker", [error.severity for error in result.errors])
 
     def test_blocks_when_open_data_quality_blocker_exists(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

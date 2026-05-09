@@ -4,8 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>PGC 操作台</title>
-    <link rel="stylesheet" href="/dashboard/assets/styles.css?v=20260508-m21-drawer-1" />
-    <script defer src="/dashboard/assets/app.js?v=20260508-m21-drawer-1"></script>
+    <link rel="stylesheet" href="/dashboard/assets/styles.css?v=20260509-m27-modals-1" />
+    <script defer src="/dashboard/assets/app.js?v=20260509-m27-modals-1"></script>
   </head>
   <body>
     <div class="app-shell">
@@ -234,7 +234,7 @@
           <div class="page-heading">
             <div>
               <h1>每日复盘</h1>
-              <p>按复盘日生成或查看下一交易日动作、候选、持仓到期和只读 Agent 意见。</p>
+              <p>按复盘日生成或查看下一交易日动作、候选、持仓到期和只读 Agent 意见。<span id="currentReviewDateLabel" class="review-scope-label">当前复盘日：-</span></p>
             </div>
             <div class="toolbar">
               <div class="review-history-control" aria-label="复盘历史">
@@ -245,8 +245,9 @@
                 </label>
                 <button type="button" id="reviewApplyDateButton">查看</button>
                 <button type="button" id="reviewNextDateButton">下一复盘日</button>
+                <button type="button" id="reviewLatestDateButton">最新可用</button>
               </div>
-              <button type="button" id="runReviewButton">运行复盘</button>
+              <button type="button" id="runReviewButton">运行日终复盘</button>
               <button type="button" id="publishReviewPlanButton">发布计划</button>
               <button type="button" id="recordReviewPlanButton">去成交录入</button>
             </div>
@@ -275,7 +276,10 @@
             <section class="panel">
               <div class="panel-heading">
                 <h2>数据阻断</h2>
-                <button type="button" class="link-button" data-page-jump="quality">查看数据质量</button>
+                <div class="panel-heading-actions">
+                  <span id="blockerReviewScope" class="review-scope-chip">复盘日 -</span>
+                  <button type="button" class="link-button" data-page-jump="quality">查看数据质量</button>
+                </div>
               </div>
               <div id="blockerList" class="compact-list"></div>
             </section>
@@ -285,6 +289,7 @@
             <div class="panel-heading">
               <h2>复盘日候选</h2>
               <div class="panel-heading-actions">
+                <span id="candidateReviewScope" class="review-scope-chip">复盘日 -</span>
                 <button type="button" class="link-button" id="openCandidateDetailButton">候选详情</button>
                 <button type="button" class="link-button" id="openLineageButton">查看血缘</button>
               </div>
@@ -309,7 +314,10 @@
             <div class="panel">
               <div class="panel-heading">
                 <h2>T+2 / T+5 待处理</h2>
-                <button type="button" class="link-button" data-page-jump="positions">查看持仓</button>
+                <div class="panel-heading-actions">
+                  <span id="dueReviewScope" class="review-scope-chip">复盘日 -</span>
+                  <button type="button" class="link-button" data-page-jump="positions">查看持仓</button>
+                </div>
               </div>
               <div class="table-wrap">
                 <table>
@@ -330,6 +338,7 @@
               <div class="panel-heading">
                 <h2>AI 复核意见</h2>
                 <div class="panel-heading-actions">
+                  <span id="agentReviewScope" class="review-scope-chip">复盘日 -</span>
                   <span class="chip chip-agent">仅供复核</span>
                   <button type="button" class="link-button" id="openAgentDetailInlineButton">Agent 详情</button>
                 </div>
@@ -404,6 +413,8 @@
 	              <form class="record-form" id="recordForm">
 	                <p class="execution-advisory">仅记录人工纸面成交；Dashboard 不会向券商下单。</p>
 	                <p id="recordPrefillHint" class="record-prefill-hint">从待录入队列选择计划后，会自动带出计划 ID、方向、成交日期、股数和参考价。</p>
+                  <div id="recordPlanReference" class="record-reference-panel" hidden></div>
+                  <p id="recordLockReasonInline" class="record-lock-inline" hidden></p>
                   <div id="recordValidationPanel" class="validation-panel" aria-live="polite"></div>
 	                <label>
 	                  <span>计划 ID</span>
@@ -559,6 +570,7 @@
       <form method="dialog">
         <h2 id="confirmTitle">确认操作</h2>
         <p id="confirmBody">-</p>
+        <div id="confirmSummary" class="confirm-summary" hidden></div>
         <label id="confirmInputLabel" hidden>
           <span id="confirmInputText">原因</span>
           <input id="confirmInput" autocomplete="off" />

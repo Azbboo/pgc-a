@@ -160,6 +160,9 @@ def build_input_snapshot(candidate: dict, as_of_date: str, source_refs: list[str
         "candidate": candidate,
         "source_refs": source_refs,
     }
+    coverage = _coverage_from_snapshot({"candidate": candidate})
+    if coverage:
+        payload["external_data_coverage"] = coverage
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
     return {
         "as_of_date": as_of_date,
@@ -200,9 +203,11 @@ def parse_local_snapshot_output(
     config: TradingAgentsRunConfig,
 ) -> TradingAgentsExecutionResult:
     parsed, parse_error = _load_response_json(response_text)
+    parse_failed = parsed is None
     candidate = snapshot.get("candidate", {})
     analyst_reports: dict[str, dict[str, Any]] = {}
-    if parsed is None:
+    external_data_coverage = _coverage_from_snapshot(snapshot)
+    if parse_failed:
         action = _map_action(response_text)
         risk_level = _map_risk_level(action, response_text)
         summary = _summary_from_output({}, response_text)
@@ -214,12 +219,15 @@ def parse_local_snapshot_output(
         risk_level = _normalize_risk_level(parsed.get("risk_level"), action, response_text)
         summary = _non_blank_or(parsed.get("summary"), _summary_from_output(parsed, response_text))
         analyst_reports = _normalize_analyst_reports(parsed.get("analyst_reports"))
+        analyst_reports = _apply_snapshot_coverage_to_analyst_reports(analyst_reports, external_data_coverage)
         supporting_points = _string_list(parsed.get("supporting_points"))
         if not supporting_points:
             supporting_points = _aggregate_report_points(analyst_reports, "supporting_points")
         risk_points = _string_list(parsed.get("risk_points"))
         if not risk_points:
             risk_points = _aggregate_report_points(analyst_reports, "risk_points")
+    if parse_failed:
+        analyst_reports = _apply_snapshot_coverage_to_analyst_reports(analyst_reports, external_data_coverage)
 
     confidence = _normalize_confidence(parsed.get("confidence"))
     raw_decision = {
@@ -236,6 +244,7 @@ def parse_local_snapshot_output(
         "risk_level": risk_level,
         "summary": summary,
         "analyst_reports": analyst_reports,
+        "external_data_coverage": external_data_coverage,
         "supporting_points": supporting_points,
         "risk_points": risk_points,
         "raw_response": response_text,
@@ -330,10 +339,12 @@ def _build_local_snapshot_prompt(snapshot: dict[str, Any], config: TradingAgents
 
 只允许使用下方本地数据库快照。不要请求实时价格、新闻、基本面网页或任何外部工具。
 确定性策略和组合系统仍是事实来源；你的输出只作为复核意见，不是交易指令。
-快照里的 external_data 和 analysis_contexts 是已落库资料；可以引用，但不得补写未提供事实。
+快照里的 external_data、analysis_contexts 和 external_data_coverage 是已落库资料；
+可以引用，但不得补写未提供事实。
 
 请分别扮演技术面、基本面、新闻面、情绪面四个分析师，基于 snapshot.analysis_contexts
-对应分区给出分析。若某个分区没有真实数据，必须明确写出“数据源未接入/数据不足”，
+对应分区给出分析。若 external_data_coverage 标记某个分区为 unavailable，
+必须明确写出“数据源未接入/数据不足”，
 不要编造新闻、公告、社媒情绪或基本面事实。
 
 请在内部最多进行 {config.max_debate_rounds} 轮简洁的多空权衡，然后只返回一个 JSON 对象。
@@ -448,6 +459,77 @@ def _normalize_confidence(value: Any) -> float | None:
     if confidence < 0 or confidence > 1:
         return None
     return confidence
+
+
+def _coverage_from_snapshot(snapshot: dict[str, Any]) -> dict[str, str]:
+    raw_coverage = snapshot.get("external_data_coverage")
+    if not isinstance(raw_coverage, dict):
+        candidate = snapshot.get("candidate", {})
+        raw_coverage = candidate.get("external_data_coverage") if isinstance(candidate, dict) else None
+    if not isinstance(raw_coverage, dict):
+        return {}
+    coverage: dict[str, str] = {}
+    for key in ("fundamental", "news", "sentiment", "technical"):
+        status = str(raw_coverage.get(key) or "").strip().lower()
+        if status in {"available", "partial", "unavailable"}:
+            coverage[key] = status
+    return coverage
+
+
+def _apply_snapshot_coverage_to_analyst_reports(
+    analyst_reports: dict[str, dict[str, Any]],
+    external_data_coverage: dict[str, str],
+) -> dict[str, dict[str, Any]]:
+    if not external_data_coverage:
+        return analyst_reports
+    reports = {key: dict(value) for key, value in analyst_reports.items()}
+    for key, coverage_status in external_data_coverage.items():
+        report = dict(reports.get(key, {}))
+        report["status"] = coverage_status
+        if coverage_status == "unavailable":
+            report["summary"] = _coverage_unavailable_summary(key)
+            report["supporting_points"] = []
+            risk_points = _string_list(report.get("risk_points"))
+            warning = _coverage_unavailable_risk(key)
+            if warning not in risk_points:
+                risk_points.append(warning)
+            report["risk_points"] = risk_points
+        else:
+            report["summary"] = _non_blank_or(report.get("summary"), _coverage_available_summary(key, coverage_status))
+            report["supporting_points"] = _string_list(report.get("supporting_points"))
+            report["risk_points"] = _string_list(report.get("risk_points"))
+        reports[key] = report
+    return reports
+
+
+def _coverage_available_summary(key: str, status: str) -> str:
+    label = {
+        "technical": "技术面",
+        "fundamental": "基本面",
+        "news": "新闻面",
+        "sentiment": "情绪面",
+    }.get(key, key)
+    return f"{label}数据覆盖为{status}。"
+
+
+def _coverage_unavailable_summary(key: str) -> str:
+    label = {
+        "technical": "技术面",
+        "fundamental": "基本面",
+        "news": "新闻面",
+        "sentiment": "情绪面",
+    }.get(key, key)
+    return f"{label}数据源未接入/数据不足。"
+
+
+def _coverage_unavailable_risk(key: str) -> str:
+    label = {
+        "technical": "技术面",
+        "fundamental": "基本面",
+        "news": "新闻面",
+        "sentiment": "情绪面",
+    }.get(key, key)
+    return f"{label}缺少真实输入，不能编造相关证据。"
 
 
 def _normalize_analyst_reports(value: Any) -> dict[str, dict[str, Any]]:

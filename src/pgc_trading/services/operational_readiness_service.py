@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from pgc_trading.config import Paths
@@ -62,6 +62,8 @@ class PaperReadinessResult:
     due_exit_positions_count: int
     open_blockers_count: int
     invariant_ok: bool
+    ledger_blockers_count: int = 0
+    invariant_violation_codes: list[str] = field(default_factory=list)
 
 
 class OperationalReadinessService:
@@ -109,6 +111,7 @@ class OperationalReadinessService:
             open_blockers_count = _count_open_data_quality_blockers(conn)
             duplicate_open_positions = _duplicate_open_positions(conn, account.id)
             invariant_report = check_database(self.db_path)
+            invariant_violation_codes = [violation.code for violation in invariant_report.violations]
 
             errors: list[ServiceError] = []
             if trades_count < request.min_trades:
@@ -155,11 +158,12 @@ class OperationalReadinessService:
                     )
                 )
             if not invariant_report.ok:
-                codes = ", ".join(violation.code for violation in invariant_report.violations)
+                codes = ", ".join(invariant_violation_codes)
                 errors.append(
                     ServiceError(
                         code="DATABASE_INVARIANTS_FAILED",
-                        message=f"Database invariant check failed: {codes}.",
+                        message=f"Ledger/database invariant check failed: {codes}.",
+                        severity="blocker",
                     )
                 )
 
@@ -174,6 +178,8 @@ class OperationalReadinessService:
                 due_exit_positions_count=due_exit_positions_count,
                 open_blockers_count=open_blockers_count,
                 invariant_ok=invariant_report.ok,
+                ledger_blockers_count=len(invariant_report.violations),
+                invariant_violation_codes=invariant_violation_codes,
             )
             return ServiceResult(
                 status="blocked" if errors else "success",
@@ -204,6 +210,8 @@ def _empty_result(request: PaperReadinessRequest, readiness: str) -> PaperReadin
         due_exit_positions_count=0,
         open_blockers_count=0,
         invariant_ok=False,
+        ledger_blockers_count=0,
+        invariant_violation_codes=[],
     )
 
 

@@ -117,6 +117,79 @@ class AgentExternalDataServiceTest(unittest.TestCase):
                     ),
                 )
 
+    def test_apply_imports_structured_cached_agent_data(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._migrated_db(tmp)
+            source_file = Path(tmp) / "structured_agent_cache.json"
+            source_file.write_text(
+                json.dumps(
+                    {
+                        "source": "tushare",
+                        "date": "20260508",
+                        "fundamental_snapshots": [
+                            {
+                                "ts_code": "000001.SZ",
+                                "pe_ttm": 8.5,
+                                "pb": 0.72,
+                                "total_mv": 2100000,
+                            }
+                        ],
+                        "announcements": [
+                            {
+                                "ts_code": "000001.SZ",
+                                "ann_date": "2026-05-08",
+                                "title": "年度权益分派提示",
+                                "summary": "公司公告权益分派安排，未见重大利空。",
+                                "importance": "important",
+                            }
+                        ],
+                        "news_snippets": [
+                            {
+                                "ts_code": "000001.SZ",
+                                "title": "行业新闻摘要",
+                                "content": "行业景气度维持平稳。",
+                                "url": "https://example.test/news/1",
+                            }
+                        ],
+                        "sentiment_snippets": [
+                            {
+                                "ts_code": "000001.SZ",
+                                "sentiment_label": "bullish",
+                                "score": 0.64,
+                                "text": "投资者讨论偏正面，但样本有限。",
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            result = AgentExternalDataService(db_path).import_external_data(
+                ImportAgentExternalDataRequest(source_file=source_file),
+                RequestContext(request_id="test-structured-cache", dry_run=False, operator="tester"),
+            )
+
+            self.assertTrue(result.ok)
+            self.assertEqual(result.data.inserted_count, 4)
+            with sqlite3.connect(db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute(
+                    """
+                    SELECT item_type, provider, published_date, title, summary, sentiment, importance, metadata_json
+                    FROM agent_external_items
+                    ORDER BY item_type
+                    """
+                ).fetchall()
+            by_type = {row["item_type"]: row for row in rows}
+            self.assertEqual(set(by_type), {"announcement", "fundamental", "news", "sentiment"})
+            self.assertEqual({row["provider"] for row in rows}, {"tushare"})
+            self.assertEqual({row["published_date"] for row in rows}, {"20260508"})
+            self.assertIn("PE-TTM=8.5", by_type["fundamental"]["summary"])
+            self.assertEqual(by_type["announcement"]["importance"], "high")
+            self.assertEqual(by_type["sentiment"]["sentiment"], "positive")
+            self.assertEqual(json.loads(by_type["fundamental"]["metadata_json"])["cache_item_type"], "fundamental")
+
     def test_apply_rejects_invalid_records_without_partial_writes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = self._migrated_db(tmp)
