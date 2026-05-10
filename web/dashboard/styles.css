@@ -943,8 +943,69 @@ code {
   min-height: 34px;
 }
 
+.review-timeline-panel,
 .review-history-panel {
   margin-bottom: 14px;
+}
+
+.review-timeline-list {
+  display: grid;
+  gap: 8px;
+}
+
+.review-timeline-row {
+  display: grid;
+  grid-template-columns: 150px repeat(4, minmax(110px, 1fr)) minmax(150px, auto);
+  align-items: center;
+  justify-content: stretch;
+  gap: 10px;
+  min-height: 82px;
+  padding: 10px 12px;
+  border-color: var(--line);
+  background: linear-gradient(90deg, #f8fbff 0%, #ffffff 100%);
+  text-align: left;
+  box-shadow: none;
+}
+
+.review-timeline-row:hover:not(:disabled),
+.review-timeline-row.active {
+  border-color: rgba(93, 135, 255, 0.5);
+  background: #f4f7ff;
+  color: var(--ink);
+  box-shadow: none;
+}
+
+.timeline-date,
+.timeline-cell {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.timeline-date strong {
+  color: var(--accent);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.timeline-date em,
+.timeline-cell em {
+  color: var(--muted);
+  font-size: 11px;
+  font-style: normal;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.timeline-cell b {
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.timeline-cell--execution em {
+  color: #415270;
+  font-weight: 700;
 }
 
 .review-history-list {
@@ -2856,6 +2917,7 @@ td > .empty-state {
   }
 
   .checklist-grid,
+  .review-timeline-row,
   .review-history-list,
   .action-meta,
   .drawer-metrics,
@@ -2884,6 +2946,7 @@ td > .empty-state {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .review-timeline-row,
   .history-list-row {
     grid-template-columns: minmax(0, 1fr);
     align-items: flex-start;

@@ -52,6 +52,11 @@ class MarketExternalDataServiceTest(unittest.TestCase):
                     },
                 },
             )
+            self.assertEqual(result.data.provider_file_contract, "market_external_v1")
+            self.assertEqual(result.data.coverage_details["missing_scopes"], [])
+            self.assertEqual(result.data.coverage_details["duplicate_count"], 0)
+            self.assertEqual(result.data.coverage_details["fresh_count"], 3)
+            self.assertEqual(result.data.coverage_details["by_scope"], {"market": 1, "sector": 1, "stock": 1})
             with sqlite3.connect(db_path) as conn:
                 self.assertEqual(self._count(conn, "market_external_items"), 0)
 
@@ -191,6 +196,54 @@ class MarketExternalDataServiceTest(unittest.TestCase):
             self.assertEqual(result.data.duplicate_count, 1)
             self.assertEqual(result.data.coverage_summary["duplicates"], "duplicate")
             self.assertEqual(result.data.coverage_summary["freshness"]["market"], "stale")
+            self.assertEqual(result.data.coverage_details["duplicate_count"], 1)
+            self.assertEqual(result.data.coverage_details["stale_count"], 2)
+            self.assertEqual(result.data.coverage_details["stale_scopes"], ["market"])
+
+    def test_provider_file_contract_marker_is_validated(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._migrated_db(tmp)
+            source_file = Path(tmp) / "external_items.json"
+            source_file.write_text(
+                json.dumps(
+                    {
+                        "provider_file_contract": "market_external_v1",
+                        "as_of_date": "20260508",
+                        "provider": "manual_fixture",
+                        "items": [self._record()],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            result = MarketExternalDataService(db_path).import_external_data(
+                ImportMarketExternalDataRequest(as_of_date="20260508", source_file=source_file),
+                RequestContext(request_id="test-market-contract", dry_run=True, operator="tester"),
+            )
+
+            self.assertTrue(result.ok)
+            self.assertEqual(result.data.provider_file_contract, "market_external_v1")
+
+            source_file.write_text(
+                json.dumps(
+                    {
+                        "provider_file_contract": "unknown_contract",
+                        "as_of_date": "20260508",
+                        "provider": "manual_fixture",
+                        "items": [],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            rejected = MarketExternalDataService(db_path).import_external_data(
+                ImportMarketExternalDataRequest(as_of_date="20260508", source_file=source_file),
+                RequestContext(request_id="test-market-contract-reject", dry_run=True, operator="tester"),
+            )
+
+            self.assertFalse(rejected.ok)
+            self.assertEqual(rejected.errors[0].code, "UNSUPPORTED_PROVIDER_FILE_CONTRACT")
 
     def test_rejects_missing_or_mismatched_source_hash_without_partial_writes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

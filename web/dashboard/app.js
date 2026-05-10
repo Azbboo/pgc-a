@@ -27,6 +27,8 @@ const state = {
   accountKey: dashboardAccountKey(),
   accountId: localStorage.getItem("pgc.dashboard.accountId") || "",
   asOfDate: localStorage.getItem("pgc.dashboard.asOfDate") || defaultReviewDate(),
+  executionAsOfDate: localStorage.getItem("pgc.dashboard.executionAsOfDate") || "",
+  executionDatePinned: Boolean(localStorage.getItem("pgc.dashboard.executionAsOfDate")),
   strategyVersion: localStorage.getItem("pgc.dashboard.strategyVersion") || DEFAULT_STRATEGY_VERSION,
   operator: dashboardOperator(),
   writeToken: localStorage.getItem("pgc.dashboard.writeToken") || "",
@@ -37,6 +39,8 @@ const state = {
   report: null,
   reportEnvelope: null,
   reviewHistory: [],
+  reviewTimeline: [],
+  reviewTimelineEnvelope: null,
   openExecution: null,
   openExecutionEnvelope: null,
   marketReviewHistory: [],
@@ -138,6 +142,8 @@ function cacheElements() {
     "reviewNextDateButton",
     "reviewLatestDateButton",
     "reviewApplyDateButton",
+    "reviewTimelineState",
+    "reviewTimelineList",
     "reviewHistoryState",
     "reloadReviewHistoryButton",
     "reviewHistoryList",
@@ -229,6 +235,7 @@ function bindEvents() {
   els.reviewNextDateButton.addEventListener("click", () => shiftReviewDate(1));
   els.reviewLatestDateButton.addEventListener("click", setLatestReviewDate);
   els.reloadReviewHistoryButton.addEventListener("click", loadReviewHistoryAndRender);
+  els.reviewTimelineList.addEventListener("click", onReviewTimelineClick);
   els.reviewHistoryList.addEventListener("click", onReviewHistoryClick);
   els.reloadMarketButton.addEventListener("click", loadMarketReviewAndRender);
   els.marketApplyDateButton.addEventListener("click", applyMarketReviewDateInput);
@@ -305,6 +312,8 @@ function readContextForm() {
   state.writeToken = els.writeTokenInput.value.trim();
   state.dryRun = els.dryRunInput.checked;
   state.reviewDatePinned = true;
+  state.executionAsOfDate = "";
+  state.executionDatePinned = false;
   if (preOpenContextKey() !== previousPreOpenContext) resetPreOpenChecks();
   syncFormFromState();
 }
@@ -318,6 +327,11 @@ function persistContext() {
   localStorage.setItem("pgc.dashboard.operator", state.operator);
   localStorage.setItem("pgc.dashboard.writeToken", state.writeToken);
   localStorage.setItem("pgc.dashboard.dryRun", String(state.dryRun));
+  if (state.executionDatePinned && state.executionAsOfDate) {
+    localStorage.setItem("pgc.dashboard.executionAsOfDate", state.executionAsOfDate);
+  } else {
+    localStorage.removeItem("pgc.dashboard.executionAsOfDate");
+  }
   if (state.marketDatePinned && state.marketAsOfDate) {
     localStorage.setItem("pgc.dashboard.marketAsOfDate", state.marketAsOfDate);
   } else {
@@ -400,7 +414,7 @@ async function setMarketReviewDate(value) {
   await loadMarketReviewAndRender();
 }
 
-async function setReviewDate(value) {
+async function setReviewDate(value, options = {}) {
   const nextDate = normalizeDate(value);
   if (!/^\d{8}$/.test(nextDate)) {
     showNotice("复盘日需要选择有效日期。");
@@ -412,9 +426,9 @@ async function setReviewDate(value) {
     renderReviewHistoryNavigation();
     return;
   }
+  if (options.preserveExecutionDate !== false) lockExecutionDate(executionDate());
   state.asOfDate = nextDate;
   state.reviewDatePinned = true;
-  resetPreOpenChecks();
   syncFormFromState();
   persistContext();
   setActivePage("review");
@@ -425,7 +439,7 @@ async function refreshAll(options = {}) {
   setBusy(true);
   if (!options.keepNotice) showNotice("");
   try {
-    await loadReviewHistory();
+    await Promise.all([loadReviewHistory(), loadReviewTimeline()]);
     if (shouldAdoptLatestReviewDate(options)) {
       state.asOfDate = latestReviewHistoryDate();
       resetPreOpenChecks();
@@ -454,6 +468,7 @@ async function loadDailyReport() {
   const envelope = await apiRequest(`/api/daily-reviews/${state.asOfDate}?${params.toString()}`);
   state.reportEnvelope = envelope;
   state.report = envelope.data || null;
+  syncExecutionDateFromReport();
 }
 
 async function loadReviewHistory() {
@@ -474,6 +489,28 @@ async function loadReviewHistory() {
     throw new Error(errorMessages(envelope).join("；") || "无法读取复盘历史列表。");
   }
   state.reviewHistory = envelope.data?.items || [];
+}
+
+async function loadReviewTimeline() {
+  const params = new URLSearchParams();
+  params.set("strategy_version", state.strategyVersion);
+  params.set("limit", "20");
+  const accountId = resolvedAccountId();
+  if (accountId) {
+    params.set("account_id", accountId);
+  } else if (state.accountKey) {
+    params.set("account_key", state.accountKey);
+  } else {
+    state.reviewTimeline = [];
+    state.reviewTimelineEnvelope = null;
+    return;
+  }
+  const envelope = await apiRequest(`/api/review-timeline?${params.toString()}`);
+  if (envelope.status !== "success") {
+    throw new Error(errorMessages(envelope).join("；") || "无法读取跨日复盘对比。");
+  }
+  state.reviewTimelineEnvelope = envelope;
+  state.reviewTimeline = envelope.data?.items || [];
 }
 
 async function loadOpenExecution() {
@@ -621,7 +658,8 @@ async function loadPositionsAndRender() {
 
 async function loadReviewHistoryAndRender() {
   await runWithNotice(async () => {
-    await loadReviewHistory();
+    await Promise.all([loadReviewHistory(), loadReviewTimeline()]);
+    renderReviewTimeline();
     renderReviewHistory();
   });
 }
@@ -879,6 +917,7 @@ function confirmationSubmitLabel(applyOnly = false) {
 function renderAll() {
   renderOpeningExecution();
   renderStatusBand();
+  renderReviewTimeline();
   renderReviewHistory();
   renderReviewScopeMarkers();
   renderReview();
@@ -1540,7 +1579,7 @@ function renderStatusBand() {
   const quality = report?.data_quality;
   els.statusAccount.textContent = accountName(account);
   els.statusReviewDate.textContent = displayDate(report?.as_of_date || state.asOfDate);
-  els.statusNextDate.textContent = displayDate(report?.next_trade_date);
+  els.statusNextDate.textContent = displayDate(executionDate());
   els.statusMarketDate.textContent = displayDate(report?.latest_market_date);
   els.statusCapacity.textContent = capacityText(account);
 
@@ -1555,6 +1594,47 @@ function renderReview() {
   renderCandidate();
   renderDuePositions();
   renderAgent();
+}
+
+function renderReviewTimeline() {
+  const items = state.reviewTimeline || [];
+  const latestDate = items[0]?.review_date || latestReviewHistoryDate();
+  const executionText = `开盘执行日保持 ${displayDate(executionDate())}`;
+  els.reviewTimelineState.textContent = items.length
+    ? `只读 · ${items.length} 日 · ${executionText}`
+    : `只读 · 无记录 · ${executionText}`;
+  els.reviewTimelineList.innerHTML = items.length
+    ? items.map((item) => {
+      const selected = normalizeDate(item.review_date) === normalizeDate(state.asOfDate);
+      return `
+        <button type="button" class="review-timeline-row ${selected ? "active" : ""}" data-review-timeline-date="${escapeHtml(item.review_date)}">
+          <span class="timeline-date">
+            <strong>${displayDate(item.review_date)}</strong>
+            <em>下一交易日 ${displayDate(item.next_trade_date)}</em>
+          </span>
+          <span class="timeline-cell">
+            <b>候选</b>
+            <em>${escapeHtml(reviewTimelinePickText(item))}</em>
+          </span>
+          <span class="timeline-cell">
+            <b>市场</b>
+            <em>${escapeHtml(reviewTimelineMarketText(item))}</em>
+          </span>
+          <span class="timeline-cell">
+            <b>计划关系</b>
+            <em>${escapeHtml(reviewTimelinePlanContextText(item))}</em>
+          </span>
+          <span class="timeline-cell timeline-cell--execution">
+            <b>open-execution</b>
+            <em>${escapeHtml(reviewTimelineExecutionText(item))}</em>
+          </span>
+          <span class="history-badges">
+            ${renderReviewTimelineBadges(item)}
+          </span>
+        </button>
+      `;
+    }).join("")
+    : emptyState(latestDate ? `暂无跨日复盘对比；最新复盘日 ${displayDate(latestDate)}。` : "暂无跨日复盘对比。");
 }
 
 function renderReviewHistory() {
@@ -1601,11 +1681,12 @@ function renderReviewHistoryNavigation() {
 
 function renderReviewScopeMarkers() {
   const selected = `复盘日 ${displayDate(state.asOfDate)}`;
-  const execution = `执行日 ${displayDate(state.report?.next_trade_date)}`;
+  const reviewNext = `复盘下一交易日 ${displayDate(state.report?.next_trade_date)}`;
+  const execution = `开盘执行日 ${displayDate(executionDate())}`;
   els.currentReviewDateLabel.textContent = `当前复盘日：${displayDate(state.asOfDate)}`;
   els.blockerReviewScope.textContent = selected;
   els.candidateReviewScope.textContent = selected;
-  els.dueReviewScope.textContent = `${selected} / ${execution}`;
+  els.dueReviewScope.textContent = `${selected} / ${reviewNext} / ${execution}`;
   els.agentReviewScope.textContent = selected;
 }
 
@@ -1615,7 +1696,7 @@ function renderNextAction() {
   const plan = report?.buy_plan;
   const candidate = report?.candidate;
   const blocked = hasBlockingQuality();
-  els.nextActionDate.textContent = `复盘日 ${displayDate(report?.as_of_date || state.asOfDate)} / 执行日 ${displayDate(report?.next_trade_date)}`;
+  els.nextActionDate.textContent = `复盘日 ${displayDate(report?.as_of_date || state.asOfDate)} / 下一交易日 ${displayDate(report?.next_trade_date)} / 开盘执行日 ${displayDate(executionDate())}`;
   panel.classList.toggle("blocked", blocked);
   panel.classList.toggle("no-action", !blocked && !plan && !candidate);
 
@@ -1686,6 +1767,12 @@ function onReviewHistoryClick(event) {
   const button = event.target.closest("button[data-review-date]");
   if (!button) return;
   setReviewDate(button.dataset.reviewDate);
+}
+
+function onReviewTimelineClick(event) {
+  const button = event.target.closest("button[data-review-timeline-date]");
+  if (!button) return;
+  setReviewDate(button.dataset.reviewTimelineDate, { preserveExecutionDate: true });
 }
 
 function setReviewButtons() {
@@ -3256,7 +3343,7 @@ function resetPreOpenChecks() {
 }
 
 function preOpenContextKey() {
-  return [state.accountKey, state.accountId, state.asOfDate, state.strategyVersion].join("|");
+  return [state.accountKey, state.accountId, executionDate(), state.strategyVersion].join("|");
 }
 
 function openingRecordReady(activePlans, executionDay, blocked = hasBlockingQuality()) {
@@ -3340,7 +3427,20 @@ function todaysBuyPlans() {
 }
 
 function executionDate() {
-  return normalizeDate(state.report?.next_trade_date || state.asOfDate);
+  return normalizeDate(state.executionAsOfDate || state.report?.next_trade_date || state.asOfDate);
+}
+
+function lockExecutionDate(value) {
+  const nextDate = normalizeDate(value);
+  if (!/^\d{8}$/.test(nextDate)) return;
+  state.executionAsOfDate = nextDate;
+  state.executionDatePinned = true;
+}
+
+function syncExecutionDateFromReport() {
+  const nextDate = normalizeDate(state.report?.next_trade_date);
+  if (state.executionDatePinned || !/^\d{8}$/.test(nextDate)) return;
+  state.executionAsOfDate = nextDate;
 }
 
 function findPlan(id) {
@@ -3984,6 +4084,39 @@ function actionText(value) {
   }[value] || dash(value);
 }
 
+function openExecutionActionText(value) {
+  return {
+    record_buy: "记录买入",
+    record_sell: "记录卖出",
+    evaluate_exit: "评估退出",
+    wait: "等待后续计划",
+    none: "无执行任务",
+    blocked: "执行阻断",
+    account_missing: "账户缺失",
+    next_trade_date_missing: "缺少下一交易日",
+  }[value] || dash(value);
+}
+
+function openExecutionStatusText(value) {
+  return {
+    ready: "执行就绪",
+    waiting: "等待",
+    idle: "空闲",
+    blocked: "阻断",
+    unavailable: "不可用",
+  }[value] || dash(value);
+}
+
+function openExecutionStatusClass(value) {
+  return {
+    ready: "chip-green",
+    waiting: "chip-amber",
+    idle: "chip-neutral",
+    blocked: "chip-red",
+    unavailable: "chip-neutral",
+  }[value] || "chip-neutral";
+}
+
 function agentActionText(value) {
   return {
     no_opinion: "无意见",
@@ -4076,6 +4209,24 @@ function managementActionText(value) {
     consider_cancel: "考虑取消但不自动取消",
     unknown: "未知，保持计划不变",
   }[value] || dash(value);
+}
+
+function managementActionShortText(value) {
+  return {
+    proceed: "可推进",
+    manual_review: "人工复核",
+    consider_cancel: "考虑取消",
+    unknown: "未知",
+  }[value] || dash(value);
+}
+
+function managementActionClass(value) {
+  return {
+    proceed: "chip-green",
+    manual_review: "chip-amber",
+    consider_cancel: "chip-red",
+    unknown: "chip-neutral",
+  }[value] || "chip-neutral";
 }
 
 function hypothesisStatusText(value) {
@@ -4295,6 +4446,54 @@ function reviewHistoryMetaText(item) {
   if (Number(item.warning_count || 0) > 0) parts.push(`${integerText(item.warning_count)} warning`);
   if (item.agent_status) parts.push(`Agent ${agentRunStatusText(item.agent_status)}`);
   return parts.join(" / ");
+}
+
+function reviewTimelinePickText(item) {
+  if (item.ts_code || item.name) {
+    const stock = `${item.ts_code || ""} ${item.name || ""}`.trim();
+    return item.score != null ? `${stock} / 评分 ${numberText(item.score, 2)}` : stock;
+  }
+  return "无复盘候选";
+}
+
+function reviewTimelineMarketText(item) {
+  const regime = marketRegimeText(item.market_regime || (item.market_review_run_id ? "completed" : "missing"));
+  if (item.market_persistence_score != null) return `${regime} / 持续性 ${scoreText(item.market_persistence_score)}`;
+  return regime;
+}
+
+function reviewTimelinePlanContextText(item) {
+  if (!item.plan_context_management_action) {
+    return item.trade_plan_id ? "暂无 plan-context" : "无关联计划";
+  }
+  return `${alignmentText(item.plan_context_alignment)} / ${riskText(item.plan_context_risk_level)} / ${managementActionText(item.plan_context_management_action)}`;
+}
+
+function reviewTimelineExecutionText(item) {
+  const action = openExecutionActionText(item.open_execution_next_action);
+  const day = displayDate(item.open_execution_as_of_date || item.next_trade_date);
+  const target = [item.open_execution_target_stock, item.open_execution_target_name].filter(Boolean).join(" ");
+  const targetText = target || (item.open_execution_primary_plan_id ? `计划 ${item.open_execution_primary_plan_id}` : "");
+  return [day, action, targetText].filter(Boolean).join(" / ");
+}
+
+function renderReviewTimelineBadges(item) {
+  const chips = [
+    chipHtml(reviewRunStatusText(item.review_status), reviewRunStatusClass(item.review_status)),
+    chipHtml(openExecutionStatusText(item.open_execution_status), openExecutionStatusClass(item.open_execution_status)),
+  ];
+  if (item.market_regime || item.market_review_run_id) {
+    chips.push(chipHtml(marketRegimeText(item.market_regime || "completed"), "chip-blue"));
+  }
+  if (item.plan_context_management_action) {
+    chips.push(chipHtml(managementActionShortText(item.plan_context_management_action), managementActionClass(item.plan_context_management_action)));
+  }
+  if (Number(item.blocker_count || 0) > 0) {
+    chips.push(chipHtml(`${integerText(item.blocker_count)} blocker`, "chip-red"));
+  } else if (Number(item.warning_count || 0) > 0) {
+    chips.push(chipHtml(`${integerText(item.warning_count)} warning`, "chip-amber"));
+  }
+  return chips.join("");
 }
 
 function renderReviewHistoryBadges(item) {

@@ -89,6 +89,50 @@ class DailyPipelineScriptTest(unittest.TestCase):
             self.assertIn(f"resolved_date={AS_OF_DATE}", result.stdout)
             self.assertIn(f"market data missing for resolved_date={AS_OF_DATE}", result.stderr)
 
+    def test_apply_refuses_duplicate_completed_pipeline_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = migrated_seeded_daily_close_db(root)
+            with sqlite3.connect(db_path) as conn:
+                insert_open_calendar(conn)
+                insert_contracting_pullback_case(conn, "000001.SZ", "Script Duplicate Guard")
+                conn.execute(
+                    """
+                    INSERT INTO operation_requests
+                      (idempotency_key, operation_type, as_of_date, status, request_json, operator)
+                    VALUES
+                      ('daily-pipeline:existing:daily-close', 'daily_review', ?, 'success', ?, 'tester')
+                    """,
+                    (AS_OF_DATE, '{"dry_run": false}'),
+                )
+
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(SCRIPT),
+                    "--date",
+                    "latest-closed",
+                    "--account",
+                    PAPER_ACCOUNT_KEY,
+                    "--operator",
+                    "tester",
+                    "--db-path",
+                    str(db_path),
+                    "--apply",
+                ],
+                cwd=ROOT,
+                env=_script_env(root),
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn(f"resolved_date={AS_OF_DATE}", result.stdout)
+            self.assertIn("duplicate_apply_count=1", result.stdout)
+            self.assertIn("duplicate_write_guard=blocked", result.stdout)
+            self.assertIn("pass --allow-rerun only after operator review", result.stderr)
+
 
 def _script_env(root: Path) -> dict[str, str]:
     env = os.environ.copy()

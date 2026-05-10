@@ -12,6 +12,7 @@ from pgc_trading.api.routes import (
     list_account_positions,
     list_data_quality_events,
     list_daily_reviews,
+    list_review_timeline,
     list_market_review_external_items,
     list_market_review_hypotheses,
     list_market_review_sectors,
@@ -53,6 +54,28 @@ class _FakeReportService:
                 "account_id": request.account_id,
                 "before_date": request.before_date,
                 "limit": request.limit,
+            },
+            lineage={"account_id": request.account_id},
+        )
+
+    def list_review_timeline(self, request, ctx):
+        self.calls.append((self.db_path, request, ctx))
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data={
+                "strategy_version": request.strategy_version,
+                "account_id": request.account_id,
+                "before_date": request.before_date,
+                "limit": request.limit,
+                "items": [
+                    {
+                        "review_date": "20260508",
+                        "next_trade_date": "20260511",
+                        "market_regime": "risk_on",
+                        "open_execution_next_action": "record_buy",
+                    }
+                ],
             },
             lineage={"account_id": request.account_id},
         )
@@ -254,6 +277,34 @@ class ApiReadRoutesTest(unittest.TestCase):
         self.assertEqual(request.limit, 12)
         self.assertTrue(ctx.dry_run)
         self.assertEqual(ctx.source, "api")
+
+    def test_review_timeline_route_passes_filters_to_reporting_service(self) -> None:
+        response = _Response()
+
+        payload = list_review_timeline(
+            self.settings,
+            self.services,
+            response,
+            account_key=None,
+            account_id=3,
+            strategy_version="cpb_6157@2026-05-03",
+            before_date="2026-05-08",
+            limit=8,
+            request_id="req-review-timeline",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["data"]["items"][0]["open_execution_next_action"], "record_buy")
+        _, request, ctx = _FakeReportService.calls[0]
+        self.assertEqual(request.account_id, 3)
+        self.assertEqual(request.account_key, None)
+        self.assertEqual(request.strategy_version, "cpb_6157@2026-05-03")
+        self.assertEqual(request.before_date, "20260508")
+        self.assertEqual(request.limit, 8)
+        self.assertTrue(ctx.dry_run)
+        self.assertEqual(ctx.source, "api")
+        self.assertEqual(ctx.request_id, "req-review-timeline")
 
     def test_market_reviews_route_calls_read_service_with_api_context(self) -> None:
         response = _Response()

@@ -4,8 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>PGC 操作台</title>
-    <link rel="stylesheet" href="/dashboard/assets/styles.css?v=20260509-m48-market-1" />
-    <script defer src="/dashboard/assets/app.js?v=20260509-m48-market-1"></script>
+    <link rel="stylesheet" href="/dashboard/assets/styles.css?v=20260509-m51-timeline-1" />
+    <script defer src="/dashboard/assets/app.js?v=20260509-m51-timeline-1"></script>
   </head>
   <body>
     <div class="app-shell">
@@ -264,6 +264,17 @@
               <button type="button" id="recordReviewPlanButton">去成交录入</button>
             </div>
           </div>
+
+          <section class="panel review-timeline-panel">
+            <div class="panel-heading">
+              <h2>跨日复盘对比</h2>
+              <div class="panel-heading-actions">
+                <span id="reviewTimelineState" class="muted">-</span>
+                <span class="chip chip-agent">只读</span>
+              </div>
+            </div>
+            <div id="reviewTimelineList" class="review-timeline-list" aria-label="跨日复盘对比"></div>
+          </section>
 
           <section class="panel review-history-panel">
             <div class="panel-heading">

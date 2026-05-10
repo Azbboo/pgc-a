@@ -11,6 +11,7 @@ from pgc_trading.cli.main import main
 from pgc_trading.reporting.daily_report import (
     DailyReportRequest,
     DailyReviewHistoryRequest,
+    ReviewTimelineRequest,
     ReportingQueryService,
     render_daily_report_json,
     render_daily_report_markdown,
@@ -132,6 +133,35 @@ class DailyReportTest(unittest.TestCase):
             self.assertEqual(result.data.items[1].ts_code, "000001.SZ")
             self.assertEqual(result.data.items[1].trade_plan_status, "active")
             self.assertEqual(result.data.items[1].next_trade_date, BUY_DATE)
+
+    def test_review_timeline_combines_review_market_plan_context_and_execution_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._plan_ready_db(tmp)
+            with sqlite3.connect(db_path) as conn:
+                market_review_run_id = self._insert_market_plan_context(conn)
+
+            result = ReportingQueryService(db_path).list_review_timeline(
+                ReviewTimelineRequest(account_key=ACCOUNT_KEY, limit=5),
+                RequestContext(request_id="req-review-timeline"),
+            )
+
+            self.assertEqual(result.status, "success")
+            self.assertIsNotNone(result.data)
+            self.assertEqual(len(result.data.items), 1)
+            item = result.data.items[0]
+            self.assertEqual(item.review_date, AS_OF_DATE)
+            self.assertEqual(item.next_trade_date, BUY_DATE)
+            self.assertEqual(item.ts_code, "000001.SZ")
+            self.assertEqual(item.trade_plan_status, "active")
+            self.assertEqual(item.market_review_run_id, market_review_run_id)
+            self.assertEqual(item.market_regime, "risk_on")
+            self.assertEqual(item.plan_context_management_action, "proceed")
+            self.assertEqual(item.plan_context_risk_level, "low")
+            self.assertEqual(item.open_execution_as_of_date, BUY_DATE)
+            self.assertEqual(item.open_execution_status, "ready")
+            self.assertEqual(item.open_execution_next_action, "record_buy")
+            self.assertEqual(item.open_execution_primary_plan_id, item.trade_plan_id)
+            self.assertIn("does not change", result.data.execution_context_note)
 
     def test_report_includes_agent_points_and_report_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

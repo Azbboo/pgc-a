@@ -8,7 +8,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from pgc_trading.config import Paths
 from pgc_trading.services.common import RequestContext, ServiceError, ServiceResult
@@ -25,6 +25,8 @@ VALID_AGENT_EXTERNAL_ITEM_TYPES = {
 }
 VALID_AGENT_EXTERNAL_SENTIMENTS = {"positive", "neutral", "negative", "mixed", "unknown"}
 VALID_AGENT_EXTERNAL_IMPORTANCE = {"low", "medium", "high", "unknown"}
+AGENT_EXTERNAL_PROVIDER_FILE_CONTRACT = "agent_external_v1"
+VALID_AGENT_EXTERNAL_PROVIDER_FILE_CONTRACTS = {AGENT_EXTERNAL_PROVIDER_FILE_CONTRACT}
 STRUCTURED_EXTERNAL_COLLECTIONS = {
     "fundamental_snapshots": "fundamental",
     "fundamentals": "fundamental",
@@ -56,6 +58,7 @@ class AgentExternalDataValidationIssue:
 
 @dataclass(frozen=True)
 class ImportAgentExternalDataResult:
+    as_of_date: str | None
     row_count: int
     valid_count: int
     invalid_count: int
@@ -63,6 +66,8 @@ class ImportAgentExternalDataResult:
     would_update_count: int
     inserted_count: int
     updated_count: int
+    coverage_summary: dict[str, Any] = field(default_factory=dict)
+    provider_file_contract: str = AGENT_EXTERNAL_PROVIDER_FILE_CONTRACT
     agent_external_item_ids: list[int] = field(default_factory=list)
     invalid_records: list[AgentExternalDataValidationIssue] = field(default_factory=list)
 
@@ -82,6 +87,14 @@ class _PreparedExternalItem:
     source_hash: str
 
 
+@dataclass(frozen=True)
+class _AgentCoverageItem:
+    ts_code: str
+    item_type: str
+    sentiment: str
+    published_date: str
+
+
 class AgentExternalDataService:
     """Import cached external data without touching strategy, market, or ledger tables."""
 
@@ -97,6 +110,7 @@ class AgentExternalDataService:
         if isinstance(records_result, ServiceError):
             return _validation_failed_result(
                 ctx,
+                as_of_date=_compact_structured_date(request.default_published_date),
                 row_count=0,
                 valid_items=[],
                 invalid_records=[],
@@ -105,20 +119,28 @@ class AgentExternalDataService:
 
         records = records_result
         prepared, invalid_records = _prepare_records(records)
+        coverage_as_of_date = _coverage_as_of_date(request, records)
         preview_insert_count = 0
         preview_update_count = 0
         if prepared:
             preview_insert_count, preview_update_count = _preview_upserts(self.db_path, prepared)
+        coverage_summary = self._coverage_for_import(
+            coverage_as_of_date,
+            prepared,
+            duplicate_count=preview_update_count,
+        )
 
         if invalid_records:
             return _validation_failed_result(
                 ctx,
+                as_of_date=coverage_as_of_date,
                 row_count=len(records),
                 valid_items=prepared,
                 invalid_records=invalid_records,
                 errors=_service_errors_for_issues(invalid_records),
                 would_insert_count=preview_insert_count,
                 would_update_count=preview_update_count,
+                coverage_summary=coverage_summary,
             )
 
         if ctx.dry_run:
@@ -126,6 +148,7 @@ class AgentExternalDataService:
                 status="success",
                 request_id=ctx.request_id,
                 data=ImportAgentExternalDataResult(
+                    as_of_date=coverage_as_of_date,
                     row_count=len(records),
                     valid_count=len(prepared),
                     invalid_count=0,
@@ -133,6 +156,7 @@ class AgentExternalDataService:
                     would_update_count=preview_update_count,
                     inserted_count=0,
                     updated_count=0,
+                    coverage_summary=coverage_summary,
                     agent_external_item_ids=[],
                     invalid_records=[],
                 ),
@@ -162,6 +186,7 @@ class AgentExternalDataService:
             status="success",
             request_id=ctx.request_id,
             data=ImportAgentExternalDataResult(
+                as_of_date=coverage_as_of_date,
                 row_count=len(records),
                 valid_count=len(prepared),
                 invalid_count=0,
@@ -169,11 +194,58 @@ class AgentExternalDataService:
                 would_update_count=updated_count,
                 inserted_count=inserted_count,
                 updated_count=updated_count,
+                coverage_summary=self.summarize_coverage(
+                    coverage_as_of_date,
+                    duplicate_count=updated_count,
+                ),
                 agent_external_item_ids=item_ids,
                 invalid_records=[],
             ),
             created_ids={"agent_external_items": item_ids},
             lineage={"source_file": str(request.source_file) if request.source_file else None},
+        )
+
+    def summarize_coverage(
+        self,
+        as_of_date: str | None,
+        *,
+        duplicate_count: int = 0,
+    ) -> dict[str, Any]:
+        compact_date = _compact_structured_date(as_of_date)
+        if compact_date is None or not _is_yyyymmdd(compact_date):
+            return build_agent_external_coverage_summary([], None, duplicate_count=duplicate_count)
+        with connect(self.db_path) as conn:
+            return build_agent_external_coverage_summary(
+                _load_agent_coverage_items(conn, compact_date),
+                compact_date,
+                duplicate_count=duplicate_count,
+            )
+
+    def _coverage_for_import(
+        self,
+        as_of_date: str | None,
+        prepared: Sequence[_PreparedExternalItem],
+        *,
+        duplicate_count: int = 0,
+    ) -> dict[str, Any]:
+        compact_date = _compact_structured_date(as_of_date)
+        items: list[_AgentCoverageItem] = []
+        if compact_date is not None and _is_yyyymmdd(compact_date):
+            with connect(self.db_path) as conn:
+                items = _load_agent_coverage_items(conn, compact_date)
+        items.extend(
+            _AgentCoverageItem(
+                ts_code=item.ts_code,
+                item_type=item.item_type,
+                sentiment=item.sentiment,
+                published_date=item.published_date,
+            )
+            for item in prepared
+        )
+        return build_agent_external_coverage_summary(
+            items,
+            compact_date if compact_date is not None and _is_yyyymmdd(compact_date) else None,
+            duplicate_count=duplicate_count,
         )
 
 
@@ -198,6 +270,40 @@ def build_agent_external_source_hash(
     }
     canonical = json.dumps(fingerprint, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def build_agent_external_coverage_summary(
+    items: Sequence[_AgentCoverageItem],
+    as_of_date: str | None,
+    *,
+    duplicate_count: int = 0,
+) -> dict[str, Any]:
+    by_item_type = _count_agent_by(items, "item_type")
+    freshness = _agent_freshness(items, as_of_date)
+    missing_item_types = [
+        item_type
+        for item_type in ("fundamental", "announcement", "news", "sentiment")
+        if by_item_type.get(item_type, 0) == 0
+    ]
+    return {
+        "as_of_date": as_of_date or "unknown",
+        "total_count": len(items),
+        "stock_count": len({item.ts_code for item in items}),
+        "fundamental": "available" if by_item_type.get("fundamental", 0) else "missing",
+        "announcement": "available" if by_item_type.get("announcement", 0) else "missing",
+        "news": "available" if by_item_type.get("news", 0) else "missing",
+        "sentiment": _agent_sentiment_status(items),
+        "risk_or_research": "available"
+        if by_item_type.get("risk_note", 0) or by_item_type.get("research_note", 0)
+        else "missing",
+        "duplicates": "duplicate" if duplicate_count else "none",
+        "duplicate_count": duplicate_count,
+        "missing_item_types": missing_item_types,
+        "freshness": freshness,
+        "fresh_count": _agent_fresh_count(items, as_of_date),
+        "stale_count": _agent_stale_count(items, as_of_date),
+        "by_item_type": by_item_type,
+    }
 
 
 def _load_request_records(request: ImportAgentExternalDataRequest) -> list[Mapping[str, Any]] | ServiceError:
@@ -244,6 +350,13 @@ def _records_from_payload(
         return ServiceError(
             "VALIDATION_ERROR",
             "source_file JSON must be a list, records/items object, or supported structured cache object.",
+        )
+
+    contract = _first_text(payload, "provider_file_contract", "contract_version")
+    if contract is not None and contract not in VALID_AGENT_EXTERNAL_PROVIDER_FILE_CONTRACTS:
+        return ServiceError(
+            "UNSUPPORTED_PROVIDER_FILE_CONTRACT",
+            f"provider_file_contract must be {AGENT_EXTERNAL_PROVIDER_FILE_CONTRACT}.",
         )
 
     default_provider = request.default_provider or _first_text(payload, "provider", "source", "data_source")
@@ -453,6 +566,8 @@ def _apply_import_defaults(
         normalized["provider"] = provider
     if published_date and not _first_text(normalized, "published_date"):
         normalized["published_date"] = published_date
+    if default_published_date and not _first_text(normalized, "_as_of_date", "as_of_date"):
+        normalized["_as_of_date"] = _compact_structured_date(default_published_date)
     return normalized
 
 
@@ -480,6 +595,8 @@ def _normalize_structured_external_record(
         normalized["provider"] = provider
     if published_date or default_published_date:
         normalized["published_date"] = _compact_structured_date(published_date or default_published_date)
+    if default_published_date:
+        normalized["_as_of_date"] = _compact_structured_date(default_published_date)
     title = _first_text(record, "title", "headline", "name", "subject") or _structured_title(record, item_type)
     summary = _first_text(
         record,
@@ -661,6 +778,7 @@ def _prepare_record(
     provider = _required_text(record, index, "provider", issues)
     title = _required_text(record, index, "title", issues)
     summary = _required_text(record, index, "summary", issues)
+    provided_source_hash = _optional_text(record, index, "source_hash", issues)
 
     if published_date and not _is_yyyymmdd(published_date):
         issues.append(
@@ -727,6 +845,18 @@ def _prepare_record(
         title=title,
         summary=summary,
     )
+    if provided_source_hash and provided_source_hash != source_hash:
+        return (
+            None,
+            [
+                AgentExternalDataValidationIssue(
+                    index=index,
+                    field="source_hash",
+                    code="SOURCE_HASH_MISMATCH",
+                    message="source_hash does not match provider, item type, ts_code, date, title, and summary.",
+                )
+            ],
+        )
     return (
         _PreparedExternalItem(
             ts_code=ts_code,
@@ -955,20 +1085,99 @@ def _upsert_external_item(conn: sqlite3.Connection, item: _PreparedExternalItem)
     return item_id
 
 
+def _coverage_as_of_date(request: ImportAgentExternalDataRequest, records: list[Mapping[str, Any]]) -> str | None:
+    request_date = _compact_structured_date(request.default_published_date)
+    if request_date is not None and _is_yyyymmdd(request_date):
+        return request_date
+    for record in records:
+        value = _compact_structured_date(_first_text(record, "_as_of_date", "as_of_date"))
+        if value is not None and _is_yyyymmdd(value):
+            return value
+    return None
+
+
+def _load_agent_coverage_items(conn: sqlite3.Connection, as_of_date: str) -> list[_AgentCoverageItem]:
+    rows = conn.execute(
+        """
+        SELECT ts_code, item_type, sentiment, published_date
+        FROM agent_external_items
+        WHERE published_date <= ?
+        """,
+        (as_of_date,),
+    ).fetchall()
+    return [
+        _AgentCoverageItem(
+            ts_code=str(row["ts_code"]),
+            item_type=str(row["item_type"]),
+            sentiment=str(row["sentiment"]),
+            published_date=str(row["published_date"]),
+        )
+        for row in rows
+    ]
+
+
+def _agent_sentiment_status(items: Sequence[_AgentCoverageItem]) -> str:
+    sentiment_items = [item for item in items if item.item_type == "sentiment" or item.sentiment != "unknown"]
+    if not sentiment_items:
+        return "missing"
+    known_count = sum(1 for item in sentiment_items if item.sentiment != "unknown")
+    if known_count == 0:
+        return "missing"
+    if known_count == len(sentiment_items):
+        return "available"
+    return "partial"
+
+
+def _agent_freshness(items: Sequence[_AgentCoverageItem], as_of_date: str | None) -> str:
+    if not items:
+        return "missing"
+    if as_of_date is None:
+        return "unknown"
+    fresh_count = _agent_fresh_count(items, as_of_date)
+    if fresh_count == len(items):
+        return "fresh"
+    if fresh_count == 0:
+        return "stale"
+    return "partial"
+
+
+def _agent_fresh_count(items: Sequence[_AgentCoverageItem], as_of_date: str | None) -> int:
+    if as_of_date is None:
+        return 0
+    return sum(1 for item in items if item.published_date == as_of_date)
+
+
+def _agent_stale_count(items: Sequence[_AgentCoverageItem], as_of_date: str | None) -> int:
+    if as_of_date is None:
+        return 0
+    return sum(1 for item in items if item.published_date < as_of_date)
+
+
+def _count_agent_by(items: Sequence[_AgentCoverageItem], field: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in items:
+        value = getattr(item, field)
+        counts[value] = counts.get(value, 0) + 1
+    return {key: counts[key] for key in sorted(counts)}
+
+
 def _validation_failed_result(
     ctx: RequestContext,
     *,
+    as_of_date: str | None,
     row_count: int,
     valid_items: list[_PreparedExternalItem],
     invalid_records: list[AgentExternalDataValidationIssue],
     errors: list[ServiceError],
     would_insert_count: int = 0,
     would_update_count: int = 0,
+    coverage_summary: dict[str, Any] | None = None,
 ) -> ServiceResult[ImportAgentExternalDataResult]:
     return ServiceResult(
         status="validation_failed",
         request_id=ctx.request_id,
         data=ImportAgentExternalDataResult(
+            as_of_date=as_of_date,
             row_count=row_count,
             valid_count=len(valid_items),
             invalid_count=len({issue.index for issue in invalid_records}),
@@ -976,6 +1185,7 @@ def _validation_failed_result(
             would_update_count=would_update_count,
             inserted_count=0,
             updated_count=0,
+            coverage_summary=coverage_summary or build_agent_external_coverage_summary([], as_of_date),
             agent_external_item_ids=[],
             invalid_records=invalid_records,
         ),

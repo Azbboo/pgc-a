@@ -13,9 +13,10 @@
 ## Current Baseline
 
 - Branch: `codex/m14b-yfinance`
-- Latest deployed release: `pgc-v0.1.0-20260509-m41b-m46`
+- Latest deployed release: `pgc-v0.1.0-20260510-m51-m54`
 - Latest pushed M47-M50 commit: `159382f`
-- M47/M48/M49/M50 are locally verified and pushed, but not yet deployed.
+- M47/M48/M49/M50 are deployed through release `pgc-v0.1.0-20260509-m47-m50`.
+- M51/M52/M54 are implemented and deployed in release `pgc-v0.1.0-20260510-m51-m54`.
 - Remote migration state before this wave: `012_market_review`, `pending_migrations=none`.
 - M46 timer installer has passed dry-run preview, but the real systemd timer is not enabled.
 
@@ -31,10 +32,10 @@
 
 | Track | Task | Status | Can Run In Parallel? | Depends On | Suggested Session |
 | --- | --- | --- | --- | --- | --- |
-| M53 | Release M47-M50 checkpoint | Next | No, do first | M47-M50 pushed commit `159382f` | Release session |
-| M51 | Review timeline and cross-day comparison | Next | Yes after M53 starts or completes | M47/M48 data shape | Session A |
-| M52 | Scheduled pipeline activation and ops monitor | Next | Yes after M53 deploy health | M46 timer installer, M47/M49 evidence gates | Session B |
-| M54 | Production evidence import operations | Next | Yes after M53 deploy health | M47 evidence contract, M49 Agent evidence cache | Session C |
+| M53 | Release M47-M50 checkpoint | Done, Deployed | No, do first | M47-M50 pushed commit `159382f` | Release session |
+| M51 | Review timeline and cross-day comparison | Done, Deployed | Yes after M53 starts or completes | M47/M48 data shape | Session A |
+| M52 | Scheduled pipeline activation and ops monitor | Done, Deployed | Yes after M53 deploy health | M46 timer installer, M47/M49 evidence gates | Session B |
+| M54 | Production evidence import operations | Done, Deployed | Yes after M53 deploy health | M47 evidence contract, M49 Agent evidence cache | Session C |
 
 ## M53: Release M47-M50 Checkpoint
 
@@ -104,6 +105,17 @@ PYTHONPATH=src:. pytest -q
 git diff --check
 ```
 
+Local verification on 2026-05-10:
+
+```bash
+node --check web/dashboard/app.js
+PYTHONPATH=src:. pytest -q tests/test_daily_report.py tests/test_api_read_routes.py tests/test_dashboard_static.py
+# included in combined target run: 117 passed, 1 skipped, 1 subtests passed
+PYTHONPATH=src:. pytest -q
+# 343 passed, 3 skipped, 10 subtests passed
+git diff --check
+```
+
 ## M52: Scheduled Pipeline Activation And Ops Monitor
 
 **Goal:** Turn the M46 timer installer into a safe operational flow with status, journal, and rollback visibility.
@@ -138,6 +150,22 @@ scripts/install_remote_daily_pipeline_timer.sh --dry-run --mode apply --operator
 
 Expected: prints service path, timer path, schedule, command, status command, journal command, and rollback command without enabling the timer.
 
+Local verification on 2026-05-10:
+
+```bash
+bash -n scripts/run_daily_pipeline.sh scripts/install_remote_daily_pipeline_timer.sh
+PYTHONPATH=src:. pytest -q tests/test_daily_pipeline_script.py tests/test_operational_runbook_static.py
+# 15 passed
+scripts/install_remote_daily_pipeline_timer.sh --dry-run --mode apply --operator system-daily-pipeline
+# action=preview, timer_enablement=preview_only, status/journal/rollback/manual commands printed
+PYTHONPATH=src:. pytest -q
+# 343 passed, 3 skipped, 10 subtests passed
+git diff --check
+node --check web/dashboard/app.js
+```
+
+Remote read-only monitor on 2026-05-10 returned `api_health_status_code=200`, `pending_migrations=none`, timer `not-found`/`inactive`, and no `pgc-daily-pipeline.service` journal entries. Timer remains disabled until a deployed operator run explicitly uses `scripts/install_remote_daily_pipeline_timer.sh --enable --operator system-daily-pipeline --mode apply`.
+
 ## M54: Production Evidence Import Operations
 
 **Goal:** Make market/sector/stock evidence import repeatable for real operating days using cached provider files and explicit coverage checks.
@@ -164,6 +192,16 @@ Expected: prints service path, timer path, schedule, command, status command, jo
 ```bash
 PYTHONPATH=src:. pytest -q tests/test_market_external_data_service.py tests/test_agent_external_data_service.py tests/test_cli_market_review.py tests/test_operational_runbook_static.py
 PYTHONPATH=src:. pytest -q
+git diff --check
+```
+
+Local verification on 2026-05-10:
+
+```bash
+PYTHONPATH=src:. pytest -q tests/test_market_external_data_service.py tests/test_agent_external_data_service.py tests/test_cli_market_review.py tests/test_operational_runbook_static.py
+# included in combined target run: 117 passed, 1 skipped, 1 subtests passed
+PYTHONPATH=src:. pytest -q
+# 343 passed, 3 skipped, 10 subtests passed
 git diff --check
 ```
 

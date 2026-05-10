@@ -41,6 +41,7 @@ class DashboardStaticTest(unittest.TestCase):
 
         for endpoint in [
             "/api/daily-reviews/",
+            "/api/review-timeline",
             "/api/trade-plans",
             "/api/open-execution",
             "/api/data-quality",
@@ -207,15 +208,23 @@ class DashboardStaticTest(unittest.TestCase):
         )
 
         for label in [
+            "跨日复盘对比",
             "复盘历史",
             "复盘历史列表",
             "上一复盘日",
             "下一复盘日",
             "刷新历史",
             'id="reviewDateInput" type="date"',
+            'id="reviewTimelineList"',
         ]:
             self.assertIn(label, source)
         self.assertIn("/api/daily-reviews?", source)
+        self.assertIn("/api/review-timeline?", source)
+        self.assertIn("function loadReviewTimeline", source)
+        self.assertIn("function renderReviewTimeline", source)
+        self.assertIn("function onReviewTimelineClick", source)
+        self.assertIn("function reviewTimelineExecutionText", source)
+        self.assertIn("open_execution_next_action", source)
         self.assertIn("function latestReviewHistoryDate", source)
         self.assertIn("function shouldAdoptLatestReviewDate", source)
         self.assertIn("state.reviewDatePinned = true", source)
@@ -231,6 +240,41 @@ class DashboardStaticTest(unittest.TestCase):
         self.assertIn("复盘完成", source)
         self.assertIn("创建 ${displayTimestamp(item.created_at)}", source)
         self.assertIn("els.reviewDateInput.value = dateInputValue(state.asOfDate)", source)
+
+    def test_dashboard_m51_timeline_keeps_opening_execution_context_independent(self) -> None:
+        source = "\n".join(
+            [
+                (DASHBOARD_DIR / "index.html").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "styles.css").read_text(encoding="utf-8"),
+            ]
+        )
+        script = (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8")
+
+        for label in [
+            "跨日复盘对比",
+            "候选",
+            "市场",
+            "计划关系",
+            "open-execution",
+            "开盘执行日保持",
+            "复盘下一交易日",
+        ]:
+            self.assertIn(label, source)
+        for fn_name in [
+            "function lockExecutionDate",
+            "function syncExecutionDateFromReport",
+            "function openExecutionActionText",
+            "function openExecutionStatusText",
+            "function managementActionShortText",
+        ]:
+            self.assertIn(fn_name, source)
+        self.assertIn('executionAsOfDate: localStorage.getItem("pgc.dashboard.executionAsOfDate") || ""', script)
+        self.assertIn("executionDatePinned: Boolean(localStorage.getItem(\"pgc.dashboard.executionAsOfDate\"))", script)
+        self.assertIn("setReviewDate(button.dataset.reviewTimelineDate, { preserveExecutionDate: true })", script)
+        self.assertIn("if (options.preserveExecutionDate !== false) lockExecutionDate(executionDate())", script)
+        self.assertIn('localStorage.setItem("pgc.dashboard.executionAsOfDate", state.executionAsOfDate)', script)
+        self.assertIn(".review-timeline-row", source)
 
     def test_dashboard_m27_operation_modals_and_review_navigation_are_visible(self) -> None:
         source = "\n".join(

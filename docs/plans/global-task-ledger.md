@@ -1,6 +1,6 @@
 # Global Task Ledger
 
-Last updated: 2026-05-09
+Last updated: 2026-05-10
 
 This ledger is the single index for historical and active project work. Detailed specs remain in the linked plan and design documents; this file tracks the global status, release anchors, and next dependencies.
 
@@ -9,12 +9,12 @@ This ledger is the single index for historical and active project work. Detailed
 | Field | Value |
 | --- | --- |
 | Branch | `codex/m14b-yfinance` |
-| Latest deployed commit | `d34d2d198c3c8479721fb686687f6ed13818deac` |
-| Latest release tag | `pgc-v0.1.0-20260509-m47-m50` |
+| Latest deployed commit | See release tag `pgc-v0.1.0-20260510-m51-m54` |
+| Latest release tag | `pgc-v0.1.0-20260510-m51-m54` |
 | Remote API | `http://150.158.121.150:8020` |
 | Remote migration state | `012_market_review`, `pending_migrations=none` |
 | Latest release health | `api_health_ok=true`, HTTP `200` |
-| Latest full verification | `334 passed, 3 skipped, 10 subtests passed` locally on 2026-05-09; deploy script ran `337 tests`, `OK (skipped=3)`; remote `ops health` returned HTTP `200` |
+| Latest full verification | `343 passed, 3 skipped, 10 subtests passed` locally on 2026-05-10; deploy script completed `OK (skipped=3)`; remote `ops health` returned HTTP `200` |
 
 ## Status Legend
 
@@ -42,6 +42,7 @@ This ledger is the single index for historical and active project work. Detailed
 | M39-M46 integration wave | `docs/plans/2026-05-09-m39-m46-market-review-integration-plan.md` |
 | M47-M52 market intelligence next wave | `docs/plans/2026-05-09-m47-m52-market-intelligence-next-wave-plan.md` |
 | M51-M54 release, timeline, and ops wave | `docs/plans/2026-05-09-m51-m54-release-timeline-ops-plan.md` |
+| M55-M58 paper intelligence ops wave | `docs/plans/2026-05-10-m55-m58-paper-intelligence-ops-plan.md` |
 
 ## DEV Work Packages
 
@@ -120,19 +121,23 @@ This ledger is the single index for historical and active project work. Detailed
 | M48 | Full-market Dashboard interaction upgrade | Done, Deployed | `159382f`, release `pgc-v0.1.0-20260509-m47-m50` | Cross-day selector, history strip, sector/evidence drawers, source metadata, and plan relationship view added; verified with Dashboard/API static tests and full suite. |
 | M49 | TradingAgents Chinese structured report | Done, Deployed | `159382f`, release `pgc-v0.1.0-20260509-m47-m50` | Chinese source-labeled TradingAgents sections for fundamentals, news, sentiment, technicals, sector context, risks, conclusion, raw artifacts, and unavailable fallback. |
 | M50 | Strategy evolution validation loop | Done, Deployed | `159382f`, release `pgc-v0.1.0-20260509-m47-m50` | Hypothesis evidence/backtest gates before acceptance; accepted hypotheses create future strategy-version tasks only. |
-| M51 | Review timeline and cross-day comparison | Next | `docs/plans/2026-05-09-m51-m54-release-timeline-ops-plan.md` | Compare daily review, full-market review, plan context, and open-execution state across dates without changing execution context accidentally. |
-| M52 | Scheduled pipeline activation and ops monitor | Next | `docs/plans/2026-05-09-m51-m54-release-timeline-ops-plan.md` | Formal timer activation checklist, health/journal/rollback commands, and duplicate-write guardrails; timer still requires explicit operator enablement. |
+| M51 | Review timeline and cross-day comparison | Done, Deployed | release `pgc-v0.1.0-20260510-m51-m54` | Added `/api/review-timeline`, Dashboard cross-day comparison, and locked opening execution-date context while review-date navigation changes. |
+| M52 | Scheduled pipeline activation and ops monitor | Done, Deployed | release `pgc-v0.1.0-20260510-m51-m54` | Timer installer defaults to preview, real activation requires `--enable`, `--status` reports health/journal/rollback context, and `run_daily_pipeline.sh` blocks duplicate apply writes unless `--allow-rerun`; remote monitor confirmed timer `not-found`/`inactive`. |
 | M53 | Release M47-M50 checkpoint | Done, Deployed | release `pgc-v0.1.0-20260509-m47-m50` | Deployed `d34d2d198c3c8479721fb686687f6ed13818deac`; remote health HTTP `200`, migration `012_market_review`, `pending_migrations=none`; timer remained `not-found`/`inactive`. |
-| M54 | Production evidence import operations | Next | `docs/plans/2026-05-09-m51-m54-release-timeline-ops-plan.md` | Repeatable provider-file evidence imports with dry-run coverage, stale/duplicate/missing summaries, and source-hash idempotency. |
+| M54 | Production evidence import operations | Done, Deployed | release `pgc-v0.1.0-20260510-m51-m54` | Added provider-file contracts for market/Agent evidence, dry-run coverage summaries, stale/duplicate/missing counts, and source-hash mismatch guards. |
+| M55 | Historical evidence backfill and coverage QA | Next | `docs/plans/2026-05-10-m55-m58-paper-intelligence-ops-plan.md` | Backfill cached market/sector/stock evidence for prior review dates and expose stale/missing/duplicate coverage quality. |
+| M56 | Strategy hypothesis evaluation workbench | Next | `docs/plans/2026-05-10-m55-m58-paper-intelligence-ops-plan.md` | Review hypotheses, evidence, and backtest artifacts before any separate strategy-version proposal. |
+| M57 | Paper trading operations acceptance dashboard | Next | `docs/plans/2026-05-10-m55-m58-paper-intelligence-ops-plan.md` | One daily acceptance view for freshness, evidence coverage, Agent status, open-execution state, readiness gates, and blockers. |
+| M58 | Timer enablement decision and safe activation | Blocked | `docs/plans/2026-05-10-m55-m58-paper-intelligence-ops-plan.md` | Enable post-close timer only after repeated dry-runs and explicit operator approval; rollback and duplicate-write guard must remain tested. |
 
 ## Active Parallel Plan
 
 | Lane | Task | Status | Depends On | Review Focus |
 | --- | --- | --- | --- | --- |
-| A | M53 Release M47-M50 checkpoint | Done, Deployed | release `pgc-v0.1.0-20260509-m47-m50` | Remote health passed; ledger deployed status recorded; timer remained disabled. |
-| B | M51 Review timeline and cross-day comparison | Next | M47/M48 data shape stable | Cross-day navigation must not override execution-date context. |
-| C | M52 Scheduled pipeline activation and ops monitor | Next | M46 timer installer, M47/M49 evidence gates stable | Dry-run first, explicit operator enablement, journal/status/rollback documented. |
-| D | M54 Production evidence import operations | Next | M47 evidence contract, M49 Agent evidence cache | Provider-file contract, dry-run coverage, source-hash idempotency, no live fetch in trading path. |
+| A | M55 Historical evidence backfill and coverage QA | Next | M54 provider-file contracts | Backfill cached evidence; no live fetch in trading path; stale/missing/duplicate coverage stays explicit. |
+| B | M56 Strategy hypothesis evaluation workbench | Next | M50 validation gates, M44 backtest artifacts | Review evidence/backtests without mutating active strategy params or paper/live behavior. |
+| C | M57 Paper trading operations acceptance dashboard | Next | M51 timeline, M52 ops monitor | Single daily acceptance view; must not execute trades, cancel plans, or hide blockers. |
+| D | M58 Timer enablement decision and safe activation | Blocked | Several successful dry-runs plus operator approval | `--enable` remains explicit; duplicate-write guard and rollback remain tested. |
 
 ## Review Rules For Future Sessions
 

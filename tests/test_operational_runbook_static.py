@@ -191,6 +191,27 @@ class OperationalRunbookStaticTest(unittest.TestCase):
         ]:
             self.assertIn(text, source)
 
+    def test_m54_runbook_documents_production_evidence_import_operations(self) -> None:
+        source = RUNBOOK.read_text(encoding="utf-8")
+
+        for text in [
+            "M54 生产证据导入运营化",
+            "provider_file_contract=market_external_v1",
+            "provider_file_contract=agent_external_v1",
+            "coverage_details_json",
+            "coverage_json",
+            "missing_scopes",
+            "missing_item_types",
+            "stale_scopes",
+            "duplicate_count",
+            "stale_count",
+            "provider/source hash",
+            "daily-close、open-execution、report rendering 或 Dashboard request handling 中 live web fetch",
+            "market-review external-data import --date YYYYMMDD",
+            "agent external-data import --date YYYYMMDD",
+        ]:
+            self.assertIn(text, source)
+
     def test_m20_deploy_script_is_guarded_and_parseable(self) -> None:
         self.assertTrue(DEPLOY_SCRIPT.exists(), f"missing {DEPLOY_SCRIPT}")
         source = DEPLOY_SCRIPT.read_text(encoding="utf-8")
@@ -232,12 +253,22 @@ class OperationalRunbookStaticTest(unittest.TestCase):
         for text in [
             "M46 收盘后定时流水线",
             "scripts/install_remote_daily_pipeline_timer.sh --dry-run",
-            "scripts/install_remote_daily_pipeline_timer.sh --operator system-daily-pipeline --mode apply",
+            "scripts/install_remote_daily_pipeline_timer.sh --dry-run --operator system-daily-pipeline --mode apply",
+            "scripts/install_remote_daily_pipeline_timer.sh --enable --operator system-daily-pipeline --mode apply",
+            "scripts/install_remote_daily_pipeline_timer.sh --status",
+            "systemctl list-timers --all pgc-daily-pipeline.timer --no-pager",
             "systemctl status pgc-daily-pipeline.timer --no-pager",
+            "systemctl status pgc-daily-pipeline.service --no-pager",
             "journalctl -u pgc-daily-pipeline.service -n 100 --no-pager",
             "systemctl disable --now pgc-daily-pipeline.timer",
             "./scripts/run_daily_pipeline.sh --date latest-closed --account paper-main --operator system-daily-pipeline --include-market-review --apply",
+            "./scripts/run_daily_pipeline.sh --date latest-closed --account paper-main --operator system-daily-pipeline --include-market-review --dry-run",
             "resolved_date=YYYYMMDD",
+            "duplicate_write_guard=pass",
+            "--allow-rerun",
+            "manual_dry_run_command",
+            "manual_apply_command",
+            "health_command",
             "/opt/pgc/logs",
             "/opt/pgc/backups",
             "/api/health",
@@ -257,11 +288,17 @@ class OperationalRunbookStaticTest(unittest.TestCase):
             "PGC_DAILY_PIPELINE_LOG_DIR",
             "--backup-dir",
             "--include-market-review",
+            "--allow-rerun",
+            "duplicate_apply_count=",
+            "duplicate_write_guard=blocked",
         ]:
             self.assertIn(text, pipeline_source)
 
         timer_source = DAILY_PIPELINE_TIMER_SCRIPT.read_text(encoding="utf-8")
         for text in [
+            "Preview is the default",
+            "--enable",
+            "--status",
             "pgc-daily-pipeline.service",
             "pgc-daily-pipeline.timer",
             "Mon..Fri *-*-* 16:20:00 Asia/Shanghai",
@@ -277,7 +314,14 @@ class OperationalRunbookStaticTest(unittest.TestCase):
             "--operator ${OPERATOR}",
             "--backup-dir ${REMOTE_BACKUP_DIR}",
             "--include-market-review ${MODE_FLAG}",
+            "manual_dry_run_command=",
+            "manual_apply_command=",
+            "health_command=",
+            "timer_list_command=systemctl list-timers --all",
+            "duplicate_write_guard=run_daily_pipeline.sh blocks completed apply runs unless --allow-rerun is passed",
             "systemctl enable --now",
+            "systemctl is-enabled",
+            "systemctl is-active",
             "journalctl -u",
             "systemctl disable --now",
         ]:
@@ -291,6 +335,26 @@ class OperationalRunbookStaticTest(unittest.TestCase):
             self.skipTest("bash is not installed")
         for script in [DAILY_PIPELINE_SCRIPT, DAILY_PIPELINE_TIMER_SCRIPT]:
             subprocess.run([bash, "-n", str(script)], check=True)
+
+        preview = subprocess.run(
+            [
+                bash,
+                str(DAILY_PIPELINE_TIMER_SCRIPT),
+                "--operator",
+                "system-daily-pipeline",
+                "--mode",
+                "apply",
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(preview.returncode, 0, preview.stdout + preview.stderr)
+        self.assertIn("action=preview", preview.stdout)
+        self.assertIn("timer_enablement=preview_only", preview.stdout)
+        self.assertIn("manual_dry_run_command=", preview.stdout)
+        self.assertIn("manual_apply_command=", preview.stdout)
+        self.assertIn("would_enable_timer=systemctl enable --now pgc-daily-pipeline.timer only after --enable", preview.stdout)
 
 
 if __name__ == "__main__":

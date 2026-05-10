@@ -2192,7 +2192,15 @@ def _write_market_external_data_import_result(
         sort_keys=True,
         separators=(",", ":"),
     )
+    coverage_details = getattr(data, "coverage_details", {})
+    coverage_details_json = json.dumps(
+        coverage_details,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
     stdout.write(f"market_external_import_status={result.status}\n")
+    stdout.write(f"provider_file_contract={getattr(data, 'provider_file_contract', 'market_external_v1')}\n")
     stdout.write(f"as_of_date={getattr(data, 'as_of_date', 'n/a')}\n")
     stdout.write(f"rows={getattr(data, 'row_count', 0)}\n")
     stdout.write(f"valid={getattr(data, 'valid_count', 0)}\n")
@@ -2201,6 +2209,7 @@ def _write_market_external_data_import_result(
     stdout.write(f"inserted={getattr(data, 'inserted_count', 0)}\n")
     stdout.write(f"duplicates={getattr(data, 'duplicate_count', 0)}\n")
     stdout.write(f"coverage_json={coverage_json}\n")
+    stdout.write(f"coverage_details_json={coverage_details_json}\n")
     invalid_records = getattr(data, "invalid_records", [])
     if invalid_records:
         stdout.write("invalid_records:\n")
@@ -2417,8 +2426,17 @@ def _write_agent_external_data_import_result(
     if data is None:
         return
 
+    coverage_summary = getattr(data, "coverage_summary", {})
+    coverage_json = json.dumps(
+        coverage_summary,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
     stdout.write(
         "external_data_import="
+        f"contract={getattr(data, 'provider_file_contract', 'agent_external_v1')} "
+        f"as_of_date={getattr(data, 'as_of_date', None) or 'unknown'} "
         f"rows={getattr(data, 'row_count', 0)} "
         f"valid={getattr(data, 'valid_count', 0)} "
         f"invalid={getattr(data, 'invalid_count', 0)} "
@@ -2427,6 +2445,7 @@ def _write_agent_external_data_import_result(
         f"inserted={getattr(data, 'inserted_count', 0)} "
         f"updated={getattr(data, 'updated_count', 0)}\n"
     )
+    stdout.write(f"coverage_json={coverage_json}\n")
     invalid_records = getattr(data, "invalid_records", [])
     if invalid_records:
         stdout.write("invalid_records:\n")

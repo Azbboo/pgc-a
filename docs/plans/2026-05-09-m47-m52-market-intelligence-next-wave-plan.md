@@ -13,7 +13,7 @@
 ## Current Baseline
 
 - Branch: `codex/m14b-yfinance`
-- Latest deployed release: `pgc-v0.1.0-20260509-m47-m50`
+- Latest deployed release: `pgc-v0.1.0-20260510-m51-m54`
 - Remote migration state: `012_market_review`, `pending_migrations=none`
 - M41B/M42/M45/M46 are done and deployed.
 - M47/M48/M49/M50 are done and deployed in release `pgc-v0.1.0-20260509-m47-m50`.
@@ -37,8 +37,8 @@
 | M48A | Full-market Dashboard interaction upgrade | Done, Deployed | Yes | M41B full-market tab | Session B |
 | M49A | TradingAgents Chinese structured report | Done, Deployed | Yes | M15/M26 agent bridge, external evidence cache | Session C |
 | M50A | Strategy hypothesis validation loop | Done, Deployed | Yes | M44 backtest bridge, M40 hypotheses | Session D |
-| M51 | Review timeline and cross-day comparison | Next | After M47/M48 data shape stabilizes | M12 history, M41B market page | Follow-up |
-| M52 | Scheduled pipeline activation and ops monitor | Next | After M47/M49 evidence gates are stable | M46 timer installer | Ops follow-up |
+| M51 | Review timeline and cross-day comparison | Done, Deployed | After M47/M48 data shape stabilizes | M12 history, M41B market page | Follow-up |
+| M52 | Scheduled pipeline activation and ops monitor | Done, Deployed | After M47/M49 evidence gates are stable | M46 timer installer | Ops follow-up |
 
 ## M47-M50 Verification And Release Record
 
@@ -243,6 +243,8 @@ PYTHONPATH=src:. pytest -q
 git diff --check
 ```
 
+Completed locally on 2026-05-10. The implementation adds a review timeline API/Dashboard comparison view, shows daily review, full-market regime, plan context, and open-execution state across dates, and keeps review-date navigation from changing the opening execution date. Local verification included `node --check web/dashboard/app.js`, the combined target run (`117 passed, 1 skipped, 1 subtests passed`), full pytest (`343 passed, 3 skipped, 10 subtests passed`), and `git diff --check`.
+
 ## M52: Scheduled Pipeline Activation And Ops Monitor
 
 **Goal:** Decide whether and how to enable the M46 timer safely in production.
@@ -276,6 +278,8 @@ scripts/install_remote_daily_pipeline_timer.sh --dry-run --mode apply --operator
 ```
 
 Expected: prints service path, timer path, schedule, command, status command, journal command, and rollback command without enabling the timer.
+
+Completed locally on 2026-05-10. The installer now previews by default, requires explicit `--enable` for activation, has a read-only `--status` monitor path, and reports manual dry-run/apply, health, status, journal, rollback, and duplicate-write guard commands. `run_daily_pipeline.sh` blocks completed same-day apply writes unless an operator deliberately passes `--allow-rerun`. Remote read-only monitor confirmed API health HTTP 200, pending migrations none, and timer `not-found`/`inactive`.
 
 ## Handoff Rule
 

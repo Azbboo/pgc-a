@@ -21,6 +21,7 @@ from pgc_trading.services.operational_readiness_service import (
     PaperReadinessRequest,
     PaperReadinessResult,
 )
+from pgc_trading.portfolio.state_machines import BUY_PLAN_ACTION, OPEN_POSITION_STATUSES, SELL_PLAN_ACTIONS
 from pgc_trading.storage.database import connect
 from pgc_trading.storage.invariant_checks import InvariantReport, check_database
 from pgc_trading.strategies.cpb_6157 import STRATEGY_VERSION
@@ -36,6 +37,15 @@ class DailyReportRequest:
 
 @dataclass(frozen=True)
 class DailyReviewHistoryRequest:
+    account_key: str | None = DEFAULT_ACCOUNT_KEY
+    account_id: int | None = None
+    strategy_version: str = STRATEGY_VERSION
+    before_date: str | None = None
+    limit: int = 20
+
+
+@dataclass(frozen=True)
+class ReviewTimelineRequest:
     account_key: str | None = DEFAULT_ACCOUNT_KEY
     account_id: int | None = None
     strategy_version: str = STRATEGY_VERSION
@@ -106,6 +116,55 @@ class DailyReviewHistory:
     items: list[DailyReviewHistoryItem]
     limit: int
     before_date: str | None = None
+
+
+@dataclass(frozen=True)
+class ReviewTimelineItem:
+    review_date: str
+    next_trade_date: str | None
+    strategy_run_id: int
+    review_status: str
+    daily_pick_id: int | None
+    ts_code: str | None
+    name: str | None
+    score: float | None
+    trade_plan_id: int | None
+    trade_plan_action: str | None
+    trade_plan_status: str | None
+    planned_trade_date: str | None
+    market_review_run_id: int | None
+    market_regime: str | None
+    market_regime_summary: str | None
+    market_breadth_score: float | None
+    market_trend_score: float | None
+    market_volume_score: float | None
+    market_persistence_score: float | None
+    plan_context_alignment: str | None
+    plan_context_risk_level: str | None
+    plan_context_management_action: str | None
+    plan_context_rationale: str | None
+    open_execution_as_of_date: str | None
+    open_execution_status: str
+    open_execution_next_action: str
+    open_execution_primary_plan_id: int | None
+    open_execution_primary_position_id: int | None
+    open_execution_target_stock: str | None
+    open_execution_target_name: str | None
+    blocker_count: int
+    warning_count: int
+    created_at: str | None
+
+
+@dataclass(frozen=True)
+class ReviewTimeline:
+    strategy_version: str
+    account: AccountReport
+    items: list[ReviewTimelineItem]
+    limit: int
+    before_date: str | None = None
+    execution_context_note: str = (
+        "Review timeline navigation is read-only and does not change the dashboard opening execution date."
+    )
 
 
 @dataclass(frozen=True)
@@ -454,6 +513,45 @@ class ReportingQueryService:
             },
         )
 
+    def list_review_timeline(
+        self,
+        request: ReviewTimelineRequest,
+        ctx: RequestContext | None = None,
+    ) -> ServiceResult[ReviewTimeline]:
+        context = ctx or RequestContext(source="report")
+        errors = _validate_timeline_request(request)
+        if errors:
+            return ServiceResult(status="validation_failed", request_id=context.request_id, errors=errors)
+
+        with connect(self.db_path) as conn:
+            account = _load_account(
+                conn,
+                DailyReportRequest(
+                    as_of_date=request.before_date or "99991231",
+                    account_key=request.account_key,
+                    account_id=request.account_id,
+                    strategy_version=request.strategy_version,
+                ),
+            )
+            items = _load_review_timeline(conn, request, account.account_id)
+
+        return ServiceResult(
+            status="success",
+            request_id=context.request_id,
+            data=ReviewTimeline(
+                strategy_version=request.strategy_version,
+                account=account,
+                items=items,
+                limit=request.limit,
+                before_date=request.before_date,
+            ),
+            lineage={
+                "strategy_version": request.strategy_version,
+                "account_id": account.account_id,
+                "review_count": len(items),
+            },
+        )
+
 
 def render_daily_report_json(report: DailyReport) -> str:
     return json.dumps(asdict(report), ensure_ascii=False, indent=2, sort_keys=True) + "\n"
@@ -644,6 +742,21 @@ def _validate_request(request: DailyReportRequest) -> list[ServiceError]:
 
 
 def _validate_history_request(request: DailyReviewHistoryRequest) -> list[ServiceError]:
+    errors: list[ServiceError] = []
+    if not request.strategy_version.strip():
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="strategy_version is required."))
+    if request.account_id is None and not request.account_key:
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="account_key or account_id is required."))
+    if request.account_id is not None and request.account_id <= 0:
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="account_id must be positive."))
+    if request.before_date is not None and not is_yyyymmdd(request.before_date):
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="before_date must use YYYYMMDD format."))
+    if request.limit < 1 or request.limit > 100:
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="limit must be between 1 and 100."))
+    return errors
+
+
+def _validate_timeline_request(request: ReviewTimelineRequest) -> list[ServiceError]:
     errors: list[ServiceError] = []
     if not request.strategy_version.strip():
         errors.append(ServiceError(code="VALIDATION_ERROR", message="strategy_version is required."))
@@ -985,6 +1098,309 @@ def _load_review_history(
         )
         for row in rows
     ]
+
+
+def _load_review_timeline(
+    conn: Any,
+    request: ReviewTimelineRequest,
+    account_id: int | None,
+) -> list[ReviewTimelineItem]:
+    rows = conn.execute(
+        """
+        WITH latest_runs AS (
+          SELECT MAX(id) AS strategy_run_id
+          FROM strategy_runs
+          WHERE strategy_version = ?
+            AND (? IS NULL OR as_of_date <= ?)
+          GROUP BY as_of_date
+          ORDER BY as_of_date DESC, MAX(id) DESC
+          LIMIT ?
+        )
+        SELECT
+          sr.id AS strategy_run_id,
+          sr.as_of_date AS review_date,
+          sr.status AS review_status,
+          sr.created_at,
+          dp.id AS daily_pick_id,
+          dp.planned_buy_date,
+          dp.score,
+          ss.ts_code,
+          ss.name,
+          tp.id AS trade_plan_id,
+          tp.action AS trade_plan_action,
+          tp.status AS trade_plan_status,
+          tp.planned_trade_date,
+          mrr.id AS market_review_run_id,
+          mrs.regime AS market_regime,
+          mrs.summary AS market_regime_summary,
+          mrs.breadth_score AS market_breadth_score,
+          mrs.trend_score AS market_trend_score,
+          mrs.volume_score AS market_volume_score,
+          mrs.persistence_score AS market_persistence_score,
+          mpc.alignment AS plan_context_alignment,
+          mpc.risk_level AS plan_context_risk_level,
+          mpc.management_action AS plan_context_management_action,
+          mpc.rationale AS plan_context_rationale,
+          (
+            SELECT COUNT(*)
+            FROM data_quality_events dqe
+            WHERE dqe.trade_date = sr.as_of_date
+              AND dqe.status = 'open'
+              AND dqe.severity = 'blocker'
+          ) AS blocker_count,
+          (
+            SELECT COUNT(*)
+            FROM data_quality_events dqe
+            WHERE dqe.trade_date = sr.as_of_date
+              AND dqe.status = 'open'
+              AND dqe.severity = 'warning'
+          ) AS warning_count,
+          (
+            SELECT cal_date
+            FROM trade_calendar tc
+            WHERE tc.is_open = 1
+              AND tc.cal_date > sr.as_of_date
+            ORDER BY tc.cal_date
+            LIMIT 1
+          ) AS next_trade_date
+        FROM latest_runs lr
+        JOIN strategy_runs sr ON sr.id = lr.strategy_run_id
+        LEFT JOIN daily_picks dp
+          ON dp.strategy_run_id = sr.id
+         AND dp.review_date = sr.as_of_date
+        LEFT JOIN strategy_signals ss ON ss.id = dp.signal_id
+        LEFT JOIN trade_plans tp
+          ON tp.id = (
+            SELECT MAX(tp2.id)
+            FROM trade_plans tp2
+            WHERE tp2.daily_pick_id = dp.id
+              AND tp2.account_id = ?
+          )
+        LEFT JOIN market_review_runs mrr
+          ON mrr.id = (
+            SELECT MAX(mrr2.id)
+            FROM market_review_runs mrr2
+            WHERE mrr2.as_of_date = sr.as_of_date
+          )
+        LEFT JOIN market_regime_snapshots mrs
+          ON mrs.id = (
+            SELECT MAX(mrs2.id)
+            FROM market_regime_snapshots mrs2
+            WHERE mrs2.market_review_run_id = mrr.id
+          )
+        LEFT JOIN market_plan_contexts mpc
+          ON mpc.id = (
+            SELECT MAX(mpc2.id)
+            FROM market_plan_contexts mpc2
+            WHERE mpc2.trade_plan_id = tp.id
+              AND mpc2.market_review_run_id = mrr.id
+          )
+        ORDER BY sr.as_of_date DESC, sr.id DESC
+        """,
+        (
+            request.strategy_version,
+            request.before_date,
+            request.before_date,
+            request.limit,
+            account_id,
+        ),
+    ).fetchall()
+
+    items: list[ReviewTimelineItem] = []
+    for row in rows:
+        execution = _load_timeline_execution_state(conn, account_id, row["next_trade_date"])
+        items.append(
+            ReviewTimelineItem(
+                review_date=row["review_date"],
+                next_trade_date=row["next_trade_date"],
+                strategy_run_id=int(row["strategy_run_id"]),
+                review_status=row["review_status"],
+                daily_pick_id=_optional_int(row["daily_pick_id"]),
+                ts_code=row["ts_code"],
+                name=row["name"],
+                score=_optional_float(row["score"]),
+                trade_plan_id=_optional_int(row["trade_plan_id"]),
+                trade_plan_action=row["trade_plan_action"],
+                trade_plan_status=row["trade_plan_status"],
+                planned_trade_date=row["planned_trade_date"],
+                market_review_run_id=_optional_int(row["market_review_run_id"]),
+                market_regime=row["market_regime"],
+                market_regime_summary=row["market_regime_summary"],
+                market_breadth_score=_optional_float(row["market_breadth_score"]),
+                market_trend_score=_optional_float(row["market_trend_score"]),
+                market_volume_score=_optional_float(row["market_volume_score"]),
+                market_persistence_score=_optional_float(row["market_persistence_score"]),
+                plan_context_alignment=row["plan_context_alignment"],
+                plan_context_risk_level=row["plan_context_risk_level"],
+                plan_context_management_action=row["plan_context_management_action"],
+                plan_context_rationale=row["plan_context_rationale"],
+                open_execution_as_of_date=execution["as_of_date"],
+                open_execution_status=execution["status"],
+                open_execution_next_action=execution["next_action"],
+                open_execution_primary_plan_id=execution["primary_plan_id"],
+                open_execution_primary_position_id=execution["primary_position_id"],
+                open_execution_target_stock=execution["target_stock"],
+                open_execution_target_name=execution["target_name"],
+                blocker_count=int(row["blocker_count"]),
+                warning_count=int(row["warning_count"]),
+                created_at=row["created_at"],
+            )
+        )
+    return items
+
+
+def _load_timeline_execution_state(
+    conn: Any,
+    account_id: int | None,
+    as_of_date: str | None,
+) -> dict[str, Any]:
+    if account_id is None:
+        return _timeline_execution_payload(as_of_date, "unavailable", "account_missing")
+    if as_of_date is None:
+        return _timeline_execution_payload(None, "unavailable", "next_trade_date_missing")
+
+    sell_plan = _load_timeline_due_active_plan(conn, account_id, as_of_date, SELL_PLAN_ACTIONS)
+    if sell_plan is not None:
+        return _timeline_execution_from_plan(as_of_date, sell_plan, "ready", "record_sell")
+
+    buy_plan = _load_timeline_due_active_plan(conn, account_id, as_of_date, {BUY_PLAN_ACTION})
+    if buy_plan is not None:
+        return _timeline_execution_from_plan(as_of_date, buy_plan, "ready", "record_buy")
+
+    due_position = _load_timeline_due_position(conn, account_id, as_of_date)
+    if due_position is not None:
+        return _timeline_execution_from_position(as_of_date, due_position, "ready", "evaluate_exit")
+
+    future_plan = _load_timeline_future_active_plan(conn, account_id, as_of_date)
+    if future_plan is not None:
+        return _timeline_execution_from_plan(as_of_date, future_plan, "waiting", "wait")
+
+    return _timeline_execution_payload(as_of_date, "idle", "none")
+
+
+def _load_timeline_due_active_plan(
+    conn: Any,
+    account_id: int,
+    as_of_date: str,
+    actions: set[str],
+) -> Any | None:
+    placeholders = ", ".join("?" for _ in actions)
+    return conn.execute(
+        f"""
+        SELECT *
+        FROM trade_plans
+        WHERE account_id = ?
+          AND status = 'active'
+          AND action IN ({placeholders})
+          AND planned_trade_date = ?
+        ORDER BY id ASC
+        LIMIT 1
+        """,
+        (account_id, *sorted(actions), as_of_date),
+    ).fetchone()
+
+
+def _load_timeline_future_active_plan(conn: Any, account_id: int, as_of_date: str) -> Any | None:
+    return conn.execute(
+        """
+        SELECT *
+        FROM trade_plans
+        WHERE account_id = ?
+          AND status = 'active'
+          AND planned_trade_date > ?
+        ORDER BY planned_trade_date ASC, id ASC
+        LIMIT 1
+        """,
+        (account_id, as_of_date),
+    ).fetchone()
+
+
+def _load_timeline_due_position(conn: Any, account_id: int, as_of_date: str) -> Any | None:
+    status_values = tuple(sorted(OPEN_POSITION_STATUSES))
+    placeholders = ", ".join("?" for _ in status_values)
+    return conn.execute(
+        f"""
+        SELECT *
+        FROM positions
+        WHERE account_id = ?
+          AND status IN ({placeholders})
+          AND (
+            (
+              status IN ('open', 'waiting_t2', 'need_t2_decision')
+              AND planned_t2_date IS NOT NULL
+              AND planned_t2_date <= ?
+            )
+            OR (
+              status IN ('holding_to_t5', 'need_t5_exit')
+              AND planned_t5_date IS NOT NULL
+              AND planned_t5_date <= ?
+            )
+          )
+        ORDER BY
+          CASE
+            WHEN status IN ('need_t5_exit', 'holding_to_t5') THEN 0
+            ELSE 1
+          END,
+          id ASC
+        LIMIT 1
+        """,
+        (account_id, *status_values, as_of_date, as_of_date),
+    ).fetchone()
+
+
+def _timeline_execution_from_plan(
+    as_of_date: str,
+    row: Any,
+    status: str,
+    next_action: str,
+) -> dict[str, Any]:
+    payload = _loads_json_object(row["plan_json"])
+    return _timeline_execution_payload(
+        as_of_date,
+        status,
+        next_action,
+        primary_plan_id=int(row["id"]),
+        primary_position_id=_optional_int_from_any(payload.get("position_id")),
+        target_stock=_optional_text_value(payload.get("ts_code")),
+        target_name=_optional_text_value(payload.get("name")),
+    )
+
+
+def _timeline_execution_from_position(
+    as_of_date: str,
+    row: Any,
+    status: str,
+    next_action: str,
+) -> dict[str, Any]:
+    return _timeline_execution_payload(
+        as_of_date,
+        status,
+        next_action,
+        primary_position_id=int(row["id"]),
+        target_stock=row["ts_code"],
+        target_name=row["name"],
+    )
+
+
+def _timeline_execution_payload(
+    as_of_date: str | None,
+    status: str,
+    next_action: str,
+    *,
+    primary_plan_id: int | None = None,
+    primary_position_id: int | None = None,
+    target_stock: str | None = None,
+    target_name: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "as_of_date": as_of_date,
+        "status": status,
+        "next_action": next_action,
+        "primary_plan_id": primary_plan_id,
+        "primary_position_id": primary_position_id,
+        "target_stock": target_stock,
+        "target_name": target_name,
+    }
 
 
 def _load_buy_plan(

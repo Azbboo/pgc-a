@@ -39,6 +39,8 @@ class AgentExternalDataServiceTest(unittest.TestCase):
             self.assertEqual(result.data.would_insert_count, 1)
             self.assertEqual(result.data.inserted_count, 0)
             self.assertEqual(result.errors[0].code, "INVALID_PUBLISHED_DATE")
+            self.assertEqual(result.data.coverage_summary["announcement"], "available")
+            self.assertEqual(result.data.coverage_summary["freshness"], "unknown")
             with sqlite3.connect(db_path) as conn:
                 self.assertEqual(self._count(conn, "agent_external_items"), 0)
 
@@ -172,6 +174,10 @@ class AgentExternalDataServiceTest(unittest.TestCase):
 
             self.assertTrue(result.ok)
             self.assertEqual(result.data.inserted_count, 4)
+            self.assertEqual(result.data.as_of_date, "20260508")
+            self.assertEqual(result.data.coverage_summary["stock_count"], 1)
+            self.assertEqual(result.data.coverage_summary["missing_item_types"], [])
+            self.assertEqual(result.data.coverage_summary["freshness"], "fresh")
             with sqlite3.connect(db_path) as conn:
                 conn.row_factory = sqlite3.Row
                 rows = conn.execute(
@@ -325,11 +331,78 @@ class AgentExternalDataServiceTest(unittest.TestCase):
             self.assertTrue(preview.ok)
             self.assertEqual(preview.data.would_insert_count, 1)
             self.assertEqual(preview.data.would_update_count, 1)
+            self.assertEqual(preview.data.coverage_summary["duplicates"], "duplicate")
+            self.assertEqual(preview.data.coverage_summary["duplicate_count"], 1)
             self.assertTrue(applied.ok)
             self.assertEqual(applied.data.inserted_count, 1)
             self.assertEqual(applied.data.updated_count, 1)
             with sqlite3.connect(db_path) as conn:
                 self.assertEqual(self._count(conn, "agent_external_items"), 1)
+
+    def test_coverage_reports_stale_missing_and_contract_marker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._migrated_db(tmp)
+            source_file = Path(tmp) / "agent_external.json"
+            source_file.write_text(
+                json.dumps(
+                    {
+                        "provider_file_contract": "agent_external_v1",
+                        "as_of_date": "20260508",
+                        "records": [
+                            self._record(published_date="20260507", as_of_date="20260508"),
+                            self._record(published_date="20260507", as_of_date="20260508"),
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            result = AgentExternalDataService(db_path).import_external_data(
+                ImportAgentExternalDataRequest(source_file=source_file),
+                RequestContext(request_id="test-agent-coverage", dry_run=True, operator="tester"),
+            )
+
+            self.assertTrue(result.ok)
+            self.assertEqual(result.data.provider_file_contract, "agent_external_v1")
+            self.assertEqual(result.data.as_of_date, "20260508")
+            self.assertEqual(result.data.coverage_summary["duplicates"], "duplicate")
+            self.assertEqual(result.data.coverage_summary["duplicate_count"], 1)
+            self.assertEqual(result.data.coverage_summary["freshness"], "stale")
+            self.assertEqual(result.data.coverage_summary["stale_count"], 2)
+            self.assertEqual(result.data.coverage_summary["missing_item_types"], ["fundamental", "news", "sentiment"])
+
+    def test_rejects_agent_source_hash_mismatch_when_supplied(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._migrated_db(tmp)
+
+            result = AgentExternalDataService(db_path).import_external_data(
+                ImportAgentExternalDataRequest(records=[self._record(source_hash="bad-hash")]),
+                RequestContext(request_id="test-agent-source-hash", dry_run=False, operator="tester"),
+            )
+
+            self.assertFalse(result.ok)
+            self.assertEqual(result.status, "validation_failed")
+            self.assertEqual(result.errors[0].code, "SOURCE_HASH_MISMATCH")
+            with sqlite3.connect(db_path) as conn:
+                self.assertEqual(self._count(conn, "agent_external_items"), 0)
+
+    def test_rejects_unsupported_agent_provider_file_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._migrated_db(tmp)
+            source_file = Path(tmp) / "agent_external.json"
+            source_file.write_text(
+                json.dumps({"provider_file_contract": "unknown_contract", "records": []}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            result = AgentExternalDataService(db_path).import_external_data(
+                ImportAgentExternalDataRequest(source_file=source_file),
+                RequestContext(request_id="test-agent-contract-reject", dry_run=True, operator="tester"),
+            )
+
+            self.assertFalse(result.ok)
+            self.assertEqual(result.errors[0].code, "UNSUPPORTED_PROVIDER_FILE_CONTRACT")
 
     def _migrated_db(self, tmp: str) -> Path:
         db_path = Path(tmp) / "pgc_external_data.db"

@@ -104,6 +104,26 @@ class _FakeMarketExternalImportData:
             },
         }
     )
+    coverage_details: dict[str, object] = field(
+        default_factory=lambda: {
+            "as_of_date": "20260508",
+            "total_count": 3,
+            "duplicate_count": 0,
+            "missing_scopes": [],
+            "stale_scopes": [],
+            "fresh_count": 3,
+            "stale_count": 0,
+            "by_scope": {"market": 1, "sector": 1, "stock": 1},
+            "by_item_type": {"announcement": 1, "news": 1, "policy": 1},
+            "sentiment": {"known_count": 2, "unknown_count": 1},
+            "freshness": {
+                "market": "fresh",
+                "sector": "fresh",
+                "stock": "fresh",
+            },
+        }
+    )
+    provider_file_contract: str = "market_external_v1"
     market_external_item_ids: list[int] = field(default_factory=list)
     invalid_records: list[object] = field(default_factory=list)
 
@@ -384,12 +404,15 @@ class CliMarketReviewTest(unittest.TestCase):
         output = stdout.getvalue()
         self.assertIn("market-review external-data import command routed", output)
         self.assertIn("market_external_import_status=success", output)
+        self.assertIn("provider_file_contract=market_external_v1", output)
         self.assertIn("inserted=0", output)
         self.assertIn("duplicates=0", output)
         self.assertIn("invalid=0", output)
         self.assertIn('"sector":"partial"', output)
         self.assertIn('"duplicates":"none"', output)
         self.assertIn('"freshness":{"market":"fresh","sector":"fresh","stock":"fresh"}', output)
+        self.assertIn("coverage_details_json=", output)
+        self.assertIn('"missing_scopes":[]', output)
 
     def test_market_external_data_import_apply_mode_uses_write_context(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -487,10 +510,12 @@ class CliMarketReviewTest(unittest.TestCase):
         self.assertEqual(code, 0)
         output = stdout.getvalue()
         self.assertIn("market_external_import_status=success", output)
+        self.assertIn("provider_file_contract=market_external_v1", output)
         self.assertIn("inserted=3", output)
         self.assertIn("duplicates=0", output)
         self.assertIn("invalid=0", output)
         self.assertIn('"freshness":{"market":"fresh","sector":"fresh","stock":"fresh"}', output)
+        self.assertIn("coverage_details_json=", output)
 
     def test_strategy_evolution_propose_list_and_mark(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

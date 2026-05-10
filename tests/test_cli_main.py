@@ -202,6 +202,7 @@ class _UnexpectedAgentReviewService:
 
 @dataclass(frozen=True)
 class _FakeExternalDataImportData:
+    as_of_date: str = "20260508"
     row_count: int = 2
     valid_count: int = 2
     invalid_count: int = 0
@@ -209,6 +210,26 @@ class _FakeExternalDataImportData:
     would_update_count: int = 0
     inserted_count: int = 0
     updated_count: int = 0
+    coverage_summary: dict[str, object] = field(
+        default_factory=lambda: {
+            "as_of_date": "20260508",
+            "total_count": 2,
+            "stock_count": 1,
+            "fundamental": "available",
+            "announcement": "available",
+            "news": "missing",
+            "sentiment": "missing",
+            "risk_or_research": "missing",
+            "duplicates": "none",
+            "duplicate_count": 0,
+            "missing_item_types": ["news", "sentiment"],
+            "freshness": "fresh",
+            "fresh_count": 2,
+            "stale_count": 0,
+            "by_item_type": {"announcement": 1, "fundamental": 1},
+        }
+    )
+    provider_file_contract: str = "agent_external_v1"
     agent_external_item_ids: list[int] = field(default_factory=list)
     invalid_records: list[object] = field(default_factory=list)
 
@@ -804,9 +825,11 @@ class CliMainTest(unittest.TestCase):
         output = stdout.getvalue()
         self.assertIn("agent external-data import command routed", output)
         self.assertIn("service returned success", output)
-        self.assertIn("external_data_import=rows=2 valid=2 invalid=0", output)
+        self.assertIn("external_data_import=contract=agent_external_v1 as_of_date=20260508", output)
+        self.assertIn("rows=2 valid=2 invalid=0", output)
         self.assertIn("would_insert=2", output)
         self.assertIn("inserted=0", output)
+        self.assertIn('"duplicates":"none"', output)
 
     def test_agent_external_data_import_apply_mode_uses_write_context(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

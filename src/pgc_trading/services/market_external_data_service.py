@@ -27,6 +27,8 @@ VALID_MARKET_EXTERNAL_ITEM_TYPES = {
 VALID_MARKET_EXTERNAL_SENTIMENTS = {"positive", "neutral", "negative", "mixed", "unknown"}
 VALID_MARKET_EXTERNAL_IMPORTANCE = {"low", "medium", "high", "unknown"}
 NEWS_LIKE_ITEM_TYPES = {"news", "announcement", "policy", "risk_note", "research_note"}
+MARKET_EXTERNAL_PROVIDER_FILE_CONTRACT = "market_external_v1"
+VALID_MARKET_EXTERNAL_PROVIDER_FILE_CONTRACTS = {MARKET_EXTERNAL_PROVIDER_FILE_CONTRACT}
 SUMMARY_MAX_CHARS = 200
 
 
@@ -57,6 +59,8 @@ class ImportMarketExternalDataResult:
     inserted_count: int
     duplicate_count: int
     coverage_summary: dict[str, Any]
+    coverage_details: dict[str, Any] = field(default_factory=dict)
+    provider_file_contract: str = MARKET_EXTERNAL_PROVIDER_FILE_CONTRACT
     market_external_item_ids: list[int] = field(default_factory=list)
     invalid_records: list[MarketExternalDataValidationIssue] = field(default_factory=list)
 
@@ -107,6 +111,7 @@ class MarketExternalDataService:
                 invalid_records=[],
                 errors=[ServiceError("INVALID_AS_OF_DATE", "as_of_date must be a compact YYYYMMDD date.")],
                 coverage_summary=_empty_coverage_summary(),
+                coverage_details=_empty_coverage_details(request.as_of_date),
             )
 
         records_result = _load_request_records(request, as_of_date)
@@ -119,6 +124,7 @@ class MarketExternalDataService:
                 invalid_records=[],
                 errors=[records_result],
                 coverage_summary=self._coverage_for_import(as_of_date, []),
+                coverage_details=self._coverage_details_for_import(as_of_date, []),
             )
 
         records = records_result
@@ -127,6 +133,11 @@ class MarketExternalDataService:
         if prepared:
             would_insert_count, duplicate_count = _preview_inserts(self.db_path, prepared)
         coverage_summary = self._coverage_for_import(as_of_date, prepared, duplicate_count=duplicate_count)
+        coverage_details = self._coverage_details_for_import(
+            as_of_date,
+            prepared,
+            duplicate_count=duplicate_count,
+        )
 
         if invalid_records:
             return _validation_failed_result(
@@ -139,6 +150,7 @@ class MarketExternalDataService:
                 would_insert_count=would_insert_count,
                 duplicate_count=duplicate_count,
                 coverage_summary=coverage_summary,
+                coverage_details=coverage_details,
             )
 
         if ctx.dry_run:
@@ -154,6 +166,7 @@ class MarketExternalDataService:
                     inserted_count=0,
                     duplicate_count=duplicate_count,
                     coverage_summary=coverage_summary,
+                    coverage_details=coverage_details,
                     market_external_item_ids=[],
                     invalid_records=[],
                 ),
@@ -184,6 +197,10 @@ class MarketExternalDataService:
                 inserted_count=inserted_count,
                 duplicate_count=apply_duplicate_count,
                 coverage_summary=self.summarize_coverage(as_of_date),
+                coverage_details=self.summarize_coverage_details(
+                    as_of_date,
+                    duplicate_count=apply_duplicate_count,
+                ),
                 market_external_item_ids=item_ids,
                 invalid_records=[],
             ),
@@ -191,12 +208,23 @@ class MarketExternalDataService:
             lineage={"source_file": str(request.source_file) if request.source_file else None},
         )
 
-    def summarize_coverage(self, as_of_date: str) -> dict[str, str]:
+    def summarize_coverage(self, as_of_date: str) -> dict[str, Any]:
         compact_date = _compact_date(as_of_date)
         if compact_date is None or not _is_yyyymmdd(compact_date):
             return _empty_coverage_summary()
         with connect(self.db_path) as conn:
             return build_market_external_coverage_summary(_load_coverage_items(conn, compact_date), compact_date)
+
+    def summarize_coverage_details(self, as_of_date: str, *, duplicate_count: int = 0) -> dict[str, Any]:
+        compact_date = _compact_date(as_of_date)
+        if compact_date is None or not _is_yyyymmdd(compact_date):
+            return _empty_coverage_details(as_of_date)
+        with connect(self.db_path) as conn:
+            return build_market_external_coverage_details(
+                _load_coverage_items(conn, compact_date),
+                compact_date,
+                duplicate_count=duplicate_count,
+            )
 
     def _coverage_for_import(
         self,
@@ -212,6 +240,21 @@ class MarketExternalDataService:
             for item in prepared
         )
         return build_market_external_coverage_summary(items, as_of_date, duplicate_count=duplicate_count)
+
+    def _coverage_details_for_import(
+        self,
+        as_of_date: str,
+        prepared: Sequence[_PreparedMarketExternalItem],
+        *,
+        duplicate_count: int = 0,
+    ) -> dict[str, Any]:
+        with connect(self.db_path) as conn:
+            items = _load_coverage_items(conn, as_of_date)
+        items.extend(
+            _CoverageItem(item.scope_type, item.item_type, item.sentiment, item.published_date)
+            for item in prepared
+        )
+        return build_market_external_coverage_details(items, as_of_date, duplicate_count=duplicate_count)
 
 
 def build_market_external_source_hash(
@@ -269,6 +312,36 @@ def build_market_external_coverage_summary(
     }
 
 
+def build_market_external_coverage_details(
+    items: Sequence[_CoverageItem],
+    as_of_date: str,
+    *,
+    duplicate_count: int = 0,
+) -> dict[str, Any]:
+    freshness = _freshness_summary(items, as_of_date)
+    stale_scopes = [scope for scope, status in freshness.items() if status in {"stale", "partial"}]
+    return {
+        "as_of_date": as_of_date,
+        "total_count": len(items),
+        "duplicate_count": duplicate_count,
+        "missing_scopes": [
+            scope
+            for scope in ("market", "sector", "stock")
+            if not any(item.scope_type == scope for item in items)
+        ],
+        "stale_scopes": stale_scopes,
+        "fresh_count": sum(1 for item in items if item.published_date == as_of_date),
+        "stale_count": sum(1 for item in items if item.published_date < as_of_date),
+        "by_scope": _count_by(items, "scope_type"),
+        "by_item_type": _count_by(items, "item_type"),
+        "sentiment": {
+            "known_count": sum(1 for item in items if item.sentiment != "unknown"),
+            "unknown_count": sum(1 for item in items if item.sentiment == "unknown"),
+        },
+        "freshness": freshness,
+    }
+
+
 def _load_request_records(
     request: ImportMarketExternalDataRequest,
     as_of_date: str,
@@ -301,6 +374,13 @@ def _load_request_records(
 
     if not isinstance(payload, Mapping):
         return ServiceError("VALIDATION_ERROR", "source_file JSON must be an object with as_of_date, provider, and items.")
+
+    contract = _first_text(payload, "provider_file_contract", "contract_version")
+    if contract is not None and contract not in VALID_MARKET_EXTERNAL_PROVIDER_FILE_CONTRACTS:
+        return ServiceError(
+            "UNSUPPORTED_PROVIDER_FILE_CONTRACT",
+            f"provider_file_contract must be {MARKET_EXTERNAL_PROVIDER_FILE_CONTRACT}.",
+        )
 
     fixture_date = _compact_date(_first_text(payload, "as_of_date"))
     if fixture_date is None or not _is_yyyymmdd(fixture_date):
@@ -809,6 +889,27 @@ def _empty_coverage_summary() -> dict[str, Any]:
     }
 
 
+def _empty_coverage_details(as_of_date: str | None = None) -> dict[str, Any]:
+    compact_date = _compact_date(as_of_date) if as_of_date else None
+    return {
+        "as_of_date": compact_date or as_of_date or "unknown",
+        "total_count": 0,
+        "duplicate_count": 0,
+        "missing_scopes": ["market", "sector", "stock"],
+        "stale_scopes": [],
+        "fresh_count": 0,
+        "stale_count": 0,
+        "by_scope": {},
+        "by_item_type": {},
+        "sentiment": {"known_count": 0, "unknown_count": 0},
+        "freshness": {
+            "market": "missing",
+            "sector": "missing",
+            "stock": "missing",
+        },
+    }
+
+
 def _freshness_summary(items: Sequence[_CoverageItem], as_of_date: str) -> dict[str, str]:
     return {
         scope_type: _freshness_for_scope(
@@ -830,6 +931,14 @@ def _freshness_for_scope(items: Sequence[_CoverageItem], as_of_date: str) -> str
     return "partial"
 
 
+def _count_by(items: Sequence[_CoverageItem], field: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in items:
+        value = getattr(item, field)
+        counts[value] = counts.get(value, 0) + 1
+    return {key: counts[key] for key in sorted(counts)}
+
+
 def _validation_failed_result(
     ctx: RequestContext,
     *,
@@ -839,6 +948,7 @@ def _validation_failed_result(
     invalid_records: list[MarketExternalDataValidationIssue],
     errors: list[ServiceError],
     coverage_summary: dict[str, Any],
+    coverage_details: dict[str, Any],
     would_insert_count: int = 0,
     duplicate_count: int = 0,
 ) -> ServiceResult[ImportMarketExternalDataResult]:
@@ -854,6 +964,7 @@ def _validation_failed_result(
             inserted_count=0,
             duplicate_count=duplicate_count,
             coverage_summary=coverage_summary,
+            coverage_details=coverage_details,
             market_external_item_ids=[],
             invalid_records=invalid_records,
         ),

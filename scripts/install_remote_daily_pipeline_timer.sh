@@ -13,19 +13,22 @@ ON_CALENDAR="${PGC_DAILY_PIPELINE_ON_CALENDAR:-Mon..Fri *-*-* 16:20:00 Asia/Shan
 ACCOUNT="paper-main"
 OPERATOR="system-daily-pipeline"
 MODE="dry-run"
-DRY_RUN=0
+ACTION="preview"
 
 usage() {
   cat <<'USAGE'
-Usage: install_remote_daily_pipeline_timer.sh [--dry-run] [--operator NAME] [--mode dry-run|apply] [--account ACCOUNT]
+Usage: install_remote_daily_pipeline_timer.sh [--dry-run|--enable|--status] [--operator NAME] [--mode dry-run|apply] [--account ACCOUNT]
 
-Install or preview the remote systemd timer for the post-close daily pipeline.
+Preview, enable, or inspect the remote systemd timer for the post-close daily pipeline.
 The scheduled command always uses --date latest-closed and --include-market-review.
+Preview is the default. Enabling the timer requires the explicit --enable flag.
 
 Examples:
   scripts/install_remote_daily_pipeline_timer.sh --dry-run
   scripts/install_remote_daily_pipeline_timer.sh --operator system-daily-pipeline --mode dry-run
-  scripts/install_remote_daily_pipeline_timer.sh --operator system-daily-pipeline --mode apply
+  scripts/install_remote_daily_pipeline_timer.sh --dry-run --operator system-daily-pipeline --mode apply
+  scripts/install_remote_daily_pipeline_timer.sh --enable --operator system-daily-pipeline --mode apply
+  scripts/install_remote_daily_pipeline_timer.sh --status
 
 Environment overrides:
   PGC_REMOTE_HOST                    default: root@150.158.121.150
@@ -45,7 +48,15 @@ while [[ "$#" -gt 0 ]]; do
       exit 0
       ;;
     --dry-run)
-      DRY_RUN=1
+      ACTION="preview"
+      shift
+      ;;
+    --enable)
+      ACTION="enable"
+      shift
+      ;;
+    --status)
+      ACTION="status"
       shift
       ;;
     --operator)
@@ -87,9 +98,18 @@ fi
 SERVICE_PATH="/etc/systemd/system/${SERVICE_NAME}"
 TIMER_PATH="/etc/systemd/system/${TIMER_NAME}"
 PIPELINE_COMMAND="${REMOTE_CURRENT_DIR}/scripts/run_daily_pipeline.sh --date latest-closed --account ${ACCOUNT} --operator ${OPERATOR} --db-path ${REMOTE_DB_PATH} --backup-dir ${REMOTE_BACKUP_DIR} --include-market-review ${MODE_FLAG}"
+MANUAL_DRY_RUN_COMMAND="${REMOTE_CURRENT_DIR}/scripts/run_daily_pipeline.sh --date latest-closed --account ${ACCOUNT} --operator ${OPERATOR} --db-path ${REMOTE_DB_PATH} --backup-dir ${REMOTE_BACKUP_DIR} --include-market-review --dry-run"
+MANUAL_APPLY_COMMAND="${REMOTE_CURRENT_DIR}/scripts/run_daily_pipeline.sh --date latest-closed --account ${ACCOUNT} --operator ${OPERATOR} --db-path ${REMOTE_DB_PATH} --backup-dir ${REMOTE_BACKUP_DIR} --include-market-review --apply"
+REMOTE_HEALTH_COMMAND="cd ${REMOTE_CURRENT_DIR} && PYTHONPATH=src python3 -m pgc_trading.cli.main ops health --db-path ${REMOTE_DB_PATH} --health-url ${REMOTE_HEALTH_URL} --require-current-migrations"
+TIMER_ENABLEMENT="preview_only"
+if [[ "$ACTION" == "enable" ]]; then
+  TIMER_ENABLEMENT="explicit_enable"
+fi
 
 print_summary() {
   printf 'remote_host=%s\n' "$REMOTE_HOST"
+  printf 'action=%s\n' "$ACTION"
+  printf 'timer_enablement=%s\n' "$TIMER_ENABLEMENT"
   printf 'service_path=%s\n' "$SERVICE_PATH"
   printf 'timer_path=%s\n' "$TIMER_PATH"
   printf 'working_directory=%s\n' "$REMOTE_CURRENT_DIR"
@@ -100,16 +120,42 @@ print_summary() {
   printf 'on_calendar=%s\n' "$ON_CALENDAR"
   printf 'mode=%s\n' "$MODE"
   printf 'pipeline_command=%s\n' "$PIPELINE_COMMAND"
+  printf 'manual_dry_run_command=%s\n' "$MANUAL_DRY_RUN_COMMAND"
+  printf 'manual_apply_command=%s\n' "$MANUAL_APPLY_COMMAND"
+  printf 'health_command=%s\n' "$REMOTE_HEALTH_COMMAND"
   printf 'status_command=systemctl status %s --no-pager\n' "$TIMER_NAME"
+  printf 'service_status_command=systemctl status %s --no-pager\n' "$SERVICE_NAME"
+  printf 'timer_list_command=systemctl list-timers --all %s --no-pager\n' "$TIMER_NAME"
   printf 'journal_command=journalctl -u %s -n 100 --no-pager\n' "$SERVICE_NAME"
   printf 'rollback_command=systemctl disable --now %s\n' "$TIMER_NAME"
+  printf 'duplicate_write_guard=run_daily_pipeline.sh blocks completed apply runs unless --allow-rerun is passed\n'
 }
 
-if [[ "$DRY_RUN" -eq 1 ]]; then
+if [[ "$ACTION" == "preview" ]]; then
   print_summary
   printf 'would_write_service=%s\n' "$SERVICE_PATH"
   printf 'would_write_timer=%s\n' "$TIMER_PATH"
-  printf 'would_enable_timer=systemctl enable --now %s\n' "$TIMER_NAME"
+  printf 'would_enable_timer=systemctl enable --now %s only after --enable\n' "$TIMER_NAME"
+  printf 'enable_command=scripts/install_remote_daily_pipeline_timer.sh --enable --operator %s --mode %s --account %s\n' "$OPERATOR" "$MODE" "$ACCOUNT"
+  exit 0
+fi
+
+if [[ "$ACTION" == "status" ]]; then
+  print_summary
+  ssh "$REMOTE_HOST" 'bash -s' -- "$SERVICE_NAME" "$TIMER_NAME" <<'REMOTE_STATUS'
+set -euo pipefail
+
+service_name="$1"
+timer_name="$2"
+
+printf 'timer_enabled='
+systemctl is-enabled "$timer_name" 2>/dev/null || true
+printf 'timer_active='
+systemctl is-active "$timer_name" 2>/dev/null || true
+systemctl list-timers --all "$timer_name" --no-pager || true
+systemctl status "$timer_name" --no-pager || true
+journalctl -u "$service_name" -n 100 --no-pager || true
+REMOTE_STATUS
   exit 0
 fi
 
@@ -143,6 +189,11 @@ mkdir -p "$backup_dir" "$log_dir"
 test -x "${working_dir}/scripts/run_daily_pipeline.sh"
 test -f "$db_path"
 curl -fsS "$health_url" >/tmp/pgc_daily_pipeline_health.json
+cd "$working_dir"
+PYTHONPATH=src python3 -m pgc_trading.cli.main ops health \
+  --db-path "$db_path" \
+  --health-url "$health_url" \
+  --require-current-migrations
 
 cat > "$service_path" <<SERVICE_UNIT
 [Unit]

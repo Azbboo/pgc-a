@@ -10,6 +10,7 @@ BACKUP_DIR=""
 LOG_DIR="${PGC_DAILY_PIPELINE_LOG_DIR:-.pgc-runs}"
 INCLUDE_MARKET_REVIEW=0
 PYTHON_BIN="${PGC_PYTHON:-python3}"
+ALLOW_RERUN=0
 
 usage() {
   cat <<'USAGE'
@@ -23,6 +24,7 @@ Options:
   --include-market-review        include market review and market-plan context linking
   --apply                        persist writes after creating a database backup
   --dry-run                      preview writes (default)
+  --allow-rerun                  allow an apply rerun after completed writes are detected
 
 Environment:
   PGC_DAILY_PIPELINE_LOG_DIR     default: .pgc-runs
@@ -68,6 +70,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --include-market-review)
       INCLUDE_MARKET_REVIEW=1
+      shift
+      ;;
+    --allow-rerun)
+      ALLOW_RERUN=1
       shift
       ;;
     *)
@@ -165,6 +171,69 @@ print(int(row[0] if row else 0))
 PY
 }
 
+normalize_requested_date() {
+  "$PYTHON_BIN" - "$1" <<'PY'
+from __future__ import annotations
+
+import sys
+
+value = sys.argv[1].replace("-", "")
+if len(value) != 8 or not value.isdigit():
+    print("--date must be YYYYMMDD, YYYY-MM-DD, or latest-closed", file=sys.stderr)
+    raise SystemExit(2)
+print(value)
+PY
+}
+
+duplicate_apply_summary() {
+  "$PYTHON_BIN" - "$DB_PATH" "$1" <<'PY'
+from __future__ import annotations
+
+import json
+import sqlite3
+import sys
+from pathlib import Path
+
+db_path = Path(sys.argv[1])
+as_of_date = sys.argv[2]
+
+operation_types = (
+    "daily_review",
+    "portfolio_generate_buy_plan",
+    "portfolio_generate_sell_plan",
+    "agent_review_daily_pick",
+    "position_exit_evaluate",
+)
+
+matches: list[str] = []
+with sqlite3.connect(db_path) as conn:
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        f"""
+        SELECT id, idempotency_key, operation_type, status, request_json
+        FROM operation_requests
+        WHERE as_of_date = ?
+          AND status IN ('success', 'partial_success', 'skipped')
+          AND operation_type IN ({",".join("?" for _ in operation_types)})
+        ORDER BY id
+        """,
+        (as_of_date, *operation_types),
+    ).fetchall()
+
+for row in rows:
+    try:
+        payload = json.loads(row["request_json"])
+    except json.JSONDecodeError:
+        continue
+    if payload.get("dry_run") is False:
+        matches.append(f"{row['operation_type']}:{row['idempotency_key']}")
+
+print(f"duplicate_apply_count={len(matches)}")
+if matches:
+    print(f"duplicate_apply_keys={';'.join(matches[:8])}")
+PY
+}
+
 if [[ "$DATE" == "latest-closed" ]]; then
   DATE="$(resolve_latest_closed_date)"
   echo "resolved_date=$DATE"
@@ -173,12 +242,31 @@ if [[ "$DATE" == "latest-closed" ]]; then
     exit 1
   fi
 else
+  DATE="$(normalize_requested_date "$DATE")"
   echo "resolved_date=$DATE"
 fi
 
 mkdir -p "$LOG_DIR"
 LOG_FILE="${LOG_DIR}/daily-pipeline-${DATE}.log"
 echo "log_file=$LOG_FILE"
+
+if [[ "$MODE" == "--apply" ]]; then
+  DUPLICATE_SUMMARY="$(duplicate_apply_summary "$DATE")"
+  printf '%s\n' "$DUPLICATE_SUMMARY"
+  DUPLICATE_COUNT="$(printf '%s\n' "$DUPLICATE_SUMMARY" | awk -F= '/^duplicate_apply_count=/{print $2}')"
+  if [[ "${DUPLICATE_COUNT:-0}" != "0" && "$ALLOW_RERUN" != "1" ]]; then
+    echo "duplicate_write_guard=blocked"
+    echo "duplicate apply writes already exist for resolved_date=$DATE; pass --allow-rerun only after operator review" >&2
+    exit 1
+  fi
+  if [[ "${DUPLICATE_COUNT:-0}" != "0" ]]; then
+    echo "duplicate_write_guard=allow_rerun"
+  else
+    echo "duplicate_write_guard=pass"
+  fi
+else
+  echo "duplicate_write_guard=dry_run"
+fi
 
 COMMAND=(
   "$PYTHON_BIN" -m pgc_trading.cli.main

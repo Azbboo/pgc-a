@@ -8,7 +8,11 @@ from pgc_trading.api.errors import service_result_http_status
 from pgc_trading.api.schemas import build_health_payload, service_result_envelope
 from pgc_trading.api.services import ApiServices
 from pgc_trading.api.settings import ApiSettings
-from pgc_trading.reporting.daily_report import DailyReportRequest, DailyReviewHistoryRequest
+from pgc_trading.reporting.daily_report import (
+    DailyReportRequest,
+    DailyReviewHistoryRequest,
+    ReviewTimelineRequest,
+)
 from pgc_trading.services.common import RequestContext, ServiceError, ServiceResult
 from pgc_trading.services.data_quality_service import ListDataQualityEventsRequest
 from pgc_trading.services.daily_close_workflow_service import (
@@ -58,6 +62,28 @@ def register_routes(app: Any) -> None:
         request_id: str | None = None,
     ) -> dict[str, object]:
         return list_daily_reviews(
+            app.state.settings,
+            app.state.services,
+            response,
+            account_key=_blank_to_none(account_key),
+            account_id=account_id,
+            strategy_version=strategy_version,
+            before_date=_normalize_optional_date(before_date),
+            limit=limit,
+            request_id=request_id,
+        )
+
+    @app.get("/api/review-timeline", tags=["reports"])
+    def review_timeline(
+        response: Response,
+        account_key: str | None = DEFAULT_ACCOUNT_KEY,
+        account_id: int | None = None,
+        strategy_version: str = STRATEGY_VERSION,
+        before_date: str | None = None,
+        limit: int = 20,
+        request_id: str | None = None,
+    ) -> dict[str, object]:
+        return list_review_timeline(
             app.state.settings,
             app.state.services,
             response,
@@ -387,6 +413,32 @@ def list_daily_reviews(
     service = services.report_service_factory(settings.db_path)
     result = service.list_daily_review_history(
         DailyReviewHistoryRequest(
+            account_key=account_key,
+            account_id=account_id,
+            strategy_version=strategy_version,
+            before_date=_normalize_optional_date(before_date),
+            limit=limit,
+        ),
+        RequestContext(request_id=request_id, dry_run=True, source="api"),
+    )
+    return _service_response(result, response)
+
+
+def list_review_timeline(
+    settings: ApiSettings,
+    services: ApiServices,
+    response: Any,
+    *,
+    account_key: str | None = DEFAULT_ACCOUNT_KEY,
+    account_id: int | None = None,
+    strategy_version: str = STRATEGY_VERSION,
+    before_date: str | None = None,
+    limit: int = 20,
+    request_id: str | None = None,
+) -> dict[str, object]:
+    service = services.report_service_factory(settings.db_path)
+    result = service.list_review_timeline(
+        ReviewTimelineRequest(
             account_key=account_key,
             account_id=account_id,
             strategy_version=strategy_version,
