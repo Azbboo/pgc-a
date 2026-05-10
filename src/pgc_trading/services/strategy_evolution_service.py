@@ -17,6 +17,10 @@ from typing import Any
 from pgc_trading.config import Paths
 from pgc_trading.market.calendar import is_yyyymmdd
 from pgc_trading.services.common import RequestContext, ServiceError, ServiceResult, ServiceWarning
+from pgc_trading.services.strategy_hypothesis_backtest_service import (
+    StrategyHypothesisBacktestArtifactReview,
+    review_strategy_hypothesis_backtest_artifact,
+)
 from pgc_trading.storage.database import connect
 
 
@@ -42,6 +46,13 @@ class ListStrategyHypothesesRequest:
     status: str | None = None
     as_of_date: str | None = None
     limit: int | None = None
+
+
+@dataclass(frozen=True)
+class EvaluateStrategyHypothesesRequest:
+    status: str | None = None
+    as_of_date: str | None = None
+    limit: int | None = 100
 
 
 @dataclass(frozen=True)
@@ -79,6 +90,27 @@ class ProposeStrategyHypothesesResult:
 @dataclass(frozen=True)
 class ListStrategyHypothesesResult:
     hypotheses: list[StrategyHypothesis] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class StrategyHypothesisEvaluation:
+    hypothesis: StrategyHypothesis
+    evidence_ids: list[str] = field(default_factory=list)
+    backtest_artifacts: list[StrategyHypothesisBacktestArtifactReview] = field(default_factory=list)
+    validation_events: list[dict[str, Any]] = field(default_factory=list)
+    acceptance_gate: dict[str, Any] = field(default_factory=dict)
+    safety: dict[str, Any] = field(default_factory=dict)
+    next_action: str = "review"
+    next_action_label: str = "Review hypothesis."
+    strategy_version_task: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class StrategyHypothesisEvaluationWorkbenchResult:
+    hypotheses: list[StrategyHypothesisEvaluation] = field(default_factory=list)
+    summary: dict[str, Any] = field(default_factory=dict)
+    source: dict[str, Any] = field(default_factory=dict)
+    safety: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -224,6 +256,53 @@ class StrategyEvolutionService:
             lineage={"as_of_date": request.as_of_date, "status": request.status},
         )
 
+    def evaluate_hypotheses(
+        self,
+        request: EvaluateStrategyHypothesesRequest,
+        ctx: RequestContext,
+    ) -> ServiceResult[StrategyHypothesisEvaluationWorkbenchResult]:
+        validation_errors = _validate_evaluate_request(request)
+        if validation_errors:
+            return ServiceResult(
+                status="validation_failed",
+                request_id=ctx.request_id,
+                data=StrategyHypothesisEvaluationWorkbenchResult(),
+                errors=validation_errors,
+            )
+
+        list_request = ListStrategyHypothesesRequest(
+            status=request.status,
+            as_of_date=request.as_of_date,
+            limit=request.limit,
+        )
+        with connect(self.db_path) as conn:
+            hypotheses = _list_hypotheses(conn, list_request)
+
+        evaluations = [_evaluate_hypothesis(hypothesis) for hypothesis in hypotheses]
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data=StrategyHypothesisEvaluationWorkbenchResult(
+                hypotheses=evaluations,
+                summary=_evaluation_summary(evaluations),
+                source={
+                    "tables": ["strategy_hypotheses"],
+                    "artifact_type": "strategy_hypothesis_backtest_request",
+                    "as_of_date": request.as_of_date,
+                    "status": request.status,
+                    "limit": request.limit,
+                },
+                safety={
+                    "read_only": True,
+                    "active_params_mutated": False,
+                    "writes_trade_state": False,
+                    "writes_paper_live_behavior": False,
+                    "accepted_creates_separate_strategy_version_task": True,
+                },
+            ),
+            lineage={"as_of_date": request.as_of_date, "status": request.status},
+        )
+
     def mark_hypothesis(
         self,
         request: MarkStrategyHypothesisRequest,
@@ -343,6 +422,16 @@ def _validate_list_request(request: ListStrategyHypothesesRequest) -> list[Servi
     if request.limit is not None and request.limit < 1:
         errors.append(ServiceError(code="VALIDATION_ERROR", message="limit must be greater than zero."))
     return errors
+
+
+def _validate_evaluate_request(request: EvaluateStrategyHypothesesRequest) -> list[ServiceError]:
+    return _validate_list_request(
+        ListStrategyHypothesesRequest(
+            status=request.status,
+            as_of_date=request.as_of_date,
+            limit=request.limit,
+        )
+    )
 
 
 def _validate_mark_request(request: MarkStrategyHypothesisRequest) -> list[ServiceError]:
@@ -518,6 +607,159 @@ def _future_strategy_version_task_payload(
             "Keep paper/live deployments on the current version until explicit promotion approval.",
         ],
     }
+
+
+def _evaluate_hypothesis(hypothesis: StrategyHypothesis) -> StrategyHypothesisEvaluation:
+    evidence_ids = _validation_values(hypothesis.evidence, "evidence_ids")
+    artifact_reviews = [
+        review_strategy_hypothesis_backtest_artifact(
+            artifact_path,
+            expected_hypothesis_id=int(hypothesis.hypothesis_id or 0),
+        )
+        for artifact_path in _validation_values(hypothesis.evidence, "backtest_artifacts")
+    ]
+    validation_events = _validation_events(hypothesis.evidence)
+    acceptance_gate = _acceptance_gate_payload(hypothesis, evidence_ids, artifact_reviews)
+    safety = _hypothesis_safety_payload(hypothesis, artifact_reviews)
+    next_action, next_action_label = _evaluation_next_action(hypothesis, acceptance_gate, safety)
+    strategy_version_task = (
+        _future_strategy_version_task_payload(
+            hypothesis,
+            evidence_ids,
+            [artifact.path for artifact in artifact_reviews],
+        )
+        if hypothesis.status == "accepted"
+        else None
+    )
+    return StrategyHypothesisEvaluation(
+        hypothesis=hypothesis,
+        evidence_ids=evidence_ids,
+        backtest_artifacts=artifact_reviews,
+        validation_events=validation_events,
+        acceptance_gate=acceptance_gate,
+        safety=safety,
+        next_action=next_action,
+        next_action_label=next_action_label,
+        strategy_version_task=strategy_version_task,
+    )
+
+
+def _acceptance_gate_payload(
+    hypothesis: StrategyHypothesis,
+    evidence_ids: list[str],
+    artifact_reviews: list[StrategyHypothesisBacktestArtifactReview],
+) -> dict[str, Any]:
+    has_artifact = bool(artifact_reviews)
+    artifacts_valid = bool(artifact_reviews) and all(artifact.valid for artifact in artifact_reviews)
+    mutates_active_params = bool(hypothesis.proposed_change.get("mutates_active_params"))
+    blocks: list[str] = []
+    if hypothesis.status not in {"testing", "accepted"}:
+        blocks.append("testing_status_required")
+    if not evidence_ids:
+        blocks.append("validation_evidence_required")
+    if not has_artifact:
+        blocks.append("backtest_artifact_required")
+    elif not artifacts_valid:
+        blocks.append("valid_backtest_artifact_required")
+    if mutates_active_params:
+        blocks.append("active_param_mutation_forbidden")
+    return {
+        "can_accept": hypothesis.status == "testing" and not blocks,
+        "accepted_complete": hypothesis.status == "accepted" and not blocks,
+        "testing_required": hypothesis.status == "testing",
+        "has_validation_evidence": bool(evidence_ids),
+        "has_backtest_artifact": has_artifact,
+        "backtest_artifacts_valid": artifacts_valid,
+        "requires_replay_backtest": bool(hypothesis.proposed_change.get("requires_replay_backtest", True)),
+        "blocks": blocks,
+    }
+
+
+def _hypothesis_safety_payload(
+    hypothesis: StrategyHypothesis,
+    artifact_reviews: list[StrategyHypothesisBacktestArtifactReview],
+) -> dict[str, Any]:
+    artifact_reports_mutation = any(artifact.active_params_mutated is True for artifact in artifact_reviews)
+    return {
+        "read_only_evaluation": True,
+        "proposed_change_mutates_active_params": bool(hypothesis.proposed_change.get("mutates_active_params")),
+        "artifact_reports_active_param_mutation": artifact_reports_mutation,
+        "active_params_mutated": False,
+        "writes_trade_state": False,
+        "writes_paper_live_behavior": False,
+        "accepted_creates_separate_strategy_version_task": hypothesis.status == "accepted",
+    }
+
+
+def _evaluation_next_action(
+    hypothesis: StrategyHypothesis,
+    acceptance_gate: dict[str, Any],
+    safety: dict[str, Any],
+) -> tuple[str, str]:
+    if safety["proposed_change_mutates_active_params"] or safety["artifact_reports_active_param_mutation"]:
+        return "reject_or_rewrite", "Rewrite or reject; active parameter mutation is forbidden."
+    if hypothesis.status == "proposed":
+        return "move_to_testing", "Move to testing before acceptance review."
+    if hypothesis.status == "testing" and acceptance_gate["can_accept"]:
+        return "ready_to_accept", "Evidence and backtest artifact are present; ready for acceptance review."
+    if hypothesis.status == "testing":
+        blocks = set(acceptance_gate.get("blocks", []))
+        if "backtest_artifact_required" in blocks:
+            return "create_backtest_artifact", "Create or attach a replay/backtest request artifact."
+        if "valid_backtest_artifact_required" in blocks:
+            return "fix_backtest_artifact", "Fix the attached replay/backtest artifact before acceptance."
+        if "validation_evidence_required" in blocks:
+            return "attach_validation_evidence", "Attach validation evidence ids before acceptance."
+        return "continue_testing", "Continue validation before acceptance."
+    if hypothesis.status == "accepted":
+        return "strategy_version_task_required", "Accepted is a research outcome; create a separate strategy-version task."
+    if hypothesis.status == "rejected":
+        return "closed_rejected", "Rejected; keep as research record."
+    if hypothesis.status == "archived":
+        return "closed_archived", "Archived; no active review action."
+    return "review", "Review hypothesis state."
+
+
+def _evaluation_summary(evaluations: list[StrategyHypothesisEvaluation]) -> dict[str, Any]:
+    by_status: dict[str, int] = {status: 0 for status in sorted(VALID_HYPOTHESIS_STATUSES)}
+    by_next_action: dict[str, int] = {}
+    artifact_count = 0
+    invalid_artifact_count = 0
+    ready_to_accept_count = 0
+    strategy_version_task_required_count = 0
+    unsafe_count = 0
+    for evaluation in evaluations:
+        status = evaluation.hypothesis.status
+        by_status[status] = by_status.get(status, 0) + 1
+        by_next_action[evaluation.next_action] = by_next_action.get(evaluation.next_action, 0) + 1
+        artifact_count += len(evaluation.backtest_artifacts)
+        invalid_artifact_count += len([artifact for artifact in evaluation.backtest_artifacts if not artifact.valid])
+        if evaluation.acceptance_gate.get("can_accept"):
+            ready_to_accept_count += 1
+        if evaluation.strategy_version_task is not None:
+            strategy_version_task_required_count += 1
+        if (
+            evaluation.safety.get("proposed_change_mutates_active_params")
+            or evaluation.safety.get("artifact_reports_active_param_mutation")
+        ):
+            unsafe_count += 1
+    return {
+        "total": len(evaluations),
+        "by_status": by_status,
+        "by_next_action": by_next_action,
+        "ready_to_accept_count": ready_to_accept_count,
+        "artifact_count": artifact_count,
+        "invalid_artifact_count": invalid_artifact_count,
+        "strategy_version_task_required_count": strategy_version_task_required_count,
+        "unsafe_count": unsafe_count,
+    }
+
+
+def _validation_events(evidence: dict[str, Any]) -> list[dict[str, Any]]:
+    events = _validation_payload(evidence).get("review_events")
+    if not isinstance(events, list):
+        return []
+    return [dict(event) for event in events if isinstance(event, dict)]
 
 
 def _validation_payload(evidence: dict[str, Any]) -> dict[str, Any]:

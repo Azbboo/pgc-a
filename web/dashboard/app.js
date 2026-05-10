@@ -38,6 +38,8 @@ const state = {
   reviewDatePinned: false,
   report: null,
   reportEnvelope: null,
+  paperAcceptance: null,
+  paperAcceptanceEnvelope: null,
   reviewHistory: [],
   reviewTimeline: [],
   reviewTimelineEnvelope: null,
@@ -56,6 +58,9 @@ const state = {
   marketHypothesesEnvelope: null,
   marketPlanContexts: [],
   marketPlanContextEnvelope: null,
+  strategyHypothesisAsOfDate: localStorage.getItem("pgc.dashboard.strategyHypothesisAsOfDate") || "",
+  strategyHypothesisWorkbench: null,
+  strategyHypothesisWorkbenchEnvelope: null,
   tradePlans: [],
   positions: [],
   qualityEvents: [],
@@ -111,6 +116,14 @@ function cacheElements() {
     "noticeLine",
     "reviewBadge",
     "marketBadge",
+    "acceptanceBadge",
+    "reloadAcceptanceButton",
+    "acceptanceDateLabel",
+    "acceptanceStatusPanel",
+    "acceptanceOverviewGrid",
+    "acceptanceGateBody",
+    "acceptanceBlockerList",
+    "hypothesesBadge",
     "reloadMarketButton",
     "marketReviewDateInput",
     "marketPrevDateButton",
@@ -129,6 +142,16 @@ function cacheElements() {
     "marketSentimentSummary",
     "marketHypothesisState",
     "marketHypothesesList",
+    "strategyHypothesisDateInput",
+    "strategyHypothesisStatusFilter",
+    "strategyHypothesisClearDateButton",
+    "reloadStrategyHypothesesButton",
+    "strategyHypothesisWorkbenchSummary",
+    "strategyHypothesisQueueState",
+    "strategyHypothesisQueue",
+    "strategyHypothesisSafetyPanel",
+    "strategyHypothesisWorkbenchState",
+    "strategyHypothesisWorkbenchList",
     "plansBadge",
     "recordBadge",
     "positionsBadge",
@@ -237,6 +260,10 @@ function bindEvents() {
   els.reloadReviewHistoryButton.addEventListener("click", loadReviewHistoryAndRender);
   els.reviewTimelineList.addEventListener("click", onReviewTimelineClick);
   els.reviewHistoryList.addEventListener("click", onReviewHistoryClick);
+  els.reloadAcceptanceButton.addEventListener("click", loadPaperAcceptanceAndRender);
+  els.acceptanceStatusPanel.addEventListener("click", onAcceptanceActionClick);
+  els.acceptanceGateBody.addEventListener("click", onAcceptanceActionClick);
+  els.acceptanceBlockerList.addEventListener("click", onAcceptanceActionClick);
   els.reloadMarketButton.addEventListener("click", loadMarketReviewAndRender);
   els.marketApplyDateButton.addEventListener("click", applyMarketReviewDateInput);
   els.marketReviewDateInput.addEventListener("change", applyMarketReviewDateInput);
@@ -249,6 +276,12 @@ function bindEvents() {
   els.marketPlanContextPanel.addEventListener("click", onMarketPlanContextClick);
   els.openMarketNewsDrawerButton.addEventListener("click", () => openMarketNewsDrawer());
   els.marketHypothesesList.addEventListener("click", onMarketHypothesisClick);
+  els.reloadStrategyHypothesesButton.addEventListener("click", loadStrategyHypothesisWorkbenchAndRender);
+  els.strategyHypothesisStatusFilter.addEventListener("change", loadStrategyHypothesisWorkbenchAndRender);
+  els.strategyHypothesisDateInput.addEventListener("change", applyStrategyHypothesisDateInput);
+  els.strategyHypothesisClearDateButton.addEventListener("click", clearStrategyHypothesisDateFilter);
+  els.strategyHypothesisWorkbenchList.addEventListener("click", onStrategyHypothesisWorkbenchClick);
+  els.strategyHypothesisQueue.addEventListener("click", onStrategyHypothesisWorkbenchClick);
   els.reloadExecutionButton.addEventListener("click", refreshAll);
   els.executionEvaluateExitsButton.addEventListener("click", evaluateExits);
   els.publishReviewPlanButton.addEventListener("click", () => {
@@ -295,6 +328,7 @@ function syncFormFromState() {
   els.asOfDateInput.value = state.asOfDate;
   els.reviewDateInput.value = dateInputValue(state.asOfDate);
   els.marketReviewDateInput.value = dateInputValue(marketReviewDate());
+  els.strategyHypothesisDateInput.value = dateInputValue(state.strategyHypothesisAsOfDate);
   els.strategyInput.value = state.strategyVersion;
   els.operatorInput.value = state.operator;
   els.writeTokenInput.value = state.writeToken;
@@ -337,6 +371,11 @@ function persistContext() {
   } else {
     localStorage.removeItem("pgc.dashboard.marketAsOfDate");
   }
+  if (state.strategyHypothesisAsOfDate) {
+    localStorage.setItem("pgc.dashboard.strategyHypothesisAsOfDate", state.strategyHypothesisAsOfDate);
+  } else {
+    localStorage.removeItem("pgc.dashboard.strategyHypothesisAsOfDate");
+  }
 }
 
 async function applyReviewDateInput() {
@@ -365,6 +404,25 @@ async function setLatestReviewDate() {
 
 async function applyMarketReviewDateInput() {
   await setMarketReviewDate(els.marketReviewDateInput.value);
+}
+
+async function applyStrategyHypothesisDateInput() {
+  const nextDate = normalizeDate(els.strategyHypothesisDateInput.value);
+  if (nextDate && !/^\d{8}$/.test(nextDate)) {
+    showNotice("假设日期需要选择有效日期。");
+    syncFormFromState();
+    return;
+  }
+  state.strategyHypothesisAsOfDate = nextDate;
+  persistContext();
+  await loadStrategyHypothesisWorkbenchAndRender();
+}
+
+async function clearStrategyHypothesisDateFilter() {
+  state.strategyHypothesisAsOfDate = "";
+  persistContext();
+  syncFormFromState();
+  await loadStrategyHypothesisWorkbenchAndRender();
 }
 
 async function shiftMarketReviewDate(offset) {
@@ -447,7 +505,15 @@ async function refreshAll(options = {}) {
       persistContext();
     }
     await loadDailyReport();
-    await Promise.all([loadPlans(), loadQuality(), loadPositions(), loadMarketReview(), loadOpenExecution()]);
+    await Promise.all([
+      loadPlans(),
+      loadQuality(),
+      loadPositions(),
+      loadMarketReview(),
+      loadOpenExecution(),
+      loadPaperAcceptance(),
+      loadStrategyHypothesisWorkbench(),
+    ]);
     renderAll();
   } catch (error) {
     showNotice(error.message || String(error));
@@ -469,6 +535,25 @@ async function loadDailyReport() {
   state.reportEnvelope = envelope;
   state.report = envelope.data || null;
   syncExecutionDateFromReport();
+}
+
+async function loadPaperAcceptance() {
+  const params = new URLSearchParams();
+  params.set("strategy_version", state.strategyVersion);
+  params.set("request_id", requestId("paper-acceptance"));
+  const accountId = resolvedAccountId();
+  if (accountId) {
+    params.set("account_id", accountId);
+  } else if (state.accountKey) {
+    params.set("account_key", state.accountKey);
+  } else {
+    state.paperAcceptance = state.report?.paper_acceptance || null;
+    state.paperAcceptanceEnvelope = null;
+    return;
+  }
+  const envelope = await apiRequest(`/api/paper-acceptance/${state.asOfDate}?${params.toString()}`);
+  state.paperAcceptanceEnvelope = envelope;
+  state.paperAcceptance = envelope.data || state.report?.paper_acceptance || null;
 }
 
 async function loadReviewHistory() {
@@ -562,6 +647,18 @@ async function loadMarketReview() {
   state.marketHypotheses = hypothesesEnvelope.data?.hypotheses || [];
   state.marketPlanContextEnvelope = planContextEnvelope;
   state.marketPlanContexts = planContextEnvelope.data?.contexts || [];
+}
+
+async function loadStrategyHypothesisWorkbench() {
+  const params = new URLSearchParams();
+  params.set("limit", "50");
+  const status = els.strategyHypothesisStatusFilter.value;
+  if (status) params.set("status", status);
+  const asOfDate = normalizeDate(state.strategyHypothesisAsOfDate);
+  if (/^\d{8}$/.test(asOfDate)) params.set("as_of_date", asOfDate);
+  const envelope = await apiRequest(`/api/strategy-hypotheses/workbench?${params.toString()}`);
+  state.strategyHypothesisWorkbenchEnvelope = envelope;
+  state.strategyHypothesisWorkbench = envelope.data || null;
 }
 
 function latestReviewHistoryDate() {
@@ -664,10 +761,26 @@ async function loadReviewHistoryAndRender() {
   });
 }
 
+async function loadPaperAcceptanceAndRender() {
+  await runWithNotice(async () => {
+    await loadPaperAcceptance();
+    renderPaperAcceptance();
+    renderBadges();
+  });
+}
+
 async function loadMarketReviewAndRender() {
   await runWithNotice(async () => {
     await loadMarketReview();
     renderMarketReview();
+    renderBadges();
+  });
+}
+
+async function loadStrategyHypothesisWorkbenchAndRender() {
+  await runWithNotice(async () => {
+    await loadStrategyHypothesisWorkbench();
+    renderStrategyHypothesisWorkbench();
     renderBadges();
   });
 }
@@ -921,7 +1034,9 @@ function renderAll() {
   renderReviewHistory();
   renderReviewScopeMarkers();
   renderReview();
+  renderPaperAcceptance();
   renderMarketReview();
+  renderStrategyHypothesisWorkbench();
   renderPlans();
   renderRecordQueue();
   renderPositions();
@@ -1596,6 +1711,139 @@ function renderReview() {
   renderAgent();
 }
 
+function renderPaperAcceptance() {
+  const acceptance = paperAcceptanceData();
+  els.acceptanceDateLabel.textContent = acceptance
+    ? `复盘日 ${displayDate(acceptance.as_of_date)} / 执行日 ${displayDate(acceptance.execution_date)}`
+    : `复盘日 ${displayDate(state.asOfDate)}`;
+  if (!acceptance) {
+    els.acceptanceStatusPanel.className = "acceptance-status-panel acceptance-status-panel--warning";
+    els.acceptanceStatusPanel.innerHTML = emptyState("纸盘每日运营验收暂无数据。");
+    els.acceptanceOverviewGrid.innerHTML = "";
+    els.acceptanceGateBody.innerHTML = emptyState("readiness gates 暂无数据。");
+    els.acceptanceBlockerList.innerHTML = emptyState("无法确认未处理 blocker。");
+    return;
+  }
+
+  const blockers = acceptanceBlockerList(acceptance);
+  const warningCount = acceptanceWarningCount(acceptance);
+  const openExecution = acceptance.open_execution || {};
+  els.acceptanceStatusPanel.className = `acceptance-status-panel acceptance-status-panel--${acceptance.status || "warning"}`;
+  els.acceptanceStatusPanel.innerHTML = `
+    <div class="acceptance-status-main">
+      <span class="workflow-guide__kicker">只读验收面板 · Dashboard 不会执行交易</span>
+      <h2>${escapeHtml(acceptanceStatusText(acceptance.status))}</h2>
+      <p>${escapeHtml(acceptance.summary || "纸盘每日运营验收状态待确认。")}</p>
+    </div>
+    ${actionMetrics([
+      ["账户", acceptance.account_key || accountContextText()],
+      ["复盘日", displayDate(acceptance.as_of_date)],
+      ["执行日", displayDate(acceptance.execution_date)],
+      ["open-execution", openExecutionActionText(openExecution.next_action)],
+      ["未处理 blocker", String(blockers.length)],
+      ["advisory 警告", String(warningCount)],
+    ])}
+    <div class="acceptance-actions">
+      <button type="button" data-acceptance-action="execution">查看开盘执行</button>
+      <button type="button" data-acceptance-action="quality">查看数据质量</button>
+      <button type="button" data-acceptance-action="refresh">刷新验收</button>
+    </div>
+  `;
+
+  const overviewGates = [
+    acceptance.data_freshness,
+    acceptance.evidence_coverage,
+    acceptance.agent_status,
+    acceptance.open_execution_gate,
+  ].filter(Boolean);
+  els.acceptanceOverviewGrid.innerHTML = overviewGates.map(acceptanceGateCard).join("");
+
+  const readinessGates = acceptance.readiness_gates || [];
+  els.acceptanceGateBody.innerHTML = readinessGates.length
+    ? readinessGates.map(acceptanceGateCard).join("")
+    : emptyState("readiness gates 暂无数据。");
+
+  els.acceptanceBlockerList.innerHTML = blockers.length
+    ? blockers.map((blocker) => `
+      <div class="list-row">
+        ${chipHtml("blocker", "chip-red")}
+        <span>${escapeHtml(blocker)}</span>
+        <button type="button" data-acceptance-action="quality">定位</button>
+      </div>
+    `).join("")
+    : emptyState("没有未处理 blocker；仍需人工核对开盘检查和成交事实。");
+}
+
+function paperAcceptanceData() {
+  return state.paperAcceptance || state.report?.paper_acceptance || null;
+}
+
+function acceptanceGateCard(gate) {
+  const action = paperAcceptanceAction(gate);
+  const blockers = listValue(gate.blocker_codes);
+  const warnings = listValue(gate.warning_codes);
+  const refs = listValue(gate.source_refs);
+  return `
+    <article class="acceptance-gate acceptance-gate--${escapeHtml(gate.status || "warning")}">
+      <div class="acceptance-gate__head">
+        <strong>${escapeHtml(gate.label || gate.key || "gate")}</strong>
+        ${chipHtml(acceptanceStatusText(gate.status), acceptanceStatusClass(gate.status))}
+      </div>
+      <p>${escapeHtml(gate.summary || "-")}</p>
+      <span>${escapeHtml(gate.detail || "只读 gate，不会触发写入。")}</span>
+      ${blockers.length ? `<div class="acceptance-code-row">${blockers.map((code) => chipHtml(code, "chip-red")).join("")}</div>` : ""}
+      ${warnings.length ? `<div class="acceptance-code-row">${warnings.map((code) => chipHtml(code, "chip-amber")).join("")}</div>` : ""}
+      ${refs.length ? `<div class="acceptance-source-refs">${refs.slice(0, 4).map((ref) => chipHtml(sourceRefText(ref), sourceRefClass(ref))).join("")}</div>` : ""}
+      <button type="button" class="link-button" data-acceptance-action="${escapeHtml(action)}">${escapeHtml(acceptanceActionText(action))}</button>
+    </article>
+  `;
+}
+
+function onAcceptanceActionClick(event) {
+  const button = event.target.closest("button[data-acceptance-action]");
+  if (!button) return;
+  const action = button.dataset.acceptanceAction;
+  if (action === "refresh") loadPaperAcceptanceAndRender();
+  if (action === "quality") setActivePage("quality");
+  if (action === "execution") setActivePage("execution");
+  if (action === "agent") openAgentDrawer();
+  if (action === "market") setActivePage("market");
+}
+
+function paperAcceptanceAction(gate) {
+  const key = String(gate?.key || "");
+  if (key.includes("agent")) return "agent";
+  if (key.includes("evidence") || key.includes("market")) return "market";
+  if (key.includes("open_execution")) return "execution";
+  if (key.includes("data") || key.includes("readiness") || key.includes("ledger")) return "quality";
+  return "execution";
+}
+
+function acceptanceActionText(action) {
+  return {
+    agent: "查看 Agent",
+    execution: "查看开盘执行",
+    market: "查看证据",
+    quality: "查看 blocker",
+    refresh: "刷新验收",
+  }[action] || "查看";
+}
+
+function acceptanceBlockerList(acceptance) {
+  return listValue(acceptance?.unresolved_blockers);
+}
+
+function acceptanceWarningCount(acceptance) {
+  const gates = [
+    acceptance?.data_freshness,
+    acceptance?.evidence_coverage,
+    acceptance?.agent_status,
+    acceptance?.open_execution_gate,
+    ...(acceptance?.readiness_gates || []),
+  ].filter(Boolean);
+  return gates.reduce((count, gate) => count + listValue(gate.warning_codes).length, 0);
+}
+
 function renderReviewTimeline() {
   const items = state.reviewTimeline || [];
   const latestDate = items[0]?.review_date || latestReviewHistoryDate();
@@ -1879,6 +2127,117 @@ function renderMarketReview() {
   renderMarketPlanContext();
   renderMarketSentimentSummary();
   renderMarketHypotheses();
+}
+
+function renderStrategyHypothesisWorkbench() {
+  const workbench = state.strategyHypothesisWorkbench;
+  const evaluations = strategyHypothesisEvaluations();
+  const summary = workbench?.summary || {};
+  const statusFilter = els.strategyHypothesisStatusFilter.value || "全部状态";
+  const dateFilter = state.strategyHypothesisAsOfDate ? displayDate(state.strategyHypothesisAsOfDate) : "全部日期";
+  els.strategyHypothesisWorkbenchState.textContent = evaluations.length
+    ? `${dateFilter} · ${statusFilter} · ${evaluations.length} 条`
+    : `${dateFilter} · ${statusFilter} · 无记录`;
+  renderStrategyHypothesisSummary(summary);
+  renderStrategyHypothesisQueue(evaluations);
+  renderStrategyHypothesisSafety(workbench?.safety || {});
+  renderStrategyHypothesisList(evaluations);
+}
+
+function renderStrategyHypothesisSummary(summary) {
+  const byStatus = summary.by_status || {};
+  els.strategyHypothesisWorkbenchSummary.innerHTML = actionMetrics([
+    ["策略假设", integerText(summary.total || 0)],
+    ["验证中", integerText(byStatus.testing || 0)],
+    ["可进入接受复核", integerText(summary.ready_to_accept_count || 0)],
+    ["待 strategy-version task", integerText(summary.strategy_version_task_required_count || 0)],
+    ["Backtest artifacts", integerText(summary.artifact_count || 0)],
+    ["异常 artifacts", integerText(summary.invalid_artifact_count || 0)],
+  ]);
+}
+
+function renderStrategyHypothesisQueue(evaluations) {
+  const queue = [...evaluations]
+    .filter((evaluation) => !["closed_rejected", "closed_archived"].includes(evaluation.next_action))
+    .sort(strategyHypothesisQueueSort)
+    .slice(0, 6);
+  els.strategyHypothesisQueueState.textContent = queue.length ? `${queue.length} 项待审阅` : "无待审阅项";
+  els.strategyHypothesisQueue.innerHTML = queue.length
+    ? queue.map((evaluation) => {
+      const hypothesis = evaluation.hypothesis || {};
+      return `
+        <article class="hypothesis-queue-card">
+          <div>
+            ${chipHtml(hypothesisNextActionText(evaluation.next_action), hypothesisNextActionClass(evaluation.next_action))}
+            <strong>${escapeHtml(hypothesis.title || `假设 ${hypothesis.hypothesis_id}`)}</strong>
+            <span>${escapeHtml(evaluation.next_action_label || "-")}</span>
+          </div>
+          <button type="button" class="link-button" data-strategy-hypothesis-id="${escapeHtml(hypothesis.hypothesis_id)}">审阅</button>
+        </article>
+      `;
+    }).join("")
+    : emptyState("当前筛选下没有需要推进的策略假设。");
+}
+
+function renderStrategyHypothesisSafety(safety) {
+  els.strategyHypothesisSafetyPanel.innerHTML = `
+    <p class="market-readonly-note">策略假设评估工作台只读：不会修改 active strategy params，不写 trade_plans、trades、positions，也不会改变 paper/live 交易行为。</p>
+    ${actionMetrics([
+      ["read_only", safety.read_only ? "是" : "-"],
+      ["active_params_mutated", safety.active_params_mutated ? "是" : "否"],
+      ["writes_trade_state", safety.writes_trade_state ? "是" : "否"],
+      ["paper/live 行为", safety.writes_paper_live_behavior ? "会改变" : "不改变"],
+      ["accepted 后续", safety.accepted_creates_separate_strategy_version_task ? "单独 proposal" : "-"],
+      ["API", "/api/strategy-hypotheses/workbench"],
+    ])}
+  `;
+}
+
+function renderStrategyHypothesisList(evaluations) {
+  els.strategyHypothesisWorkbenchList.innerHTML = evaluations.length
+    ? evaluations.map(renderStrategyHypothesisCard).join("")
+    : emptyState(errorMessages(state.strategyHypothesisWorkbenchEnvelope || {}).join("；") || "暂无策略假设评估数据。");
+}
+
+function renderStrategyHypothesisCard(evaluation) {
+  const hypothesis = evaluation.hypothesis || {};
+  const gate = evaluation.acceptance_gate || {};
+  const safety = evaluation.safety || {};
+  const artifactCount = (evaluation.backtest_artifacts || []).length;
+  const gateClass = safety.proposed_change_mutates_active_params || safety.artifact_reports_active_param_mutation
+    ? "chip-red"
+    : gate.can_accept
+      ? "chip-green"
+      : gate.accepted_complete
+        ? "chip-blue"
+        : gate.blocks?.length
+          ? "chip-amber"
+          : "chip-neutral";
+  return `
+    <article class="hypothesis-workbench-card">
+      <div class="hypothesis-workbench-card__head">
+        <div>
+          <span class="market-regime-kicker">strategy_hypotheses · ${escapeHtml(hypothesis.hypothesis_type || "-")}</span>
+          <strong>${escapeHtml(hypothesis.title || `假设 ${hypothesis.hypothesis_id}`)}</strong>
+        </div>
+        <div class="hypothesis-chip-stack">
+          ${chipHtml(hypothesisStatusText(hypothesis.status), hypothesisStatusClass(hypothesis.status))}
+          ${chipHtml(hypothesisNextActionText(evaluation.next_action), hypothesisNextActionClass(evaluation.next_action))}
+        </div>
+      </div>
+      <p>${escapeHtml(hypothesis.rationale || "暂无 rationale。")}</p>
+      <div class="hypothesis-gate-strip">
+        ${chipHtml(gate.has_validation_evidence ? "evidence 已附" : "缺 validation evidence", gate.has_validation_evidence ? "chip-green" : "chip-amber")}
+        ${chipHtml(artifactCount ? `${artifactCount} artifact` : "缺 backtest artifact", artifactCount ? "chip-blue" : "chip-amber")}
+        ${chipHtml(gate.backtest_artifacts_valid ? "artifact 有效" : "artifact 待确认", gate.backtest_artifacts_valid ? "chip-green" : "chip-neutral")}
+        ${chipHtml(gate.can_accept ? "可接受复核" : gate.accepted_complete ? "accepted 完整" : "gate 未完成", gateClass)}
+      </div>
+      <div class="row-actions">
+        <button type="button" data-strategy-hypothesis-id="${escapeHtml(hypothesis.hypothesis_id)}">评估详情</button>
+        <button type="button" data-page-jump="market">回到全市场</button>
+      </div>
+    </article>
+  `;
 }
 
 function renderMarketScopeMarkers() {
@@ -2614,12 +2973,16 @@ function renderQuality() {
 
 function renderBadges() {
   const blockers = blockingEvents().length;
+  const acceptance = paperAcceptanceData();
+  const acceptanceBlockers = acceptanceBlockerList(acceptance).length;
   const activePlans = state.tradePlans.filter((plan) => plan.status === "active").length;
   const draftPlans = state.tradePlans.filter((plan) => plan.status === "draft").length;
   const due = duePositions().length;
   els.executionBadge.textContent = String(todaysBuyPlans().filter((plan) => plan.status === "active").length + due);
   els.reviewBadge.textContent = blockers ? String(blockers) : state.report?.buy_plan ? "1" : "0";
   els.marketBadge.textContent = state.marketReview?.exists ? String(state.marketSectors.length || 1) : "0";
+  els.acceptanceBadge.textContent = acceptanceBlockers ? String(acceptanceBlockers) : acceptanceStatusText(acceptance?.status);
+  els.hypothesesBadge.textContent = String(state.strategyHypothesisWorkbench?.summary?.total || 0);
   els.plansBadge.textContent = String(activePlans + draftPlans);
   els.recordBadge.textContent = String(activePlans + due);
   els.positionsBadge.textContent = String(state.positions.length);
@@ -2720,6 +3083,18 @@ function onMarketHypothesisClick(event) {
   if (!button) return;
   const hypothesis = findMarketHypothesis(Number(button.dataset.marketHypothesisId));
   if (hypothesis) openMarketHypothesisDrawer(hypothesis);
+}
+
+function onStrategyHypothesisWorkbenchClick(event) {
+  const pageButton = event.target.closest("button[data-page-jump]");
+  if (pageButton) {
+    setActivePage(pageButton.dataset.pageJump);
+    return;
+  }
+  const button = event.target.closest("button[data-strategy-hypothesis-id]");
+  if (!button) return;
+  const evaluation = findStrategyHypothesisEvaluation(Number(button.dataset.strategyHypothesisId));
+  if (evaluation) openStrategyHypothesisEvaluationDrawer(evaluation);
 }
 
 function onDrawerActionClick(event) {
@@ -3093,6 +3468,7 @@ function openMarketNewsDrawer(scopeType = "", scopeKey = "") {
 }
 
 function openMarketHypothesisDrawer(hypothesis) {
+  const evaluation = findStrategyHypothesisEvaluation(hypothesis.hypothesis_id);
   openDetailDrawer({
     kicker: "策略假设",
     title: hypothesis.title || `假设 ${hypothesis.hypothesis_id}`,
@@ -3102,15 +3478,65 @@ function openMarketHypothesisDrawer(hypothesis) {
       [dash(hypothesis.hypothesis_type), "chip-neutral"],
       [`复盘日 ${displayDate(hypothesis.as_of_date)}`, "chip-neutral"],
     ],
+    actions: [
+      { label: "评估工作台", action: "page", page: "hypotheses" },
+    ],
     sections: [
       detailSection("假设摘要", detailRows([
         ["假设 ID", hypothesis.hypothesis_id],
         ["状态", hypothesisStatusText(hypothesis.status)],
         ["创建时间", displayTimestamp(hypothesis.created_at)],
         ["Rationale", hypothesis.rationale || "-"],
+        ["评估状态", evaluation ? hypothesisNextActionText(evaluation.next_action) : "未加载评估工作台"],
       ])),
       detailSection("证据", marketObjectRows(hypothesis.evidence)),
       detailSection("拟议变更", marketObjectRows(hypothesis.proposed_change)),
+      evaluation ? detailSection("评估 gate", strategyHypothesisGateRows(evaluation)) : "",
+    ],
+  });
+}
+
+function openStrategyHypothesisEvaluationDrawer(evaluation) {
+  const hypothesis = evaluation.hypothesis || {};
+  const gate = evaluation.acceptance_gate || {};
+  const safety = evaluation.safety || {};
+  openDetailDrawer({
+    kicker: "策略假设评估",
+    title: hypothesis.title || `假设 ${hypothesis.hypothesis_id}`,
+    subtitle: "评估工作台只读审阅 evidence/backtest artifact；accepted 仍需单独 strategy-version proposal。",
+    meta: [
+      [hypothesisStatusText(hypothesis.status), hypothesisStatusClass(hypothesis.status)],
+      [hypothesisNextActionText(evaluation.next_action), hypothesisNextActionClass(evaluation.next_action)],
+      [`复盘日 ${displayDate(hypothesis.as_of_date)}`, "chip-neutral"],
+    ],
+    actions: [
+      { label: "假设评估页", action: "page", page: "hypotheses" },
+      { label: "全市场页", action: "page", page: "market" },
+    ],
+    sections: [
+      detailSection("Acceptance gate", strategyHypothesisGateRows(evaluation)),
+      detailSection("假设摘要", detailRows([
+        ["假设 ID", hypothesis.hypothesis_id],
+        ["类型", hypothesis.hypothesis_type],
+        ["状态", hypothesisStatusText(hypothesis.status)],
+        ["创建时间", displayTimestamp(hypothesis.created_at)],
+        ["下一步", evaluation.next_action_label || "-"],
+        ["Rationale", hypothesis.rationale || "-"],
+      ])),
+      detailSection("Backtest artifacts", strategyHypothesisArtifactRows(evaluation.backtest_artifacts || [])),
+      detailSection("Validation events", strategyHypothesisValidationEvents(evaluation.validation_events || [])),
+      detailSection("Safety", detailRows([
+        ["只读评估", safety.read_only_evaluation ? "是" : "-"],
+        ["拟议变更是否改 active params", safety.proposed_change_mutates_active_params ? "是" : "否"],
+        ["artifact 是否报告 active param mutation", safety.artifact_reports_active_param_mutation ? "是" : "否"],
+        ["本工作台写交易状态", safety.writes_trade_state ? "是" : "否"],
+        ["本工作台改变 paper/live", safety.writes_paper_live_behavior ? "是" : "否"],
+      ])),
+      detailSection("证据", marketObjectRows(hypothesis.evidence)),
+      detailSection("拟议变更", marketObjectRows(hypothesis.proposed_change)),
+      evaluation.strategy_version_task
+        ? detailSection("未来 strategy-version task", marketObjectRows(evaluation.strategy_version_task))
+        : "",
     ],
   });
 }
@@ -3761,6 +4187,103 @@ function findMarketHypothesis(id) {
   return (state.marketHypotheses || []).find((item) => Number(item.hypothesis_id) === Number(id));
 }
 
+function strategyHypothesisEvaluations() {
+  return state.strategyHypothesisWorkbench?.hypotheses || [];
+}
+
+function findStrategyHypothesisEvaluation(id) {
+  return strategyHypothesisEvaluations().find((item) => Number(item.hypothesis?.hypothesis_id) === Number(id));
+}
+
+function strategyHypothesisQueueSort(a, b) {
+  const priority = {
+    reject_or_rewrite: 0,
+    ready_to_accept: 1,
+    fix_backtest_artifact: 2,
+    create_backtest_artifact: 3,
+    attach_validation_evidence: 4,
+    move_to_testing: 5,
+    strategy_version_task_required: 6,
+  };
+  const aPriority = priority[a.next_action] ?? 99;
+  const bPriority = priority[b.next_action] ?? 99;
+  if (aPriority !== bPriority) return aPriority - bPriority;
+  return String(b.hypothesis?.as_of_date || "").localeCompare(String(a.hypothesis?.as_of_date || ""));
+}
+
+function strategyHypothesisGateRows(evaluation) {
+  const gate = evaluation.acceptance_gate || {};
+  return detailRows([
+    ["can_accept", gate.can_accept ? "是" : "否"],
+    ["accepted_complete", gate.accepted_complete ? "是" : "否"],
+    ["testing_required", gate.testing_required ? "是" : "否"],
+    ["has_validation_evidence", gate.has_validation_evidence ? "是" : "否"],
+    ["has_backtest_artifact", gate.has_backtest_artifact ? "是" : "否"],
+    ["backtest_artifacts_valid", gate.backtest_artifacts_valid ? "是" : "否"],
+    ["requires_replay_backtest", gate.requires_replay_backtest ? "是" : "否"],
+    ["blocks", listValue(gate.blocks).join(" / ") || "无"],
+    ["evidence_ids", listValue(evaluation.evidence_ids).join(" / ") || "-"],
+  ]);
+}
+
+function strategyHypothesisArtifactRows(artifacts) {
+  if (!artifacts.length) return emptyState("暂无 backtest artifact；接受前必须创建或附加 replay/backtest request artifact。");
+  return `
+    <div class="table-wrap market-leadership-table">
+      <table>
+        <thead>
+          <tr>
+            <th>路径</th>
+            <th>状态</th>
+            <th>假设 ID</th>
+            <th>任务 key</th>
+            <th>错误</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${artifacts.map((artifact) => `
+            <tr>
+              <td>${escapeHtml(artifact.path || "-")}</td>
+              <td>${chipHtml(artifact.valid ? "有效" : artifact.exists ? "无效" : "缺失", artifact.valid ? "chip-green" : "chip-red")}</td>
+              <td>${dash(artifact.hypothesis_id)}</td>
+              <td>${escapeHtml(artifact.backtest_task_key || "-")}</td>
+              <td>${escapeHtml(artifact.error || "-")}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function strategyHypothesisValidationEvents(events) {
+  if (!events.length) return emptyState("暂无 review_events；状态流转和验证记录会显示在这里。");
+  return `
+    <div class="table-wrap market-leadership-table">
+      <table>
+        <thead>
+          <tr>
+            <th>流转</th>
+            <th>操作者</th>
+            <th>时间</th>
+            <th>备注</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${events.map((event) => `
+            <tr>
+              <td>${escapeHtml(`${dash(event.from_status)} → ${dash(event.to_status)}`)}</td>
+              <td>${escapeHtml(event.operator || "-")}</td>
+              <td>${displayTimestamp(event.created_at)}</td>
+              <td>${escapeHtml(event.review_note || "-")}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
 function marketItemsForScope(scopeType, scopeKey) {
   const normalizedType = String(scopeType || "").toLowerCase();
   const normalizedKey = String(scopeKey || "");
@@ -3931,7 +4454,7 @@ function defaultReviewDate() {
 
 function initialPage() {
   const page = String(window.location.hash || "").replace(/^#/, "");
-  return ["execution", "review", "market", "plans", "record", "positions", "quality", "agent"].includes(page)
+  return ["execution", "review", "market", "acceptance", "hypotheses", "plans", "record", "positions", "quality", "agent"].includes(page)
     ? page
     : "execution";
 }
@@ -4047,6 +4570,22 @@ function promotionReadinessClass(value) {
   if (value === "warning") return "chip-amber";
   if (value === "blocked") return "chip-red";
   return "chip-neutral";
+}
+
+function acceptanceStatusText(value) {
+  return {
+    pass: "通过",
+    warning: "警告",
+    blocked: "阻断",
+  }[value] || "-";
+}
+
+function acceptanceStatusClass(value) {
+  return {
+    pass: "chip-green",
+    warning: "chip-amber",
+    blocked: "chip-red",
+  }[value] || "chip-neutral";
 }
 
 function statusText(value) {
@@ -4246,6 +4785,38 @@ function hypothesisStatusClass(value) {
     accepted: "chip-green",
     rejected: "chip-red",
     archived: "chip-neutral",
+  }[value] || "chip-neutral";
+}
+
+function hypothesisNextActionText(value) {
+  return {
+    move_to_testing: "进入 testing",
+    create_backtest_artifact: "创建回测 artifact",
+    attach_validation_evidence: "补验证证据",
+    fix_backtest_artifact: "修复 artifact",
+    continue_testing: "继续验证",
+    ready_to_accept: "可接受复核",
+    strategy_version_task_required: "单独策略版本任务",
+    reject_or_rewrite: "拒绝或重写",
+    closed_rejected: "已关闭：拒绝",
+    closed_archived: "已关闭：归档",
+    review: "人工审阅",
+  }[value] || dash(value);
+}
+
+function hypothesisNextActionClass(value) {
+  return {
+    move_to_testing: "chip-blue",
+    create_backtest_artifact: "chip-amber",
+    attach_validation_evidence: "chip-amber",
+    fix_backtest_artifact: "chip-red",
+    continue_testing: "chip-amber",
+    ready_to_accept: "chip-green",
+    strategy_version_task_required: "chip-indigo",
+    reject_or_rewrite: "chip-red",
+    closed_rejected: "chip-neutral",
+    closed_archived: "chip-neutral",
+    review: "chip-neutral",
   }[value] || "chip-neutral";
 }
 

@@ -4,8 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>PGC 操作台</title>
-    <link rel="stylesheet" href="/dashboard/assets/styles.css?v=20260509-m51-timeline-1" />
-    <script defer src="/dashboard/assets/app.js?v=20260509-m51-timeline-1"></script>
+    <link rel="stylesheet" href="/dashboard/assets/styles.css?v=20260510-m57-acceptance-1" />
+    <script defer src="/dashboard/assets/app.js?v=20260510-m57-acceptance-1"></script>
   </head>
   <body>
     <div class="app-shell">
@@ -39,6 +39,20 @@
             </span>
             <span>全市场</span>
             <b id="marketBadge">0</b>
+          </button>
+          <button class="nav-item" type="button" data-page-button="acceptance">
+            <span class="nav-glyph">
+              <img src="/dashboard/assets/icon-connect.svg" alt="" aria-hidden="true" />
+            </span>
+            <span>运营验收</span>
+            <b id="acceptanceBadge">-</b>
+          </button>
+          <button class="nav-item" type="button" data-page-button="hypotheses">
+            <span class="nav-glyph">
+              <img src="/dashboard/assets/icon-speech-bubble.svg" alt="" aria-hidden="true" />
+            </span>
+            <span>假设评估</span>
+            <b id="hypothesesBadge">0</b>
           </button>
           <button class="nav-item" type="button" data-page-button="plans">
             <span class="nav-glyph">
@@ -371,6 +385,40 @@
           </section>
         </section>
 
+        <section class="page" data-page="acceptance">
+          <div class="page-heading">
+            <div>
+              <h1>纸盘每日运营验收</h1>
+              <p>单日只读验收视图：数据新鲜度、证据覆盖、Agent 状态、open-execution 状态、readiness gates 和未处理 blocker。</p>
+            </div>
+            <div class="toolbar">
+              <span id="acceptanceDateLabel" class="review-scope-chip">复盘日 -</span>
+              <button type="button" id="reloadAcceptanceButton">刷新验收</button>
+            </div>
+          </div>
+
+          <section class="acceptance-status-panel acceptance-status-panel--warning" id="acceptanceStatusPanel" aria-live="polite"></section>
+
+          <section class="acceptance-overview-grid" id="acceptanceOverviewGrid" aria-label="运营验收核心 gate"></section>
+
+          <section class="split-panels acceptance-detail-grid">
+            <div class="panel">
+              <div class="panel-heading">
+                <h2>readiness gates</h2>
+                <span class="chip chip-agent">只读验收面板</span>
+              </div>
+              <div id="acceptanceGateBody" class="acceptance-gate-list"></div>
+            </div>
+            <div class="panel">
+              <div class="panel-heading">
+                <h2>未处理 blocker</h2>
+                <span class="muted">不会自动取消或执行计划</span>
+              </div>
+              <div id="acceptanceBlockerList" class="compact-list"></div>
+            </div>
+          </section>
+        </section>
+
         <section class="page" data-page="market">
           <div class="page-heading">
             <div>
@@ -446,10 +494,69 @@
             <div class="panel">
               <div class="panel-heading">
                 <h2>策略假设</h2>
-                <span id="marketHypothesisState" class="muted">-</span>
+                <div class="panel-heading-actions">
+                  <span id="marketHypothesisState" class="muted">-</span>
+                  <button type="button" class="link-button" data-page-jump="hypotheses">打开评估工作台</button>
+                </div>
               </div>
               <div id="marketHypothesesList" class="market-hypotheses-list"></div>
             </div>
+          </section>
+        </section>
+
+        <section class="page" data-page="hypotheses">
+          <div class="page-heading">
+            <div>
+              <h1>假设评估</h1>
+              <p>策略假设评估工作台：审阅 evidence、backtest artifact 和 acceptance gate；accepted 只代表研究结论，后续必须单独创建 strategy-version proposal。</p>
+            </div>
+            <div class="toolbar">
+              <label class="review-date-field">
+                <span>假设日期</span>
+                <input id="strategyHypothesisDateInput" type="date" autocomplete="off" />
+              </label>
+              <select id="strategyHypothesisStatusFilter" aria-label="策略假设状态筛选">
+                <option value="">全部状态</option>
+                <option value="proposed">待验证</option>
+                <option value="testing">验证中</option>
+                <option value="accepted">已接受</option>
+                <option value="rejected">已拒绝</option>
+                <option value="archived">已归档</option>
+              </select>
+              <button type="button" id="strategyHypothesisClearDateButton">查看全部日期</button>
+              <button type="button" id="reloadStrategyHypothesesButton">刷新评估台</button>
+            </div>
+          </div>
+
+          <section class="hypothesis-workbench-summary" id="strategyHypothesisWorkbenchSummary" aria-live="polite"></section>
+
+          <div class="hypothesis-workbench-grid">
+            <section class="panel">
+              <div class="panel-heading">
+                <h2>验证队列</h2>
+                <span id="strategyHypothesisQueueState" class="muted">-</span>
+              </div>
+              <div id="strategyHypothesisQueue" class="hypothesis-queue"></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <h2>安全边界</h2>
+                <span class="chip chip-agent">只读</span>
+              </div>
+              <div id="strategyHypothesisSafetyPanel" class="hypothesis-safety-panel"></div>
+            </section>
+          </div>
+
+          <section class="panel hypothesis-list-panel">
+            <div class="panel-heading">
+              <h2>假设列表</h2>
+              <div class="panel-heading-actions">
+                <span id="strategyHypothesisWorkbenchState" class="muted">-</span>
+                <span class="chip chip-neutral">不修改 paper/live 行为</span>
+              </div>
+            </div>
+            <div id="strategyHypothesisWorkbenchList" class="hypothesis-workbench-list"></div>
           </section>
         </section>
 

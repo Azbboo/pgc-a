@@ -9,6 +9,7 @@ from pgc_trading.api.routes import (
     get_open_execution,
     get_market_review,
     get_market_review_plan_context,
+    get_paper_acceptance,
     list_account_positions,
     list_data_quality_events,
     list_daily_reviews,
@@ -17,6 +18,7 @@ from pgc_trading.api.routes import (
     list_market_review_hypotheses,
     list_market_review_sectors,
     list_market_reviews,
+    list_strategy_hypothesis_workbench,
     list_trade_plans,
 )
 from pgc_trading.api.services import ApiServices
@@ -42,6 +44,20 @@ class _FakeReportService:
             request_id=ctx.request_id,
             data={"as_of_date": request.as_of_date, "account_id": request.account_id},
             lineage={"account_id": request.account_id},
+        )
+
+    def get_daily_acceptance(self, request, ctx):
+        self.calls.append((self.db_path, request, ctx))
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data={
+                "as_of_date": request.as_of_date,
+                "account_id": request.account_id,
+                "status": "blocked",
+                "open_execution": {"next_action": "record_buy"},
+            },
+            lineage={"account_id": request.account_id, "acceptance_status": "blocked"},
         )
 
     def list_daily_review_history(self, request, ctx):
@@ -145,6 +161,26 @@ class _FakeMarketReviewReadService:
         )
 
 
+class _FakeStrategyEvolutionService:
+    calls: list[tuple[Path, object, object]] = []
+
+    def __init__(self, db_path: Path):
+        self.db_path = db_path
+
+    def evaluate_hypotheses(self, request, ctx):
+        self.calls.append((self.db_path, request, ctx))
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data={
+                "summary": {"total": 1},
+                "source": {"as_of_date": request.as_of_date, "status": request.status, "limit": request.limit},
+                "safety": {"read_only": True, "active_params_mutated": False},
+                "hypotheses": [],
+            },
+        )
+
+
 class _FakePositionService:
     calls: list[tuple[Path, object, object]] = []
 
@@ -214,6 +250,7 @@ class ApiReadRoutesTest(unittest.TestCase):
         _FakeReportService.calls = []
         _FakeDataQualityService.calls = []
         _FakeMarketReviewReadService.calls = []
+        _FakeStrategyEvolutionService.calls = []
         _FakeOpenExecutionService.calls = []
         _FakePositionService.calls = []
         _FakePortfolioService.calls = []
@@ -222,6 +259,7 @@ class ApiReadRoutesTest(unittest.TestCase):
             report_service_factory=_FakeReportService,
             data_quality_service_factory=_FakeDataQualityService,
             market_review_service_factory=_FakeMarketReviewReadService,
+            strategy_evolution_service_factory=_FakeStrategyEvolutionService,
             open_execution_service_factory=_FakeOpenExecutionService,
             portfolio_planning_service_factory=_FakePortfolioService,
             position_lifecycle_service_factory=_FakePositionService,
@@ -249,6 +287,31 @@ class ApiReadRoutesTest(unittest.TestCase):
         self.assertEqual(request.account_id, 3)
         self.assertTrue(ctx.dry_run)
         self.assertEqual(ctx.source, "api")
+
+    def test_paper_acceptance_route_normalizes_date_and_uses_api_context(self) -> None:
+        response = _Response()
+
+        payload = get_paper_acceptance(
+            self.settings,
+            self.services,
+            response,
+            as_of_date="2026-05-04",
+            account_key=None,
+            account_id=3,
+            request_id="req-api-acceptance",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["data"]["status"], "blocked")
+        self.assertEqual(payload["data"]["open_execution"]["next_action"], "record_buy")
+        db_path, request, ctx = _FakeReportService.calls[0]
+        self.assertEqual(db_path, self.settings.db_path)
+        self.assertEqual(request.as_of_date, "20260504")
+        self.assertEqual(request.account_id, 3)
+        self.assertTrue(ctx.dry_run)
+        self.assertEqual(ctx.source, "api")
+        self.assertEqual(ctx.request_id, "req-api-acceptance")
 
     def test_daily_review_history_route_passes_filters_to_reporting_service(self) -> None:
         response = _Response()
@@ -391,6 +454,32 @@ class ApiReadRoutesTest(unittest.TestCase):
         self.assertIn("missing_data", payload["data"])
         self.assertIn("market_review_runs", payload["data"]["missing_data"])
         self.assertFalse(payload["data"]["coverage"]["has_review"])
+
+    def test_strategy_hypothesis_workbench_route_is_read_only_and_filterable(self) -> None:
+        response = _Response()
+
+        payload = list_strategy_hypothesis_workbench(
+            self.settings,
+            self.services,
+            response,
+            status="testing",
+            as_of_date="2026-05-08",
+            limit=12,
+            request_id="req-hypothesis-workbench",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["data"]["source"]["as_of_date"], "20260508")
+        self.assertTrue(payload["data"]["safety"]["read_only"])
+        db_path, request, ctx = _FakeStrategyEvolutionService.calls[0]
+        self.assertEqual(db_path, self.settings.db_path)
+        self.assertEqual(request.status, "testing")
+        self.assertEqual(request.as_of_date, "20260508")
+        self.assertEqual(request.limit, 12)
+        self.assertTrue(ctx.dry_run)
+        self.assertEqual(ctx.source, "api")
+        self.assertEqual(ctx.request_id, "req-hypothesis-workbench")
 
     def test_data_quality_route_passes_read_filters(self) -> None:
         response = _Response()

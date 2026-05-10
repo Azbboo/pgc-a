@@ -73,6 +73,44 @@ class ImportAgentExternalDataResult:
 
 
 @dataclass(frozen=True)
+class BackfillAgentExternalDataRequest:
+    source_files: list[Path]
+    encoding: str = "utf-8"
+    default_provider: str | None = None
+
+
+@dataclass(frozen=True)
+class AgentExternalBackfillDateResult:
+    as_of_date: str
+    source_files: list[str]
+    row_count: int
+    valid_count: int
+    invalid_count: int
+    would_insert_count: int
+    would_update_count: int
+    inserted_count: int
+    updated_count: int
+    coverage_summary: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class BackfillAgentExternalDataResult:
+    file_count: int
+    date_count: int
+    row_count: int
+    valid_count: int
+    invalid_count: int
+    would_insert_count: int
+    would_update_count: int
+    inserted_count: int
+    updated_count: int
+    coverage_qa: dict[str, Any]
+    provider_file_contract: str = AGENT_EXTERNAL_PROVIDER_FILE_CONTRACT
+    date_results: list[AgentExternalBackfillDateResult] = field(default_factory=list)
+    invalid_records: list[AgentExternalDataValidationIssue] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class _PreparedExternalItem:
     ts_code: str
     published_date: str
@@ -93,6 +131,15 @@ class _AgentCoverageItem:
     item_type: str
     sentiment: str
     published_date: str
+
+
+@dataclass(frozen=True)
+class _AgentExternalBackfillBatch:
+    as_of_date: str
+    source_files: list[Path]
+    row_count: int
+    prepared: list[_PreparedExternalItem]
+    invalid_records: list[AgentExternalDataValidationIssue]
 
 
 class AgentExternalDataService:
@@ -205,6 +252,135 @@ class AgentExternalDataService:
             lineage={"source_file": str(request.source_file) if request.source_file else None},
         )
 
+    def backfill_external_data(
+        self,
+        request: BackfillAgentExternalDataRequest,
+        ctx: RequestContext,
+    ) -> ServiceResult[BackfillAgentExternalDataResult]:
+        source_files = [Path(path) for path in request.source_files]
+        if not source_files:
+            return _agent_backfill_failed_result(
+                ctx,
+                db_path=self.db_path,
+                file_count=0,
+                batches=[],
+                invalid_records=[],
+                errors=[ServiceError("VALIDATION_ERROR", "at least one source_file is required for backfill.")],
+                preview_counts={},
+            )
+
+        batches_by_date: dict[str, _AgentExternalBackfillBatch] = {}
+        errors: list[ServiceError] = []
+        for source_file in source_files:
+            records_result = _load_request_records(
+                ImportAgentExternalDataRequest(
+                    source_file=source_file,
+                    encoding=request.encoding,
+                    default_provider=request.default_provider,
+                )
+            )
+            if isinstance(records_result, ServiceError):
+                errors.append(records_result)
+                continue
+
+            records = records_result
+            prepared, invalid_records = _prepare_records(records)
+            coverage_as_of_date = _coverage_as_of_date(
+                ImportAgentExternalDataRequest(
+                    source_file=source_file,
+                    encoding=request.encoding,
+                    default_provider=request.default_provider,
+                ),
+                records,
+            )
+            if coverage_as_of_date is None or not _is_yyyymmdd(coverage_as_of_date):
+                errors.append(
+                    ServiceError(
+                        "MISSING_BACKFILL_AS_OF_DATE",
+                        f"source_file must include a valid as_of_date/date/trade_date for backfill: {source_file}",
+                    )
+                )
+                continue
+            if invalid_records:
+                errors.extend(_service_errors_for_issues(invalid_records))
+
+            existing_batch = batches_by_date.get(coverage_as_of_date)
+            if existing_batch is None:
+                batches_by_date[coverage_as_of_date] = _AgentExternalBackfillBatch(
+                    as_of_date=coverage_as_of_date,
+                    source_files=[source_file],
+                    row_count=len(records),
+                    prepared=prepared,
+                    invalid_records=invalid_records,
+                )
+            else:
+                batches_by_date[coverage_as_of_date] = _AgentExternalBackfillBatch(
+                    as_of_date=coverage_as_of_date,
+                    source_files=[*existing_batch.source_files, source_file],
+                    row_count=existing_batch.row_count + len(records),
+                    prepared=[*existing_batch.prepared, *prepared],
+                    invalid_records=[*existing_batch.invalid_records, *invalid_records],
+                )
+
+        batches = [batches_by_date[date] for date in sorted(batches_by_date)]
+        preview_counts = _preview_backfill_upserts(self.db_path, batches)
+        if errors:
+            return _agent_backfill_failed_result(
+                ctx,
+                db_path=self.db_path,
+                file_count=len(source_files),
+                batches=batches,
+                invalid_records=[
+                    issue
+                    for batch in batches
+                    for issue in batch.invalid_records
+                ],
+                errors=errors,
+                preview_counts=preview_counts,
+            )
+
+        if ctx.dry_run:
+            return ServiceResult(
+                status="success",
+                request_id=ctx.request_id,
+                data=_build_agent_backfill_result(
+                    self.db_path,
+                    file_count=len(source_files),
+                    batches=batches,
+                    preview_counts=preview_counts,
+                    write_counts={date: (0, 0) for date in preview_counts},
+                    invalid_records=[],
+                ),
+                lineage={"source_files": str(len(source_files))},
+            )
+
+        write_counts: dict[str, tuple[int, int]] = {}
+        item_ids: list[int] = []
+        with connect(self.db_path) as conn:
+            conn.execute("BEGIN")
+            try:
+                write_counts, item_ids = _upsert_backfill_items(conn, batches)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data=_build_agent_backfill_result(
+                self.db_path,
+                file_count=len(source_files),
+                batches=batches,
+                preview_counts=preview_counts,
+                write_counts=write_counts,
+                invalid_records=[],
+                use_persisted_coverage=True,
+            ),
+            created_ids={"agent_external_items": item_ids},
+            lineage={"source_files": str(len(source_files))},
+        )
+
     def summarize_coverage(
         self,
         as_of_date: str | None,
@@ -303,6 +479,65 @@ def build_agent_external_coverage_summary(
         "fresh_count": _agent_fresh_count(items, as_of_date),
         "stale_count": _agent_stale_count(items, as_of_date),
         "by_item_type": by_item_type,
+    }
+
+
+def build_agent_external_backfill_coverage_qa(
+    date_results: Sequence[AgentExternalBackfillDateResult],
+) -> dict[str, Any]:
+    dates = [result.as_of_date for result in date_results]
+    missing_item_type_dates = {
+        item_type: [
+            result.as_of_date
+            for result in date_results
+            if item_type in result.coverage_summary.get("missing_item_types", [])
+        ]
+        for item_type in ("fundamental", "announcement", "news", "sentiment")
+    }
+    stale_dates = [
+        result.as_of_date
+        for result in date_results
+        if result.coverage_summary.get("freshness") in {"stale", "partial"}
+    ]
+    duplicate_dates = [
+        result.as_of_date
+        for result in date_results
+        if int(result.coverage_summary.get("duplicate_count") or 0) > 0
+    ]
+    invalid_dates = [result.as_of_date for result in date_results if result.invalid_count > 0]
+    blocking_dates = sorted(
+        set(
+            invalid_dates
+            + stale_dates
+            + duplicate_dates
+            + [
+                date
+                for dates_for_type in missing_item_type_dates.values()
+                for date in dates_for_type
+            ]
+        )
+    )
+    return {
+        "date_count": len(date_results),
+        "dates": dates,
+        "ready_dates": [date for date in dates if date not in blocking_dates],
+        "blocking_dates": blocking_dates,
+        "invalid_dates": invalid_dates,
+        "duplicate_dates": duplicate_dates,
+        "stale_dates": stale_dates,
+        "missing_item_type_dates": missing_item_type_dates,
+        "freshness_by_date": {
+            result.as_of_date: result.coverage_summary.get("freshness", "unknown")
+            for result in date_results
+        },
+        "stock_count_by_date": {
+            result.as_of_date: result.coverage_summary.get("stock_count", 0)
+            for result in date_results
+        },
+        "total_count_by_date": {
+            result.as_of_date: result.coverage_summary.get("total_count", 0)
+            for result in date_results
+        },
     }
 
 
@@ -1023,6 +1258,27 @@ def _preview_upserts(db_path: Path, prepared: list[_PreparedExternalItem]) -> tu
     return insert_count, update_count
 
 
+def _preview_backfill_upserts(
+    db_path: Path,
+    batches: Sequence[_AgentExternalBackfillBatch],
+) -> dict[str, tuple[int, int]]:
+    counts: dict[str, tuple[int, int]] = {}
+    seen_in_batch: set[tuple[str, str]] = set()
+    with connect(db_path) as conn:
+        for batch in batches:
+            insert_count = 0
+            update_count = 0
+            for item in batch.prepared:
+                key = (item.provider, item.source_hash)
+                if key in seen_in_batch or _find_existing_item_id(conn, item) is not None:
+                    update_count += 1
+                else:
+                    insert_count += 1
+                seen_in_batch.add(key)
+            counts[batch.as_of_date] = (insert_count, update_count)
+    return counts
+
+
 def _find_existing_item_id(conn: sqlite3.Connection, item: _PreparedExternalItem) -> int | None:
     row = conn.execute(
         """
@@ -1083,6 +1339,32 @@ def _upsert_external_item(conn: sqlite3.Connection, item: _PreparedExternalItem)
     if item_id is None:  # pragma: no cover - defensive guard around SQLite upsert behavior
         raise RuntimeError("agent_external_items upsert did not return a row.")
     return item_id
+
+
+def _upsert_backfill_items(
+    conn: sqlite3.Connection,
+    batches: Sequence[_AgentExternalBackfillBatch],
+) -> tuple[dict[str, tuple[int, int]], list[int]]:
+    counts: dict[str, tuple[int, int]] = {}
+    item_ids: list[int] = []
+    seen_in_batch: set[tuple[str, str]] = set()
+
+    for batch in batches:
+        inserted_count = 0
+        updated_count = 0
+        for item in batch.prepared:
+            key = (item.provider, item.source_hash)
+            existing_id = _find_existing_item_id(conn, item)
+            item_id = _upsert_external_item(conn, item)
+            item_ids.append(item_id)
+            if key in seen_in_batch or existing_id is not None:
+                updated_count += 1
+            else:
+                inserted_count += 1
+            seen_in_batch.add(key)
+        counts[batch.as_of_date] = (inserted_count, updated_count)
+
+    return counts, item_ids
 
 
 def _coverage_as_of_date(request: ImportAgentExternalDataRequest, records: list[Mapping[str, Any]]) -> str | None:
@@ -1190,6 +1472,97 @@ def _validation_failed_result(
             invalid_records=invalid_records,
         ),
         errors=errors,
+    )
+
+
+def _agent_backfill_failed_result(
+    ctx: RequestContext,
+    *,
+    db_path: Path,
+    file_count: int,
+    batches: Sequence[_AgentExternalBackfillBatch],
+    invalid_records: list[AgentExternalDataValidationIssue],
+    errors: list[ServiceError],
+    preview_counts: dict[str, tuple[int, int]],
+) -> ServiceResult[BackfillAgentExternalDataResult]:
+    return ServiceResult(
+        status="validation_failed",
+        request_id=ctx.request_id,
+        data=_build_agent_backfill_result(
+            db_path,
+            file_count=file_count,
+            batches=batches,
+            preview_counts=preview_counts,
+            write_counts={date: (0, update_count) for date, (_, update_count) in preview_counts.items()},
+            invalid_records=invalid_records,
+        ),
+        errors=errors,
+    )
+
+
+def _build_agent_backfill_result(
+    db_path: Path,
+    *,
+    file_count: int,
+    batches: Sequence[_AgentExternalBackfillBatch],
+    preview_counts: dict[str, tuple[int, int]],
+    write_counts: dict[str, tuple[int, int]],
+    invalid_records: list[AgentExternalDataValidationIssue],
+    use_persisted_coverage: bool = False,
+) -> BackfillAgentExternalDataResult:
+    date_results: list[AgentExternalBackfillDateResult] = []
+    with connect(db_path) as conn:
+        for batch in batches:
+            would_insert_count, would_update_count = preview_counts.get(batch.as_of_date, (0, 0))
+            inserted_count, updated_count = write_counts.get(batch.as_of_date, (0, would_update_count))
+            coverage_duplicate_count = updated_count if use_persisted_coverage else would_update_count
+            if use_persisted_coverage:
+                coverage_items = _load_agent_coverage_items(conn, batch.as_of_date)
+            else:
+                coverage_items = _load_agent_coverage_items(conn, batch.as_of_date)
+                coverage_items.extend(
+                    _AgentCoverageItem(
+                        ts_code=item.ts_code,
+                        item_type=item.item_type,
+                        sentiment=item.sentiment,
+                        published_date=item.published_date,
+                    )
+                    for item in batch.prepared
+                )
+            coverage_summary = build_agent_external_coverage_summary(
+                coverage_items,
+                batch.as_of_date,
+                duplicate_count=coverage_duplicate_count,
+            )
+            date_results.append(
+                AgentExternalBackfillDateResult(
+                    as_of_date=batch.as_of_date,
+                    source_files=[str(path) for path in batch.source_files],
+                    row_count=batch.row_count,
+                    valid_count=len(batch.prepared),
+                    invalid_count=len({issue.index for issue in batch.invalid_records}),
+                    would_insert_count=would_insert_count,
+                    would_update_count=would_update_count,
+                    inserted_count=inserted_count,
+                    updated_count=updated_count,
+                    coverage_summary=coverage_summary,
+                )
+            )
+
+    coverage_qa = build_agent_external_backfill_coverage_qa(date_results)
+    return BackfillAgentExternalDataResult(
+        file_count=file_count,
+        date_count=len(date_results),
+        row_count=sum(result.row_count for result in date_results),
+        valid_count=sum(result.valid_count for result in date_results),
+        invalid_count=sum(result.invalid_count for result in date_results),
+        would_insert_count=sum(result.would_insert_count for result in date_results),
+        would_update_count=sum(result.would_update_count for result in date_results),
+        inserted_count=sum(result.inserted_count for result in date_results),
+        updated_count=sum(result.updated_count for result in date_results),
+        coverage_qa=coverage_qa,
+        date_results=date_results,
+        invalid_records=invalid_records,
     )
 
 

@@ -249,23 +249,31 @@ fi
 mkdir -p "$LOG_DIR"
 LOG_FILE="${LOG_DIR}/daily-pipeline-${DATE}.log"
 echo "log_file=$LOG_FILE"
+: > "$LOG_FILE"
+printf 'resolved_date=%s\n' "$DATE" >> "$LOG_FILE"
+printf 'log_file=%s\n' "$LOG_FILE" >> "$LOG_FILE"
+
+emit_log_line() {
+  printf '%s\n' "$1" | tee -a "$LOG_FILE"
+}
+
+DUPLICATE_SUMMARY="$(duplicate_apply_summary "$DATE")"
+printf '%s\n' "$DUPLICATE_SUMMARY" | tee -a "$LOG_FILE"
+DUPLICATE_COUNT="$(printf '%s\n' "$DUPLICATE_SUMMARY" | awk -F= '/^duplicate_apply_count=/{print $2}')"
 
 if [[ "$MODE" == "--apply" ]]; then
-  DUPLICATE_SUMMARY="$(duplicate_apply_summary "$DATE")"
-  printf '%s\n' "$DUPLICATE_SUMMARY"
-  DUPLICATE_COUNT="$(printf '%s\n' "$DUPLICATE_SUMMARY" | awk -F= '/^duplicate_apply_count=/{print $2}')"
   if [[ "${DUPLICATE_COUNT:-0}" != "0" && "$ALLOW_RERUN" != "1" ]]; then
-    echo "duplicate_write_guard=blocked"
+    emit_log_line "duplicate_write_guard=blocked"
     echo "duplicate apply writes already exist for resolved_date=$DATE; pass --allow-rerun only after operator review" >&2
     exit 1
   fi
   if [[ "${DUPLICATE_COUNT:-0}" != "0" ]]; then
-    echo "duplicate_write_guard=allow_rerun"
+    emit_log_line "duplicate_write_guard=allow_rerun"
   else
-    echo "duplicate_write_guard=pass"
+    emit_log_line "duplicate_write_guard=pass"
   fi
 else
-  echo "duplicate_write_guard=dry_run"
+  emit_log_line "duplicate_write_guard=dry_run"
 fi
 
 COMMAND=(
@@ -289,5 +297,5 @@ if [[ "$INCLUDE_MARKET_REVIEW" == "1" ]]; then
   COMMAND+=(--include-market-review)
 fi
 
-PYTHONPATH=src "${COMMAND[@]}" 2>&1 | tee "$LOG_FILE"
+PYTHONPATH=src "${COMMAND[@]}" 2>&1 | tee -a "$LOG_FILE"
 exit "${PIPESTATUS[0]}"

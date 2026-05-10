@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -212,6 +213,28 @@ class OperationalRunbookStaticTest(unittest.TestCase):
         ]:
             self.assertIn(text, source)
 
+    def test_m55_runbook_documents_historical_evidence_backfill_qa(self) -> None:
+        source = RUNBOOK.read_text(encoding="utf-8")
+
+        for text in [
+            "M55 历史证据回补和覆盖率 QA",
+            "market-review external-data backfill --input",
+            "agent external-data backfill --input",
+            "coverage_qa_json",
+            "backfill_totals",
+            "backfill_dates",
+            "ready_dates",
+            "blocking_dates",
+            "missing_scope_dates",
+            "missing_item_type_dates",
+            "stale_scope_dates",
+            "duplicate_dates",
+            "缺少 backfill as-of date",
+            "整批 apply 必须拒绝并保持无部分写入",
+            "不得改写交易计划、持仓、成交或活跃策略参数",
+        ]:
+            self.assertIn(text, source)
+
     def test_m20_deploy_script_is_guarded_and_parseable(self) -> None:
         self.assertTrue(DEPLOY_SCRIPT.exists(), f"missing {DEPLOY_SCRIPT}")
         source = DEPLOY_SCRIPT.read_text(encoding="utf-8")
@@ -291,6 +314,8 @@ class OperationalRunbookStaticTest(unittest.TestCase):
             "--allow-rerun",
             "duplicate_apply_count=",
             "duplicate_write_guard=blocked",
+            "duplicate_write_guard=dry_run",
+            'tee -a "$LOG_FILE"',
         ]:
             self.assertIn(text, pipeline_source)
 
@@ -298,7 +323,11 @@ class OperationalRunbookStaticTest(unittest.TestCase):
         for text in [
             "Preview is the default",
             "--enable",
+            "--check-activation",
             "--status",
+            "--approval-id",
+            "--dry-run-evidence",
+            "--min-dry-runs",
             "pgc-daily-pipeline.service",
             "pgc-daily-pipeline.timer",
             "Mon..Fri *-*-* 16:20:00 Asia/Shanghai",
@@ -317,6 +346,11 @@ class OperationalRunbookStaticTest(unittest.TestCase):
             "manual_dry_run_command=",
             "manual_apply_command=",
             "health_command=",
+            "minimum_dry_run_evidence=",
+            "activation_approval_id=",
+            "activation_decision_error=missing_approval_id",
+            "activation_decision_error=insufficient_dry_run_evidence",
+            "duplicate_apply_count_zero",
             "timer_list_command=systemctl list-timers --all",
             "duplicate_write_guard=run_daily_pipeline.sh blocks completed apply runs unless --allow-rerun is passed",
             "systemctl enable --now",
@@ -354,7 +388,92 @@ class OperationalRunbookStaticTest(unittest.TestCase):
         self.assertIn("timer_enablement=preview_only", preview.stdout)
         self.assertIn("manual_dry_run_command=", preview.stdout)
         self.assertIn("manual_apply_command=", preview.stdout)
+        self.assertIn("activation_decision=preview_only", preview.stdout)
         self.assertIn("would_enable_timer=systemctl enable --now pgc-daily-pipeline.timer only after --enable", preview.stdout)
+
+    def test_m58_timer_activation_requires_approval_and_repeated_dry_run_evidence(self) -> None:
+        source = RUNBOOK.read_text(encoding="utf-8")
+        for text in [
+            "M58 定时器启用决策",
+            "scripts/install_remote_daily_pipeline_timer.sh --check-activation",
+            "--approval-id OPS-YYYYMMDD",
+            "--dry-run-evidence .pgc-runs/daily-pipeline-YYYYMMDD-1.log",
+            "minimum_dry_run_evidence=3",
+            "activation_decision=blocked",
+            "activation_decision=ready",
+            "duplicate_apply_count=0",
+            "duplicate_write_guard=dry_run",
+            "systemctl disable --now pgc-daily-pipeline.timer",
+        ]:
+            self.assertIn(text, source)
+
+        bash = shutil.which("bash")
+        if bash is None:
+            self.skipTest("bash is not installed")
+
+        blocked = subprocess.run(
+            [
+                bash,
+                str(DAILY_PIPELINE_TIMER_SCRIPT),
+                "--enable",
+                "--operator",
+                "system-daily-pipeline",
+                "--mode",
+                "apply",
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(blocked.returncode, 2)
+        self.assertIn("activation_decision_error=missing_approval_id", blocked.stderr)
+        self.assertIn("activation_decision_error=insufficient_dry_run_evidence required=3 actual=0", blocked.stderr)
+        self.assertIn("activation_decision=blocked", blocked.stderr)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence_paths = []
+            for index, date in enumerate(["20260506", "20260507", "20260508"], start=1):
+                path = Path(tmp) / f"daily-pipeline-{date}-{index}.log"
+                path.write_text(
+                    "\n".join(
+                        [
+                            f"resolved_date={date}",
+                            f"log_file={path}",
+                            "duplicate_apply_count=0",
+                            "duplicate_write_guard=dry_run",
+                            "pipeline_status=pass",
+                            "backup_path=none",
+                            "changed=false",
+                            "report_would_write=true",
+                            "market_review_would_write=true",
+                            "",
+                        ]
+                    ),
+                    encoding="utf-8",
+                )
+                evidence_paths.extend(["--dry-run-evidence", str(path)])
+
+            ready = subprocess.run(
+                [
+                    bash,
+                    str(DAILY_PIPELINE_TIMER_SCRIPT),
+                    "--check-activation",
+                    "--operator",
+                    "system-daily-pipeline",
+                    "--mode",
+                    "apply",
+                    "--approval-id",
+                    "OPS-20260510",
+                    *evidence_paths,
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(ready.returncode, 0, ready.stdout + ready.stderr)
+            self.assertIn("activation_decision=ready", ready.stdout)
+            self.assertIn("dry_run_evidence_count=3", ready.stdout)
+            self.assertIn("activation_approval_id=OPS-20260510", ready.stdout)
 
 
 if __name__ == "__main__":

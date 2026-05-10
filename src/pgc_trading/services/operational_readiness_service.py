@@ -69,6 +69,16 @@ class PaperReadinessRequest:
 
 
 @dataclass(frozen=True)
+class PaperReadinessGate:
+    gate: str
+    label: str
+    status: str
+    summary: str
+    blocker_codes: list[str] = field(default_factory=list)
+    warning_codes: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class PaperReadinessResult:
     account_key: str
     as_of_date: str
@@ -87,6 +97,7 @@ class PaperReadinessResult:
     invariant_violation_codes: list[str] = field(default_factory=list)
     promotion_blockers: list[str] = field(default_factory=list)
     promotion_warnings: list[str] = field(default_factory=list)
+    readiness_gates: list[PaperReadinessGate] = field(default_factory=list)
 
 
 class OperationalReadinessService:
@@ -201,10 +212,14 @@ class OperationalReadinessService:
                     )
                 )
 
-            warnings = [
-                *_cash_equity_warnings(conn, account.id, request.as_of_date, open_positions_count),
-                *_agent_evidence_warnings(conn, account.id),
-            ]
+            cash_equity_warnings = _cash_equity_warnings(
+                conn,
+                account.id,
+                request.as_of_date,
+                open_positions_count,
+            )
+            agent_evidence_warnings = _agent_evidence_warnings(conn, account.id)
+            warnings = [*cash_equity_warnings, *agent_evidence_warnings]
             readiness = "blocked" if errors else "warning" if warnings else "pass"
             data = PaperReadinessResult(
                 account_key=account.account_key,
@@ -224,6 +239,17 @@ class OperationalReadinessService:
                 invariant_violation_codes=invariant_violation_codes,
                 promotion_blockers=[error.code for error in errors],
                 promotion_warnings=[warning.code for warning in warnings],
+                readiness_gates=_paper_readiness_gates(
+                    min_trades=request.min_trades,
+                    trades_count=trades_count,
+                    invariant_ok=invariant_report.ok,
+                    invariant_violation_codes=invariant_violation_codes,
+                    open_blockers_count=open_blockers_count,
+                    due_exit_positions_count=due_exit_positions_count,
+                    cash_equity_warnings=cash_equity_warnings,
+                    agent_evidence_warnings=agent_evidence_warnings,
+                    duplicate_open_positions=duplicate_open_positions,
+                ),
             )
             return ServiceResult(
                 status="blocked" if errors else "success",
@@ -276,7 +302,67 @@ def _empty_result(
         invariant_violation_codes=[],
         promotion_blockers=promotion_blockers or [],
         promotion_warnings=promotion_warnings or [],
+        readiness_gates=[],
     )
+
+
+def _paper_readiness_gates(
+    *,
+    min_trades: int,
+    trades_count: int,
+    invariant_ok: bool,
+    invariant_violation_codes: list[str],
+    open_blockers_count: int,
+    due_exit_positions_count: int,
+    cash_equity_warnings: list[ServiceWarning],
+    agent_evidence_warnings: list[ServiceWarning],
+    duplicate_open_positions: list[sqlite3.Row],
+) -> list[PaperReadinessGate]:
+    duplicate_codes = ["DUPLICATE_OPEN_POSITIONS"] if duplicate_open_positions else []
+    return [
+        PaperReadinessGate(
+            gate="paper_trade_sample",
+            label="Paper 样本交易",
+            status="pass" if trades_count >= min_trades else "blocked",
+            summary=f"{trades_count}/{min_trades} 笔 executed paper trades",
+            blocker_codes=[] if trades_count >= min_trades else ["MIN_PAPER_TRADES_NOT_MET"],
+        ),
+        PaperReadinessGate(
+            gate="ledger_invariants",
+            label="账本 invariant",
+            status="pass" if invariant_ok and not duplicate_codes else "blocked",
+            summary="账本 invariant 通过" if invariant_ok and not duplicate_codes else "账本 invariant 或重复持仓未清除",
+            blocker_codes=[*invariant_violation_codes, *duplicate_codes],
+        ),
+        PaperReadinessGate(
+            gate="data_quality_blockers",
+            label="数据质量 blocker",
+            status="pass" if open_blockers_count == 0 else "blocked",
+            summary=f"{open_blockers_count} 个 open blocker",
+            blocker_codes=[] if open_blockers_count == 0 else ["OPEN_DATA_QUALITY_BLOCKERS"],
+        ),
+        PaperReadinessGate(
+            gate="exit_decisions",
+            label="T+2 / T+5 待处理",
+            status="pass" if due_exit_positions_count == 0 else "blocked",
+            summary=f"{due_exit_positions_count} 个到期退出判断",
+            blocker_codes=[] if due_exit_positions_count == 0 else ["DUE_EXIT_DECISIONS"],
+        ),
+        PaperReadinessGate(
+            gate="cash_equity_reconciliation",
+            label="现金 / 权益核对",
+            status="warning" if cash_equity_warnings else "pass",
+            summary="存在现金/权益核对警告" if cash_equity_warnings else "现金/权益核对未发现警告",
+            warning_codes=[warning.code for warning in cash_equity_warnings],
+        ),
+        PaperReadinessGate(
+            gate="agent_evidence_linkage",
+            label="Agent 证据链路",
+            status="warning" if agent_evidence_warnings else "pass",
+            summary="缺少账户级 Agent 证据链路" if agent_evidence_warnings else "Agent 证据已关联计划或成交",
+            warning_codes=[warning.code for warning in agent_evidence_warnings],
+        ),
+    ]
 
 
 def _schema_preflight_errors(conn: sqlite3.Connection) -> list[ServiceError]:

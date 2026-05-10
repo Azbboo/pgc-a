@@ -66,6 +66,42 @@ class ImportMarketExternalDataResult:
 
 
 @dataclass(frozen=True)
+class BackfillMarketExternalDataRequest:
+    source_files: list[Path]
+    encoding: str = "utf-8"
+
+
+@dataclass(frozen=True)
+class MarketExternalBackfillDateResult:
+    as_of_date: str
+    source_files: list[str]
+    row_count: int
+    valid_count: int
+    invalid_count: int
+    would_insert_count: int
+    inserted_count: int
+    duplicate_count: int
+    coverage_summary: dict[str, Any]
+    coverage_details: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class BackfillMarketExternalDataResult:
+    file_count: int
+    date_count: int
+    row_count: int
+    valid_count: int
+    invalid_count: int
+    would_insert_count: int
+    inserted_count: int
+    duplicate_count: int
+    coverage_qa: dict[str, Any]
+    provider_file_contract: str = MARKET_EXTERNAL_PROVIDER_FILE_CONTRACT
+    date_results: list[MarketExternalBackfillDateResult] = field(default_factory=list)
+    invalid_records: list[MarketExternalDataValidationIssue] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class _PreparedMarketExternalItem:
     as_of_date: str
     scope_type: str
@@ -88,6 +124,15 @@ class _CoverageItem:
     item_type: str
     sentiment: str
     published_date: str
+
+
+@dataclass(frozen=True)
+class _MarketExternalBackfillBatch:
+    as_of_date: str
+    source_files: list[Path]
+    row_count: int
+    prepared: list[_PreparedMarketExternalItem]
+    invalid_records: list[MarketExternalDataValidationIssue]
 
 
 class MarketExternalDataService:
@@ -206,6 +251,130 @@ class MarketExternalDataService:
             ),
             created_ids={"market_external_items": item_ids},
             lineage={"source_file": str(request.source_file) if request.source_file else None},
+        )
+
+    def backfill_external_data(
+        self,
+        request: BackfillMarketExternalDataRequest,
+        ctx: RequestContext,
+    ) -> ServiceResult[BackfillMarketExternalDataResult]:
+        source_files = [Path(path) for path in request.source_files]
+        if not source_files:
+            return _market_backfill_failed_result(
+                ctx,
+                db_path=self.db_path,
+                file_count=0,
+                batches=[],
+                invalid_records=[],
+                errors=[ServiceError("VALIDATION_ERROR", "at least one source_file is required for backfill.")],
+                preview_counts={},
+            )
+
+        batches_by_date: dict[str, _MarketExternalBackfillBatch] = {}
+        errors: list[ServiceError] = []
+        for source_file in source_files:
+            as_of_date_or_error = _source_file_as_of_date(
+                source_file,
+                encoding=request.encoding,
+                expected_contract=MARKET_EXTERNAL_PROVIDER_FILE_CONTRACT,
+            )
+            if isinstance(as_of_date_or_error, ServiceError):
+                errors.append(as_of_date_or_error)
+                continue
+
+            as_of_date = as_of_date_or_error
+            records_result = _load_request_records(
+                ImportMarketExternalDataRequest(
+                    as_of_date=as_of_date,
+                    source_file=source_file,
+                    encoding=request.encoding,
+                ),
+                as_of_date,
+            )
+            if isinstance(records_result, ServiceError):
+                errors.append(records_result)
+                continue
+
+            records = records_result
+            prepared, invalid_records = _prepare_records(as_of_date, records)
+            if invalid_records:
+                errors.extend(_service_errors_for_issues(invalid_records))
+
+            existing_batch = batches_by_date.get(as_of_date)
+            if existing_batch is None:
+                batches_by_date[as_of_date] = _MarketExternalBackfillBatch(
+                    as_of_date=as_of_date,
+                    source_files=[source_file],
+                    row_count=len(records),
+                    prepared=prepared,
+                    invalid_records=invalid_records,
+                )
+            else:
+                batches_by_date[as_of_date] = _MarketExternalBackfillBatch(
+                    as_of_date=as_of_date,
+                    source_files=[*existing_batch.source_files, source_file],
+                    row_count=existing_batch.row_count + len(records),
+                    prepared=[*existing_batch.prepared, *prepared],
+                    invalid_records=[*existing_batch.invalid_records, *invalid_records],
+                )
+
+        batches = [batches_by_date[date] for date in sorted(batches_by_date)]
+        preview_counts = _preview_backfill_inserts(self.db_path, batches)
+        if errors:
+            return _market_backfill_failed_result(
+                ctx,
+                db_path=self.db_path,
+                file_count=len(source_files),
+                batches=batches,
+                invalid_records=[
+                    issue
+                    for batch in batches
+                    for issue in batch.invalid_records
+                ],
+                errors=errors,
+                preview_counts=preview_counts,
+            )
+
+        if ctx.dry_run:
+            return ServiceResult(
+                status="success",
+                request_id=ctx.request_id,
+                data=_build_market_backfill_result(
+                    self.db_path,
+                    file_count=len(source_files),
+                    batches=batches,
+                    preview_counts=preview_counts,
+                    inserted_counts={date: (0, 0) for date in preview_counts},
+                    invalid_records=[],
+                ),
+                lineage={"source_files": str(len(source_files))},
+            )
+
+        inserted_counts: dict[str, tuple[int, int]] = {}
+        item_ids: list[int] = []
+        with connect(self.db_path) as conn:
+            conn.execute("BEGIN")
+            try:
+                inserted_counts, item_ids = _insert_backfill_items(conn, batches)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data=_build_market_backfill_result(
+                self.db_path,
+                file_count=len(source_files),
+                batches=batches,
+                preview_counts=preview_counts,
+                inserted_counts=inserted_counts,
+                invalid_records=[],
+                use_persisted_coverage=True,
+            ),
+            created_ids={"market_external_items": item_ids},
+            lineage={"source_files": str(len(source_files))},
         )
 
     def summarize_coverage(self, as_of_date: str) -> dict[str, Any]:
@@ -342,6 +511,68 @@ def build_market_external_coverage_details(
     }
 
 
+def build_market_external_backfill_coverage_qa(
+    date_results: Sequence[MarketExternalBackfillDateResult],
+) -> dict[str, Any]:
+    dates = [result.as_of_date for result in date_results]
+    missing_scope_dates = {
+        scope: [
+            result.as_of_date
+            for result in date_results
+            if scope in result.coverage_details.get("missing_scopes", [])
+        ]
+        for scope in ("market", "sector", "stock")
+    }
+    stale_scope_dates = {
+        scope: [
+            result.as_of_date
+            for result in date_results
+            if scope in result.coverage_details.get("stale_scopes", [])
+        ]
+        for scope in ("market", "sector", "stock")
+    }
+    duplicate_dates = [
+        result.as_of_date
+        for result in date_results
+        if int(result.coverage_details.get("duplicate_count") or 0) > 0
+    ]
+    invalid_dates = [result.as_of_date for result in date_results if result.invalid_count > 0]
+    blocking_dates = sorted(
+        set(
+            invalid_dates
+            + duplicate_dates
+            + [
+                date
+                for dates_for_scope in missing_scope_dates.values()
+                for date in dates_for_scope
+            ]
+            + [
+                date
+                for dates_for_scope in stale_scope_dates.values()
+                for date in dates_for_scope
+            ]
+        )
+    )
+    return {
+        "date_count": len(date_results),
+        "dates": dates,
+        "ready_dates": [date for date in dates if date not in blocking_dates],
+        "blocking_dates": blocking_dates,
+        "invalid_dates": invalid_dates,
+        "duplicate_dates": duplicate_dates,
+        "missing_scope_dates": missing_scope_dates,
+        "stale_scope_dates": stale_scope_dates,
+        "freshness_by_date": {
+            result.as_of_date: result.coverage_summary.get("freshness", {})
+            for result in date_results
+        },
+        "total_count_by_date": {
+            result.as_of_date: result.coverage_details.get("total_count", 0)
+            for result in date_results
+        },
+    }
+
+
 def _load_request_records(
     request: ImportMarketExternalDataRequest,
     as_of_date: str,
@@ -397,6 +628,38 @@ def _load_request_records(
 
     provider = _first_text(payload, "provider") or request.provider
     return _validated_import_records(items, as_of_date=as_of_date, default_provider=provider)
+
+
+def _source_file_as_of_date(
+    source_file: Path,
+    *,
+    encoding: str,
+    expected_contract: str,
+) -> str | ServiceError:
+    if not source_file.exists():
+        return ServiceError("VALIDATION_ERROR", f"source_file does not exist: {source_file}")
+    if not source_file.is_file():
+        return ServiceError("VALIDATION_ERROR", f"source_file is not a file: {source_file}")
+
+    try:
+        payload = json.loads(source_file.read_text(encoding=encoding))
+    except UnicodeDecodeError as exc:
+        return ServiceError("VALIDATION_ERROR", f"source_file could not be decoded: {exc}")
+    except json.JSONDecodeError as exc:
+        return ServiceError("VALIDATION_ERROR", f"source_file is not valid JSON: {exc}")
+    if not isinstance(payload, Mapping):
+        return ServiceError("VALIDATION_ERROR", "source_file JSON must be an object with as_of_date.")
+
+    contract = _first_text(payload, "provider_file_contract", "contract_version")
+    if contract is not None and contract != expected_contract:
+        return ServiceError(
+            "UNSUPPORTED_PROVIDER_FILE_CONTRACT",
+            f"provider_file_contract must be {expected_contract}.",
+        )
+    as_of_date = _compact_date(_first_text(payload, "as_of_date", "date", "trade_date"))
+    if as_of_date is None or not _is_yyyymmdd(as_of_date):
+        return ServiceError("INVALID_AS_OF_DATE", "source_file as_of_date must be a compact YYYYMMDD date.")
+    return as_of_date
 
 
 def _validated_import_records(
@@ -772,6 +1035,27 @@ def _preview_inserts(db_path: Path, prepared: Sequence[_PreparedMarketExternalIt
     return insert_count, duplicate_count
 
 
+def _preview_backfill_inserts(
+    db_path: Path,
+    batches: Sequence[_MarketExternalBackfillBatch],
+) -> dict[str, tuple[int, int]]:
+    counts: dict[str, tuple[int, int]] = {}
+    seen_in_batch: set[tuple[str, str]] = set()
+    with connect(db_path) as conn:
+        for batch in batches:
+            insert_count = 0
+            duplicate_count = 0
+            for item in batch.prepared:
+                key = (item.provider, item.source_hash)
+                if key in seen_in_batch or _find_existing_item_id(conn, item) is not None:
+                    duplicate_count += 1
+                else:
+                    insert_count += 1
+                seen_in_batch.add(key)
+            counts[batch.as_of_date] = (insert_count, duplicate_count)
+    return counts
+
+
 def _insert_items(
     conn: sqlite3.Connection,
     prepared: Sequence[_PreparedMarketExternalItem],
@@ -795,6 +1079,33 @@ def _insert_items(
         seen_in_batch.add(key)
 
     return inserted_count, duplicate_count, inserted_ids
+
+
+def _insert_backfill_items(
+    conn: sqlite3.Connection,
+    batches: Sequence[_MarketExternalBackfillBatch],
+) -> tuple[dict[str, tuple[int, int]], list[int]]:
+    counts: dict[str, tuple[int, int]] = {}
+    inserted_ids: list[int] = []
+    seen_in_batch: set[tuple[str, str]] = set()
+
+    for batch in batches:
+        inserted_count = 0
+        duplicate_count = 0
+        for item in batch.prepared:
+            key = (item.provider, item.source_hash)
+            existing_id = _find_existing_item_id(conn, item)
+            if key in seen_in_batch or existing_id is not None:
+                duplicate_count += 1
+                seen_in_batch.add(key)
+                continue
+            item_id = _insert_external_item(conn, item)
+            inserted_ids.append(item_id)
+            inserted_count += 1
+            seen_in_batch.add(key)
+        counts[batch.as_of_date] = (inserted_count, duplicate_count)
+
+    return counts, inserted_ids
 
 
 def _find_existing_item_id(conn: sqlite3.Connection, item: _PreparedMarketExternalItem) -> int | None:
@@ -969,6 +1280,96 @@ def _validation_failed_result(
             invalid_records=invalid_records,
         ),
         errors=errors,
+    )
+
+
+def _market_backfill_failed_result(
+    ctx: RequestContext,
+    *,
+    db_path: Path,
+    file_count: int,
+    batches: Sequence[_MarketExternalBackfillBatch],
+    invalid_records: list[MarketExternalDataValidationIssue],
+    errors: list[ServiceError],
+    preview_counts: dict[str, tuple[int, int]],
+) -> ServiceResult[BackfillMarketExternalDataResult]:
+    return ServiceResult(
+        status="validation_failed",
+        request_id=ctx.request_id,
+        data=_build_market_backfill_result(
+            db_path,
+            file_count=file_count,
+            batches=batches,
+            preview_counts=preview_counts,
+            inserted_counts={date: (0, duplicate_count) for date, (_, duplicate_count) in preview_counts.items()},
+            invalid_records=invalid_records,
+        ),
+        errors=errors,
+    )
+
+
+def _build_market_backfill_result(
+    db_path: Path,
+    *,
+    file_count: int,
+    batches: Sequence[_MarketExternalBackfillBatch],
+    preview_counts: dict[str, tuple[int, int]],
+    inserted_counts: dict[str, tuple[int, int]],
+    invalid_records: list[MarketExternalDataValidationIssue],
+    use_persisted_coverage: bool = False,
+) -> BackfillMarketExternalDataResult:
+    date_results: list[MarketExternalBackfillDateResult] = []
+    with connect(db_path) as conn:
+        for batch in batches:
+            would_insert_count, preview_duplicate_count = preview_counts.get(batch.as_of_date, (0, 0))
+            inserted_count, duplicate_count = inserted_counts.get(batch.as_of_date, (0, preview_duplicate_count))
+            coverage_duplicate_count = duplicate_count if use_persisted_coverage else preview_duplicate_count
+            if use_persisted_coverage:
+                coverage_items = _load_coverage_items(conn, batch.as_of_date)
+            else:
+                coverage_items = _load_coverage_items(conn, batch.as_of_date)
+                coverage_items.extend(
+                    _CoverageItem(item.scope_type, item.item_type, item.sentiment, item.published_date)
+                    for item in batch.prepared
+                )
+            coverage_summary = build_market_external_coverage_summary(
+                coverage_items,
+                batch.as_of_date,
+                duplicate_count=coverage_duplicate_count,
+            )
+            coverage_details = build_market_external_coverage_details(
+                coverage_items,
+                batch.as_of_date,
+                duplicate_count=coverage_duplicate_count,
+            )
+            date_results.append(
+                MarketExternalBackfillDateResult(
+                    as_of_date=batch.as_of_date,
+                    source_files=[str(path) for path in batch.source_files],
+                    row_count=batch.row_count,
+                    valid_count=len(batch.prepared),
+                    invalid_count=len({issue.index for issue in batch.invalid_records}),
+                    would_insert_count=would_insert_count,
+                    inserted_count=inserted_count,
+                    duplicate_count=coverage_duplicate_count,
+                    coverage_summary=coverage_summary,
+                    coverage_details=coverage_details,
+                )
+            )
+
+    coverage_qa = build_market_external_backfill_coverage_qa(date_results)
+    return BackfillMarketExternalDataResult(
+        file_count=file_count,
+        date_count=len(date_results),
+        row_count=sum(result.row_count for result in date_results),
+        valid_count=sum(result.valid_count for result in date_results),
+        invalid_count=sum(result.invalid_count for result in date_results),
+        would_insert_count=sum(result.would_insert_count for result in date_results),
+        inserted_count=sum(result.inserted_count for result in date_results),
+        duplicate_count=sum(result.duplicate_count for result in date_results),
+        coverage_qa=coverage_qa,
+        date_results=date_results,
+        invalid_records=invalid_records,
     )
 
 

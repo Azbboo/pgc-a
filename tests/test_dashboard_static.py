@@ -30,7 +30,7 @@ class DashboardStaticTest(unittest.TestCase):
             ]
         )
 
-        for label in ["开盘执行", "每日复盘", "交易计划", "成交录入", "当前持仓", "数据质量", "Agent 复核"]:
+        for label in ["开盘执行", "每日复盘", "运营验收", "交易计划", "成交录入", "当前持仓", "数据质量", "Agent 复核"]:
             self.assertIn(label, source)
         self.assertIn("T+2", source)
         self.assertIn("T+5", source)
@@ -41,6 +41,7 @@ class DashboardStaticTest(unittest.TestCase):
 
         for endpoint in [
             "/api/daily-reviews/",
+            "/api/paper-acceptance/",
             "/api/review-timeline",
             "/api/trade-plans",
             "/api/open-execution",
@@ -442,6 +443,54 @@ class DashboardStaticTest(unittest.TestCase):
         self.assertNotIn('apiRequest("/api/market-reviews", { method: "POST"', script)
         self.assertNotIn("market-review write", source.lower())
 
+    def test_dashboard_m57_paper_acceptance_panel_is_read_only(self) -> None:
+        source = "\n".join(
+            [
+                (DASHBOARD_DIR / "index.html").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "styles.css").read_text(encoding="utf-8"),
+            ]
+        )
+        script = (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8")
+
+        for label in [
+            "运营验收",
+            "纸盘每日运营验收",
+            "数据新鲜度",
+            "证据覆盖",
+            "Agent 状态",
+            "open-execution 状态",
+            "readiness gates",
+            "未处理 blocker",
+            "只读验收面板",
+            "Dashboard 不会执行交易",
+            "不会自动取消或执行计划",
+        ]:
+            self.assertIn(label, source)
+        for html_id in [
+            'id="acceptanceBadge"',
+            'id="acceptanceStatusPanel"',
+            'id="acceptanceOverviewGrid"',
+            'id="acceptanceGateBody"',
+            'id="acceptanceBlockerList"',
+            'id="reloadAcceptanceButton"',
+        ]:
+            self.assertIn(html_id, source)
+        for fn_name in [
+            "function loadPaperAcceptance",
+            "function renderPaperAcceptance",
+            "function acceptanceGateCard",
+            "function acceptanceStatusText",
+            "function acceptanceBlockerList",
+            "function paperAcceptanceAction",
+            "function onAcceptanceActionClick",
+        ]:
+            self.assertIn(fn_name, source)
+        self.assertIn("/api/paper-acceptance/${state.asOfDate}", script)
+        self.assertIn('data-page-button="acceptance"', source)
+        self.assertNotIn("paperAcceptanceExecute", script)
+        self.assertNotIn('apiRequest("/api/paper-acceptance", { method: "POST"', script)
+
     def test_dashboard_m48_market_interactions_are_read_only_and_cross_day(self) -> None:
         source = "\n".join(
             [
@@ -490,6 +539,54 @@ class DashboardStaticTest(unittest.TestCase):
         self.assertIn('localStorage.setItem("pgc.dashboard.marketAsOfDate"', source)
         self.assertNotIn("POST /api/market-reviews", source)
         self.assertNotIn('apiRequest("/api/market-reviews", { method: "POST"', script)
+
+    def test_dashboard_m56_strategy_hypothesis_workbench_is_read_only(self) -> None:
+        source = "\n".join(
+            [
+                (DASHBOARD_DIR / "index.html").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "styles.css").read_text(encoding="utf-8"),
+            ]
+        )
+        script = (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8")
+
+        for label in [
+            "假设评估",
+            "策略假设评估工作台",
+            "验证队列",
+            "安全边界",
+            "Acceptance gate",
+            "Backtest artifacts",
+            "Validation events",
+            "accepted 只代表研究结论",
+            "单独创建 strategy-version proposal",
+            "不修改 paper/live 行为",
+            "/api/strategy-hypotheses/workbench",
+        ]:
+            self.assertIn(label, source)
+        for html_id in [
+            'id="hypothesesBadge"',
+            'id="strategyHypothesisDateInput" type="date"',
+            'id="strategyHypothesisStatusFilter"',
+            'id="strategyHypothesisWorkbenchSummary"',
+            'id="strategyHypothesisQueue"',
+            'id="strategyHypothesisSafetyPanel"',
+            'id="strategyHypothesisWorkbenchList"',
+        ]:
+            self.assertIn(html_id, source)
+        for fn_name in [
+            "function loadStrategyHypothesisWorkbench",
+            "function renderStrategyHypothesisWorkbench",
+            "function openStrategyHypothesisEvaluationDrawer",
+            "function strategyHypothesisGateRows",
+            "function findStrategyHypothesisEvaluation",
+            "function hypothesisNextActionText",
+        ]:
+            self.assertIn(fn_name, source)
+        self.assertIn("active_params_mutated", source)
+        self.assertIn("writes_trade_state", source)
+        self.assertNotIn("POST /api/strategy-hypotheses", source)
+        self.assertNotIn('apiRequest("/api/strategy-hypotheses", { method: "POST"', script)
 
     def test_dashboard_p1_cancel_and_execution_guardrails_are_visible(self) -> None:
         source = "\n".join(

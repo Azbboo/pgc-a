@@ -22,6 +22,7 @@ from pgc_trading.reporting.daily_report import (
 )
 from pgc_trading.services.agent_external_data_service import (
     AgentExternalDataService,
+    BackfillAgentExternalDataRequest,
     ImportAgentExternalDataRequest,
 )
 from pgc_trading.services.agent_review_service import AgentReviewService, ReviewDailyPickRequest
@@ -48,6 +49,7 @@ from pgc_trading.services.operational_readiness_service import (
     PaperReadinessRequest,
 )
 from pgc_trading.services.market_external_data_service import (
+    BackfillMarketExternalDataRequest,
     ImportMarketExternalDataRequest,
     MarketExternalDataService,
 )
@@ -300,6 +302,30 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
     _add_db_path_argument(market_review_external_data_import)
     market_review_external_data_import.set_defaults(handler=_run_market_external_data_import)
 
+    market_review_external_data_backfill = market_review_external_data_subparsers.add_parser(
+        "backfill",
+        help="preview or apply multiple historical market-review evidence provider files",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    market_review_external_data_backfill.add_argument(
+        "--file",
+        "--input",
+        dest="source_files",
+        type=Path,
+        nargs="+",
+        required=True,
+        help="one or more provider files with top-level as_of_date",
+    )
+    market_review_external_data_backfill.add_argument(
+        "--apply",
+        action="store_true",
+        help="write market_external_items for all valid files instead of running a dry-run preview",
+    )
+    _add_lifecycle_context_arguments(market_review_external_data_backfill)
+    _add_db_path_argument(market_review_external_data_backfill)
+    market_review_external_data_backfill.set_defaults(handler=_run_market_external_data_backfill)
+
     market_review_link_plan = market_review_subparsers.add_parser(
         "link-plan",
         help="link a completed market review to a trade plan without mutating the plan",
@@ -549,6 +575,35 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
     _add_lifecycle_context_arguments(external_data_import)
     _add_db_path_argument(external_data_import)
     external_data_import.set_defaults(handler=_run_agent_external_data_import)
+
+    external_data_backfill = external_data_subparsers.add_parser(
+        "backfill",
+        help="preview or apply multiple historical Agent external data provider files",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    external_data_backfill.add_argument(
+        "--file",
+        "--input",
+        dest="source_files",
+        type=Path,
+        nargs="+",
+        required=True,
+        help="one or more provider files with a resolvable as_of_date/date/trade_date",
+    )
+    external_data_backfill.add_argument(
+        "--source",
+        dest="import_source",
+        help="default provider/source for structured cached items that omit provider",
+    )
+    external_data_backfill.add_argument(
+        "--apply",
+        action="store_true",
+        help="write agent_external_items for all valid files instead of running a dry-run preview",
+    )
+    _add_lifecycle_context_arguments(external_data_backfill)
+    _add_db_path_argument(external_data_backfill)
+    external_data_backfill.set_defaults(handler=_run_agent_external_data_backfill)
 
     strategy_evolution = subparsers.add_parser(
         "strategy-evolution",
@@ -988,6 +1043,47 @@ def _run_market_external_data_import(
     return 0 if result.ok else 1
 
 
+def _run_market_external_data_backfill(
+    args: argparse.Namespace,
+    stdout: TextIO,
+    services: CommandServices,
+) -> int:
+    db_path = _normalized_db_path(args.db_path)
+    source_files = [_normalized_db_path(source_file) for source_file in args.source_files]
+    command = "market-review external-data backfill"
+
+    if not db_path.exists():
+        _write_routed_message(
+            stdout,
+            command,
+            f"files={len(source_files)}",
+            db_path,
+            "database not found; market external data backfill service was not run and no writes were performed",
+        )
+        return 1
+
+    service = services.market_external_data_service_factory(db_path)
+    request = BackfillMarketExternalDataRequest(source_files=source_files)
+    ctx = RequestContext(
+        request_id="cli-market-external-data-backfill",
+        idempotency_key=args.idempotency_key,
+        dry_run=not args.apply,
+        operator=args.operator,
+        source="cli",
+    )
+    try:
+        result = service.backfill_external_data(request, ctx)
+    except sqlite3.OperationalError as exc:
+        stdout.write(
+            f"market-review external-data backfill failed for files={len(source_files)}: "
+            f"database is not initialized or is incompatible: {exc}\n"
+        )
+        return 1
+
+    _write_market_external_data_backfill_result(stdout, command, source_files, db_path, result)
+    return 0 if result.ok else 1
+
+
 def _run_market_review_link_plan(
     args: argparse.Namespace,
     stdout: TextIO,
@@ -1373,6 +1469,50 @@ def _run_agent_external_data_import(
         return 1
 
     _write_agent_external_data_import_result(stdout, command, source_file, db_path, result)
+    return 0 if result.ok else 1
+
+
+def _run_agent_external_data_backfill(
+    args: argparse.Namespace,
+    stdout: TextIO,
+    services: CommandServices,
+) -> int:
+    db_path = _normalized_db_path(args.db_path)
+    source_files = [_normalized_db_path(source_file) for source_file in args.source_files]
+    command = "agent external-data backfill"
+
+    if not db_path.exists():
+        _write_routed_message(
+            stdout,
+            command,
+            f"files={len(source_files)}",
+            db_path,
+            "database not found; external data backfill service was not run and no writes were performed",
+        )
+        return 1
+
+    service = services.agent_external_data_service_factory(db_path)
+    request = BackfillAgentExternalDataRequest(
+        source_files=source_files,
+        default_provider=args.import_source,
+    )
+    ctx = RequestContext(
+        request_id="cli-agent-external-data-backfill",
+        idempotency_key=args.idempotency_key,
+        dry_run=not args.apply,
+        operator=args.operator,
+        source="cli",
+    )
+    try:
+        result = service.backfill_external_data(request, ctx)
+    except sqlite3.OperationalError as exc:
+        stdout.write(
+            f"agent external-data backfill failed for files={len(source_files)}: "
+            f"database is not initialized or is incompatible: {exc}\n"
+        )
+        return 1
+
+    _write_agent_external_data_backfill_result(stdout, command, source_files, db_path, result)
     return 0 if result.ok else 1
 
 
@@ -2224,6 +2364,88 @@ def _write_market_external_data_import_result(
             )
 
 
+def _write_market_external_data_backfill_result(
+    stdout: TextIO,
+    command: str,
+    source_files: list[Path],
+    db_path: Path,
+    result: ServiceResult[object],
+) -> None:
+    _write_routed_message(
+        stdout,
+        command,
+        f"files={len(source_files)}",
+        db_path,
+        f"service returned {result.status}",
+    )
+    _write_warnings_and_errors(stdout, result)
+    data = result.data
+    if data is None:
+        return
+
+    coverage_qa_json = json.dumps(
+        getattr(data, "coverage_qa", {}),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    stdout.write(f"market_external_backfill_status={result.status}\n")
+    stdout.write(f"provider_file_contract={getattr(data, 'provider_file_contract', 'market_external_v1')}\n")
+    stdout.write(
+        "backfill_totals="
+        f"files={getattr(data, 'file_count', 0)} "
+        f"dates={getattr(data, 'date_count', 0)} "
+        f"rows={getattr(data, 'row_count', 0)} "
+        f"valid={getattr(data, 'valid_count', 0)} "
+        f"invalid={getattr(data, 'invalid_count', 0)} "
+        f"would_insert={getattr(data, 'would_insert_count', 0)} "
+        f"inserted={getattr(data, 'inserted_count', 0)} "
+        f"duplicates={getattr(data, 'duplicate_count', 0)}\n"
+    )
+    stdout.write(f"coverage_qa_json={coverage_qa_json}\n")
+    date_results = getattr(data, "date_results", [])
+    if date_results:
+        stdout.write("backfill_dates:\n")
+        for item in date_results:
+            coverage_json = json.dumps(
+                getattr(item, "coverage_summary", {}),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            coverage_details_json = json.dumps(
+                getattr(item, "coverage_details", {}),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            stdout.write(
+                "- "
+                f"as_of_date={getattr(item, 'as_of_date', 'unknown')} "
+                f"files={len(getattr(item, 'source_files', []))} "
+                f"rows={getattr(item, 'row_count', 0)} "
+                f"valid={getattr(item, 'valid_count', 0)} "
+                f"invalid={getattr(item, 'invalid_count', 0)} "
+                f"would_insert={getattr(item, 'would_insert_count', 0)} "
+                f"inserted={getattr(item, 'inserted_count', 0)} "
+                f"duplicates={getattr(item, 'duplicate_count', 0)} "
+                f"coverage_json={coverage_json} "
+                f"coverage_details_json={coverage_details_json}\n"
+            )
+    invalid_records = getattr(data, "invalid_records", [])
+    if invalid_records:
+        stdout.write("invalid_records:\n")
+        for issue in invalid_records:
+            field = getattr(issue, "field", None) or "record"
+            stdout.write(
+                "- "
+                f"record={getattr(issue, 'index', 'n/a')} "
+                f"field={field} "
+                f"code={getattr(issue, 'code', 'n/a')} "
+                f"message={getattr(issue, 'message', 'n/a')}\n"
+            )
+
+
 def _write_plan_cancel_result(
     stdout: TextIO,
     command: str,
@@ -2446,6 +2668,83 @@ def _write_agent_external_data_import_result(
         f"updated={getattr(data, 'updated_count', 0)}\n"
     )
     stdout.write(f"coverage_json={coverage_json}\n")
+    invalid_records = getattr(data, "invalid_records", [])
+    if invalid_records:
+        stdout.write("invalid_records:\n")
+        for issue in invalid_records:
+            field = getattr(issue, "field", None) or "record"
+            stdout.write(
+                "- "
+                f"record={getattr(issue, 'index', 'n/a')} "
+                f"field={field} "
+                f"code={getattr(issue, 'code', 'n/a')} "
+                f"message={getattr(issue, 'message', 'n/a')}\n"
+            )
+
+
+def _write_agent_external_data_backfill_result(
+    stdout: TextIO,
+    command: str,
+    source_files: list[Path],
+    db_path: Path,
+    result: ServiceResult[object],
+) -> None:
+    _write_routed_message(
+        stdout,
+        command,
+        f"files={len(source_files)}",
+        db_path,
+        f"service returned {result.status}",
+    )
+    _write_warnings_and_errors(stdout, result)
+    data = result.data
+    if data is None:
+        return
+
+    coverage_qa_json = json.dumps(
+        getattr(data, "coverage_qa", {}),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    stdout.write(f"agent_external_backfill_status={result.status}\n")
+    stdout.write(f"provider_file_contract={getattr(data, 'provider_file_contract', 'agent_external_v1')}\n")
+    stdout.write(
+        "backfill_totals="
+        f"files={getattr(data, 'file_count', 0)} "
+        f"dates={getattr(data, 'date_count', 0)} "
+        f"rows={getattr(data, 'row_count', 0)} "
+        f"valid={getattr(data, 'valid_count', 0)} "
+        f"invalid={getattr(data, 'invalid_count', 0)} "
+        f"would_insert={getattr(data, 'would_insert_count', 0)} "
+        f"would_update={getattr(data, 'would_update_count', 0)} "
+        f"inserted={getattr(data, 'inserted_count', 0)} "
+        f"updated={getattr(data, 'updated_count', 0)}\n"
+    )
+    stdout.write(f"coverage_qa_json={coverage_qa_json}\n")
+    date_results = getattr(data, "date_results", [])
+    if date_results:
+        stdout.write("backfill_dates:\n")
+        for item in date_results:
+            coverage_json = json.dumps(
+                getattr(item, "coverage_summary", {}),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            stdout.write(
+                "- "
+                f"as_of_date={getattr(item, 'as_of_date', 'unknown')} "
+                f"files={len(getattr(item, 'source_files', []))} "
+                f"rows={getattr(item, 'row_count', 0)} "
+                f"valid={getattr(item, 'valid_count', 0)} "
+                f"invalid={getattr(item, 'invalid_count', 0)} "
+                f"would_insert={getattr(item, 'would_insert_count', 0)} "
+                f"would_update={getattr(item, 'would_update_count', 0)} "
+                f"inserted={getattr(item, 'inserted_count', 0)} "
+                f"updated={getattr(item, 'updated_count', 0)} "
+                f"coverage_json={coverage_json}\n"
+            )
     invalid_records = getattr(data, "invalid_records", [])
     if invalid_records:
         stdout.write("invalid_records:\n")

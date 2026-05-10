@@ -98,6 +98,7 @@ class ApiAppTest(unittest.TestCase):
         self.assertIn("/api/health", schema["paths"])
         self.assertIn("/api/daily-reviews", schema["paths"])
         self.assertIn("/api/daily-reviews/{as_of_date}", schema["paths"])
+        self.assertIn("/api/paper-acceptance/{as_of_date}", schema["paths"])
         self.assertIn("/api/market-reviews", schema["paths"])
         self.assertIn("/api/market-reviews/{as_of_date}", schema["paths"])
         self.assertIn("/api/market-reviews/{as_of_date}/sectors", schema["paths"])

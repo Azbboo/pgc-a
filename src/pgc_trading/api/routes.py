@@ -39,6 +39,7 @@ from pgc_trading.services.portfolio_planning_service import (
     PublishTradePlanRequest,
 )
 from pgc_trading.services.position_lifecycle_service import EvaluateExitsRequest, ListPositionsRequest
+from pgc_trading.services.strategy_evolution_service import EvaluateStrategyHypothesesRequest
 from pgc_trading.strategies.cpb_6157 import STRATEGY_VERSION
 
 
@@ -105,6 +106,26 @@ def register_routes(app: Any) -> None:
         request_id: str | None = None,
     ) -> dict[str, object]:
         return get_daily_review(
+            app.state.settings,
+            app.state.services,
+            response,
+            as_of_date=as_of_date,
+            account_key=_blank_to_none(account_key),
+            account_id=account_id,
+            strategy_version=strategy_version,
+            request_id=request_id,
+        )
+
+    @app.get("/api/paper-acceptance/{as_of_date}", tags=["reports"])
+    def paper_acceptance(
+        as_of_date: str,
+        response: Response,
+        account_key: str | None = DEFAULT_ACCOUNT_KEY,
+        account_id: int | None = None,
+        strategy_version: str = STRATEGY_VERSION,
+        request_id: str | None = None,
+    ) -> dict[str, object]:
+        return get_paper_acceptance(
             app.state.settings,
             app.state.services,
             response,
@@ -202,6 +223,24 @@ def register_routes(app: Any) -> None:
             response,
             as_of_date=as_of_date,
             trade_plan_id=trade_plan_id,
+            request_id=request_id,
+        )
+
+    @app.get("/api/strategy-hypotheses/workbench", tags=["strategy-evolution"])
+    def strategy_hypothesis_workbench(
+        response: Response,
+        status: str | None = None,
+        as_of_date: str | None = None,
+        limit: int = 100,
+        request_id: str | None = None,
+    ) -> dict[str, object]:
+        return list_strategy_hypothesis_workbench(
+            app.state.settings,
+            app.state.services,
+            response,
+            status=_blank_to_none(status),
+            as_of_date=_normalize_optional_date(as_of_date),
+            limit=limit,
             request_id=request_id,
         )
 
@@ -450,6 +489,30 @@ def list_review_timeline(
     return _service_response(result, response)
 
 
+def get_paper_acceptance(
+    settings: ApiSettings,
+    services: ApiServices,
+    response: Any,
+    *,
+    as_of_date: str,
+    account_key: str | None = DEFAULT_ACCOUNT_KEY,
+    account_id: int | None = None,
+    strategy_version: str = STRATEGY_VERSION,
+    request_id: str | None = None,
+) -> dict[str, object]:
+    service = services.report_service_factory(settings.db_path)
+    result = service.get_daily_acceptance(
+        DailyReportRequest(
+            as_of_date=_normalize_date(as_of_date),
+            account_key=account_key,
+            account_id=account_id,
+            strategy_version=strategy_version,
+        ),
+        RequestContext(request_id=request_id, dry_run=True, source="api"),
+    )
+    return _service_response(result, response)
+
+
 def list_market_reviews(
     settings: ApiSettings,
     services: ApiServices,
@@ -549,6 +612,28 @@ def get_market_review_plan_context(
     service = services.market_review_service_factory(settings.db_path)
     result = service.get_market_review_plan_context(
         GetMarketReviewPlanContextRequest(as_of_date=normalized_date, trade_plan_id=trade_plan_id),
+        RequestContext(request_id=request_id, dry_run=True, source="api"),
+    )
+    return _service_response(result, response)
+
+
+def list_strategy_hypothesis_workbench(
+    settings: ApiSettings,
+    services: ApiServices,
+    response: Any,
+    *,
+    status: str | None = None,
+    as_of_date: str | None = None,
+    limit: int = 100,
+    request_id: str | None = None,
+) -> dict[str, object]:
+    service = services.strategy_evolution_service_factory(settings.db_path)
+    result = service.evaluate_hypotheses(
+        EvaluateStrategyHypothesesRequest(
+            status=status,
+            as_of_date=_normalize_optional_date(as_of_date),
+            limit=limit,
+        ),
         RequestContext(request_id=request_id, dry_run=True, source="api"),
     )
     return _service_response(result, response)

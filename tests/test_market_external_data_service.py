@@ -8,6 +8,7 @@ from pathlib import Path
 
 from pgc_trading.services.common import RequestContext
 from pgc_trading.services.market_external_data_service import (
+    BackfillMarketExternalDataRequest,
     ImportMarketExternalDataRequest,
     MarketExternalDataService,
     build_market_external_source_hash,
@@ -244,6 +245,104 @@ class MarketExternalDataServiceTest(unittest.TestCase):
 
             self.assertFalse(rejected.ok)
             self.assertEqual(rejected.errors[0].code, "UNSUPPORTED_PROVIDER_FILE_CONTRACT")
+
+    def test_backfill_dry_run_reports_cross_date_coverage_qa_without_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._migrated_db(tmp)
+            stale_file = Path(tmp) / "external_items_20260507.json"
+            stale_file.write_text(
+                json.dumps(
+                    {
+                        "provider_file_contract": "market_external_v1",
+                        "as_of_date": "20260507",
+                        "provider": "manual_fixture",
+                        "items": [
+                            self._record(
+                                as_of_date="20260507",
+                                published_date="20260506",
+                                title="A股市场政策摘要 0507",
+                                summary="历史政策摘要仅用于回补覆盖率 QA。",
+                            )
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            result = MarketExternalDataService(db_path).backfill_external_data(
+                BackfillMarketExternalDataRequest(source_files=[stale_file, self._fixture_path()]),
+                RequestContext(request_id="test-market-backfill-preview", dry_run=True, operator="tester"),
+            )
+
+            self.assertTrue(result.ok)
+            self.assertEqual(result.data.file_count, 2)
+            self.assertEqual(result.data.date_count, 2)
+            self.assertEqual(result.data.row_count, 4)
+            self.assertEqual(result.data.valid_count, 4)
+            self.assertEqual(result.data.would_insert_count, 4)
+            self.assertEqual(result.data.inserted_count, 0)
+            self.assertEqual(result.data.coverage_qa["dates"], ["20260507", "20260508"])
+            self.assertEqual(result.data.coverage_qa["ready_dates"], ["20260508"])
+            self.assertEqual(result.data.coverage_qa["missing_scope_dates"]["sector"], ["20260507"])
+            self.assertEqual(result.data.coverage_qa["missing_scope_dates"]["stock"], ["20260507"])
+            self.assertEqual(result.data.coverage_qa["stale_scope_dates"]["market"], ["20260507"])
+            with sqlite3.connect(db_path) as conn:
+                self.assertEqual(self._count(conn, "market_external_items"), 0)
+
+    def test_backfill_apply_rejects_invalid_file_without_partial_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._migrated_db(tmp)
+            valid_file = Path(tmp) / "external_items_20260507.json"
+            invalid_file = Path(tmp) / "external_items_20260508.json"
+            valid_file.write_text(
+                json.dumps(
+                    {
+                        "provider_file_contract": "market_external_v1",
+                        "as_of_date": "20260507",
+                        "provider": "manual_fixture",
+                        "items": [
+                            self._record(
+                                as_of_date="20260507",
+                                published_date="20260507",
+                                title="A股市场政策摘要 0507",
+                                summary="历史政策摘要。",
+                            )
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            invalid_file.write_text(
+                json.dumps(
+                    {
+                        "provider_file_contract": "market_external_v1",
+                        "as_of_date": "20260508",
+                        "provider": "manual_fixture",
+                        "items": [
+                            self._record(
+                                title="未来新闻摘要",
+                                published_date="20260509",
+                            )
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            result = MarketExternalDataService(db_path).backfill_external_data(
+                BackfillMarketExternalDataRequest(source_files=[valid_file, invalid_file]),
+                RequestContext(request_id="test-market-backfill-invalid", dry_run=False, operator="tester"),
+            )
+
+            self.assertFalse(result.ok)
+            self.assertEqual(result.status, "validation_failed")
+            self.assertEqual(result.data.invalid_count, 1)
+            self.assertEqual({error.code for error in result.errors}, {"FUTURE_PUBLISHED_DATE"})
+            with sqlite3.connect(db_path) as conn:
+                self.assertEqual(self._count(conn, "market_external_items"), 0)
 
     def test_rejects_missing_or_mismatched_source_hash_without_partial_writes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -1300,7 +1300,31 @@ M54 把生产 evidence import 从“能手工导入”升级为“可重复 dry-
 
 `manual_fixture`、`tests/fixtures/market_review` 和 `tests/fixtures/agent_external` 仍然只能用于测试、演练库或 golden replay，不能作为生产 provider 写入正式库。
 
-## 23. M46 收盘后定时流水线
+## 23. M55 历史证据回补和覆盖率 QA
+
+M55 把 M54 的单日 evidence import 扩展为历史批量回补。回补仍然只消费已经审核的 provider 文件，只写 `market_external_items` 和 `agent_external_items` 缓存表；不得在 daily-close、open-execution、report rendering 或 Dashboard request handling 中 live web fetch，也不得改写交易计划、持仓、成交或活跃策略参数。
+
+历史回补标准顺序：
+
+1. 先 dry-run 市场证据批量回补：
+
+```bash
+market-review external-data backfill --input PROVIDER_FILE_YYYYMMDD.json PROVIDER_FILE_YYYYMMDD.json --db-path data/pgc_trading.db
+```
+
+2. 检查输出里的 `backfill_totals`、`coverage_qa_json`、`backfill_dates` 和每个日期的 `coverage_details_json`；重点看 `ready_dates`、`blocking_dates`、`missing_scope_dates`、`stale_scope_dates`、`duplicate_dates`、`missing_scopes`、`stale_scopes`、`duplicate_count` 和 `stale_count`。
+3. 再 dry-run Agent 外部缓存批量回补：
+
+```bash
+agent external-data backfill --input AGENT_FILE_YYYYMMDD.json AGENT_FILE_YYYYMMDD.json --source PROVIDER --db-path data/pgc_trading.db
+```
+
+4. 检查 Agent 输出里的 `coverage_qa_json`；重点看 `ready_dates`、`blocking_dates`、`missing_item_type_dates`、`stale_dates`、`duplicate_dates`、`stock_count_by_date` 和每个日期的 `coverage_json`。
+5. 只有所有历史日期的 coverage QA 被操作者接受后，才追加 `--apply --operator OPERATOR`。任一 provider 文件合同错误、未来发布日期、source hash 错配或缺少 backfill as-of date，整批 apply 必须拒绝并保持无部分写入。
+
+`coverage_qa_json.ready_dates` 只表示缓存证据对人工复核足够完整；`blocking_dates` 表示需要补文件或接受缺失风险。缺失、陈旧或重复证据不能渲染成“无风险”，也不能触发自动策略调参。
+
+## 24. M46 收盘后定时流水线
 
 M46 把 M42 的全市场复盘流水线固化为远端 systemd timer。只在 M42 已验收、远端 API write token 由部署脚本保留、并且手工 dry-run 通过后启用 apply 定时任务。
 
@@ -1339,11 +1363,24 @@ M52 apply-mode 启用检查清单：
 ./scripts/run_daily_pipeline.sh --date latest-closed --account paper-main --operator system-daily-pipeline --include-market-review --apply
 ```
 
-确认检查清单通过后，才启用 apply 版本：
+确认检查清单通过后，先进入 M58 启用决策；不得只因为 `--enable` 命令存在就启用 apply 版本：
 
 ```bash
-scripts/install_remote_daily_pipeline_timer.sh --enable --operator system-daily-pipeline --mode apply
+scripts/install_remote_daily_pipeline_timer.sh --check-activation --operator system-daily-pipeline --mode apply --approval-id OPS-YYYYMMDD --dry-run-evidence .pgc-runs/daily-pipeline-YYYYMMDD-1.log --dry-run-evidence .pgc-runs/daily-pipeline-YYYYMMDD-2.log --dry-run-evidence .pgc-runs/daily-pipeline-YYYYMMDD-3.log
+scripts/install_remote_daily_pipeline_timer.sh --enable --operator system-daily-pipeline --mode apply --approval-id OPS-YYYYMMDD --dry-run-evidence .pgc-runs/daily-pipeline-YYYYMMDD-1.log --dry-run-evidence .pgc-runs/daily-pipeline-YYYYMMDD-2.log --dry-run-evidence .pgc-runs/daily-pipeline-YYYYMMDD-3.log
 ```
+
+M58 定时器启用决策：
+
+1. 默认决策是 `activation_decision=blocked`，直到 operator 提供 `--approval-id OPS-YYYYMMDD`，并提供至少三份成功 dry-run evidence；脚本输出 `minimum_dry_run_evidence=3`。
+2. 每份 evidence 必须来自 `run_daily_pipeline.sh --date latest-closed --account paper-main --operator system-daily-pipeline --include-market-review --dry-run` 的日志，且包含 `pipeline_status=pass`、`report_would_write=true`、`market_review_would_write=true`、`backup_path=none`、`changed=false`、`duplicate_apply_count=0` 和 `duplicate_write_guard=dry_run`。
+3. 启用前必须先跑本地只读校验：
+
+```bash
+scripts/install_remote_daily_pipeline_timer.sh --check-activation --operator system-daily-pipeline --mode apply --approval-id OPS-YYYYMMDD --dry-run-evidence .pgc-runs/daily-pipeline-YYYYMMDD-1.log --dry-run-evidence .pgc-runs/daily-pipeline-YYYYMMDD-2.log --dry-run-evidence .pgc-runs/daily-pipeline-YYYYMMDD-3.log
+```
+
+只有输出 `activation_decision=ready` 后，才允许把同一组 `--approval-id` 和 `--dry-run-evidence` 参数传给 `--enable`。如果输出 `activation_decision=blocked`，必须继续手工 dry-run、修复证据缺口或保留 timer disabled。当前本地可见的单份 `.pgc-runs/daily-pipeline-20260508.log` 不满足 M58 的三份 evidence 门槛，因此截至 2026-05-10 的安全决策仍是 blocked；timer 不应启用。
 
 定时服务约束：
 

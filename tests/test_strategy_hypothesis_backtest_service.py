@@ -11,6 +11,7 @@ from pgc_trading.services.common import RequestContext
 from pgc_trading.services.strategy_hypothesis_backtest_service import (
     CreateStrategyHypothesisBacktestRequest,
     StrategyHypothesisBacktestService,
+    review_strategy_hypothesis_backtest_artifact,
 )
 from pgc_trading.storage.migrate import run_migrations
 from pgc_trading.storage.seed import seed_reference_data
@@ -146,6 +147,25 @@ class StrategyHypothesisBacktestServiceTest(unittest.TestCase):
             self.assertEqual([error.code for error in result.errors], ["ACTIVE_PARAM_MUTATION_FORBIDDEN"])
             self.assertFalse((reports_dir / "strategy_hypothesis_backtests").exists())
 
+    def test_reviews_backtest_artifact_for_workbench_without_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact_path = Path(tmp) / "hypothesis_backtest_request.json"
+            _write_backtest_artifact(artifact_path, hypothesis_id=7)
+
+            review = review_strategy_hypothesis_backtest_artifact(artifact_path, expected_hypothesis_id=7)
+            mismatch = review_strategy_hypothesis_backtest_artifact(artifact_path, expected_hypothesis_id=8)
+            missing = review_strategy_hypothesis_backtest_artifact(Path(tmp) / "missing.json", expected_hypothesis_id=7)
+
+            self.assertTrue(review.exists)
+            self.assertTrue(review.valid)
+            self.assertEqual(review.hypothesis_id, 7)
+            self.assertTrue(review.hypothesis_matches)
+            self.assertEqual(review.backtest_task_key, "strategy-hypothesis:7:backtest")
+            self.assertFalse(mismatch.valid)
+            self.assertEqual(mismatch.error, "backtest artifact hypothesis id does not match the requested hypothesis.")
+            self.assertFalse(missing.exists)
+            self.assertFalse(missing.valid)
+
 
 def _insert_hypothesis(
     db_path: Path,
@@ -202,6 +222,22 @@ def _hypothesis_validation(db_path: Path, hypothesis_id: int) -> dict[str, Any]:
     validation = evidence.get("validation")
     assert isinstance(validation, dict)
     return validation
+
+
+def _write_backtest_artifact(path: Path, hypothesis_id: int) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "artifact_type": "strategy_hypothesis_backtest_request",
+                "hypothesis": {"id": hypothesis_id},
+                "backtest_request": {"task_key": f"strategy-hypothesis:{hypothesis_id}:backtest"},
+                "validation_gate": {"accepted_is_research_outcome_only": True},
+                "safety": {"active_params_mutated": False},
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
 
 
 def _strategy_param_file_contents() -> dict[Path, str]:

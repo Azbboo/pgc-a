@@ -55,7 +55,13 @@ class DailyPipelineScriptTest(unittest.TestCase):
             self.assertIn(f"resolved_date={AS_OF_DATE}", result.stdout)
             self.assertIn("pipeline_status=pass", result.stdout)
             self.assertIn("report_would_write=true", result.stdout)
-            self.assertTrue((root / "logs" / f"daily-pipeline-{AS_OF_DATE}.log").exists())
+            log_path = root / "logs" / f"daily-pipeline-{AS_OF_DATE}.log"
+            self.assertTrue(log_path.exists())
+            log_text = log_path.read_text(encoding="utf-8")
+            self.assertIn(f"resolved_date={AS_OF_DATE}", log_text)
+            self.assertIn("duplicate_apply_count=0", log_text)
+            self.assertIn("duplicate_write_guard=dry_run", log_text)
+            self.assertIn("pipeline_status=pass", log_text)
 
     def test_latest_closed_refuses_missing_market_data(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -132,6 +138,11 @@ class DailyPipelineScriptTest(unittest.TestCase):
             self.assertIn("duplicate_apply_count=1", result.stdout)
             self.assertIn("duplicate_write_guard=blocked", result.stdout)
             self.assertIn("pass --allow-rerun only after operator review", result.stderr)
+            log_path = root / "logs" / f"daily-pipeline-{AS_OF_DATE}.log"
+            self.assertTrue(log_path.exists())
+            log_text = log_path.read_text(encoding="utf-8")
+            self.assertIn("duplicate_apply_count=1", log_text)
+            self.assertIn("duplicate_write_guard=blocked", log_text)
 
 
 def _script_env(root: Path) -> dict[str, str]:

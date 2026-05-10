@@ -8,6 +8,7 @@ from pathlib import Path
 
 from pgc_trading.services.common import RequestContext
 from pgc_trading.services.strategy_evolution_service import (
+    EvaluateStrategyHypothesesRequest,
     ListStrategyHypothesesRequest,
     MarkStrategyHypothesisRequest,
     ProposeStrategyHypothesesRequest,
@@ -214,6 +215,59 @@ class StrategyEvolutionServiceTest(unittest.TestCase):
             self.assertEqual(result.status, "skipped")
             self.assertEqual(_count_hypotheses(db_path), 0)
             self.assertEqual([warning.code for warning in result.warnings], ["NO_MARKET_REVIEW_OBSERVATIONS"])
+
+    def test_evaluation_workbench_reviews_evidence_and_backtest_artifacts_without_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc.db"
+            artifact_path = Path(tmp) / "hypothesis_backtest_request.json"
+            run_migrations(db_path)
+            _seed_market_review_observations(db_path)
+            params_before = _strategy_param_file_contents()
+            strategy_versions_before = _count_strategy_versions(db_path)
+            service = StrategyEvolutionService(db_path)
+            proposed = service.propose_hypotheses(
+                ProposeStrategyHypothesesRequest(as_of_date="20260508"),
+                RequestContext(dry_run=False, operator="azboo"),
+            )
+            assert proposed.data is not None
+            hypothesis_id = proposed.data.hypotheses[0].hypothesis_id
+            assert hypothesis_id is not None
+            _write_backtest_artifact(artifact_path, hypothesis_id)
+            testing = service.mark_hypothesis(
+                MarkStrategyHypothesisRequest(
+                    hypothesis_id=hypothesis_id,
+                    status="testing",
+                    evidence_ids=("market_review_run:1",),
+                    backtest_artifact_path=str(artifact_path),
+                ),
+                RequestContext(request_id="testing", operator="azboo"),
+            )
+
+            result = service.evaluate_hypotheses(
+                EvaluateStrategyHypothesesRequest(status="testing", as_of_date="20260508", limit=10),
+                RequestContext(request_id="workbench", dry_run=True, operator="azboo"),
+            )
+
+            self.assertTrue(testing.ok)
+            self.assertEqual(result.status, "success")
+            self.assertIsNotNone(result.data)
+            assert result.data is not None
+            self.assertEqual(result.data.summary["total"], 1)
+            self.assertEqual(result.data.summary["ready_to_accept_count"], 1)
+            self.assertEqual(result.data.summary["artifact_count"], 1)
+            self.assertEqual(result.data.summary["invalid_artifact_count"], 0)
+            self.assertTrue(result.data.safety["read_only"])
+            self.assertFalse(result.data.safety["active_params_mutated"])
+            evaluation = result.data.hypotheses[0]
+            self.assertEqual(evaluation.hypothesis.hypothesis_id, hypothesis_id)
+            self.assertEqual(evaluation.next_action, "ready_to_accept")
+            self.assertTrue(evaluation.acceptance_gate["can_accept"])
+            self.assertEqual(evaluation.acceptance_gate["blocks"], [])
+            self.assertEqual(evaluation.evidence_ids, ["market_review_run:1"])
+            self.assertTrue(evaluation.backtest_artifacts[0].valid)
+            self.assertIsNone(evaluation.strategy_version_task)
+            self.assertEqual(_strategy_param_file_contents(), params_before)
+            self.assertEqual(_count_strategy_versions(db_path), strategy_versions_before)
 
 
 def _seed_market_review_observations(db_path: Path) -> None:

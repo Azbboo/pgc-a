@@ -8,6 +8,7 @@ from pathlib import Path
 
 from pgc_trading.services.agent_external_data_service import (
     AgentExternalDataService,
+    BackfillAgentExternalDataRequest,
     ImportAgentExternalDataRequest,
     build_agent_external_source_hash,
 )
@@ -371,6 +372,96 @@ class AgentExternalDataServiceTest(unittest.TestCase):
             self.assertEqual(result.data.coverage_summary["freshness"], "stale")
             self.assertEqual(result.data.coverage_summary["stale_count"], 2)
             self.assertEqual(result.data.coverage_summary["missing_item_types"], ["fundamental", "news", "sentiment"])
+
+    def test_backfill_dry_run_reports_cross_date_coverage_qa_without_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._migrated_db(tmp)
+            partial_file = Path(tmp) / "agent_external_20260507.json"
+            full_file = Path(tmp) / "agent_external_20260508.json"
+            partial_file.write_text(
+                json.dumps(
+                    {
+                        "provider_file_contract": "agent_external_v1",
+                        "as_of_date": "20260507",
+                        "records": [
+                            self._record(
+                                published_date="20260507",
+                                as_of_date="20260507",
+                                title="历史公告摘要",
+                            )
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            full_file.write_text(
+                json.dumps(
+                    {
+                        "provider_file_contract": "agent_external_v1",
+                        "as_of_date": "20260508",
+                        "records": [
+                            self._record(published_date="20260508", as_of_date="20260508", item_type="fundamental"),
+                            self._record(published_date="20260508", as_of_date="20260508", item_type="announcement"),
+                            self._record(published_date="20260508", as_of_date="20260508", item_type="news"),
+                            self._record(
+                                published_date="20260508",
+                                as_of_date="20260508",
+                                item_type="sentiment",
+                                sentiment="positive",
+                            ),
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            result = AgentExternalDataService(db_path).backfill_external_data(
+                BackfillAgentExternalDataRequest(source_files=[partial_file, full_file]),
+                RequestContext(request_id="test-agent-backfill-preview", dry_run=True, operator="tester"),
+            )
+
+            self.assertTrue(result.ok)
+            self.assertEqual(result.data.file_count, 2)
+            self.assertEqual(result.data.date_count, 2)
+            self.assertEqual(result.data.row_count, 5)
+            self.assertEqual(result.data.valid_count, 5)
+            self.assertEqual(result.data.would_insert_count, 5)
+            self.assertEqual(result.data.inserted_count, 0)
+            self.assertEqual(result.data.coverage_qa["dates"], ["20260507", "20260508"])
+            self.assertEqual(result.data.coverage_qa["ready_dates"], ["20260508"])
+            self.assertEqual(result.data.coverage_qa["missing_item_type_dates"]["fundamental"], ["20260507"])
+            self.assertEqual(result.data.coverage_qa["missing_item_type_dates"]["news"], ["20260507"])
+            self.assertEqual(result.data.coverage_qa["freshness_by_date"]["20260508"], "fresh")
+            with sqlite3.connect(db_path) as conn:
+                self.assertEqual(self._count(conn, "agent_external_items"), 0)
+
+    def test_backfill_apply_requires_as_of_date_without_partial_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._migrated_db(tmp)
+            source_file = Path(tmp) / "agent_external_missing_date.json"
+            source_file.write_text(
+                json.dumps(
+                    {
+                        "provider_file_contract": "agent_external_v1",
+                        "records": [self._record()],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            result = AgentExternalDataService(db_path).backfill_external_data(
+                BackfillAgentExternalDataRequest(source_files=[source_file]),
+                RequestContext(request_id="test-agent-backfill-missing-date", dry_run=False, operator="tester"),
+            )
+
+            self.assertFalse(result.ok)
+            self.assertEqual(result.status, "validation_failed")
+            self.assertEqual(result.errors[0].code, "MISSING_BACKFILL_AS_OF_DATE")
+            with sqlite3.connect(db_path) as conn:
+                self.assertEqual(self._count(conn, "agent_external_items"), 0)
 
     def test_rejects_agent_source_hash_mismatch_when_supplied(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

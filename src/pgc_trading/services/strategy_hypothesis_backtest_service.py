@@ -39,6 +39,21 @@ class StrategyHypothesisBacktestResult:
     artifact: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class StrategyHypothesisBacktestArtifactReview:
+    path: str
+    exists: bool
+    valid: bool
+    artifact_type: str | None = None
+    hypothesis_id: int | None = None
+    hypothesis_matches: bool = False
+    backtest_task_key: str | None = None
+    strategy_version_task_key: str | None = None
+    accepted_is_research_outcome_only: bool | None = None
+    active_params_mutated: bool | None = None
+    error: str | None = None
+
+
 class StrategyHypothesisBacktestService:
     """Build replay/backtest requests from strategy-evolution hypotheses."""
 
@@ -180,11 +195,110 @@ class StrategyHypothesisBacktestService:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(_json_dumps(artifact) + "\n", encoding="utf-8")
 
+    def review_artifact(
+        self,
+        artifact_path: str | Path,
+        *,
+        expected_hypothesis_id: int | None = None,
+    ) -> StrategyHypothesisBacktestArtifactReview:
+        return review_strategy_hypothesis_backtest_artifact(
+            artifact_path,
+            expected_hypothesis_id=expected_hypothesis_id,
+        )
+
+
+def review_strategy_hypothesis_backtest_artifact(
+    artifact_path: str | Path,
+    *,
+    expected_hypothesis_id: int | None = None,
+) -> StrategyHypothesisBacktestArtifactReview:
+    path = Path(artifact_path).expanduser()
+    if not path.exists():
+        return StrategyHypothesisBacktestArtifactReview(
+            path=str(path),
+            exists=False,
+            valid=False,
+            error="backtest artifact was not found.",
+        )
+    try:
+        artifact = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return StrategyHypothesisBacktestArtifactReview(
+            path=str(path),
+            exists=True,
+            valid=False,
+            error=f"backtest artifact is not valid JSON: {exc}",
+        )
+    if not isinstance(artifact, dict):
+        return StrategyHypothesisBacktestArtifactReview(
+            path=str(path),
+            exists=True,
+            valid=False,
+            error="backtest artifact must be a JSON object.",
+        )
+
+    artifact_type = artifact.get("artifact_type")
+    artifact_hypothesis = artifact.get("hypothesis", {})
+    artifact_hypothesis_id = artifact_hypothesis.get("id") if isinstance(artifact_hypothesis, dict) else None
+    parsed_hypothesis_id = _optional_int(artifact_hypothesis_id)
+    expected_matches = (
+        parsed_hypothesis_id is not None
+        if expected_hypothesis_id is None
+        else parsed_hypothesis_id == expected_hypothesis_id
+    )
+    backtest_request = artifact.get("backtest_request", {})
+    strategy_version_task = artifact.get("strategy_version_task")
+    validation_gate = artifact.get("validation_gate", {})
+    safety = artifact.get("safety", {})
+    active_params_mutated = safety.get("active_params_mutated") if isinstance(safety, dict) else None
+    valid_type = artifact_type == "strategy_hypothesis_backtest_request"
+    valid_safety = active_params_mutated is not True
+    error = None
+    if not valid_type:
+        error = "backtest artifact must be a strategy_hypothesis_backtest_request artifact."
+    elif not expected_matches:
+        error = "backtest artifact hypothesis id does not match the requested hypothesis."
+    elif not valid_safety:
+        error = "backtest artifact reports active parameter mutation."
+
+    return StrategyHypothesisBacktestArtifactReview(
+        path=str(path),
+        exists=True,
+        valid=valid_type and expected_matches and valid_safety,
+        artifact_type=str(artifact_type) if artifact_type is not None else None,
+        hypothesis_id=parsed_hypothesis_id,
+        hypothesis_matches=expected_matches,
+        backtest_task_key=(
+            str(backtest_request.get("task_key"))
+            if isinstance(backtest_request, dict) and backtest_request.get("task_key") is not None
+            else None
+        ),
+        strategy_version_task_key=(
+            str(strategy_version_task.get("task_key"))
+            if isinstance(strategy_version_task, dict) and strategy_version_task.get("task_key") is not None
+            else None
+        ),
+        accepted_is_research_outcome_only=(
+            bool(validation_gate.get("accepted_is_research_outcome_only"))
+            if isinstance(validation_gate, dict) and "accepted_is_research_outcome_only" in validation_gate
+            else None
+        ),
+        active_params_mutated=bool(active_params_mutated) if active_params_mutated is not None else None,
+        error=error,
+    )
+
 
 def _validate_request(request: CreateStrategyHypothesisBacktestRequest) -> list[ServiceError]:
     if request.hypothesis_id < 1:
         return [ServiceError(code="VALIDATION_ERROR", message="hypothesis_id must be greater than zero.")]
     return []
+
+
+def _optional_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _load_hypothesis(conn: sqlite3.Connection, hypothesis_id: int) -> sqlite3.Row | None:

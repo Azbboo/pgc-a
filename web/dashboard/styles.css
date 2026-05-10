@@ -874,6 +874,144 @@ code {
   line-height: 1.45;
 }
 
+.acceptance-status-panel {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.9fr) minmax(0, 1.45fr) auto;
+  gap: 12px;
+  align-items: stretch;
+  margin-bottom: 14px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--warning);
+  border-radius: var(--radius);
+  background: #fff;
+  box-shadow: var(--shadow-soft);
+}
+
+.acceptance-status-panel--pass {
+  border-left-color: var(--success);
+}
+
+.acceptance-status-panel--blocked {
+  border-left-color: var(--danger);
+}
+
+.acceptance-status-main {
+  display: grid;
+  align-content: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.acceptance-status-main h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.acceptance-status-main p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.acceptance-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 142px;
+}
+
+.acceptance-overview-grid,
+.acceptance-gate-list {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.acceptance-overview-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 14px;
+}
+
+.acceptance-gate {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: #fff;
+  box-shadow: var(--shadow-soft);
+}
+
+.acceptance-gate--pass {
+  border-top-color: var(--success);
+}
+
+.acceptance-gate--warning {
+  border-top-color: var(--warning);
+}
+
+.acceptance-gate--blocked {
+  border-top-color: var(--danger);
+}
+
+.acceptance-gate__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.acceptance-gate__head strong,
+.acceptance-gate p,
+.acceptance-gate span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.acceptance-gate__head strong {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.3;
+}
+
+.acceptance-gate p {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.acceptance-gate > span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.acceptance-code-row,
+.acceptance-source-refs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+}
+
+.acceptance-detail-grid {
+  align-items: start;
+}
+
 .toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -1245,6 +1383,32 @@ code {
   min-width: 0;
 }
 
+.hypothesis-workbench-summary {
+  margin-bottom: 14px;
+}
+
+.hypothesis-workbench-summary .action-meta {
+  margin-top: 0;
+}
+
+.hypothesis-workbench-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(300px, 0.8fr);
+  gap: 14px;
+}
+
+.hypothesis-queue,
+.hypothesis-safety-panel,
+.hypothesis-workbench-list {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.hypothesis-list-panel {
+  margin-top: 14px;
+}
+
 .market-readonly-note {
   margin: 0;
   padding: 10px 12px;
@@ -1276,7 +1440,9 @@ code {
 }
 
 .market-context-card,
-.market-hypothesis-card {
+.market-hypothesis-card,
+.hypothesis-workbench-card,
+.hypothesis-queue-card {
   display: grid;
   gap: 8px;
   min-width: 0;
@@ -1288,7 +1454,8 @@ code {
 
 .market-context-card__head,
 .market-hypothesis-card__head,
-.market-evidence-item__head {
+.market-evidence-item__head,
+.hypothesis-workbench-card__head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -1298,12 +1465,27 @@ code {
 
 .market-context-card__head > strong,
 .market-hypothesis-card__head > strong,
-.market-evidence-item__head > strong {
+.market-evidence-item__head > strong,
+.hypothesis-workbench-card__head strong {
   min-width: 0;
   color: var(--ink);
   font-size: 13px;
   line-height: 1.35;
   overflow-wrap: anywhere;
+}
+
+.hypothesis-chip-stack,
+.hypothesis-gate-strip {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
+}
+
+.hypothesis-gate-strip {
+  justify-content: flex-start;
+  padding-top: 2px;
 }
 
 .market-context-card__head > span {
@@ -1316,12 +1498,42 @@ code {
 
 .market-context-card p,
 .market-hypothesis-card p,
-.market-evidence-item p {
+.market-evidence-item p,
+.hypothesis-workbench-card p {
   margin: 0;
   color: var(--muted);
   font-size: 12px;
   line-height: 1.55;
   overflow-wrap: anywhere;
+}
+
+.hypothesis-queue-card {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.hypothesis-queue-card > div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.hypothesis-queue-card strong,
+.hypothesis-queue-card span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.hypothesis-queue-card strong {
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.hypothesis-queue-card > div > span:not(.chip) {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .market-linked-plan {
@@ -2771,6 +2983,7 @@ td > .empty-state {
   .review-grid,
   .execution-grid,
   .market-layout,
+  .hypothesis-workbench-grid,
   .market-plan-context-pair,
   .split-panels,
   .record-layout {
@@ -2793,11 +3006,16 @@ td > .empty-state {
     grid-template-columns: 1fr;
   }
 
+  .acceptance-status-panel {
+    grid-template-columns: 1fr;
+  }
+
   .workflow-guide__actions {
     justify-content: flex-start;
   }
 
-  .paper-promotion-scorecard__grid {
+  .paper-promotion-scorecard__grid,
+  .acceptance-overview-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
@@ -2931,10 +3149,23 @@ td > .empty-state {
   .agent-analyst-grid,
   .agent-structured-report__grid,
   .paper-promotion-scorecard__grid,
+  .acceptance-overview-grid,
   .market-history-strip,
   .market-regime-strip,
   .market-evidence-item dl {
     grid-template-columns: 1fr;
+  }
+
+  .hypothesis-queue-card {
+    grid-template-columns: 1fr;
+  }
+
+  .hypothesis-workbench-card__head {
+    flex-direction: column;
+  }
+
+  .hypothesis-chip-stack {
+    justify-content: flex-start;
   }
 
   .drawer-head {

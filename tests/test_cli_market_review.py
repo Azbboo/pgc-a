@@ -128,6 +128,57 @@ class _FakeMarketExternalImportData:
     invalid_records: list[object] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class _FakeMarketExternalBackfillDateData:
+    as_of_date: str = "20260508"
+    source_files: list[str] = field(default_factory=lambda: ["external_items_20260508.json"])
+    row_count: int = 3
+    valid_count: int = 3
+    invalid_count: int = 0
+    would_insert_count: int = 3
+    inserted_count: int = 0
+    duplicate_count: int = 0
+    coverage_summary: dict[str, object] = field(default_factory=_FakeMarketExternalImportData().coverage_summary.copy)
+    coverage_details: dict[str, object] = field(default_factory=_FakeMarketExternalImportData().coverage_details.copy)
+
+
+@dataclass(frozen=True)
+class _FakeMarketExternalBackfillData:
+    file_count: int = 2
+    date_count: int = 2
+    row_count: int = 4
+    valid_count: int = 4
+    invalid_count: int = 0
+    would_insert_count: int = 4
+    inserted_count: int = 0
+    duplicate_count: int = 0
+    coverage_qa: dict[str, object] = field(
+        default_factory=lambda: {
+            "date_count": 2,
+            "dates": ["20260507", "20260508"],
+            "ready_dates": ["20260508"],
+            "blocking_dates": ["20260507"],
+            "missing_scope_dates": {"market": [], "sector": ["20260507"], "stock": ["20260507"]},
+            "stale_scope_dates": {"market": ["20260507"], "sector": [], "stock": []},
+            "duplicate_dates": [],
+        }
+    )
+    provider_file_contract: str = "market_external_v1"
+    date_results: list[_FakeMarketExternalBackfillDateData] = field(
+        default_factory=lambda: [
+            _FakeMarketExternalBackfillDateData(
+                as_of_date="20260507",
+                source_files=["external_items_20260507.json"],
+                row_count=1,
+                valid_count=1,
+                would_insert_count=1,
+            ),
+            _FakeMarketExternalBackfillDateData(),
+        ]
+    )
+    invalid_records: list[object] = field(default_factory=list)
+
+
 class _FakeMarketExternalDataService:
     calls: list[tuple[Path, object, RequestContext]] = []
 
@@ -143,6 +194,14 @@ class _FakeMarketExternalDataService:
                 inserted_count=0 if ctx.dry_run else 3,
                 market_external_item_ids=[] if ctx.dry_run else [1, 2, 3],
             ),
+        )
+
+    def backfill_external_data(self, request, ctx: RequestContext) -> ServiceResult[_FakeMarketExternalBackfillData]:
+        self.calls.append((self.db_path, request, ctx))
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data=_FakeMarketExternalBackfillData(inserted_count=0 if ctx.dry_run else 4),
         )
 
 
@@ -452,6 +511,47 @@ class CliMarketReviewTest(unittest.TestCase):
         self.assertEqual(ctx.operator, "azboo")
         self.assertEqual(ctx.idempotency_key, "market-external:test")
         self.assertIn("inserted=3", stdout.getvalue())
+
+    def test_market_external_data_backfill_routes_to_service_with_coverage_qa(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc_market_review.db"
+            db_path.touch()
+            first_file = Path(tmp) / "external_items_20260507.json"
+            second_file = Path(tmp) / "external_items_20260508.json"
+            first_file.write_text('{"as_of_date":"20260507","provider":"manual","items":[]}', encoding="utf-8")
+            second_file.write_text('{"as_of_date":"20260508","provider":"manual","items":[]}', encoding="utf-8")
+            stdout = io.StringIO()
+            code = main(
+                [
+                    "market-review",
+                    "external-data",
+                    "backfill",
+                    "--input",
+                    str(first_file),
+                    str(second_file),
+                    "--db-path",
+                    str(db_path),
+                ],
+                stdout=stdout,
+                services=CommandServices(
+                    market_external_data_service_factory=_FakeMarketExternalDataService,
+                ),
+            )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(len(_FakeMarketExternalDataService.calls), 1)
+        called_db_path, request, ctx = _FakeMarketExternalDataService.calls[0]
+        self.assertEqual(called_db_path, db_path)
+        self.assertEqual(request.source_files, [first_file, second_file])
+        self.assertTrue(ctx.dry_run)
+        self.assertEqual(ctx.request_id, "cli-market-external-data-backfill")
+        output = stdout.getvalue()
+        self.assertIn("market-review external-data backfill command routed", output)
+        self.assertIn("market_external_backfill_status=success", output)
+        self.assertIn("backfill_totals=files=2 dates=2 rows=4 valid=4 invalid=0", output)
+        self.assertIn("coverage_qa_json=", output)
+        self.assertIn('"ready_dates":["20260508"]', output)
+        self.assertIn("backfill_dates:", output)
 
     def test_market_external_data_import_missing_db_fails_without_creating_database(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

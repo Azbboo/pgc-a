@@ -21,6 +21,7 @@ from pgc_trading.services.operational_readiness_service import (
     PaperReadinessRequest,
     PaperReadinessResult,
 )
+from pgc_trading.services.open_execution_service import OpenExecutionRequest, OpenExecutionService
 from pgc_trading.portfolio.state_machines import BUY_PLAN_ACTION, OPEN_POSITION_STATUSES, SELL_PLAN_ACTIONS
 from pgc_trading.storage.database import connect
 from pgc_trading.storage.invariant_checks import InvariantReport, check_database
@@ -357,6 +358,52 @@ class ReportLineage:
 
 
 @dataclass(frozen=True)
+class DailyAcceptanceGate:
+    key: str
+    label: str
+    status: str
+    summary: str
+    detail: str
+    blocker_codes: list[str] = field(default_factory=list)
+    warning_codes: list[str] = field(default_factory=list)
+    source_refs: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class DailyAcceptanceOpenExecution:
+    as_of_date: str
+    status: str
+    next_action: str
+    primary_plan_id: int | None
+    primary_position_id: int | None
+    target_stock: str | None
+    target_name: str | None
+    planned_trade_date: str | None
+    planned_shares: int | None
+    blocked_reasons: list[str] = field(default_factory=list)
+    operator_required: bool = False
+
+
+@dataclass(frozen=True)
+class DailyAcceptanceReport:
+    account_key: str | None
+    as_of_date: str
+    execution_date: str | None
+    status: str
+    summary: str
+    data_freshness: DailyAcceptanceGate
+    evidence_coverage: DailyAcceptanceGate
+    agent_status: DailyAcceptanceGate
+    open_execution: DailyAcceptanceOpenExecution
+    open_execution_gate: DailyAcceptanceGate
+    readiness_gates: list[DailyAcceptanceGate] = field(default_factory=list)
+    unresolved_blockers: list[str] = field(default_factory=list)
+    advisory_note: str = (
+        "Acceptance is read-only; it does not execute trades, cancel plans, or mutate strategy parameters."
+    )
+
+
+@dataclass(frozen=True)
 class DailyReport:
     generated_at: str
     as_of_date: str
@@ -366,6 +413,7 @@ class DailyReport:
     account: AccountReport
     data_quality: DataQualityReport
     paper_promotion: PaperReadinessResult | None
+    paper_acceptance: DailyAcceptanceReport | None
     candidate: CandidateReport | None
     no_candidate_reason: str | None
     buy_plan: BuyPlanReport | None
@@ -423,6 +471,12 @@ class ReportingQueryService:
             next_trade_date = _next_trade_date(conn, request.as_of_date)
 
         data_quality = _data_quality_report(readiness, invariant_report)
+        open_execution = _open_execution_acceptance(
+            self.db_path,
+            request,
+            context,
+            next_trade_date or request.as_of_date,
+        )
         lineage = ReportLineage(
             feature_run_id=candidate.feature_run_id if candidate else _latest_feature_run_id(self.db_path, request),
             strategy_run_id=candidate.strategy_run_id if candidate else _latest_strategy_run_id(self.db_path, request),
@@ -441,6 +495,22 @@ class ReportingQueryService:
             agent_decision_id=agent_advice.agent_decision_id,
             data_quality_event_ids=data_quality.event_ids,
         )
+        paper_acceptance = _daily_acceptance_report(
+            request=request,
+            account=account,
+            data_quality=data_quality,
+            paper_promotion=paper_promotion,
+            latest_market_date=latest_market_date,
+            next_trade_date=next_trade_date,
+            buy_plan=buy_plan,
+            market_review=market_review,
+            market_plan_context=market_plan_context,
+            agent_advice=agent_advice,
+            positions=positions,
+            due_positions=[position for position in positions if position.action_due != "none"],
+            open_execution=open_execution,
+            lineage=lineage,
+        )
         report = DailyReport(
             generated_at=datetime.now(UTC).isoformat(),
             as_of_date=request.as_of_date,
@@ -450,6 +520,7 @@ class ReportingQueryService:
             account=account,
             data_quality=data_quality,
             paper_promotion=paper_promotion,
+            paper_acceptance=paper_acceptance,
             candidate=candidate,
             no_candidate_reason=no_candidate_reason,
             buy_plan=buy_plan,
@@ -472,6 +543,34 @@ class ReportingQueryService:
                 "account_id": account.account_id,
                 "daily_pick_id": lineage.daily_pick_id,
                 "trade_plan_id": lineage.trade_plan_id,
+            },
+        )
+
+    def get_daily_acceptance(
+        self,
+        request: DailyReportRequest,
+        ctx: RequestContext | None = None,
+    ) -> ServiceResult[DailyAcceptanceReport]:
+        result = self.get_daily_report(request, ctx)
+        if result.data is None:
+            return ServiceResult(
+                status=result.status,
+                request_id=result.request_id,
+                warnings=result.warnings,
+                errors=result.errors,
+                lineage=result.lineage,
+            )
+        return ServiceResult(
+            status=result.status,
+            request_id=result.request_id,
+            data=result.data.paper_acceptance,
+            warnings=result.warnings,
+            errors=result.errors,
+            lineage={
+                **result.lineage,
+                "acceptance_status": result.data.paper_acceptance.status
+                if result.data.paper_acceptance
+                else None,
             },
         )
 
@@ -577,6 +676,7 @@ def render_daily_report_markdown(report: DailyReport) -> str:
         f"- 最新权益：{_money(report.account.total_equity)}",
     ]
     lines.extend(_paper_promotion_lines(report.paper_promotion))
+    lines.extend(_daily_acceptance_lines(report.paper_acceptance))
     lines.extend([
         "",
         "## 数据状态",
@@ -838,6 +938,333 @@ def _paper_promotion_report(
         ),
     )
     return result.data
+
+
+def _open_execution_acceptance(
+    db_path: Path,
+    request: DailyReportRequest,
+    context: RequestContext,
+    execution_date: str,
+) -> DailyAcceptanceOpenExecution:
+    result = OpenExecutionService(db_path).get_open_execution(
+        OpenExecutionRequest(
+            as_of_date=execution_date,
+            account_key=request.account_key,
+            account_id=request.account_id,
+        ),
+        RequestContext(
+            request_id=f"{context.request_id}:open-execution" if context.request_id else None,
+            dry_run=True,
+            operator=context.operator,
+            source=context.source,
+        ),
+    )
+    data = result.data
+    if data is None:
+        return DailyAcceptanceOpenExecution(
+            as_of_date=execution_date,
+            status="blocked" if result.status in {"blocked", "validation_failed"} else result.status,
+            next_action="blocked",
+            primary_plan_id=None,
+            primary_position_id=None,
+            target_stock=None,
+            target_name=None,
+            planned_trade_date=None,
+            planned_shares=None,
+            blocked_reasons=[error.message for error in result.errors],
+        )
+
+    return DailyAcceptanceOpenExecution(
+        as_of_date=data.as_of_date,
+        status=data.status,
+        next_action=data.next_action,
+        primary_plan_id=data.primary_plan_id,
+        primary_position_id=data.primary_position_id,
+        target_stock=data.target_stock,
+        target_name=data.target_name,
+        planned_trade_date=data.planned_trade_date,
+        planned_shares=data.planned_shares,
+        blocked_reasons=list(data.blocked_reasons),
+        operator_required=data.operator_required,
+    )
+
+
+def _daily_acceptance_report(
+    *,
+    request: DailyReportRequest,
+    account: AccountReport,
+    data_quality: DataQualityReport,
+    paper_promotion: PaperReadinessResult | None,
+    latest_market_date: str | None,
+    next_trade_date: str | None,
+    buy_plan: BuyPlanReport | None,
+    market_review: MarketReviewReport | None,
+    market_plan_context: MarketPlanContextReport | None,
+    agent_advice: AgentAdviceReport,
+    positions: list[PositionReport],
+    due_positions: list[PositionReport],
+    open_execution: DailyAcceptanceOpenExecution,
+    lineage: ReportLineage,
+) -> DailyAcceptanceReport:
+    data_freshness = _acceptance_data_freshness_gate(
+        request.as_of_date,
+        latest_market_date,
+        data_quality,
+    )
+    evidence_coverage = _acceptance_evidence_gate(
+        market_review,
+        market_plan_context,
+        agent_advice,
+        lineage,
+    )
+    agent_status = _acceptance_agent_gate(agent_advice, lineage)
+    open_execution_gate = _acceptance_open_execution_gate(open_execution)
+    readiness_gates = _acceptance_readiness_gates(
+        account,
+        data_quality,
+        paper_promotion,
+        buy_plan,
+        positions,
+        due_positions,
+    )
+    all_gates = [data_freshness, evidence_coverage, agent_status, open_execution_gate, *readiness_gates]
+    status = _combined_acceptance_status(all_gates)
+    unresolved_blockers = _acceptance_blockers(all_gates, open_execution)
+
+    return DailyAcceptanceReport(
+        account_key=account.account_key or request.account_key,
+        as_of_date=request.as_of_date,
+        execution_date=next_trade_date,
+        status=status,
+        summary=_acceptance_summary(status, unresolved_blockers, all_gates),
+        data_freshness=data_freshness,
+        evidence_coverage=evidence_coverage,
+        agent_status=agent_status,
+        open_execution=open_execution,
+        open_execution_gate=open_execution_gate,
+        readiness_gates=readiness_gates,
+        unresolved_blockers=unresolved_blockers,
+    )
+
+
+def _acceptance_data_freshness_gate(
+    as_of_date: str,
+    latest_market_date: str | None,
+    data_quality: DataQualityReport,
+) -> DailyAcceptanceGate:
+    blocker_codes: list[str] = []
+    warning_codes: list[str] = []
+    status = "pass"
+    if data_quality.readiness in {"blocker", "blocked"}:
+        status = "blocked"
+        blocker_codes.append("DATA_QUALITY_BLOCKER")
+    elif not latest_market_date:
+        status = "warning"
+        warning_codes.append("MARKET_DATA_MISSING")
+    elif latest_market_date < as_of_date:
+        status = "warning"
+        warning_codes.append("STALE_MARKET_DATA")
+    if not data_quality.trade_calendar_ok:
+        status = "blocked"
+        blocker_codes.append("TRADE_CALENDAR_NOT_READY")
+    if not data_quality.market_coverage_ok:
+        status = "blocked"
+        blocker_codes.append("MARKET_COVERAGE_NOT_READY")
+    return DailyAcceptanceGate(
+        key="data_freshness",
+        label="数据新鲜度",
+        status=status,
+        summary=f"最新行情日 {_date_text(latest_market_date)} / 复盘日 {_date_text(as_of_date)}",
+        detail=(
+            f"有效入池 {data_quality.valid_raw_count}；"
+            f"缺失行情 {data_quality.missing_market_bar_count}；"
+            f"blocker/warning {data_quality.blocker_count}/{data_quality.warning_count}"
+        ),
+        blocker_codes=blocker_codes,
+        warning_codes=warning_codes,
+        source_refs=[f"data_quality_events:{event_id}" for event_id in data_quality.event_ids],
+    )
+
+
+def _acceptance_evidence_gate(
+    market_review: MarketReviewReport | None,
+    market_plan_context: MarketPlanContextReport | None,
+    agent_advice: AgentAdviceReport,
+    lineage: ReportLineage,
+) -> DailyAcceptanceGate:
+    warning_codes: list[str] = []
+    source_refs: list[str] = []
+    market_count = 0
+    if market_review is None:
+        warning_codes.append("MARKET_REVIEW_MISSING")
+    else:
+        market_count = _optional_int_from_any(market_review.external_evidence_coverage.get("total_count")) or 0
+        source_refs.append(f"market_review_runs:{market_review.market_review_run_id}")
+        if market_count <= 0:
+            warning_codes.append("MARKET_EVIDENCE_MISSING")
+    if market_plan_context is None and lineage.trade_plan_id is not None:
+        warning_codes.append("MARKET_PLAN_CONTEXT_MISSING")
+    elif market_plan_context is not None:
+        source_refs.append(f"market_plan_contexts:{market_plan_context.market_review_run_id}:{market_plan_context.trade_plan_id}")
+
+    coverage = agent_advice.external_data_coverage
+    unavailable_count = sum(1 for value in coverage.values() if str(value) in {"missing", "unavailable"})
+    if not coverage or unavailable_count == len(coverage):
+        warning_codes.append("AGENT_EXTERNAL_EVIDENCE_MISSING")
+    source_refs.extend(agent_advice.source_refs)
+
+    return DailyAcceptanceGate(
+        key="evidence_coverage",
+        label="证据覆盖",
+        status="warning" if warning_codes else "pass",
+        summary=f"全市场证据 {market_count} 条；Agent 覆盖 {len(coverage)} 项",
+        detail="Missing evidence is explicit and remains advisory; no cached evidence mutates strategy or trades.",
+        warning_codes=warning_codes,
+        source_refs=source_refs,
+    )
+
+
+def _acceptance_agent_gate(
+    agent_advice: AgentAdviceReport,
+    lineage: ReportLineage,
+) -> DailyAcceptanceGate:
+    warning_codes: list[str] = []
+    if agent_advice.status in {"failed", "unavailable"}:
+        warning_codes.append("AGENT_REVIEW_UNAVAILABLE")
+    elif agent_advice.status in {"not_run", "skipped"} or agent_advice.agent_run_id is None:
+        warning_codes.append("AGENT_REVIEW_NOT_RUN")
+    return DailyAcceptanceGate(
+        key="agent_status",
+        label="Agent 状态",
+        status="warning" if warning_codes else "pass",
+        summary=f"{agent_advice.status} / {agent_advice.action} / risk {agent_advice.risk_level}",
+        detail=agent_advice.summary or agent_advice.note or "Agent 只读 advisory。",
+        warning_codes=warning_codes,
+        source_refs=[f"agent_runs:{lineage.agent_run_id}"] if lineage.agent_run_id else [],
+    )
+
+
+def _acceptance_open_execution_gate(open_execution: DailyAcceptanceOpenExecution) -> DailyAcceptanceGate:
+    blocker_codes: list[str] = []
+    warning_codes: list[str] = []
+    if open_execution.status == "blocked" or open_execution.next_action == "blocked":
+        blocker_codes.append("OPEN_EXECUTION_BLOCKED")
+    elif open_execution.status == "unavailable":
+        warning_codes.append("OPEN_EXECUTION_UNAVAILABLE")
+    return DailyAcceptanceGate(
+        key="open_execution",
+        label="open-execution 状态",
+        status="blocked" if blocker_codes else "warning" if warning_codes else "pass",
+        summary=f"{open_execution.status} / {open_execution.next_action}",
+        detail=(
+            f"执行日 {_date_text(open_execution.as_of_date)}；"
+            f"计划 {open_execution.primary_plan_id or '-'}；"
+            f"持仓 {open_execution.primary_position_id or '-'}"
+        ),
+        blocker_codes=blocker_codes,
+        warning_codes=warning_codes,
+        source_refs=[
+            ref
+            for ref in [
+                f"trade_plans:{open_execution.primary_plan_id}" if open_execution.primary_plan_id else "",
+                f"positions:{open_execution.primary_position_id}" if open_execution.primary_position_id else "",
+            ]
+            if ref
+        ],
+    )
+
+
+def _acceptance_readiness_gates(
+    account: AccountReport,
+    data_quality: DataQualityReport,
+    paper_promotion: PaperReadinessResult | None,
+    buy_plan: BuyPlanReport | None,
+    positions: list[PositionReport],
+    due_positions: list[PositionReport],
+) -> list[DailyAcceptanceGate]:
+    gates = [
+        DailyAcceptanceGate(
+            key="daily_review_readiness",
+            label="daily review readiness gate",
+            status="blocked" if data_quality.readiness in {"blocker", "blocked"} else "pass",
+            summary=f"readiness={data_quality.readiness}",
+            detail=f"可交易 {'是' if data_quality.can_trade else '否'}；质量事件 {len(data_quality.event_ids)} 个",
+            blocker_codes=["DAILY_REVIEW_READINESS_BLOCKED"]
+            if data_quality.readiness in {"blocker", "blocked"}
+            else [],
+            source_refs=[f"data_quality_events:{event_id}" for event_id in data_quality.event_ids],
+        ),
+        DailyAcceptanceGate(
+            key="account_capacity",
+            label="账户容量 gate",
+            status="blocked" if buy_plan is not None and (account.free_position_slots or 0) <= 0 else "pass",
+            summary=f"持仓 {account.open_positions}/{account.max_positions or '-'}；空闲 {account.free_position_slots}",
+            detail=f"当前持仓 {len(positions)}；T+2/T+5 待处理 {len(due_positions)}",
+            blocker_codes=["NO_FREE_POSITION_SLOTS"]
+            if buy_plan is not None and (account.free_position_slots or 0) <= 0
+            else [],
+        ),
+    ]
+    if paper_promotion is None:
+        gates.append(
+            DailyAcceptanceGate(
+                key="paper_readiness",
+                label="paper-readiness gate",
+                status="warning",
+                summary="未计算 paper-readiness",
+                detail="Paper 晋级和账本 gate 暂无结果。",
+                warning_codes=["PAPER_READINESS_MISSING"],
+            )
+        )
+        return gates
+
+    for gate in paper_promotion.readiness_gates:
+        gates.append(
+            DailyAcceptanceGate(
+                key=f"paper_{gate.gate}",
+                label=gate.label,
+                status=gate.status,
+                summary=gate.summary,
+                detail="来自 paper-readiness；用于暴露晋级和账本 gate，不会自动执行任何交易动作。",
+                blocker_codes=list(gate.blocker_codes),
+                warning_codes=list(gate.warning_codes),
+            )
+        )
+    return gates
+
+
+def _combined_acceptance_status(gates: list[DailyAcceptanceGate]) -> str:
+    if any(gate.status == "blocked" for gate in gates):
+        return "blocked"
+    if any(gate.status == "warning" for gate in gates):
+        return "warning"
+    return "pass"
+
+
+def _acceptance_blockers(
+    gates: list[DailyAcceptanceGate],
+    open_execution: DailyAcceptanceOpenExecution,
+) -> list[str]:
+    blockers: list[str] = []
+    for gate in gates:
+        for code in gate.blocker_codes:
+            blockers.append(f"{gate.label}: {code}")
+    for reason in open_execution.blocked_reasons:
+        blockers.append(f"open-execution: {reason}")
+    return blockers
+
+
+def _acceptance_summary(
+    status: str,
+    unresolved_blockers: list[str],
+    gates: list[DailyAcceptanceGate],
+) -> str:
+    if status == "blocked":
+        return f"纸盘每日运营验收阻断：{len(unresolved_blockers)} 项 blocker 需要先处理。"
+    warnings = sum(1 for gate in gates if gate.status == "warning")
+    if status == "warning":
+        return f"纸盘每日运营验收有 {warnings} 项证据或 advisory 警告，需人工复核后继续。"
+    return "纸盘每日运营验收通过；仍需人工确认开盘检查和成交事实。"
 
 
 def _load_account(conn: Any, request: DailyReportRequest) -> AccountReport:
@@ -2231,6 +2658,57 @@ def _paper_promotion_lines(promotion: PaperReadinessResult | None) -> list[str]:
         f"- 晋级 live 前还差什么：{next_steps}",
         f"- 晋级警告：{warnings}",
     ]
+
+
+def _daily_acceptance_lines(acceptance: DailyAcceptanceReport | None) -> list[str]:
+    if acceptance is None:
+        return [
+            "",
+            "## 纸盘每日运营验收",
+            "",
+            "- 状态：未计算",
+            "- 提醒：只读验收面板，不会执行交易、取消计划或改策略参数。",
+        ]
+
+    lines = [
+        "",
+        "## 纸盘每日运营验收",
+        "",
+        f"- 状态：{_acceptance_status_text(acceptance.status)}",
+        f"- 验收摘要：{acceptance.summary}",
+        f"- 执行日：{_date_text(acceptance.execution_date)}",
+        f"- 数据新鲜度：{_acceptance_gate_text(acceptance.data_freshness)}",
+        f"- 证据覆盖：{_acceptance_gate_text(acceptance.evidence_coverage)}",
+        f"- Agent 状态：{_acceptance_gate_text(acceptance.agent_status)}",
+        f"- open-execution 状态：{_acceptance_gate_text(acceptance.open_execution_gate)}",
+        "- 提醒：只读验收面板，不会执行交易、取消计划或改策略参数。",
+        "",
+        "readiness gates：",
+    ]
+    if acceptance.readiness_gates:
+        lines.extend(f"- {gate.label}：{_acceptance_gate_text(gate)}" for gate in acceptance.readiness_gates)
+    else:
+        lines.append("- 未返回 readiness gates。")
+    lines.extend(["", "未处理 blocker："])
+    if acceptance.unresolved_blockers:
+        lines.extend(f"- {blocker}" for blocker in acceptance.unresolved_blockers)
+    else:
+        lines.append("- 无。")
+    return lines
+
+
+def _acceptance_gate_text(gate: DailyAcceptanceGate) -> str:
+    blockers = f"；blocker {', '.join(gate.blocker_codes)}" if gate.blocker_codes else ""
+    warnings = f"；warning {', '.join(gate.warning_codes)}" if gate.warning_codes else ""
+    return f"{_acceptance_status_text(gate.status)}；{gate.summary}{blockers}{warnings}"
+
+
+def _acceptance_status_text(value: str) -> str:
+    return {
+        "pass": "通过",
+        "warning": "警告",
+        "blocked": "阻断",
+    }.get(value, value)
 
 
 def _market_review_lines(review: MarketReviewReport | None) -> list[str]:

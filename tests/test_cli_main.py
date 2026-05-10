@@ -234,6 +234,63 @@ class _FakeExternalDataImportData:
     invalid_records: list[object] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class _FakeExternalDataBackfillDateData:
+    as_of_date: str = "20260508"
+    source_files: list[str] = field(default_factory=lambda: ["agent_external_20260508.json"])
+    row_count: int = 2
+    valid_count: int = 2
+    invalid_count: int = 0
+    would_insert_count: int = 2
+    would_update_count: int = 0
+    inserted_count: int = 0
+    updated_count: int = 0
+    coverage_summary: dict[str, object] = field(default_factory=_FakeExternalDataImportData().coverage_summary.copy)
+
+
+@dataclass(frozen=True)
+class _FakeExternalDataBackfillData:
+    file_count: int = 2
+    date_count: int = 2
+    row_count: int = 3
+    valid_count: int = 3
+    invalid_count: int = 0
+    would_insert_count: int = 3
+    would_update_count: int = 0
+    inserted_count: int = 0
+    updated_count: int = 0
+    coverage_qa: dict[str, object] = field(
+        default_factory=lambda: {
+            "date_count": 2,
+            "dates": ["20260507", "20260508"],
+            "ready_dates": ["20260508"],
+            "blocking_dates": ["20260507"],
+            "missing_item_type_dates": {
+                "fundamental": [],
+                "announcement": [],
+                "news": ["20260507"],
+                "sentiment": ["20260507"],
+            },
+            "stale_dates": [],
+            "duplicate_dates": [],
+        }
+    )
+    provider_file_contract: str = "agent_external_v1"
+    date_results: list[_FakeExternalDataBackfillDateData] = field(
+        default_factory=lambda: [
+            _FakeExternalDataBackfillDateData(
+                as_of_date="20260507",
+                source_files=["agent_external_20260507.json"],
+                row_count=1,
+                valid_count=1,
+                would_insert_count=1,
+            ),
+            _FakeExternalDataBackfillDateData(),
+        ]
+    )
+    invalid_records: list[object] = field(default_factory=list)
+
+
 class _FakeAgentExternalDataService:
     calls: list[tuple[Path, object, RequestContext]] = []
 
@@ -249,6 +306,14 @@ class _FakeAgentExternalDataService:
                 inserted_count=0 if ctx.dry_run else 2,
                 agent_external_item_ids=[] if ctx.dry_run else [1, 2],
             ),
+        )
+
+    def backfill_external_data(self, request, ctx: RequestContext) -> ServiceResult[_FakeExternalDataBackfillData]:
+        self.calls.append((self.db_path, request, ctx))
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data=_FakeExternalDataBackfillData(inserted_count=0 if ctx.dry_run else 3),
         )
 
 
@@ -872,6 +937,49 @@ class CliMainTest(unittest.TestCase):
         self.assertEqual(ctx.operator, "azboo")
         self.assertEqual(ctx.idempotency_key, "external-data:test")
         self.assertIn("inserted=2", stdout.getvalue())
+
+    def test_agent_external_data_backfill_routes_to_service_with_coverage_qa(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc_agent_external.db"
+            db_path.touch()
+            first_file = Path(tmp) / "agent_external_20260507.json"
+            second_file = Path(tmp) / "agent_external_20260508.json"
+            first_file.write_text('{"as_of_date":"20260507","records":[]}', encoding="utf-8")
+            second_file.write_text('{"as_of_date":"20260508","records":[]}', encoding="utf-8")
+            stdout = io.StringIO()
+            code = main(
+                [
+                    "agent",
+                    "external-data",
+                    "backfill",
+                    "--file",
+                    str(first_file),
+                    str(second_file),
+                    "--source",
+                    "tushare",
+                    "--db-path",
+                    str(db_path),
+                ],
+                stdout=stdout,
+                services=CommandServices(
+                    agent_external_data_service_factory=_FakeAgentExternalDataService,
+                ),
+            )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(len(_FakeAgentExternalDataService.calls), 1)
+        called_db_path, request, ctx = _FakeAgentExternalDataService.calls[0]
+        self.assertEqual(called_db_path, db_path)
+        self.assertEqual(request.source_files, [first_file, second_file])
+        self.assertEqual(request.default_provider, "tushare")
+        self.assertTrue(ctx.dry_run)
+        self.assertEqual(ctx.request_id, "cli-agent-external-data-backfill")
+        output = stdout.getvalue()
+        self.assertIn("agent external-data backfill command routed", output)
+        self.assertIn("agent_external_backfill_status=success", output)
+        self.assertIn("backfill_totals=files=2 dates=2 rows=3 valid=3 invalid=0", output)
+        self.assertIn("coverage_qa_json=", output)
+        self.assertIn('"ready_dates":["20260508"]', output)
 
     def test_agent_external_data_import_missing_db_fails_without_creating_database(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
