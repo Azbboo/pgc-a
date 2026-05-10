@@ -11,6 +11,7 @@ LOG_DIR="${PGC_DAILY_PIPELINE_LOG_DIR:-.pgc-runs}"
 INCLUDE_MARKET_REVIEW=0
 PYTHON_BIN="${PGC_PYTHON:-python3}"
 ALLOW_RERUN=0
+EVIDENCE_RUN_ID=""
 
 usage() {
   cat <<'USAGE'
@@ -25,6 +26,7 @@ Options:
   --apply                        persist writes after creating a database backup
   --dry-run                      preview writes (default)
   --allow-rerun                  allow an apply rerun after completed writes are detected
+  --evidence-run ID              preserve a dry-run evidence log as daily-pipeline-YYYYMMDD-ID.log
 
 Environment:
   PGC_DAILY_PIPELINE_LOG_DIR     default: .pgc-runs
@@ -76,6 +78,18 @@ while [[ $# -gt 0 ]]; do
       ALLOW_RERUN=1
       shift
       ;;
+    --evidence-run)
+      EVIDENCE_RUN_ID="${2:-}"
+      if [[ -z "$EVIDENCE_RUN_ID" ]]; then
+        echo "--evidence-run requires a value" >&2
+        exit 2
+      fi
+      if [[ ! "$EVIDENCE_RUN_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+        echo "--evidence-run must contain only letters, numbers, dots, underscores, or hyphens and start with a letter or number" >&2
+        exit 2
+      fi
+      shift 2
+      ;;
     *)
       echo "unknown argument: $1" >&2
       exit 2
@@ -90,6 +104,11 @@ fi
 
 if [[ "$MODE" == "--apply" && -z "$OPERATOR" ]]; then
   echo "--operator is required with --apply" >&2
+  exit 2
+fi
+
+if [[ -n "$EVIDENCE_RUN_ID" && "$MODE" != "--dry-run" ]]; then
+  echo "--evidence-run is only valid with --dry-run" >&2
   exit 2
 fi
 
@@ -247,11 +266,23 @@ else
 fi
 
 mkdir -p "$LOG_DIR"
-LOG_FILE="${LOG_DIR}/daily-pipeline-${DATE}.log"
+LOG_BASENAME="daily-pipeline-${DATE}"
+if [[ -n "$EVIDENCE_RUN_ID" ]]; then
+  LOG_BASENAME="${LOG_BASENAME}-${EVIDENCE_RUN_ID}"
+fi
+LOG_FILE="${LOG_DIR}/${LOG_BASENAME}.log"
 echo "log_file=$LOG_FILE"
+if [[ -n "$EVIDENCE_RUN_ID" && -e "$LOG_FILE" ]]; then
+  echo "evidence log already exists: $LOG_FILE" >&2
+  exit 1
+fi
 : > "$LOG_FILE"
 printf 'resolved_date=%s\n' "$DATE" >> "$LOG_FILE"
 printf 'log_file=%s\n' "$LOG_FILE" >> "$LOG_FILE"
+if [[ -n "$EVIDENCE_RUN_ID" ]]; then
+  printf 'evidence_run_id=%s\n' "$EVIDENCE_RUN_ID" | tee -a "$LOG_FILE"
+  printf 'evidence_log_role=dry_run_activation_evidence\n' | tee -a "$LOG_FILE"
+fi
 
 emit_log_line() {
   printf '%s\n' "$1" | tee -a "$LOG_FILE"

@@ -8,11 +8,13 @@ from pathlib import Path
 
 from pgc_trading.services.common import RequestContext
 from pgc_trading.services.strategy_evolution_service import (
+    CreateStrategyVersionProposalRequest,
     EvaluateStrategyHypothesesRequest,
     ListStrategyHypothesesRequest,
     MarkStrategyHypothesisRequest,
     ProposeStrategyHypothesesRequest,
     StrategyEvolutionService,
+    review_strategy_version_proposal_artifact,
 )
 from pgc_trading.storage.migrate import run_migrations
 
@@ -201,6 +203,144 @@ class StrategyEvolutionServiceTest(unittest.TestCase):
             self.assertEqual(validation["backtest_artifacts"], [str(artifact_path)])
             self.assertEqual([event["to_status"] for event in validation["review_events"]], ["testing", "accepted"])
 
+    def test_strategy_version_proposal_dry_run_builds_artifact_without_strategy_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc.db"
+            reports_dir = Path(tmp) / "reports"
+            artifact_path = Path(tmp) / "hypothesis_backtest_request.json"
+            run_migrations(db_path)
+            _seed_market_review_observations(db_path)
+            params_before = _strategy_param_file_contents()
+            strategy_versions_before = _count_strategy_versions(db_path)
+            service = StrategyEvolutionService(db_path, reports_dir=reports_dir)
+            hypothesis_id = _accepted_hypothesis(service, artifact_path)
+
+            result = service.create_strategy_version_proposal(
+                CreateStrategyVersionProposalRequest(hypothesis_id=hypothesis_id),
+                RequestContext(request_id="proposal-dry-run", dry_run=True, operator="azboo"),
+            )
+
+            self.assertEqual(result.status, "success")
+            self.assertIsNotNone(result.data)
+            assert result.data is not None
+            self.assertTrue(result.data.would_write_artifact)
+            self.assertFalse(result.data.wrote_artifact)
+            self.assertIsNone(result.data.artifact_path)
+            self.assertFalse(result.data.active_params_mutated)
+            self.assertFalse(result.data.wrote_strategy_version)
+            self.assertFalse((reports_dir / "strategy_version_proposals").exists())
+            self.assertEqual(_strategy_param_file_contents(), params_before)
+            self.assertEqual(_count_strategy_versions(db_path), strategy_versions_before)
+
+            artifact = result.data.artifact
+            self.assertEqual(artifact["artifact_type"], "strategy_version_proposal")
+            self.assertEqual(artifact["hypothesis"]["id"], hypothesis_id)
+            self.assertEqual(
+                artifact["proposal"]["proposal_key"],
+                f"strategy-hypothesis:{hypothesis_id}:strategy-version-proposal",
+            )
+            self.assertEqual(
+                artifact["proposal"]["strategy_version_task_key"],
+                f"strategy-hypothesis:{hypothesis_id}:strategy-version",
+            )
+            self.assertFalse(artifact["proposal"]["proposed_change"]["mutates_active_params"])
+            self.assertFalse(artifact["safety"]["active_params_mutated"])
+            self.assertFalse(artifact["safety"]["wrote_strategy_versions"])
+            self.assertTrue(artifact["promotion_gate"]["proposal_artifact_only"])
+
+    def test_strategy_version_proposal_apply_writes_artifact_and_records_validation_metadata_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc.db"
+            reports_dir = Path(tmp) / "reports"
+            backtest_path = Path(tmp) / "hypothesis_backtest_request.json"
+            output_path = Path(tmp) / "custom_strategy_version_proposal.json"
+            run_migrations(db_path)
+            _seed_market_review_observations(db_path)
+            params_before = _strategy_param_file_contents()
+            strategy_versions_before = _count_strategy_versions(db_path)
+            service = StrategyEvolutionService(db_path, reports_dir=reports_dir)
+            hypothesis_id = _accepted_hypothesis(service, backtest_path)
+
+            result = service.create_strategy_version_proposal(
+                CreateStrategyVersionProposalRequest(
+                    hypothesis_id=hypothesis_id,
+                    output_path=str(output_path),
+                ),
+                RequestContext(request_id="proposal-apply", dry_run=False, operator="azboo"),
+            )
+            evaluation = service.evaluate_hypotheses(
+                EvaluateStrategyHypothesesRequest(status="accepted", as_of_date="20260508", limit=10),
+                RequestContext(request_id="workbench", dry_run=True),
+            )
+
+            self.assertEqual(result.status, "success")
+            self.assertIsNotNone(result.data)
+            assert result.data is not None
+            self.assertTrue(result.data.wrote_artifact)
+            self.assertTrue(output_path.exists())
+            self.assertEqual(json.loads(output_path.read_text(encoding="utf-8")), result.data.artifact)
+            validation = _hypothesis_validation(db_path, hypothesis_id)
+            self.assertEqual(validation["strategy_version_proposals"], [str(output_path)])
+            self.assertEqual(
+                validation["strategy_version_proposal_key"],
+                f"strategy-hypothesis:{hypothesis_id}:strategy-version-proposal",
+            )
+            self.assertEqual(_strategy_param_file_contents(), params_before)
+            self.assertEqual(_count_strategy_versions(db_path), strategy_versions_before)
+
+            self.assertIsNotNone(evaluation.data)
+            assert evaluation.data is not None
+            reviewed = evaluation.data.hypotheses[0].strategy_version_proposals[0]
+            self.assertTrue(reviewed.valid)
+            self.assertEqual(reviewed.proposal_key, f"strategy-hypothesis:{hypothesis_id}:strategy-version-proposal")
+            self.assertEqual(evaluation.data.summary["proposal_artifact_count"], 1)
+            self.assertEqual(evaluation.data.summary["proposal_ready_count"], 1)
+
+    def test_strategy_version_proposal_requires_accepted_hypothesis_and_valid_backtest_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc.db"
+            reports_dir = Path(tmp) / "reports"
+            run_migrations(db_path)
+            _seed_market_review_observations(db_path)
+            service = StrategyEvolutionService(db_path, reports_dir=reports_dir)
+            proposed = service.propose_hypotheses(
+                ProposeStrategyHypothesesRequest(as_of_date="20260508"),
+                RequestContext(dry_run=False, operator="azboo"),
+            )
+            assert proposed.data is not None
+            hypothesis_id = proposed.data.hypotheses[0].hypothesis_id
+            assert hypothesis_id is not None
+
+            result = service.create_strategy_version_proposal(
+                CreateStrategyVersionProposalRequest(hypothesis_id=hypothesis_id),
+                RequestContext(request_id="proposal-blocked", dry_run=False, operator="azboo"),
+            )
+
+            self.assertEqual(result.status, "validation_failed")
+            self.assertEqual([error.code for error in result.errors], ["PROPOSAL_REQUIRES_ACCEPTED_HYPOTHESIS"])
+            self.assertFalse((reports_dir / "strategy_version_proposals").exists())
+
+    def test_reviews_strategy_version_proposal_artifact_for_workbench_without_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact_path = Path(tmp) / "strategy_version_proposal.json"
+            _write_strategy_version_proposal_artifact(artifact_path, hypothesis_id=7)
+
+            review = review_strategy_version_proposal_artifact(artifact_path, expected_hypothesis_id=7)
+            mismatch = review_strategy_version_proposal_artifact(artifact_path, expected_hypothesis_id=8)
+            missing = review_strategy_version_proposal_artifact(Path(tmp) / "missing.json", expected_hypothesis_id=7)
+
+            self.assertTrue(review.exists)
+            self.assertTrue(review.valid)
+            self.assertEqual(review.hypothesis_id, 7)
+            self.assertTrue(review.hypothesis_matches)
+            self.assertEqual(review.proposal_key, "strategy-hypothesis:7:strategy-version-proposal")
+            self.assertFalse(review.active_params_mutated)
+            self.assertFalse(review.wrote_strategy_versions)
+            self.assertFalse(mismatch.valid)
+            self.assertEqual(mismatch.error, "strategy-version proposal artifact hypothesis id does not match.")
+            self.assertFalse(missing.exists)
+            self.assertFalse(missing.valid)
+
     def test_no_observations_is_skipped_without_writes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "pgc.db"
@@ -265,6 +405,7 @@ class StrategyEvolutionServiceTest(unittest.TestCase):
             self.assertEqual(evaluation.acceptance_gate["blocks"], [])
             self.assertEqual(evaluation.evidence_ids, ["market_review_run:1"])
             self.assertTrue(evaluation.backtest_artifacts[0].valid)
+            self.assertEqual(evaluation.strategy_version_proposals, [])
             self.assertIsNone(evaluation.strategy_version_task)
             self.assertEqual(_strategy_param_file_contents(), params_before)
             self.assertEqual(_count_strategy_versions(db_path), strategy_versions_before)
@@ -384,6 +525,65 @@ def _write_backtest_artifact(path: Path, hypothesis_id: int) -> None:
                 "artifact_type": "strategy_hypothesis_backtest_request",
                 "hypothesis": {"id": hypothesis_id},
                 "backtest_request": {"task_key": f"strategy-hypothesis:{hypothesis_id}:backtest"},
+                "validation_gate": {"accepted_is_research_outcome_only": True},
+                "safety": {"active_params_mutated": False},
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+
+def _accepted_hypothesis(service: StrategyEvolutionService, artifact_path: Path) -> int:
+    proposed = service.propose_hypotheses(
+        ProposeStrategyHypothesesRequest(as_of_date="20260508"),
+        RequestContext(dry_run=False, operator="azboo"),
+    )
+    assert proposed.data is not None
+    hypothesis_id = proposed.data.hypotheses[0].hypothesis_id
+    assert hypothesis_id is not None
+    _write_backtest_artifact(artifact_path, hypothesis_id)
+    testing = service.mark_hypothesis(
+        MarkStrategyHypothesisRequest(
+            hypothesis_id=hypothesis_id,
+            status="testing",
+            review_note="Ready for replay/backtest.",
+        ),
+        RequestContext(request_id="testing", operator="azboo"),
+    )
+    accepted = service.mark_hypothesis(
+        MarkStrategyHypothesisRequest(
+            hypothesis_id=hypothesis_id,
+            status="accepted",
+            review_note="Replay request artifact and evidence are attached.",
+            evidence_ids=("market_review_run:1",),
+            backtest_artifact_path=str(artifact_path),
+        ),
+        RequestContext(request_id="accepted", operator="azboo"),
+    )
+    assert testing.ok
+    assert accepted.ok
+    return hypothesis_id
+
+
+def _write_strategy_version_proposal_artifact(path: Path, hypothesis_id: int) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "artifact_type": "strategy_version_proposal",
+                "hypothesis": {"id": hypothesis_id},
+                "proposal": {
+                    "proposal_key": f"strategy-hypothesis:{hypothesis_id}:strategy-version-proposal",
+                    "strategy_version_task_key": f"strategy-hypothesis:{hypothesis_id}:strategy-version",
+                    "candidate_strategy_version": f"cpb_6157-proposal-h{hypothesis_id}-20260508",
+                },
+                "promotion_gate": {"proposal_artifact_only": True},
+                "safety": {
+                    "active_params_mutated": False,
+                    "wrote_strategy_versions": False,
+                    "writes_trade_state": False,
+                    "writes_paper_live_behavior": False,
+                },
             },
             sort_keys=True,
         ),

@@ -70,6 +70,7 @@ from pgc_trading.services.portfolio_planning_service import (
     PortfolioPlanningService,
 )
 from pgc_trading.services.strategy_evolution_service import (
+    CreateStrategyVersionProposalRequest,
     ListStrategyHypothesesRequest,
     MarkStrategyHypothesisRequest,
     ProposeStrategyHypothesesRequest,
@@ -704,6 +705,36 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
     _add_lifecycle_context_arguments(strategy_evolution_backtest)
     _add_db_path_argument(strategy_evolution_backtest)
     strategy_evolution_backtest.set_defaults(handler=_run_strategy_evolution_backtest)
+
+    strategy_evolution_proposal = strategy_evolution_subparsers.add_parser(
+        "proposal",
+        help="build a strategy-version proposal artifact from an accepted strategy hypothesis",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    strategy_evolution_proposal.add_argument("--hypothesis-id", type=_positive_int, required=True)
+    strategy_evolution_proposal.add_argument(
+        "--output",
+        type=Path,
+        help="optional path for the strategy_version_proposal artifact",
+    )
+    strategy_evolution_proposal_mode = strategy_evolution_proposal.add_mutually_exclusive_group()
+    strategy_evolution_proposal_mode.add_argument(
+        "--dry-run",
+        dest="dry_run",
+        action="store_true",
+        default=True,
+        help="preview the proposal artifact without writing it; this is the default",
+    )
+    strategy_evolution_proposal_mode.add_argument(
+        "--apply",
+        dest="dry_run",
+        action="store_false",
+        help="write the proposal artifact without changing strategy params or strategy_versions",
+    )
+    _add_lifecycle_context_arguments(strategy_evolution_proposal)
+    _add_db_path_argument(strategy_evolution_proposal)
+    strategy_evolution_proposal.set_defaults(handler=_run_strategy_evolution_proposal)
 
     ops = subparsers.add_parser(
         "ops",
@@ -1674,6 +1705,50 @@ def _run_strategy_evolution_backtest(
         return 1
 
     _write_strategy_evolution_backtest_result(stdout, command, hypothesis_label, db_path, result)
+    return 0 if result.ok else 1
+
+
+def _run_strategy_evolution_proposal(
+    args: argparse.Namespace,
+    stdout: TextIO,
+    services: CommandServices,
+) -> int:
+    db_path = _normalized_db_path(args.db_path)
+    command = "strategy-evolution proposal"
+    hypothesis_label = f"hypothesis-id={args.hypothesis_id}"
+
+    if not db_path.exists():
+        _write_routed_message(
+            stdout,
+            command,
+            hypothesis_label,
+            db_path,
+            "database not found; strategy-version proposal service was not run and no writes were performed",
+        )
+        return 1
+
+    service = services.strategy_evolution_service_factory(db_path)
+    request = CreateStrategyVersionProposalRequest(
+        hypothesis_id=args.hypothesis_id,
+        output_path=str(args.output) if args.output is not None else None,
+    )
+    ctx = RequestContext(
+        request_id="cli-strategy-evolution-proposal",
+        idempotency_key=args.idempotency_key,
+        dry_run=args.dry_run,
+        operator=args.operator,
+        source="cli",
+    )
+    try:
+        result = service.create_strategy_version_proposal(request, ctx)
+    except sqlite3.OperationalError as exc:
+        stdout.write(
+            f"strategy-evolution proposal failed for {hypothesis_label}: "
+            f"database is not initialized or is incompatible: {exc}\n"
+        )
+        return 1
+
+    _write_strategy_evolution_proposal_result(stdout, command, hypothesis_label, db_path, result)
     return 0 if result.ok else 1
 
 
@@ -2879,6 +2954,39 @@ def _write_strategy_evolution_backtest_result(
     )
     validation_evidence_ids = getattr(data, "validation_evidence_ids", []) or []
     stdout.write(f"validation_evidence_ids={_display_list(validation_evidence_ids)}\n")
+    artifact_path = getattr(data, "artifact_path", None)
+    if artifact_path:
+        stdout.write(f"artifact_path={artifact_path}\n")
+
+
+def _write_strategy_evolution_proposal_result(
+    stdout: TextIO,
+    command: str,
+    hypothesis_label: str,
+    db_path: Path,
+    result: ServiceResult[object],
+) -> None:
+    _write_routed_message(stdout, command, hypothesis_label, db_path, f"service returned {result.status}")
+    _write_warnings_and_errors(stdout, result)
+    data = result.data
+    if data is None:
+        return
+
+    stdout.write(
+        "strategy_version_proposal="
+        f"hypothesis_id={_display_optional_int(getattr(data, 'hypothesis_id', None))} "
+        f"status={getattr(data, 'hypothesis_status', None) or 'n/a'} "
+        f"proposal_key={getattr(data, 'proposal_key', None) or 'n/a'} "
+        f"strategy_version_task_key={getattr(data, 'strategy_version_task_key', None) or 'n/a'} "
+        f"would_write_artifact={_display_bool(getattr(data, 'would_write_artifact', False))} "
+        f"wrote_artifact={_display_bool(getattr(data, 'wrote_artifact', False))} "
+        f"active_params_mutated={_display_bool(getattr(data, 'active_params_mutated', False))} "
+        f"wrote_strategy_versions={_display_bool(getattr(data, 'wrote_strategy_version', False))} "
+        f"writes_trade_state={_display_bool(getattr(data, 'writes_trade_state', False))} "
+        f"writes_paper_live_behavior={_display_bool(getattr(data, 'writes_paper_live_behavior', False))}\n"
+    )
+    stdout.write(f"validation_evidence_ids={_display_list(getattr(data, 'validation_evidence_ids', []) or [])}\n")
+    stdout.write(f"backtest_artifacts={_display_list(getattr(data, 'backtest_artifact_paths', []) or [])}\n")
     artifact_path = getattr(data, "artifact_path", None)
     if artifact_path:
         stdout.write(f"artifact_path={artifact_path}\n")

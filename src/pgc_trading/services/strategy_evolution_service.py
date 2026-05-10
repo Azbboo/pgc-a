@@ -65,6 +65,12 @@ class MarkStrategyHypothesisRequest:
 
 
 @dataclass(frozen=True)
+class CreateStrategyVersionProposalRequest:
+    hypothesis_id: int
+    output_path: str | None = None
+
+
+@dataclass(frozen=True)
 class StrategyHypothesis:
     as_of_date: str
     hypothesis_type: str
@@ -97,6 +103,7 @@ class StrategyHypothesisEvaluation:
     hypothesis: StrategyHypothesis
     evidence_ids: list[str] = field(default_factory=list)
     backtest_artifacts: list[StrategyHypothesisBacktestArtifactReview] = field(default_factory=list)
+    strategy_version_proposals: list["StrategyVersionProposalArtifactReview"] = field(default_factory=list)
     validation_events: list[dict[str, Any]] = field(default_factory=list)
     acceptance_gate: dict[str, Any] = field(default_factory=dict)
     safety: dict[str, Any] = field(default_factory=dict)
@@ -126,6 +133,43 @@ class MarkStrategyHypothesisResult:
 
 
 @dataclass(frozen=True)
+class StrategyVersionProposalArtifactReview:
+    path: str
+    exists: bool
+    valid: bool
+    artifact_type: str | None = None
+    hypothesis_id: int | None = None
+    hypothesis_matches: bool = False
+    proposal_key: str | None = None
+    strategy_version_task_key: str | None = None
+    candidate_strategy_version: str | None = None
+    active_params_mutated: bool | None = None
+    wrote_strategy_versions: bool | None = None
+    writes_trade_state: bool | None = None
+    writes_paper_live_behavior: bool | None = None
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class CreateStrategyVersionProposalResult:
+    hypothesis_id: int | None = None
+    hypothesis_status: str | None = None
+    would_write_artifact: bool = False
+    wrote_artifact: bool = False
+    artifact_path: str | None = None
+    proposal_key: str | None = None
+    strategy_version_task_key: str | None = None
+    active_params_mutated: bool = False
+    wrote_strategy_version: bool = False
+    writes_trade_state: bool = False
+    writes_paper_live_behavior: bool = False
+    recorded_hypothesis_validation: bool = False
+    validation_evidence_ids: list[str] = field(default_factory=list)
+    backtest_artifact_paths: list[str] = field(default_factory=list)
+    artifact: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class _MarketObservations:
     run_id: int | None
     regime: sqlite3.Row | None
@@ -138,8 +182,9 @@ class _MarketObservations:
 class StrategyEvolutionService:
     """Generate, list, and update controlled strategy hypotheses."""
 
-    def __init__(self, db_path: Path | None = None):
+    def __init__(self, db_path: Path | None = None, reports_dir: Path | None = None):
         self.db_path = db_path or Paths().db_path
+        self.reports_dir = reports_dir or Paths().reports_dir
 
     def propose_hypotheses(
         self,
@@ -288,6 +333,7 @@ class StrategyEvolutionService:
                 source={
                     "tables": ["strategy_hypotheses"],
                     "artifact_type": "strategy_hypothesis_backtest_request",
+                    "proposal_artifact_type": "strategy_version_proposal",
                     "as_of_date": request.as_of_date,
                     "status": request.status,
                     "limit": request.limit,
@@ -298,6 +344,7 @@ class StrategyEvolutionService:
                     "writes_trade_state": False,
                     "writes_paper_live_behavior": False,
                     "accepted_creates_separate_strategy_version_task": True,
+                    "proposal_artifacts_only": True,
                 },
             ),
             lineage={"as_of_date": request.as_of_date, "status": request.status},
@@ -406,6 +453,181 @@ class StrategyEvolutionService:
             },
         )
 
+    def create_strategy_version_proposal(
+        self,
+        request: CreateStrategyVersionProposalRequest,
+        ctx: RequestContext,
+    ) -> ServiceResult[CreateStrategyVersionProposalResult]:
+        validation_errors = _validate_strategy_version_proposal_request(request)
+        if validation_errors:
+            return ServiceResult(
+                status="validation_failed",
+                request_id=ctx.request_id,
+                data=CreateStrategyVersionProposalResult(),
+                errors=validation_errors,
+            )
+
+        with connect(self.db_path) as conn:
+            hypothesis = _get_hypothesis(conn, request.hypothesis_id)
+            if hypothesis is None:
+                return ServiceResult(
+                    status="validation_failed",
+                    request_id=ctx.request_id,
+                    data=CreateStrategyVersionProposalResult(),
+                    errors=[
+                        ServiceError(
+                            code="HYPOTHESIS_NOT_FOUND",
+                            message=f"strategy hypothesis id={request.hypothesis_id} was not found.",
+                            entity_type="strategy_hypothesis",
+                            entity_id=request.hypothesis_id,
+                        )
+                    ],
+                )
+
+            evidence_ids = _validation_values(hypothesis.evidence, "evidence_ids")
+            backtest_artifact_paths = _validation_values(hypothesis.evidence, "backtest_artifacts")
+            artifact_reviews = [
+                review_strategy_hypothesis_backtest_artifact(
+                    artifact_path,
+                    expected_hypothesis_id=request.hypothesis_id,
+                )
+                for artifact_path in backtest_artifact_paths
+            ]
+            proposal_errors = _validate_strategy_version_proposal_gate(
+                hypothesis,
+                evidence_ids,
+                artifact_reviews,
+            )
+            if proposal_errors:
+                return ServiceResult(
+                    status="validation_failed",
+                    request_id=ctx.request_id,
+                    data=CreateStrategyVersionProposalResult(
+                        hypothesis_id=request.hypothesis_id,
+                        hypothesis_status=hypothesis.status,
+                        validation_evidence_ids=evidence_ids,
+                        backtest_artifact_paths=backtest_artifact_paths,
+                    ),
+                    errors=proposal_errors,
+                    lineage={
+                        "hypothesis_id": request.hypothesis_id,
+                        "hypothesis_status": hypothesis.status,
+                    },
+                )
+
+            current_strategy = _load_current_strategy(
+                conn,
+                str(hypothesis.proposed_change.get("strategy_id") or "cpb_6157"),
+            )
+
+        strategy_version_task = _future_strategy_version_task_payload(
+            hypothesis,
+            evidence_ids,
+            backtest_artifact_paths,
+        )
+        artifact = _build_strategy_version_proposal_artifact(
+            hypothesis=hypothesis,
+            evidence_ids=evidence_ids,
+            backtest_artifact_paths=backtest_artifact_paths,
+            strategy_version_task=strategy_version_task,
+            current_strategy=current_strategy,
+            operator=ctx.operator,
+        )
+        artifact_path = self._strategy_version_proposal_artifact_path(request)
+        proposal = artifact.get("proposal", {})
+        proposal_key = proposal.get("proposal_key") if isinstance(proposal, dict) else None
+        strategy_version_task_key = proposal.get("strategy_version_task_key") if isinstance(proposal, dict) else None
+
+        if ctx.dry_run:
+            return ServiceResult(
+                status="success",
+                request_id=ctx.request_id,
+                data=CreateStrategyVersionProposalResult(
+                    hypothesis_id=request.hypothesis_id,
+                    hypothesis_status=hypothesis.status,
+                    would_write_artifact=True,
+                    wrote_artifact=False,
+                    artifact_path=None,
+                    proposal_key=str(proposal_key) if proposal_key is not None else None,
+                    strategy_version_task_key=(
+                        str(strategy_version_task_key) if strategy_version_task_key is not None else None
+                    ),
+                    active_params_mutated=False,
+                    wrote_strategy_version=False,
+                    writes_trade_state=False,
+                    writes_paper_live_behavior=False,
+                    recorded_hypothesis_validation=False,
+                    validation_evidence_ids=evidence_ids,
+                    backtest_artifact_paths=backtest_artifact_paths,
+                    artifact=artifact,
+                ),
+                warnings=[
+                    ServiceWarning(
+                        code="STRATEGY_VERSION_PROPOSAL_DRY_RUN",
+                        message=(
+                            "Strategy-version proposal artifact was built in memory only; no file, strategy "
+                            "version, params, or trade state was written."
+                        ),
+                    )
+                ],
+                lineage={
+                    "hypothesis_id": request.hypothesis_id,
+                    "hypothesis_status": hypothesis.status,
+                    "artifact_path": str(artifact_path),
+                },
+            )
+
+        self._write_strategy_version_proposal_artifact(artifact_path, artifact)
+        _record_strategy_version_proposal_artifact(
+            self.db_path,
+            request.hypothesis_id,
+            artifact_path,
+            artifact,
+            ctx.operator,
+        )
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data=CreateStrategyVersionProposalResult(
+                hypothesis_id=request.hypothesis_id,
+                hypothesis_status=hypothesis.status,
+                would_write_artifact=True,
+                wrote_artifact=True,
+                artifact_path=str(artifact_path),
+                proposal_key=str(proposal_key) if proposal_key is not None else None,
+                strategy_version_task_key=(
+                    str(strategy_version_task_key) if strategy_version_task_key is not None else None
+                ),
+                active_params_mutated=False,
+                wrote_strategy_version=False,
+                writes_trade_state=False,
+                writes_paper_live_behavior=False,
+                recorded_hypothesis_validation=True,
+                validation_evidence_ids=evidence_ids,
+                backtest_artifact_paths=backtest_artifact_paths,
+                artifact=artifact,
+            ),
+            created_ids={"strategy_version_proposal_artifact": request.hypothesis_id},
+            lineage={
+                "hypothesis_id": request.hypothesis_id,
+                "hypothesis_status": hypothesis.status,
+                "artifact_path": str(artifact_path),
+            },
+        )
+
+    def _strategy_version_proposal_artifact_path(self, request: CreateStrategyVersionProposalRequest) -> Path:
+        if request.output_path is not None:
+            return Path(request.output_path).expanduser()
+        return (
+            self.reports_dir
+            / "strategy_version_proposals"
+            / f"hypothesis_{request.hypothesis_id}_strategy_version_proposal.json"
+        )
+
+    def _write_strategy_version_proposal_artifact(self, path: Path, artifact: dict[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_json_dumps(artifact) + "\n", encoding="utf-8")
+
 
 def _validate_propose_request(request: ProposeStrategyHypothesesRequest) -> list[ServiceError]:
     if not is_yyyymmdd(request.as_of_date):
@@ -447,6 +669,17 @@ def _validate_mark_request(request: MarkStrategyHypothesisRequest) -> list[Servi
             errors.append(ServiceError(code="VALIDATION_ERROR", message="evidence_id must not be blank."))
     if request.backtest_artifact_path is not None and not str(request.backtest_artifact_path).strip():
         errors.append(ServiceError(code="VALIDATION_ERROR", message="backtest_artifact_path must not be blank."))
+    return errors
+
+
+def _validate_strategy_version_proposal_request(
+    request: CreateStrategyVersionProposalRequest,
+) -> list[ServiceError]:
+    errors: list[ServiceError] = []
+    if request.hypothesis_id < 1:
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="hypothesis_id must be greater than zero."))
+    if request.output_path is not None and not str(request.output_path).strip():
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="output_path must not be blank."))
     return errors
 
 
@@ -545,6 +778,33 @@ def _validate_backtest_artifact(hypothesis: StrategyHypothesis, artifact_path: s
     return []
 
 
+def _validate_strategy_version_proposal_gate(
+    hypothesis: StrategyHypothesis,
+    evidence_ids: list[str],
+    artifact_reviews: list[StrategyHypothesisBacktestArtifactReview],
+) -> list[ServiceError]:
+    if hypothesis.status != "accepted":
+        return [
+            ServiceError(
+                code="PROPOSAL_REQUIRES_ACCEPTED_HYPOTHESIS",
+                message="strategy-version proposal artifacts can only be created from accepted hypotheses.",
+                entity_type="strategy_hypothesis",
+                entity_id=hypothesis.hypothesis_id,
+            )
+        ]
+    acceptance_gate = _acceptance_gate_payload(hypothesis, evidence_ids, artifact_reviews)
+    if not acceptance_gate.get("accepted_complete"):
+        return [
+            ServiceError(
+                code="PROPOSAL_REQUIRES_ACCEPTANCE_GATE",
+                message="strategy-version proposal requires validation evidence and valid replay/backtest artifacts.",
+                entity_type="strategy_hypothesis",
+                entity_id=hypothesis.hypothesis_id,
+            )
+        ]
+    return []
+
+
 def _append_validation_event(
     *,
     evidence: dict[str, Any],
@@ -600,13 +860,218 @@ def _future_strategy_version_task_payload(
         "research_outcome_status": "accepted",
         "validation_evidence_ids": evidence_ids,
         "backtest_artifact_paths": backtest_artifact_paths,
+        "proposal_artifact_required": True,
+        "proposal_artifact_type": "strategy_version_proposal",
         "proposed_change": proposed_change,
         "acceptance_rules": [
+            "Generate a strategy-version proposal artifact before creating any strategy_version row.",
             "Create a new draft or candidate strategy_version row rather than mutating the active version.",
             "Attach replay/backtest evidence to the promotion review.",
             "Keep paper/live deployments on the current version until explicit promotion approval.",
         ],
     }
+
+
+def review_strategy_version_proposal_artifact(
+    artifact_path: str | Path,
+    *,
+    expected_hypothesis_id: int | None = None,
+) -> StrategyVersionProposalArtifactReview:
+    path = Path(artifact_path).expanduser()
+    if not path.exists():
+        return StrategyVersionProposalArtifactReview(
+            path=str(path),
+            exists=False,
+            valid=False,
+            error="strategy-version proposal artifact was not found.",
+        )
+    try:
+        artifact = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return StrategyVersionProposalArtifactReview(
+            path=str(path),
+            exists=True,
+            valid=False,
+            error=f"strategy-version proposal artifact is not valid JSON: {exc}",
+        )
+    if not isinstance(artifact, dict):
+        return StrategyVersionProposalArtifactReview(
+            path=str(path),
+            exists=True,
+            valid=False,
+            error="strategy-version proposal artifact must be a JSON object.",
+        )
+
+    artifact_type = artifact.get("artifact_type")
+    artifact_hypothesis = artifact.get("hypothesis", {})
+    artifact_hypothesis_id = artifact_hypothesis.get("id") if isinstance(artifact_hypothesis, dict) else None
+    parsed_hypothesis_id = _optional_int(artifact_hypothesis_id)
+    hypothesis_matches = (
+        parsed_hypothesis_id is not None
+        if expected_hypothesis_id is None
+        else parsed_hypothesis_id == expected_hypothesis_id
+    )
+    proposal = artifact.get("proposal", {})
+    safety = artifact.get("safety", {})
+    active_params_mutated = safety.get("active_params_mutated") if isinstance(safety, dict) else None
+    wrote_strategy_versions = safety.get("wrote_strategy_versions") if isinstance(safety, dict) else None
+    writes_trade_state = safety.get("writes_trade_state") if isinstance(safety, dict) else None
+    writes_paper_live_behavior = safety.get("writes_paper_live_behavior") if isinstance(safety, dict) else None
+    valid_type = artifact_type == "strategy_version_proposal"
+    valid_safety = not any(
+        value is True
+        for value in [
+            active_params_mutated,
+            wrote_strategy_versions,
+            writes_trade_state,
+            writes_paper_live_behavior,
+        ]
+    )
+    error = None
+    if not valid_type:
+        error = "strategy-version proposal artifact must use artifact_type=strategy_version_proposal."
+    elif not hypothesis_matches:
+        error = "strategy-version proposal artifact hypothesis id does not match."
+    elif not valid_safety:
+        error = "strategy-version proposal artifact reports forbidden state mutation."
+
+    return StrategyVersionProposalArtifactReview(
+        path=str(path),
+        exists=True,
+        valid=valid_type and hypothesis_matches and valid_safety,
+        artifact_type=str(artifact_type) if artifact_type is not None else None,
+        hypothesis_id=parsed_hypothesis_id,
+        hypothesis_matches=hypothesis_matches,
+        proposal_key=(
+            str(proposal.get("proposal_key"))
+            if isinstance(proposal, dict) and proposal.get("proposal_key") is not None
+            else None
+        ),
+        strategy_version_task_key=(
+            str(proposal.get("strategy_version_task_key"))
+            if isinstance(proposal, dict) and proposal.get("strategy_version_task_key") is not None
+            else None
+        ),
+        candidate_strategy_version=(
+            str(proposal.get("candidate_strategy_version"))
+            if isinstance(proposal, dict) and proposal.get("candidate_strategy_version") is not None
+            else None
+        ),
+        active_params_mutated=bool(active_params_mutated) if active_params_mutated is not None else None,
+        wrote_strategy_versions=bool(wrote_strategy_versions) if wrote_strategy_versions is not None else None,
+        writes_trade_state=bool(writes_trade_state) if writes_trade_state is not None else None,
+        writes_paper_live_behavior=(
+            bool(writes_paper_live_behavior) if writes_paper_live_behavior is not None else None
+        ),
+        error=error,
+    )
+
+
+def _build_strategy_version_proposal_artifact(
+    *,
+    hypothesis: StrategyHypothesis,
+    evidence_ids: list[str],
+    backtest_artifact_paths: list[str],
+    strategy_version_task: dict[str, Any],
+    current_strategy: sqlite3.Row | None,
+    operator: str | None,
+) -> dict[str, Any]:
+    hypothesis_id = int(hypothesis.hypothesis_id or 0)
+    strategy_id = str(
+        strategy_version_task.get("strategy_id")
+        or hypothesis.proposed_change.get("strategy_id")
+        or "cpb_6157"
+    )
+    strategy = _current_strategy_payload(current_strategy, strategy_id)
+    proposal_key = f"strategy-hypothesis:{hypothesis_id}:strategy-version-proposal"
+    candidate_strategy_version = f"{strategy_id}-proposal-h{hypothesis_id}-{hypothesis.as_of_date}"
+    proposed_change = {
+        **hypothesis.proposed_change,
+        "mutates_active_params": False,
+    }
+    return {
+        "artifact_type": "strategy_version_proposal",
+        "artifact_version": 1,
+        "created_at": _utc_timestamp(),
+        "operator": operator,
+        "hypothesis": {
+            "id": hypothesis_id,
+            "as_of_date": hypothesis.as_of_date,
+            "status": hypothesis.status,
+            "hypothesis_type": hypothesis.hypothesis_type,
+            "title": hypothesis.title,
+            "rationale": hypothesis.rationale,
+            "evidence": hypothesis.evidence,
+            "proposed_change": proposed_change,
+        },
+        "base_strategy": strategy,
+        "proposal": {
+            "proposal_key": proposal_key,
+            "strategy_version_task_key": strategy_version_task.get("task_key"),
+            "task_type": "strategy_version_proposal_review",
+            "status": "proposal_ready",
+            "strategy_id": strategy_id,
+            "base_strategy_version": strategy.get("current_strategy_version"),
+            "candidate_strategy_version": candidate_strategy_version,
+            "candidate_status": "draft",
+            "validation_evidence_ids": evidence_ids,
+            "backtest_artifact_paths": backtest_artifact_paths,
+            "proposed_change": proposed_change,
+        },
+        "strategy_version_task": strategy_version_task,
+        "promotion_gate": {
+            "proposal_artifact_only": True,
+            "creates_strategy_version_row": False,
+            "required_before_candidate_creation": [
+                "proposal_review",
+                "operator_approval",
+                "replay_backtest_passed",
+            ],
+            "active_deployment_unchanged": True,
+        },
+        "safety": {
+            "active_params_mutated": False,
+            "wrote_strategy_versions": False,
+            "writes_trade_state": False,
+            "writes_paper_live_behavior": False,
+            "paper_live_deployment_changed": False,
+        },
+    }
+
+
+def _record_strategy_version_proposal_artifact(
+    db_path: Path,
+    hypothesis_id: int,
+    artifact_path: Path,
+    artifact: dict[str, Any],
+    operator: str | None,
+) -> None:
+    with connect(db_path) as conn:
+        hypothesis = _get_hypothesis(conn, hypothesis_id)
+        if hypothesis is None:
+            raise RuntimeError(f"strategy hypothesis id={hypothesis_id} was not found while recording proposal")
+        evidence = dict(hypothesis.evidence)
+        validation = _validation_payload(evidence)
+        proposal_paths = _merge_validation_values(
+            _validation_values(evidence, "strategy_version_proposals"),
+            [str(artifact_path)],
+        )
+        proposal = artifact.get("proposal", {})
+        validation["strategy_version_proposals"] = proposal_paths
+        validation["strategy_version_proposal_key"] = (
+            proposal.get("proposal_key") if isinstance(proposal, dict) else None
+        )
+        validation["strategy_version_proposal_recorded_at"] = _utc_timestamp()
+        validation["strategy_version_proposal_operator"] = operator
+        evidence["validation"] = validation
+        conn.execute(
+            """
+            UPDATE strategy_hypotheses
+            SET evidence_json = ?
+            WHERE id = ?
+            """,
+            (_json_dumps(evidence), hypothesis_id),
+        )
 
 
 def _evaluate_hypothesis(hypothesis: StrategyHypothesis) -> StrategyHypothesisEvaluation:
@@ -618,10 +1083,22 @@ def _evaluate_hypothesis(hypothesis: StrategyHypothesis) -> StrategyHypothesisEv
         )
         for artifact_path in _validation_values(hypothesis.evidence, "backtest_artifacts")
     ]
+    proposal_reviews = [
+        review_strategy_version_proposal_artifact(
+            artifact_path,
+            expected_hypothesis_id=int(hypothesis.hypothesis_id or 0),
+        )
+        for artifact_path in _validation_values(hypothesis.evidence, "strategy_version_proposals")
+    ]
     validation_events = _validation_events(hypothesis.evidence)
     acceptance_gate = _acceptance_gate_payload(hypothesis, evidence_ids, artifact_reviews)
-    safety = _hypothesis_safety_payload(hypothesis, artifact_reviews)
-    next_action, next_action_label = _evaluation_next_action(hypothesis, acceptance_gate, safety)
+    safety = _hypothesis_safety_payload(hypothesis, artifact_reviews, proposal_reviews)
+    next_action, next_action_label = _evaluation_next_action(
+        hypothesis,
+        acceptance_gate,
+        safety,
+        proposal_reviews,
+    )
     strategy_version_task = (
         _future_strategy_version_task_payload(
             hypothesis,
@@ -635,6 +1112,7 @@ def _evaluate_hypothesis(hypothesis: StrategyHypothesis) -> StrategyHypothesisEv
         hypothesis=hypothesis,
         evidence_ids=evidence_ids,
         backtest_artifacts=artifact_reviews,
+        strategy_version_proposals=proposal_reviews,
         validation_events=validation_events,
         acceptance_gate=acceptance_gate,
         safety=safety,
@@ -678,12 +1156,17 @@ def _acceptance_gate_payload(
 def _hypothesis_safety_payload(
     hypothesis: StrategyHypothesis,
     artifact_reviews: list[StrategyHypothesisBacktestArtifactReview],
+    proposal_reviews: list[StrategyVersionProposalArtifactReview],
 ) -> dict[str, Any]:
     artifact_reports_mutation = any(artifact.active_params_mutated is True for artifact in artifact_reviews)
+    proposal_reports_mutation = any(proposal.active_params_mutated is True for proposal in proposal_reviews)
+    proposal_wrote_strategy_versions = any(proposal.wrote_strategy_versions is True for proposal in proposal_reviews)
     return {
         "read_only_evaluation": True,
         "proposed_change_mutates_active_params": bool(hypothesis.proposed_change.get("mutates_active_params")),
-        "artifact_reports_active_param_mutation": artifact_reports_mutation,
+        "artifact_reports_active_param_mutation": artifact_reports_mutation or proposal_reports_mutation,
+        "proposal_wrote_strategy_versions": proposal_wrote_strategy_versions,
+        "proposal_artifacts_only": not proposal_wrote_strategy_versions,
         "active_params_mutated": False,
         "writes_trade_state": False,
         "writes_paper_live_behavior": False,
@@ -695,8 +1178,13 @@ def _evaluation_next_action(
     hypothesis: StrategyHypothesis,
     acceptance_gate: dict[str, Any],
     safety: dict[str, Any],
+    proposal_reviews: list[StrategyVersionProposalArtifactReview],
 ) -> tuple[str, str]:
-    if safety["proposed_change_mutates_active_params"] or safety["artifact_reports_active_param_mutation"]:
+    if (
+        safety["proposed_change_mutates_active_params"]
+        or safety["artifact_reports_active_param_mutation"]
+        or safety["proposal_wrote_strategy_versions"]
+    ):
         return "reject_or_rewrite", "Rewrite or reject; active parameter mutation is forbidden."
     if hypothesis.status == "proposed":
         return "move_to_testing", "Move to testing before acceptance review."
@@ -712,7 +1200,14 @@ def _evaluation_next_action(
             return "attach_validation_evidence", "Attach validation evidence ids before acceptance."
         return "continue_testing", "Continue validation before acceptance."
     if hypothesis.status == "accepted":
-        return "strategy_version_task_required", "Accepted is a research outcome; create a separate strategy-version task."
+        if not proposal_reviews:
+            return (
+                "create_strategy_version_proposal",
+                "Accepted is a research outcome; create a separate strategy-version proposal artifact.",
+            )
+        if not all(proposal.valid for proposal in proposal_reviews):
+            return "fix_strategy_version_proposal", "Fix the strategy-version proposal artifact before review."
+        return "proposal_ready", "Strategy-version proposal artifact is ready for separate candidate-version review."
     if hypothesis.status == "rejected":
         return "closed_rejected", "Rejected; keep as research record."
     if hypothesis.status == "archived":
@@ -725,8 +1220,12 @@ def _evaluation_summary(evaluations: list[StrategyHypothesisEvaluation]) -> dict
     by_next_action: dict[str, int] = {}
     artifact_count = 0
     invalid_artifact_count = 0
+    proposal_artifact_count = 0
+    invalid_proposal_artifact_count = 0
     ready_to_accept_count = 0
     strategy_version_task_required_count = 0
+    proposal_required_count = 0
+    proposal_ready_count = 0
     unsafe_count = 0
     for evaluation in evaluations:
         status = evaluation.hypothesis.status
@@ -734,13 +1233,22 @@ def _evaluation_summary(evaluations: list[StrategyHypothesisEvaluation]) -> dict
         by_next_action[evaluation.next_action] = by_next_action.get(evaluation.next_action, 0) + 1
         artifact_count += len(evaluation.backtest_artifacts)
         invalid_artifact_count += len([artifact for artifact in evaluation.backtest_artifacts if not artifact.valid])
+        proposal_artifact_count += len(evaluation.strategy_version_proposals)
+        invalid_proposal_artifact_count += len(
+            [artifact for artifact in evaluation.strategy_version_proposals if not artifact.valid]
+        )
         if evaluation.acceptance_gate.get("can_accept"):
             ready_to_accept_count += 1
         if evaluation.strategy_version_task is not None:
             strategy_version_task_required_count += 1
+        if evaluation.next_action == "create_strategy_version_proposal":
+            proposal_required_count += 1
+        if evaluation.next_action == "proposal_ready":
+            proposal_ready_count += 1
         if (
             evaluation.safety.get("proposed_change_mutates_active_params")
             or evaluation.safety.get("artifact_reports_active_param_mutation")
+            or evaluation.safety.get("proposal_wrote_strategy_versions")
         ):
             unsafe_count += 1
     return {
@@ -751,6 +1259,10 @@ def _evaluation_summary(evaluations: list[StrategyHypothesisEvaluation]) -> dict
         "artifact_count": artifact_count,
         "invalid_artifact_count": invalid_artifact_count,
         "strategy_version_task_required_count": strategy_version_task_required_count,
+        "proposal_required_count": proposal_required_count,
+        "proposal_ready_count": proposal_ready_count,
+        "proposal_artifact_count": proposal_artifact_count,
+        "invalid_proposal_artifact_count": invalid_proposal_artifact_count,
         "unsafe_count": unsafe_count,
     }
 
@@ -795,6 +1307,53 @@ def _merge_validation_values(existing: list[str], new_values: list[str]) -> list
 
 def _utc_timestamp() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _optional_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _load_current_strategy(conn: sqlite3.Connection, strategy_id: str) -> sqlite3.Row | None:
+    return conn.execute(
+        """
+        SELECT id, strategy_key, strategy_version, params_hash, status
+        FROM strategy_versions
+        WHERE strategy_key = ?
+        ORDER BY
+          CASE status
+            WHEN 'live' THEN 0
+            WHEN 'paper' THEN 1
+            WHEN 'candidate' THEN 2
+            WHEN 'research' THEN 3
+            WHEN 'draft' THEN 4
+            ELSE 5
+          END,
+          id DESC
+        LIMIT 1
+        """,
+        (strategy_id,),
+    ).fetchone()
+
+
+def _current_strategy_payload(current_strategy: sqlite3.Row | None, strategy_id: str) -> dict[str, Any]:
+    if current_strategy is None:
+        return {
+            "strategy_id": strategy_id,
+            "current_strategy_version_id": None,
+            "current_strategy_version": None,
+            "current_params_hash": None,
+            "current_status": None,
+        }
+    return {
+        "strategy_id": strategy_id,
+        "current_strategy_version_id": int(current_strategy["id"]),
+        "current_strategy_version": current_strategy["strategy_version"],
+        "current_params_hash": current_strategy["params_hash"],
+        "current_status": current_strategy["status"],
+    }
 
 
 def _load_market_observations(conn: sqlite3.Connection, as_of_date: str) -> _MarketObservations:

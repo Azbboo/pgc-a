@@ -535,11 +535,14 @@ def _strategy_version_task_payload(
         "base_strategy_version": strategy["current_strategy_version"],
         "hypothesis_type": hypothesis["hypothesis_type"],
         "title": hypothesis["title"],
+        "proposal_artifact_required": True,
+        "proposal_artifact_type": "strategy_version_proposal",
         "proposed_change": {
             **proposed_change,
             "mutates_active_params": False,
         },
         "acceptance_rules": [
+            "Generate a strategy-version proposal artifact before creating any candidate strategy_version row.",
             "Create a new draft or candidate strategy_version row rather than mutating the active version.",
             "Attach replay/backtest evidence to the promotion review.",
             "Keep paper/live deployments on the current version until explicit promotion approval.",

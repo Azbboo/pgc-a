@@ -10,6 +10,7 @@ from pgc_trading.api.routes import (
     get_market_review,
     get_market_review_plan_context,
     get_paper_acceptance,
+    list_paper_acceptance_history,
     list_account_positions,
     list_data_quality_events,
     list_daily_reviews,
@@ -94,6 +95,23 @@ class _FakeReportService:
                 ],
             },
             lineage={"account_id": request.account_id},
+        )
+
+    def list_paper_acceptance_history(self, request, ctx):
+        self.calls.append((self.db_path, request, ctx))
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data={
+                "strategy_version": request.strategy_version,
+                "account_id": request.account_id,
+                "before_date": request.before_date,
+                "limit": request.limit,
+                "summary": "近 1 日 paper acceptance：阻断 1 日。",
+                "items": [{"as_of_date": "20260504", "status": "blocked"}],
+                "alerts": [{"code": "UNRESOLVED_ACCEPTANCE_BLOCKERS"}],
+            },
+            lineage={"account_id": request.account_id, "alert_count": 1},
         )
 
 
@@ -312,6 +330,36 @@ class ApiReadRoutesTest(unittest.TestCase):
         self.assertTrue(ctx.dry_run)
         self.assertEqual(ctx.source, "api")
         self.assertEqual(ctx.request_id, "req-api-acceptance")
+
+    def test_paper_acceptance_history_route_passes_filters_to_reporting_service(self) -> None:
+        response = _Response()
+
+        payload = list_paper_acceptance_history(
+            self.settings,
+            self.services,
+            response,
+            account_key=None,
+            account_id=3,
+            strategy_version="cpb_6157@2026-05-03",
+            before_date="2026-05-07",
+            limit=9,
+            request_id="req-api-acceptance-history",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["data"]["before_date"], "20260507")
+        self.assertEqual(payload["data"]["limit"], 9)
+        self.assertEqual(payload["data"]["alerts"][0]["code"], "UNRESOLVED_ACCEPTANCE_BLOCKERS")
+        db_path, request, ctx = _FakeReportService.calls[0]
+        self.assertEqual(db_path, self.settings.db_path)
+        self.assertEqual(request.account_id, 3)
+        self.assertEqual(request.account_key, None)
+        self.assertEqual(request.before_date, "20260507")
+        self.assertEqual(request.limit, 9)
+        self.assertTrue(ctx.dry_run)
+        self.assertEqual(ctx.source, "api")
+        self.assertEqual(ctx.request_id, "req-api-acceptance-history")
 
     def test_daily_review_history_route_passes_filters_to_reporting_service(self) -> None:
         response = _Response()

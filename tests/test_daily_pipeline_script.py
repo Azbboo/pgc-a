@@ -63,6 +63,82 @@ class DailyPipelineScriptTest(unittest.TestCase):
             self.assertIn("duplicate_write_guard=dry_run", log_text)
             self.assertIn("pipeline_status=pass", log_text)
 
+    def test_evidence_run_preserves_numbered_dry_run_log(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = migrated_seeded_daily_close_db(root)
+            with sqlite3.connect(db_path) as conn:
+                insert_open_calendar(conn)
+                insert_contracting_pullback_case(conn, "000001.SZ", "Script Evidence")
+
+            command = [
+                "bash",
+                str(SCRIPT),
+                "--date",
+                "latest-closed",
+                "--account",
+                PAPER_ACCOUNT_KEY,
+                "--operator",
+                "tester",
+                "--db-path",
+                str(db_path),
+                "--dry-run",
+                "--evidence-run",
+                "m62-1",
+            ]
+            result = subprocess.run(
+                command,
+                cwd=ROOT,
+                env=_script_env(root),
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            log_path = root / "logs" / f"daily-pipeline-{AS_OF_DATE}-m62-1.log"
+            self.assertTrue(log_path.exists())
+            self.assertIn(f"log_file={log_path}", result.stdout)
+            log_text = log_path.read_text(encoding="utf-8")
+            self.assertIn("evidence_run_id=m62-1", log_text)
+            self.assertIn("evidence_log_role=dry_run_activation_evidence", log_text)
+            self.assertIn("duplicate_apply_count=0", log_text)
+            self.assertIn("pipeline_status=pass", log_text)
+
+            duplicate = subprocess.run(
+                command,
+                cwd=ROOT,
+                env=_script_env(root),
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(duplicate.returncode, 1)
+            self.assertIn(f"evidence log already exists: {log_path}", duplicate.stderr)
+
+    def test_evidence_run_refuses_apply_mode(self) -> None:
+        result = subprocess.run(
+            [
+                "bash",
+                str(SCRIPT),
+                "--date",
+                AS_OF_DATE,
+                "--operator",
+                "tester",
+                "--apply",
+                "--evidence-run",
+                "m62-apply",
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("--evidence-run is only valid with --dry-run", result.stderr)
+
     def test_latest_closed_refuses_missing_market_data(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

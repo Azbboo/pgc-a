@@ -42,6 +42,7 @@ class DashboardStaticTest(unittest.TestCase):
         for endpoint in [
             "/api/daily-reviews/",
             "/api/paper-acceptance/",
+            "/api/paper-acceptance-history",
             "/api/review-timeline",
             "/api/trade-plans",
             "/api/open-execution",
@@ -462,6 +463,9 @@ class DashboardStaticTest(unittest.TestCase):
             "open-execution 状态",
             "readiness gates",
             "未处理 blocker",
+            "paper acceptance 历史",
+            "acceptance 告警",
+            "历史趋势",
             "只读验收面板",
             "Dashboard 不会执行交易",
             "不会自动取消或执行计划",
@@ -470,26 +474,36 @@ class DashboardStaticTest(unittest.TestCase):
         for html_id in [
             'id="acceptanceBadge"',
             'id="acceptanceStatusPanel"',
+            'id="acceptanceAlertList"',
             'id="acceptanceOverviewGrid"',
             'id="acceptanceGateBody"',
             'id="acceptanceBlockerList"',
+            'id="acceptanceHistorySummary"',
+            'id="acceptanceHistoryList"',
             'id="reloadAcceptanceButton"',
         ]:
             self.assertIn(html_id, source)
         for fn_name in [
             "function loadPaperAcceptance",
+            "function loadPaperAcceptanceHistory",
             "function renderPaperAcceptance",
+            "function renderAcceptanceAlerts",
+            "function renderAcceptanceHistory",
             "function acceptanceGateCard",
             "function acceptanceStatusText",
             "function acceptanceBlockerList",
+            "function acceptanceAlertList",
+            "function onAcceptanceHistoryClick",
             "function paperAcceptanceAction",
             "function onAcceptanceActionClick",
         ]:
             self.assertIn(fn_name, source)
         self.assertIn("/api/paper-acceptance/${state.asOfDate}", script)
+        self.assertIn("/api/paper-acceptance-history?${params.toString()}", script)
         self.assertIn('data-page-button="acceptance"', source)
         self.assertNotIn("paperAcceptanceExecute", script)
         self.assertNotIn('apiRequest("/api/paper-acceptance", { method: "POST"', script)
+        self.assertNotIn('apiRequest("/api/paper-acceptance-history", { method: "POST"', script)
 
     def test_dashboard_m48_market_interactions_are_read_only_and_cross_day(self) -> None:
         source = "\n".join(
@@ -560,6 +574,10 @@ class DashboardStaticTest(unittest.TestCase):
             "Validation events",
             "accepted 只代表研究结论",
             "单独创建 strategy-version proposal",
+            "Strategy-version proposal artifacts",
+            "proposal_artifact_count",
+            "proposal_ready_count",
+            "proposal_artifacts_only",
             "不修改 paper/live 行为",
             "/api/strategy-hypotheses/workbench",
         ]:
@@ -579,12 +597,15 @@ class DashboardStaticTest(unittest.TestCase):
             "function renderStrategyHypothesisWorkbench",
             "function openStrategyHypothesisEvaluationDrawer",
             "function strategyHypothesisGateRows",
+            "function strategyHypothesisProposalRows",
             "function findStrategyHypothesisEvaluation",
             "function hypothesisNextActionText",
         ]:
             self.assertIn(fn_name, source)
         self.assertIn("active_params_mutated", source)
         self.assertIn("writes_trade_state", source)
+        self.assertIn("create_strategy_version_proposal", source)
+        self.assertIn("proposal_ready", source)
         self.assertNotIn("POST /api/strategy-hypotheses", source)
         self.assertNotIn('apiRequest("/api/strategy-hypotheses", { method: "POST"', script)
 

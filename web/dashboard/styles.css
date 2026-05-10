@@ -940,6 +940,59 @@ code {
   margin-bottom: 14px;
 }
 
+.acceptance-alert-list,
+.acceptance-history-list {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.acceptance-alert-list {
+  margin-bottom: 14px;
+}
+
+.acceptance-alert {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--warning);
+  border-radius: var(--radius-sm);
+  background: #fff;
+}
+
+.acceptance-alert--blocker {
+  border-left-color: var(--danger);
+}
+
+.acceptance-alert div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.acceptance-alert strong,
+.acceptance-alert span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.acceptance-alert strong {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.acceptance-alert span,
+.acceptance-alert small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
 .acceptance-gate {
   display: grid;
   gap: 8px;
@@ -1010,6 +1063,57 @@ code {
 
 .acceptance-detail-grid {
   align-items: start;
+}
+
+.acceptance-history-panel {
+  margin-top: 14px;
+}
+
+.acceptance-history-list {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.acceptance-history-card {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  text-align: left;
+}
+
+.acceptance-history-card--pass {
+  border-top-color: var(--success);
+}
+
+.acceptance-history-card--warning {
+  border-top-color: var(--warning);
+}
+
+.acceptance-history-card--blocked {
+  border-top-color: var(--danger);
+}
+
+.acceptance-history-card strong,
+.acceptance-history-card span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.acceptance-history-card strong {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.acceptance-history-card span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .toolbar {
@@ -3015,7 +3119,8 @@ td > .empty-state {
   }
 
   .paper-promotion-scorecard__grid,
-  .acceptance-overview-grid {
+  .acceptance-overview-grid,
+  .acceptance-history-list {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
@@ -3150,6 +3255,8 @@ td > .empty-state {
   .agent-structured-report__grid,
   .paper-promotion-scorecard__grid,
   .acceptance-overview-grid,
+  .acceptance-alert,
+  .acceptance-history-list,
   .market-history-strip,
   .market-regime-strip,
   .market-evidence-item dl {

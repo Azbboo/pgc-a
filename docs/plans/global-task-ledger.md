@@ -8,13 +8,13 @@ This ledger is the single index for historical and active project work. Detailed
 
 | Field | Value |
 | --- | --- |
-| Branch | `codex/m14b-yfinance` |
-| Latest deployed commit | See release tag `pgc-v0.1.0-20260510-m55-m58` |
-| Latest release tag | `pgc-v0.1.0-20260510-m55-m58` |
+| Branch | `codex/m60-strategy-version-proposal` |
+| Latest deployed commit | See release tag `pgc-v0.1.0-20260510-m59-m62` |
+| Latest release tag | `pgc-v0.1.0-20260510-m59-m62` |
 | Remote API | `http://150.158.121.150:8020` |
 | Remote migration state | `012_market_review`, `pending_migrations=none` |
 | Latest release health | `api_health_ok=true`, HTTP `200` |
-| Latest full verification | `357 passed, 3 skipped, 10 subtests passed` locally on 2026-05-10 for M55-M58; deploy script completed `OK (skipped=3)` in latest release; remote `ops health` returned HTTP `200` |
+| Latest full verification | `367 passed, 3 skipped, 10 subtests passed` locally on 2026-05-10 for M59-M62; frontend/script syntax checks and `git diff --check` passed before release. |
 
 ## Status Legend
 
@@ -44,6 +44,7 @@ This ledger is the single index for historical and active project work. Detailed
 | M51-M54 release, timeline, and ops wave | `docs/plans/2026-05-09-m51-m54-release-timeline-ops-plan.md` |
 | M55-M58 paper intelligence ops wave | `docs/plans/2026-05-10-m55-m58-paper-intelligence-ops-plan.md` |
 | M59-M62 paper ops evidence and strategy wave | `docs/plans/2026-05-10-m59-m62-paper-ops-evidence-strategy-plan.md` |
+| M63-M66 evidence, proposal, ops, and decision wave | `docs/plans/2026-05-10-m63-m66-paper-decision-quality-plan.md` |
 
 ## DEV Work Packages
 
@@ -130,19 +131,23 @@ This ledger is the single index for historical and active project work. Detailed
 | M56 | Strategy hypothesis evaluation workbench | Done, Deployed | release `pgc-v0.1.0-20260510-m55-m58` | Added read-only strategy hypothesis workbench, evidence/backtest artifact acceptance gates, and safety payloads without mutating strategy params or paper/live behavior. |
 | M57 | Paper trading operations acceptance dashboard | Done, Deployed | release `pgc-v0.1.0-20260510-m55-m58` | Added paper acceptance API/report/Dashboard view for freshness, evidence coverage, Agent status, open-execution state, readiness gates, and blockers. |
 | M58 | Timer enablement decision and safe activation | Done, Deployed | release `pgc-v0.1.0-20260510-m55-m58` | Local activation gate now requires `--approval-id` plus three dry-run evidence logs; production timer remains disabled until operator approval; rollback and duplicate-write guard tested. |
-| M59 | Production evidence backfill execution | Next | `docs/plans/2026-05-10-m59-m62-paper-ops-evidence-strategy-plan.md` | Run cached evidence backfill for recent review dates, record coverage QA, and refresh affected market/Agent summaries without live fetches in trading path. |
-| M60 | Strategy-version proposal workflow | Next | `docs/plans/2026-05-10-m59-m62-paper-ops-evidence-strategy-plan.md` | Convert accepted hypotheses into separate strategy-version proposal artifacts; still no active param mutation. |
-| M61 | Paper acceptance history and alerting | Next | `docs/plans/2026-05-10-m59-m62-paper-ops-evidence-strategy-plan.md` | Track daily acceptance history, unresolved blockers, evidence freshness, and Agent status trends. |
-| M62 | Timer dry-run evidence collection | Blocked | `docs/plans/2026-05-10-m59-m62-paper-ops-evidence-strategy-plan.md` | Collect repeated successful dry-run logs for M58 activation gate; enabling remains blocked until explicit operator approval. |
+| M59 | Production evidence backfill execution | Done, Deployed | release `pgc-v0.1.0-20260510-m59-m62` | Backed up remote DB to `/opt/pgc/backups/pgc_trading-20260510-193204.db`; generated cached provider files for `20260507`/`20260508`; inserted 4 market and 6 Agent evidence rows; refreshed market-review runs/reports; QA blockers for missing sector and Agent announcement/news/sentiment remain explicit. |
+| M60 | Strategy-version proposal workflow | Done, Deployed | release `pgc-v0.1.0-20260510-m59-m62` | Added `strategy-evolution proposal` JSON artifacts from accepted hypotheses; verification: `node --check web/dashboard/app.js`, targeted M60 pytest, full `PYTHONPATH=src:. pytest -q`, and `git diff --check`. |
+| M61 | Paper acceptance history and alerting | Done, Deployed | release `pgc-v0.1.0-20260510-m59-m62` | Added read-only paper acceptance history API/Dashboard trend, alert list for unresolved blockers, stale evidence, missing Agent review, and open-execution mismatch; no trade execution or plan cancellation writes. |
+| M62 | Timer dry-run evidence collection | Done, Deployed | release `pgc-v0.1.0-20260510-m59-m62` | Added numbered dry-run evidence logs and remote collect action; 2026-05-10 remote dry-run passed but had `duplicate_apply_count=2` for `20260508`, so three M58-ready `duplicate_apply_count=0` logs remain pending and timer stays disabled. |
+| M63 | Evidence blocker closure for sector/news/sentiment | Next | `docs/plans/2026-05-10-m63-m66-paper-decision-quality-plan.md` | Add reviewed cached provider files and import/report QA so missing sector and Agent announcement/news/sentiment blockers become auditable data instead of open gaps. |
+| M64 | Strategy proposal review and promotion gate | Next | `docs/plans/2026-05-10-m63-m66-paper-decision-quality-plan.md` | Add explicit proposal review, approval/rejection, and promotion-request artifacts without mutating active strategy params or paper/live behavior. |
+| M65 | Ops run history and evidence observability | Next | `docs/plans/2026-05-10-m63-m66-paper-decision-quality-plan.md` | Persist and surface pipeline runs, backups, health, release, and timer-evidence attempts in one read-only operator history. |
+| M66 | Next-trading-day decision cockpit | Next | `docs/plans/2026-05-10-m63-m66-paper-decision-quality-plan.md` | Combine market review, evidence blockers, paper acceptance, open execution, and strategy proposals into one clear next-day decision checklist. |
 
 ## Active Parallel Plan
 
 | Lane | Task | Status | Depends On | Review Focus |
 | --- | --- | --- | --- | --- |
-| A | M59 Production evidence backfill execution | Next | M55 backfill tooling, M54 provider-file contracts | Run/import cached evidence for recent review dates; record coverage QA; no live fetch in trading path. |
-| B | M60 Strategy-version proposal workflow | Next | M56 workbench, M50 validation gates | Proposal artifacts only; no active strategy params or paper/live behavior mutation. |
-| C | M61 Paper acceptance history and alerting | Next | M57 acceptance dashboard | Trend blocker/evidence/Agent/readiness history without creating trades or cancelling plans. |
-| D | M62 Timer dry-run evidence collection | Blocked | M58 activation gate, repeated dry-run logs, operator approval | Collect dry-run evidence; do not enable timer until explicit approval. |
+| A | M63 Evidence blocker closure for sector/news/sentiment | Next | M59 backfill execution, M54 provider-file contracts | Cached provider files only; no live fetch in trading path; keep missing data explicit if provider files are absent. |
+| B | M64 Strategy proposal review and promotion gate | Next | M60 proposal artifacts, M50 validation gates | Approval/rejection/promotion-request artifacts only; no active strategy params or paper/live behavior mutation. |
+| C | M65 Ops run history and evidence observability | Next | M61 acceptance history, M62 evidence logs, M52 monitor | Read-only history over pipeline runs, backups, release, health, and timer-evidence attempts. |
+| D | M66 Next-trading-day decision cockpit | Next | M59-M65 outputs | One operator checklist for next-day action; it may explain blockers and recommendations but must not execute trades or enable timers. |
 
 ## Review Rules For Future Sessions
 

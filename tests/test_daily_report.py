@@ -11,6 +11,7 @@ from pgc_trading.cli.main import main
 from pgc_trading.reporting.daily_report import (
     DailyReportRequest,
     DailyReviewHistoryRequest,
+    PaperAcceptanceHistoryRequest,
     ReviewTimelineRequest,
     ReportingQueryService,
     render_daily_report_json,
@@ -59,6 +60,9 @@ class DailyReportTest(unittest.TestCase):
             self.assertTrue(
                 any("MIN_PAPER_TRADES_NOT_MET" in item for item in result.data.paper_acceptance.unresolved_blockers)
             )
+            self.assertTrue(
+                any(alert.code == "UNRESOLVED_ACCEPTANCE_BLOCKERS" for alert in result.data.paper_acceptance.alerts)
+            )
             self.assertEqual(result.data.candidate.ts_code, "000001.SZ")
             self.assertEqual(result.data.buy_plan.status, "active")
 
@@ -69,6 +73,7 @@ class DailyReportTest(unittest.TestCase):
             self.assertIn("证据覆盖", markdown)
             self.assertIn("open-execution 状态", markdown)
             self.assertIn("readiness gates", markdown)
+            self.assertIn("验收告警", markdown)
             self.assertIn("只读验收面板，不会执行交易", markdown)
             self.assertIn("样本交易", markdown)
             self.assertIn("晋级 live 前还差什么", markdown)
@@ -84,6 +89,7 @@ class DailyReportTest(unittest.TestCase):
             self.assertIn("paper_acceptance", payload)
             self.assertEqual(payload["paper_acceptance"]["open_execution"]["next_action"], "record_buy")
             self.assertIn("readiness_gates", payload["paper_acceptance"])
+            self.assertIn("alerts", payload["paper_acceptance"])
             self.assertIn("MIN_PAPER_TRADES_NOT_MET", payload["paper_promotion"]["promotion_blockers"])
             self.assertEqual(payload["candidate"]["daily_pick_id"], result.data.candidate.daily_pick_id)
             self.assertIn("data_quality", payload)
@@ -149,6 +155,32 @@ class DailyReportTest(unittest.TestCase):
             self.assertEqual(result.data.items[1].ts_code, "000001.SZ")
             self.assertEqual(result.data.items[1].trade_plan_status, "active")
             self.assertEqual(result.data.items[1].next_trade_date, BUY_DATE)
+
+    def test_paper_acceptance_history_tracks_alerts_and_trends(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._plan_ready_db(tmp)
+            with sqlite3.connect(db_path) as conn:
+                self._insert_no_candidate_review_run(conn, "20260506")
+
+            result = ReportingQueryService(db_path).list_paper_acceptance_history(
+                PaperAcceptanceHistoryRequest(account_key=ACCOUNT_KEY, limit=10),
+                RequestContext(request_id="req-acceptance-history"),
+            )
+
+            self.assertEqual(result.status, "success")
+            self.assertIsNotNone(result.data)
+            self.assertEqual([item.as_of_date for item in result.data.items], ["20260506", AS_OF_DATE])
+            self.assertEqual(result.data.account.account_key, ACCOUNT_KEY)
+            self.assertEqual(result.data.trend["days"], 2)
+            self.assertEqual(result.data.trend["blocked_days"], 2)
+            self.assertEqual(result.data.trend["latest_as_of_date"], "20260506")
+            self.assertGreaterEqual(result.data.trend["missing_agent_days"], 1)
+            self.assertTrue(result.data.items[0].warning_count >= 1)
+            self.assertTrue(result.data.items[0].unresolved_blocker_count >= 1)
+            self.assertIn("UNRESOLVED_ACCEPTANCE_BLOCKERS", result.data.items[0].alert_codes)
+            self.assertTrue(any(alert.code == "AGENT_REVIEW_MISSING" for alert in result.data.alerts))
+            self.assertIn("近 2 日 paper acceptance", result.data.summary)
+            self.assertIn("alert_count", result.lineage)
 
     def test_review_timeline_combines_review_market_plan_context_and_execution_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

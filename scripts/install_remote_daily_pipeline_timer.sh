@@ -16,22 +16,26 @@ MODE="dry-run"
 ACTION="preview"
 APPROVAL_ID="${PGC_TIMER_ACTIVATION_APPROVAL_ID:-}"
 MIN_DRY_RUN_EVIDENCE="${PGC_TIMER_MIN_DRY_RUN_EVIDENCE:-3}"
+EVIDENCE_RUN_ID="${PGC_TIMER_EVIDENCE_RUN_ID:-}"
+LOCAL_EVIDENCE_DIR="${PGC_TIMER_EVIDENCE_DIR:-.pgc-runs/timer-evidence}"
 DRY_RUN_EVIDENCE_FILES=()
 
 usage() {
   cat <<'USAGE'
-Usage: install_remote_daily_pipeline_timer.sh [--dry-run|--check-activation|--enable|--status] [--operator NAME] [--mode dry-run|apply] [--account ACCOUNT]
-       [--approval-id ID] [--dry-run-evidence PATH]... [--min-dry-runs COUNT]
+Usage: install_remote_daily_pipeline_timer.sh [--dry-run|--collect-evidence|--check-activation|--enable|--status] [--operator NAME] [--mode dry-run|apply] [--account ACCOUNT]
+       [--approval-id ID] [--dry-run-evidence PATH]... [--min-dry-runs COUNT] [--evidence-run ID] [--evidence-dir PATH]
 
 Preview, enable, or inspect the remote systemd timer for the post-close daily pipeline.
 The scheduled command always uses --date latest-closed and --include-market-review.
 Preview is the default. Enabling the timer requires the explicit --enable flag.
 M58 activation also requires an approval id and repeated dry-run evidence logs.
+M62 evidence collection runs remote dry-runs only and keeps the timer disabled.
 
 Examples:
   scripts/install_remote_daily_pipeline_timer.sh --dry-run
   scripts/install_remote_daily_pipeline_timer.sh --operator system-daily-pipeline --mode dry-run
   scripts/install_remote_daily_pipeline_timer.sh --dry-run --operator system-daily-pipeline --mode apply
+  scripts/install_remote_daily_pipeline_timer.sh --collect-evidence --operator system-daily-pipeline --mode apply --evidence-run m62-1
   scripts/install_remote_daily_pipeline_timer.sh --check-activation --operator system-daily-pipeline --mode apply --approval-id OPS-YYYYMMDD --dry-run-evidence .pgc-runs/daily-pipeline-YYYYMMDD.log
   scripts/install_remote_daily_pipeline_timer.sh --enable --operator system-daily-pipeline --mode apply --approval-id OPS-YYYYMMDD --dry-run-evidence .pgc-runs/daily-pipeline-YYYYMMDD.log
   scripts/install_remote_daily_pipeline_timer.sh --status
@@ -46,7 +50,22 @@ Environment overrides:
   PGC_DAILY_PIPELINE_ON_CALENDAR     default: Mon..Fri *-*-* 16:20:00 Asia/Shanghai
   PGC_TIMER_ACTIVATION_APPROVAL_ID   optional approval id used with --enable
   PGC_TIMER_MIN_DRY_RUN_EVIDENCE     default: 3
+  PGC_TIMER_EVIDENCE_RUN_ID          optional evidence run id used with --collect-evidence
+  PGC_TIMER_EVIDENCE_DIR             default: .pgc-runs/timer-evidence
 USAGE
+}
+
+validate_evidence_run_id() {
+  local value="$1"
+  if [[ -z "$value" ]]; then
+    printf 'timer install error: --evidence-run requires a value\n' >&2
+    return 1
+  fi
+  if [[ ! "$value" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+    printf 'timer install error: --evidence-run must contain only letters, numbers, dots, underscores, or hyphens and start with a letter or number\n' >&2
+    return 1
+  fi
+  return 0
 }
 
 while [[ "$#" -gt 0 ]]; do
@@ -57,6 +76,10 @@ while [[ "$#" -gt 0 ]]; do
       ;;
     --dry-run)
       ACTION="preview"
+      shift
+      ;;
+    --collect-evidence)
+      ACTION="collect-evidence"
       shift
       ;;
     --enable)
@@ -95,6 +118,19 @@ while [[ "$#" -gt 0 ]]; do
       DRY_RUN_EVIDENCE_FILES+=("$2")
       shift 2
       ;;
+    --evidence-run)
+      EVIDENCE_RUN_ID="${2:-}"
+      validate_evidence_run_id "$EVIDENCE_RUN_ID" || exit 2
+      shift 2
+      ;;
+    --evidence-dir)
+      LOCAL_EVIDENCE_DIR="${2:-}"
+      if [[ -z "$LOCAL_EVIDENCE_DIR" ]]; then
+        printf 'timer install error: --evidence-dir requires a path\n' >&2
+        exit 2
+      fi
+      shift 2
+      ;;
     --min-dry-runs)
       MIN_DRY_RUN_EVIDENCE="${2:-}"
       if [[ ! "$MIN_DRY_RUN_EVIDENCE" =~ ^[1-9][0-9]*$ ]]; then
@@ -131,22 +167,31 @@ if [[ ! "$MIN_DRY_RUN_EVIDENCE" =~ ^[1-9][0-9]*$ ]]; then
   exit 2
 fi
 
+if [[ -n "$EVIDENCE_RUN_ID" ]]; then
+  validate_evidence_run_id "$EVIDENCE_RUN_ID" || exit 2
+fi
+
 MODE_FLAG="--dry-run"
 if [[ "$MODE" == "apply" ]]; then
   MODE_FLAG="--apply"
 fi
+
+EVIDENCE_RUN_ARG="${EVIDENCE_RUN_ID:-EVIDENCE_RUN_ID}"
 
 SERVICE_PATH="/etc/systemd/system/${SERVICE_NAME}"
 TIMER_PATH="/etc/systemd/system/${TIMER_NAME}"
 PIPELINE_COMMAND="${REMOTE_CURRENT_DIR}/scripts/run_daily_pipeline.sh --date latest-closed --account ${ACCOUNT} --operator ${OPERATOR} --db-path ${REMOTE_DB_PATH} --backup-dir ${REMOTE_BACKUP_DIR} --include-market-review ${MODE_FLAG}"
 MANUAL_DRY_RUN_COMMAND="${REMOTE_CURRENT_DIR}/scripts/run_daily_pipeline.sh --date latest-closed --account ${ACCOUNT} --operator ${OPERATOR} --db-path ${REMOTE_DB_PATH} --backup-dir ${REMOTE_BACKUP_DIR} --include-market-review --dry-run"
 MANUAL_APPLY_COMMAND="${REMOTE_CURRENT_DIR}/scripts/run_daily_pipeline.sh --date latest-closed --account ${ACCOUNT} --operator ${OPERATOR} --db-path ${REMOTE_DB_PATH} --backup-dir ${REMOTE_BACKUP_DIR} --include-market-review --apply"
+COLLECT_EVIDENCE_COMMAND="${REMOTE_CURRENT_DIR}/scripts/run_daily_pipeline.sh --date latest-closed --account ${ACCOUNT} --operator ${OPERATOR} --db-path ${REMOTE_DB_PATH} --backup-dir ${REMOTE_BACKUP_DIR} --include-market-review --dry-run --evidence-run ${EVIDENCE_RUN_ARG}"
 REMOTE_HEALTH_COMMAND="cd ${REMOTE_CURRENT_DIR} && PYTHONPATH=src python3 -m pgc_trading.cli.main ops health --db-path ${REMOTE_DB_PATH} --health-url ${REMOTE_HEALTH_URL} --require-current-migrations"
 TIMER_ENABLEMENT="preview_only"
 if [[ "$ACTION" == "enable" ]]; then
   TIMER_ENABLEMENT="explicit_enable"
 elif [[ "$ACTION" == "check-activation" ]]; then
   TIMER_ENABLEMENT="activation_check"
+elif [[ "$ACTION" == "collect-evidence" ]]; then
+  TIMER_ENABLEMENT="evidence_collection"
 fi
 
 print_summary() {
@@ -165,6 +210,9 @@ print_summary() {
   printf 'pipeline_command=%s\n' "$PIPELINE_COMMAND"
   printf 'manual_dry_run_command=%s\n' "$MANUAL_DRY_RUN_COMMAND"
   printf 'manual_apply_command=%s\n' "$MANUAL_APPLY_COMMAND"
+  printf 'collect_dry_run_evidence_command=%s\n' "$COLLECT_EVIDENCE_COMMAND"
+  printf 'local_evidence_dir=%s\n' "$LOCAL_EVIDENCE_DIR"
+  printf 'evidence_run_id=%s\n' "${EVIDENCE_RUN_ID:-missing}"
   printf 'health_command=%s\n' "$REMOTE_HEALTH_COMMAND"
   printf 'minimum_dry_run_evidence=%s\n' "$MIN_DRY_RUN_EVIDENCE"
   printf 'dry_run_evidence_count=%s\n' "${#DRY_RUN_EVIDENCE_FILES[@]}"
@@ -232,6 +280,8 @@ validate_activation_decision() {
         failures=1
       fi
     done <<'REQUIREMENTS'
+dry_run_evidence_run_id|^evidence_run_id=[A-Za-z0-9][A-Za-z0-9._-]*$
+dry_run_evidence_role|^evidence_log_role=dry_run_activation_evidence$
 pipeline_status_pass|^pipeline_status=pass$
 report_would_write|^report_would_write=true$
 market_review_would_write|^market_review_would_write=true$
@@ -255,6 +305,83 @@ if [[ "$ACTION" == "preview" ]]; then
   printf 'would_write_timer=%s\n' "$TIMER_PATH"
   printf 'would_enable_timer=systemctl enable --now %s only after --enable\n' "$TIMER_NAME"
   printf 'enable_command=scripts/install_remote_daily_pipeline_timer.sh --enable --operator %s --mode %s --account %s\n' "$OPERATOR" "$MODE" "$ACCOUNT"
+  exit 0
+fi
+
+if [[ "$ACTION" == "collect-evidence" ]]; then
+  print_summary
+  if [[ -z "$EVIDENCE_RUN_ID" ]]; then
+    printf 'evidence_collection_error=evidence_run_id_required\n' >&2
+    exit 2
+  fi
+
+  mkdir -p "$LOCAL_EVIDENCE_DIR"
+  set +e
+  REMOTE_OUTPUT="$(ssh "$REMOTE_HOST" 'bash -s' -- \
+    "$REMOTE_CURRENT_DIR" \
+    "$REMOTE_DB_PATH" \
+    "$REMOTE_BACKUP_DIR" \
+    "$REMOTE_LOG_DIR" \
+    "$REMOTE_HEALTH_URL" \
+    "$ACCOUNT" \
+    "$OPERATOR" \
+    "$EVIDENCE_RUN_ID" <<'REMOTE_COLLECT' 2>&1
+set -euo pipefail
+
+working_dir="$1"
+db_path="$2"
+backup_dir="$3"
+log_dir="$4"
+health_url="$5"
+account="$6"
+operator="$7"
+evidence_run_id="$8"
+
+mkdir -p "$log_dir"
+test -x "${working_dir}/scripts/run_daily_pipeline.sh"
+test -f "$db_path"
+curl -fsS "$health_url" >/tmp/pgc_daily_pipeline_collect_health.json
+cd "$working_dir"
+PYTHONPATH=src python3 -m pgc_trading.cli.main ops health \
+  --db-path "$db_path" \
+  --health-url "$health_url" \
+  --require-current-migrations
+
+PGC_DAILY_PIPELINE_LOG_DIR="$log_dir" \
+  "${working_dir}/scripts/run_daily_pipeline.sh" \
+  --date latest-closed \
+  --account "$account" \
+  --operator "$operator" \
+  --db-path "$db_path" \
+  --backup-dir "$backup_dir" \
+  --include-market-review \
+  --dry-run \
+  --evidence-run "$evidence_run_id"
+REMOTE_COLLECT
+)"
+  REMOTE_STATUS=$?
+  set -e
+  printf '%s\n' "$REMOTE_OUTPUT"
+  if [[ "$REMOTE_STATUS" != "0" ]]; then
+    exit "$REMOTE_STATUS"
+  fi
+
+  REMOTE_EVIDENCE_LOG="$(printf '%s\n' "$REMOTE_OUTPUT" | awk -F= '/^log_file=/{print $2; exit}')"
+  if [[ -z "$REMOTE_EVIDENCE_LOG" ]]; then
+    printf 'evidence_collection_error=missing_remote_log_file\n' >&2
+    exit 1
+  fi
+  LOCAL_EVIDENCE_FILE="${LOCAL_EVIDENCE_DIR}/$(basename "$REMOTE_EVIDENCE_LOG")"
+  if [[ -e "$LOCAL_EVIDENCE_FILE" ]]; then
+    printf 'evidence_collection_error=local_evidence_file_exists file=%s\n' "$LOCAL_EVIDENCE_FILE" >&2
+    exit 1
+  fi
+  scp "${REMOTE_HOST}:${REMOTE_EVIDENCE_LOG}" "$LOCAL_EVIDENCE_FILE"
+  printf 'remote_evidence_log_file=%s\n' "$REMOTE_EVIDENCE_LOG"
+  printf 'local_evidence_log_file=%s\n' "$LOCAL_EVIDENCE_FILE"
+  printf 'dry_run_evidence_arg=--dry-run-evidence %s\n' "$LOCAL_EVIDENCE_FILE"
+  printf 'activation_decision=not_evaluated\n'
+  printf 'timer_state=unchanged_disabled_until_enable_gate\n'
   exit 0
 fi
 

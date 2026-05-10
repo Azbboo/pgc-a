@@ -120,7 +120,10 @@ class StrategyHypothesisBacktestServiceTest(unittest.TestCase):
             task = result.data.artifact["strategy_version_task"]
             self.assertEqual(task["task_type"], "create_candidate_strategy_version")
             self.assertEqual(task["task_key"], f"strategy-hypothesis:{hypothesis_id}:strategy-version")
+            self.assertTrue(task["proposal_artifact_required"])
+            self.assertEqual(task["proposal_artifact_type"], "strategy_version_proposal")
             self.assertFalse(task["proposed_change"]["mutates_active_params"])
+            self.assertIn("strategy-version proposal artifact", " ".join(task["acceptance_rules"]))
             self.assertEqual(_strategy_param_file_contents(), params_before)
             self.assertEqual(_count_rows(db_path, "strategy_versions"), strategy_versions_before)
             self.assertIn("STRATEGY_VERSION_TASK_REQUIRED", {warning.code for warning in result.warnings})

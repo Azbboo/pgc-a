@@ -850,6 +850,119 @@ class CliMarketReviewTest(unittest.TestCase):
             self.assertIn(f"future_strategy_version_task_key=strategy-hypothesis:{hypothesis_id}:strategy-version", output)
             self.assertEqual(_count_strategy_versions(db_path), strategy_versions_before)
 
+    def test_strategy_evolution_proposal_cli_writes_artifact_only_for_accepted_hypothesis(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc.db"
+            backtest_artifact_path = Path(tmp) / "hypothesis_backtest_request.json"
+            proposal_path = Path(tmp) / "strategy_version_proposal.json"
+            run_migrations(db_path)
+            seed_reference_data(db_path)
+            _seed_risk_off_review(db_path)
+            apply_code = main(
+                [
+                    "strategy-evolution",
+                    "propose",
+                    "--date",
+                    "20260508",
+                    "--db-path",
+                    str(db_path),
+                    "--apply",
+                ],
+                stdout=io.StringIO(),
+            )
+            hypothesis_id = _first_hypothesis_id(db_path)
+            _write_backtest_artifact(backtest_artifact_path, hypothesis_id)
+            testing_code = main(
+                [
+                    "strategy-evolution",
+                    "mark",
+                    "--hypothesis-id",
+                    str(hypothesis_id),
+                    "--status",
+                    "testing",
+                    "--operator",
+                    "azboo",
+                    "--db-path",
+                    str(db_path),
+                ],
+                stdout=io.StringIO(),
+            )
+            accepted_code = main(
+                [
+                    "strategy-evolution",
+                    "mark",
+                    "--hypothesis-id",
+                    str(hypothesis_id),
+                    "--status",
+                    "accepted",
+                    "--evidence-id",
+                    "market_review_run:1",
+                    "--backtest-artifact",
+                    str(backtest_artifact_path),
+                    "--operator",
+                    "azboo",
+                    "--db-path",
+                    str(db_path),
+                ],
+                stdout=io.StringIO(),
+            )
+            strategy_versions_before = _count_strategy_versions(db_path)
+
+            dry_run_stdout = io.StringIO()
+            dry_run_code = main(
+                [
+                    "strategy-evolution",
+                    "proposal",
+                    "--hypothesis-id",
+                    str(hypothesis_id),
+                    "--output",
+                    str(proposal_path),
+                    "--db-path",
+                    str(db_path),
+                    "--dry-run",
+                ],
+                stdout=dry_run_stdout,
+            )
+
+            self.assertEqual(apply_code, 0)
+            self.assertEqual(testing_code, 0)
+            self.assertEqual(accepted_code, 0)
+            self.assertEqual(dry_run_code, 0)
+            dry_run_output = dry_run_stdout.getvalue()
+            self.assertIn("strategy-evolution proposal command routed", dry_run_output)
+            self.assertIn("would_write_artifact=true", dry_run_output)
+            self.assertIn("wrote_artifact=false", dry_run_output)
+            self.assertFalse(proposal_path.exists())
+
+            apply_stdout = io.StringIO()
+            proposal_code = main(
+                [
+                    "strategy-evolution",
+                    "proposal",
+                    "--hypothesis-id",
+                    str(hypothesis_id),
+                    "--output",
+                    str(proposal_path),
+                    "--db-path",
+                    str(db_path),
+                    "--operator",
+                    "azboo",
+                    "--apply",
+                ],
+                stdout=apply_stdout,
+            )
+            self.assertEqual(proposal_code, 0)
+            output = apply_stdout.getvalue()
+            self.assertIn("strategy_version_proposal=", output)
+            self.assertIn(f"hypothesis_id={hypothesis_id}", output)
+            self.assertIn(f"proposal_key=strategy-hypothesis:{hypothesis_id}:strategy-version-proposal", output)
+            self.assertIn("wrote_artifact=true", output)
+            self.assertIn("active_params_mutated=false", output)
+            self.assertIn("wrote_strategy_versions=false", output)
+            self.assertIn(f"artifact_path={proposal_path}", output)
+            self.assertTrue(proposal_path.exists())
+            self.assertEqual(_count_strategy_versions(db_path), strategy_versions_before)
+
     def test_strategy_evolution_missing_db_fails_without_creating_database(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "missing.db"
@@ -1009,6 +1122,8 @@ def _write_backtest_artifact(path: Path, hypothesis_id: int) -> None:
                 "artifact_type": "strategy_hypothesis_backtest_request",
                 "hypothesis": {"id": hypothesis_id},
                 "backtest_request": {"task_key": f"strategy-hypothesis:{hypothesis_id}:backtest"},
+                "validation_gate": {"accepted_is_research_outcome_only": True},
+                "safety": {"active_params_mutated": False},
             },
             sort_keys=True,
         ),

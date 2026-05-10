@@ -40,6 +40,8 @@ const state = {
   reportEnvelope: null,
   paperAcceptance: null,
   paperAcceptanceEnvelope: null,
+  paperAcceptanceHistory: null,
+  paperAcceptanceHistoryEnvelope: null,
   reviewHistory: [],
   reviewTimeline: [],
   reviewTimelineEnvelope: null,
@@ -120,9 +122,12 @@ function cacheElements() {
     "reloadAcceptanceButton",
     "acceptanceDateLabel",
     "acceptanceStatusPanel",
+    "acceptanceAlertList",
     "acceptanceOverviewGrid",
     "acceptanceGateBody",
     "acceptanceBlockerList",
+    "acceptanceHistorySummary",
+    "acceptanceHistoryList",
     "hypothesesBadge",
     "reloadMarketButton",
     "marketReviewDateInput",
@@ -262,8 +267,10 @@ function bindEvents() {
   els.reviewHistoryList.addEventListener("click", onReviewHistoryClick);
   els.reloadAcceptanceButton.addEventListener("click", loadPaperAcceptanceAndRender);
   els.acceptanceStatusPanel.addEventListener("click", onAcceptanceActionClick);
+  els.acceptanceAlertList.addEventListener("click", onAcceptanceActionClick);
   els.acceptanceGateBody.addEventListener("click", onAcceptanceActionClick);
   els.acceptanceBlockerList.addEventListener("click", onAcceptanceActionClick);
+  els.acceptanceHistoryList.addEventListener("click", onAcceptanceHistoryClick);
   els.reloadMarketButton.addEventListener("click", loadMarketReviewAndRender);
   els.marketApplyDateButton.addEventListener("click", applyMarketReviewDateInput);
   els.marketReviewDateInput.addEventListener("change", applyMarketReviewDateInput);
@@ -512,6 +519,7 @@ async function refreshAll(options = {}) {
       loadMarketReview(),
       loadOpenExecution(),
       loadPaperAcceptance(),
+      loadPaperAcceptanceHistory(),
       loadStrategyHypothesisWorkbench(),
     ]);
     renderAll();
@@ -554,6 +562,26 @@ async function loadPaperAcceptance() {
   const envelope = await apiRequest(`/api/paper-acceptance/${state.asOfDate}?${params.toString()}`);
   state.paperAcceptanceEnvelope = envelope;
   state.paperAcceptance = envelope.data || state.report?.paper_acceptance || null;
+}
+
+async function loadPaperAcceptanceHistory() {
+  const params = new URLSearchParams();
+  params.set("strategy_version", state.strategyVersion);
+  params.set("limit", "10");
+  params.set("request_id", requestId("paper-acceptance-history"));
+  const accountId = resolvedAccountId();
+  if (accountId) {
+    params.set("account_id", accountId);
+  } else if (state.accountKey) {
+    params.set("account_key", state.accountKey);
+  } else {
+    state.paperAcceptanceHistory = null;
+    state.paperAcceptanceHistoryEnvelope = null;
+    return;
+  }
+  const envelope = await apiRequest(`/api/paper-acceptance-history?${params.toString()}`);
+  state.paperAcceptanceHistoryEnvelope = envelope;
+  state.paperAcceptanceHistory = envelope.data || null;
 }
 
 async function loadReviewHistory() {
@@ -763,7 +791,7 @@ async function loadReviewHistoryAndRender() {
 
 async function loadPaperAcceptanceAndRender() {
   await runWithNotice(async () => {
-    await loadPaperAcceptance();
+    await Promise.all([loadPaperAcceptance(), loadPaperAcceptanceHistory()]);
     renderPaperAcceptance();
     renderBadges();
   });
@@ -1719,6 +1747,8 @@ function renderPaperAcceptance() {
   if (!acceptance) {
     els.acceptanceStatusPanel.className = "acceptance-status-panel acceptance-status-panel--warning";
     els.acceptanceStatusPanel.innerHTML = emptyState("纸盘每日运营验收暂无数据。");
+    renderAcceptanceAlerts(null, paperAcceptanceHistoryData());
+    renderAcceptanceHistory(paperAcceptanceHistoryData());
     els.acceptanceOverviewGrid.innerHTML = "";
     els.acceptanceGateBody.innerHTML = emptyState("readiness gates 暂无数据。");
     els.acceptanceBlockerList.innerHTML = emptyState("无法确认未处理 blocker。");
@@ -1749,6 +1779,7 @@ function renderPaperAcceptance() {
       <button type="button" data-acceptance-action="refresh">刷新验收</button>
     </div>
   `;
+  renderAcceptanceAlerts(acceptance, paperAcceptanceHistoryData());
 
   const overviewGates = [
     acceptance.data_freshness,
@@ -1772,10 +1803,60 @@ function renderPaperAcceptance() {
       </div>
     `).join("")
     : emptyState("没有未处理 blocker；仍需人工核对开盘检查和成交事实。");
+  renderAcceptanceHistory(paperAcceptanceHistoryData());
 }
 
 function paperAcceptanceData() {
   return state.paperAcceptance || state.report?.paper_acceptance || null;
+}
+
+function paperAcceptanceHistoryData() {
+  return state.paperAcceptanceHistory || null;
+}
+
+function renderAcceptanceAlerts(acceptance, history) {
+  const alerts = acceptanceAlertList(acceptance, history);
+  els.acceptanceAlertList.innerHTML = alerts.length
+    ? alerts.slice(0, 8).map((alert) => `
+      <div class="acceptance-alert acceptance-alert--${escapeHtml(alert.severity || "warning")}">
+        ${chipHtml(alert.severity === "blocker" ? "blocker" : "warning", alert.severity === "blocker" ? "chip-red" : "chip-amber")}
+        <div>
+          <strong>${escapeHtml(alert.title || alert.code || "acceptance alert")}</strong>
+          <span>${escapeHtml(alert.summary || "-")}</span>
+        </div>
+        <small>${escapeHtml(displayDate(alert.as_of_date))}</small>
+        <button type="button" data-acceptance-action="${escapeHtml(alert.action || "quality")}">${escapeHtml(acceptanceActionText(alert.action || "quality"))}</button>
+      </div>
+    `).join("")
+    : emptyState("暂无 acceptance 告警；历史趋势仍保持只读。");
+}
+
+function renderAcceptanceHistory(history) {
+  const items = Array.isArray(history?.items) ? history.items : [];
+  els.acceptanceHistorySummary.textContent = history?.summary || "暂无 paper acceptance 历史。";
+  els.acceptanceHistoryList.innerHTML = items.length
+    ? items.map((item) => `
+      <button type="button" class="acceptance-history-card acceptance-history-card--${escapeHtml(item.status || "warning")}" data-acceptance-history-date="${escapeHtml(item.as_of_date)}">
+        <strong>${escapeHtml(displayDate(item.as_of_date))}</strong>
+        ${chipHtml(acceptanceStatusText(item.status), acceptanceStatusClass(item.status))}
+        <span>执行 ${escapeHtml(displayDate(item.execution_date))} · ${escapeHtml(openExecutionActionText(item.open_execution_next_action))}</span>
+        <span>blocker ${escapeHtml(String(item.unresolved_blocker_count || 0))} · warning ${escapeHtml(String(item.warning_count || 0))} · alert ${escapeHtml(String(item.alert_count || 0))}</span>
+      </button>
+    `).join("")
+    : emptyState("暂无 paper acceptance 历史；运行日终复盘后会出现在这里。");
+}
+
+function acceptanceAlertList(acceptance, history) {
+  const currentAlerts = Array.isArray(acceptance?.alerts) ? acceptance.alerts : [];
+  const historyAlerts = Array.isArray(history?.alerts) ? history.alerts : [];
+  const alerts = [...currentAlerts, ...historyAlerts];
+  const seen = new Set();
+  return alerts.filter((alert) => {
+    const key = `${alert.as_of_date || ""}:${alert.code || ""}:${alert.gate_key || ""}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function acceptanceGateCard(gate) {
@@ -1808,6 +1889,19 @@ function onAcceptanceActionClick(event) {
   if (action === "execution") setActivePage("execution");
   if (action === "agent") openAgentDrawer();
   if (action === "market") setActivePage("market");
+}
+
+function onAcceptanceHistoryClick(event) {
+  const button = event.target.closest("[data-acceptance-history-date]");
+  if (!button) return;
+  const reviewDate = button.dataset.acceptanceHistoryDate;
+  if (!reviewDate) return;
+  state.asOfDate = reviewDate;
+  state.reviewDatePinned = true;
+  resetPreOpenChecks();
+  syncFormFromState();
+  persistContext();
+  refreshAll({ keepNotice: true });
 }
 
 function paperAcceptanceAction(gate) {
@@ -2151,8 +2245,11 @@ function renderStrategyHypothesisSummary(summary) {
     ["验证中", integerText(byStatus.testing || 0)],
     ["可进入接受复核", integerText(summary.ready_to_accept_count || 0)],
     ["待 strategy-version task", integerText(summary.strategy_version_task_required_count || 0)],
+    ["待 proposal artifact", integerText(summary.proposal_required_count || 0)],
+    ["proposal ready", integerText(summary.proposal_ready_count || 0)],
     ["Backtest artifacts", integerText(summary.artifact_count || 0)],
-    ["异常 artifacts", integerText(summary.invalid_artifact_count || 0)],
+    ["Proposal artifacts", integerText(summary.proposal_artifact_count || 0)],
+    ["异常 artifacts", integerText((summary.invalid_artifact_count || 0) + (summary.invalid_proposal_artifact_count || 0))],
   ]);
 }
 
@@ -2188,6 +2285,7 @@ function renderStrategyHypothesisSafety(safety) {
       ["writes_trade_state", safety.writes_trade_state ? "是" : "否"],
       ["paper/live 行为", safety.writes_paper_live_behavior ? "会改变" : "不改变"],
       ["accepted 后续", safety.accepted_creates_separate_strategy_version_task ? "单独 proposal" : "-"],
+      ["proposal_artifacts_only", safety.proposal_artifacts_only ? "是" : "-"],
       ["API", "/api/strategy-hypotheses/workbench"],
     ])}
   `;
@@ -2204,6 +2302,7 @@ function renderStrategyHypothesisCard(evaluation) {
   const gate = evaluation.acceptance_gate || {};
   const safety = evaluation.safety || {};
   const artifactCount = (evaluation.backtest_artifacts || []).length;
+  const proposalCount = (evaluation.strategy_version_proposals || []).length;
   const gateClass = safety.proposed_change_mutates_active_params || safety.artifact_reports_active_param_mutation
     ? "chip-red"
     : gate.can_accept
@@ -2230,6 +2329,7 @@ function renderStrategyHypothesisCard(evaluation) {
         ${chipHtml(gate.has_validation_evidence ? "evidence 已附" : "缺 validation evidence", gate.has_validation_evidence ? "chip-green" : "chip-amber")}
         ${chipHtml(artifactCount ? `${artifactCount} artifact` : "缺 backtest artifact", artifactCount ? "chip-blue" : "chip-amber")}
         ${chipHtml(gate.backtest_artifacts_valid ? "artifact 有效" : "artifact 待确认", gate.backtest_artifacts_valid ? "chip-green" : "chip-neutral")}
+        ${chipHtml(proposalCount ? `${proposalCount} proposal` : "缺 proposal artifact", proposalCount ? "chip-indigo" : "chip-neutral")}
         ${chipHtml(gate.can_accept ? "可接受复核" : gate.accepted_complete ? "accepted 完整" : "gate 未完成", gateClass)}
       </div>
       <div class="row-actions">
@@ -3524,11 +3624,17 @@ function openStrategyHypothesisEvaluationDrawer(evaluation) {
         ["Rationale", hypothesis.rationale || "-"],
       ])),
       detailSection("Backtest artifacts", strategyHypothesisArtifactRows(evaluation.backtest_artifacts || [])),
+      detailSection(
+        "Strategy-version proposal artifacts",
+        strategyHypothesisProposalRows(evaluation.strategy_version_proposals || []),
+      ),
       detailSection("Validation events", strategyHypothesisValidationEvents(evaluation.validation_events || [])),
       detailSection("Safety", detailRows([
         ["只读评估", safety.read_only_evaluation ? "是" : "-"],
         ["拟议变更是否改 active params", safety.proposed_change_mutates_active_params ? "是" : "否"],
         ["artifact 是否报告 active param mutation", safety.artifact_reports_active_param_mutation ? "是" : "否"],
+        ["proposal 是否 artifact-only", safety.proposal_artifacts_only ? "是" : "-"],
+        ["proposal 是否写 strategy_versions", safety.proposal_wrote_strategy_versions ? "是" : "否"],
         ["本工作台写交易状态", safety.writes_trade_state ? "是" : "否"],
         ["本工作台改变 paper/live", safety.writes_paper_live_behavior ? "是" : "否"],
       ])),
@@ -4203,7 +4309,10 @@ function strategyHypothesisQueueSort(a, b) {
     create_backtest_artifact: 3,
     attach_validation_evidence: 4,
     move_to_testing: 5,
-    strategy_version_task_required: 6,
+    create_strategy_version_proposal: 6,
+    fix_strategy_version_proposal: 7,
+    proposal_ready: 8,
+    strategy_version_task_required: 9,
   };
   const aPriority = priority[a.next_action] ?? 99;
   const bPriority = priority[b.next_action] ?? 99;
@@ -4247,6 +4356,38 @@ function strategyHypothesisArtifactRows(artifacts) {
               <td>${chipHtml(artifact.valid ? "有效" : artifact.exists ? "无效" : "缺失", artifact.valid ? "chip-green" : "chip-red")}</td>
               <td>${dash(artifact.hypothesis_id)}</td>
               <td>${escapeHtml(artifact.backtest_task_key || "-")}</td>
+              <td>${escapeHtml(artifact.error || "-")}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function strategyHypothesisProposalRows(artifacts) {
+  if (!artifacts.length) return emptyState("暂无 strategy-version proposal artifact；accepted 后必须单独创建 proposal 工件。");
+  return `
+    <div class="table-wrap market-leadership-table">
+      <table>
+        <thead>
+          <tr>
+            <th>路径</th>
+            <th>状态</th>
+            <th>Proposal key</th>
+            <th>候选版本名</th>
+            <th>安全边界</th>
+            <th>错误</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${artifacts.map((artifact) => `
+            <tr>
+              <td>${escapeHtml(artifact.path || "-")}</td>
+              <td>${chipHtml(artifact.valid ? "有效" : artifact.exists ? "无效" : "缺失", artifact.valid ? "chip-green" : "chip-red")}</td>
+              <td>${escapeHtml(artifact.proposal_key || "-")}</td>
+              <td>${escapeHtml(artifact.candidate_strategy_version || "-")}</td>
+              <td>${artifact.wrote_strategy_versions ? "写 strategy_versions" : "artifact-only"}</td>
               <td>${escapeHtml(artifact.error || "-")}</td>
             </tr>
           `).join("")}
@@ -4796,6 +4937,9 @@ function hypothesisNextActionText(value) {
     fix_backtest_artifact: "修复 artifact",
     continue_testing: "继续验证",
     ready_to_accept: "可接受复核",
+    create_strategy_version_proposal: "创建 proposal",
+    fix_strategy_version_proposal: "修复 proposal",
+    proposal_ready: "proposal ready",
     strategy_version_task_required: "单独策略版本任务",
     reject_or_rewrite: "拒绝或重写",
     closed_rejected: "已关闭：拒绝",
@@ -4812,6 +4956,9 @@ function hypothesisNextActionClass(value) {
     fix_backtest_artifact: "chip-red",
     continue_testing: "chip-amber",
     ready_to_accept: "chip-green",
+    create_strategy_version_proposal: "chip-indigo",
+    fix_strategy_version_proposal: "chip-red",
+    proposal_ready: "chip-green",
     strategy_version_task_required: "chip-indigo",
     reject_or_rewrite: "chip-red",
     closed_rejected: "chip-neutral",

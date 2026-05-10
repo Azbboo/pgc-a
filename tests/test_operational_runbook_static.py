@@ -312,6 +312,9 @@ class OperationalRunbookStaticTest(unittest.TestCase):
             "--backup-dir",
             "--include-market-review",
             "--allow-rerun",
+            "--evidence-run",
+            "evidence_log_role=dry_run_activation_evidence",
+            "evidence log already exists",
             "duplicate_apply_count=",
             "duplicate_write_guard=blocked",
             "duplicate_write_guard=dry_run",
@@ -323,11 +326,14 @@ class OperationalRunbookStaticTest(unittest.TestCase):
         for text in [
             "Preview is the default",
             "--enable",
+            "--collect-evidence",
             "--check-activation",
             "--status",
             "--approval-id",
             "--dry-run-evidence",
             "--min-dry-runs",
+            "--evidence-run",
+            "--evidence-dir",
             "pgc-daily-pipeline.service",
             "pgc-daily-pipeline.timer",
             "Mon..Fri *-*-* 16:20:00 Asia/Shanghai",
@@ -345,14 +351,23 @@ class OperationalRunbookStaticTest(unittest.TestCase):
             "--include-market-review ${MODE_FLAG}",
             "manual_dry_run_command=",
             "manual_apply_command=",
+            "collect_dry_run_evidence_command=",
+            "local_evidence_dir=",
+            "evidence_run_id=",
             "health_command=",
             "minimum_dry_run_evidence=",
             "activation_approval_id=",
+            "dry_run_evidence_run_id",
+            "dry_run_evidence_role",
             "activation_decision_error=missing_approval_id",
             "activation_decision_error=insufficient_dry_run_evidence",
+            "evidence_collection_error=evidence_run_id_required",
+            "evidence_collection_error=local_evidence_file_exists",
+            "timer_state=unchanged_disabled_until_enable_gate",
             "duplicate_apply_count_zero",
             "timer_list_command=systemctl list-timers --all",
             "duplicate_write_guard=run_daily_pipeline.sh blocks completed apply runs unless --allow-rerun is passed",
+            "scp",
             "systemctl enable --now",
             "systemctl is-enabled",
             "systemctl is-active",
@@ -388,6 +403,8 @@ class OperationalRunbookStaticTest(unittest.TestCase):
         self.assertIn("timer_enablement=preview_only", preview.stdout)
         self.assertIn("manual_dry_run_command=", preview.stdout)
         self.assertIn("manual_apply_command=", preview.stdout)
+        self.assertIn("collect_dry_run_evidence_command=", preview.stdout)
+        self.assertIn("evidence_run_id=missing", preview.stdout)
         self.assertIn("activation_decision=preview_only", preview.stdout)
         self.assertIn("would_enable_timer=systemctl enable --now pgc-daily-pipeline.timer only after --enable", preview.stdout)
 
@@ -439,6 +456,8 @@ class OperationalRunbookStaticTest(unittest.TestCase):
                         [
                             f"resolved_date={date}",
                             f"log_file={path}",
+                            f"evidence_run_id=m62-{index}",
+                            "evidence_log_role=dry_run_activation_evidence",
                             "duplicate_apply_count=0",
                             "duplicate_write_guard=dry_run",
                             "pipeline_status=pass",
@@ -474,6 +493,67 @@ class OperationalRunbookStaticTest(unittest.TestCase):
             self.assertIn("activation_decision=ready", ready.stdout)
             self.assertIn("dry_run_evidence_count=3", ready.stdout)
             self.assertIn("activation_approval_id=OPS-20260510", ready.stdout)
+
+    def test_m62_runbook_documents_timer_dry_run_evidence_collection(self) -> None:
+        source = RUNBOOK.read_text(encoding="utf-8")
+        for text in [
+            "M62 定时器 dry-run 证据采集",
+            "scripts/install_remote_daily_pipeline_timer.sh --collect-evidence --operator system-daily-pipeline --mode apply --evidence-run m62-1",
+            "PGC_TIMER_EVIDENCE_DIR=.pgc-runs/timer-evidence",
+            "./scripts/run_daily_pipeline.sh --date latest-closed --account paper-main --operator system-daily-pipeline --include-market-review --dry-run --evidence-run m62-1",
+            "daily-pipeline-YYYYMMDD-m62-1.log",
+            "evidence_log_role=dry_run_activation_evidence",
+            "dry_run_evidence_arg=--dry-run-evidence",
+            "timer_state=unchanged_disabled_until_enable_gate",
+            "activation_decision=not_evaluated",
+            "activation_decision=ready",
+            "systemctl disable --now pgc-daily-pipeline.timer",
+        ]:
+            self.assertIn(text, source)
+
+        bash = shutil.which("bash")
+        if bash is None:
+            self.skipTest("bash is not installed")
+
+        missing_run_id = subprocess.run(
+            [
+                bash,
+                str(DAILY_PIPELINE_TIMER_SCRIPT),
+                "--collect-evidence",
+                "--operator",
+                "system-daily-pipeline",
+                "--mode",
+                "apply",
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(missing_run_id.returncode, 2)
+        self.assertIn("action=collect-evidence", missing_run_id.stdout)
+        self.assertIn("timer_enablement=evidence_collection", missing_run_id.stdout)
+        self.assertIn("evidence_collection_error=evidence_run_id_required", missing_run_id.stderr)
+
+        preview = subprocess.run(
+            [
+                bash,
+                str(DAILY_PIPELINE_TIMER_SCRIPT),
+                "--dry-run",
+                "--operator",
+                "system-daily-pipeline",
+                "--mode",
+                "apply",
+                "--evidence-run",
+                "m62-1",
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(preview.returncode, 0, preview.stdout + preview.stderr)
+        self.assertIn("collect_dry_run_evidence_command=", preview.stdout)
+        self.assertIn("--evidence-run m62-1", preview.stdout)
+        self.assertIn("local_evidence_dir=.pgc-runs/timer-evidence", preview.stdout)
 
 
 if __name__ == "__main__":

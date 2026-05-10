@@ -17,6 +17,30 @@ from pgc_trading.storage.invariant_checks import check_database
 
 DEFAULT_PAPER_ACCOUNT_KEY = "paper-main"
 DEFAULT_MIN_PAPER_TRADES = 10
+PAPER_ACCEPTANCE_STALE_EVIDENCE_CODES = frozenset(
+    {
+        "MARKET_DATA_MISSING",
+        "STALE_MARKET_DATA",
+        "MARKET_REVIEW_MISSING",
+        "MARKET_EVIDENCE_MISSING",
+        "MARKET_PLAN_CONTEXT_MISSING",
+        "AGENT_EXTERNAL_EVIDENCE_MISSING",
+    }
+)
+PAPER_ACCEPTANCE_AGENT_REVIEW_CODES = frozenset(
+    {
+        "AGENT_REVIEW_NOT_RUN",
+        "AGENT_REVIEW_UNAVAILABLE",
+    }
+)
+PAPER_ACCEPTANCE_OPEN_EXECUTION_MISMATCH_CODES = frozenset(
+    {
+        "OPEN_EXECUTION_BLOCKED",
+        "OPEN_EXECUTION_UNAVAILABLE",
+        "OPEN_EXECUTION_DATE_MISMATCH",
+        "OPEN_EXECUTION_PLAN_DATE_MISMATCH",
+    }
+)
 OPEN_POSITION_STATUS_VALUES = tuple(sorted(OPEN_POSITION_STATUSES))
 T2_DECISION_DUE_STATUSES = ("open", "waiting_t2", "need_t2_decision")
 T5_DECISION_DUE_STATUSES = ("holding_to_t5", "need_t5_exit")

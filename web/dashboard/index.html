@@ -4,8 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>PGC 操作台</title>
-    <link rel="stylesheet" href="/dashboard/assets/styles.css?v=20260510-m57-acceptance-1" />
-    <script defer src="/dashboard/assets/app.js?v=20260510-m57-acceptance-1"></script>
+    <link rel="stylesheet" href="/dashboard/assets/styles.css?v=20260510-m61-acceptance-history-1" />
+    <script defer src="/dashboard/assets/app.js?v=20260510-m61-acceptance-history-1"></script>
   </head>
   <body>
     <div class="app-shell">
@@ -389,7 +389,7 @@
           <div class="page-heading">
             <div>
               <h1>纸盘每日运营验收</h1>
-              <p>单日只读验收视图：数据新鲜度、证据覆盖、Agent 状态、open-execution 状态、readiness gates 和未处理 blocker。</p>
+              <p>只读验收视图：数据新鲜度、证据覆盖、Agent 状态、open-execution 状态、readiness gates、历史趋势、告警和未处理 blocker；Dashboard 不会执行交易，不会自动取消或执行计划。</p>
             </div>
             <div class="toolbar">
               <span id="acceptanceDateLabel" class="review-scope-chip">复盘日 -</span>
@@ -398,6 +398,8 @@
           </div>
 
           <section class="acceptance-status-panel acceptance-status-panel--warning" id="acceptanceStatusPanel" aria-live="polite"></section>
+
+          <section id="acceptanceAlertList" class="acceptance-alert-list" aria-label="paper acceptance 告警"></section>
 
           <section class="acceptance-overview-grid" id="acceptanceOverviewGrid" aria-label="运营验收核心 gate"></section>
 
@@ -416,6 +418,14 @@
               </div>
               <div id="acceptanceBlockerList" class="compact-list"></div>
             </div>
+          </section>
+
+          <section class="panel acceptance-history-panel">
+            <div class="panel-heading">
+              <h2>paper acceptance 历史</h2>
+              <span id="acceptanceHistorySummary" class="muted">暂无 paper acceptance 历史。</span>
+            </div>
+            <div id="acceptanceHistoryList" class="acceptance-history-list" aria-label="paper acceptance 历史"></div>
           </section>
         </section>
 

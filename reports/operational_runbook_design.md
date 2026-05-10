@@ -1373,7 +1373,7 @@ scripts/install_remote_daily_pipeline_timer.sh --enable --operator system-daily-
 M58 定时器启用决策：
 
 1. 默认决策是 `activation_decision=blocked`，直到 operator 提供 `--approval-id OPS-YYYYMMDD`，并提供至少三份成功 dry-run evidence；脚本输出 `minimum_dry_run_evidence=3`。
-2. 每份 evidence 必须来自 `run_daily_pipeline.sh --date latest-closed --account paper-main --operator system-daily-pipeline --include-market-review --dry-run` 的日志，且包含 `pipeline_status=pass`、`report_would_write=true`、`market_review_would_write=true`、`backup_path=none`、`changed=false`、`duplicate_apply_count=0` 和 `duplicate_write_guard=dry_run`。
+2. 每份 evidence 必须来自 `run_daily_pipeline.sh --date latest-closed --account paper-main --operator system-daily-pipeline --include-market-review --dry-run --evidence-run RUN_ID` 的日志，且包含 `evidence_log_role=dry_run_activation_evidence`、`pipeline_status=pass`、`report_would_write=true`、`market_review_would_write=true`、`backup_path=none`、`changed=false`、`duplicate_apply_count=0` 和 `duplicate_write_guard=dry_run`。
 3. 启用前必须先跑本地只读校验：
 
 ```bash
@@ -1381,6 +1381,33 @@ scripts/install_remote_daily_pipeline_timer.sh --check-activation --operator sys
 ```
 
 只有输出 `activation_decision=ready` 后，才允许把同一组 `--approval-id` 和 `--dry-run-evidence` 参数传给 `--enable`。如果输出 `activation_decision=blocked`，必须继续手工 dry-run、修复证据缺口或保留 timer disabled。当前本地可见的单份 `.pgc-runs/daily-pipeline-20260508.log` 不满足 M58 的三份 evidence 门槛，因此截至 2026-05-10 的安全决策仍是 blocked；timer 不应启用。
+
+M62 定时器 dry-run 证据采集：
+
+M62 只负责采集 M58 启用门需要的重复 dry-run evidence，不代表批准启用 timer。每次采集必须给一个唯一 run id，建议按窗口顺序使用 `m62-1`、`m62-2`、`m62-3`；`run_daily_pipeline.sh` 会生成 `daily-pipeline-YYYYMMDD-m62-1.log` 这类编号日志，并拒绝覆盖已经存在的 evidence 日志。
+
+远端采集命令：
+
+```bash
+PGC_TIMER_EVIDENCE_DIR=.pgc-runs/timer-evidence \
+scripts/install_remote_daily_pipeline_timer.sh --collect-evidence --operator system-daily-pipeline --mode apply --evidence-run m62-1
+```
+
+该命令只执行远端 health、`ops health --require-current-migrations` 和 dry-run：
+
+```bash
+./scripts/run_daily_pipeline.sh --date latest-closed --account paper-main --operator system-daily-pipeline --include-market-review --dry-run --evidence-run m62-1
+```
+
+成功后输出 `remote_evidence_log_file`、`local_evidence_log_file`、`dry_run_evidence_arg=--dry-run-evidence ...`、`activation_decision=not_evaluated` 和 `timer_state=unchanged_disabled_until_enable_gate`。采集动作不会写 systemd service/timer，不会调用 `systemctl enable --now`，也不会把 `activation_decision` 直接变成 ready。
+
+三份日志都采集到本地后，再用脚本打印出的 `dry_run_evidence_arg` 组合执行 M58 只读校验：
+
+```bash
+scripts/install_remote_daily_pipeline_timer.sh --check-activation --operator system-daily-pipeline --mode apply --approval-id OPS-YYYYMMDD --dry-run-evidence .pgc-runs/timer-evidence/daily-pipeline-YYYYMMDD-m62-1.log --dry-run-evidence .pgc-runs/timer-evidence/daily-pipeline-YYYYMMDD-m62-2.log --dry-run-evidence .pgc-runs/timer-evidence/daily-pipeline-YYYYMMDD-m62-3.log
+```
+
+只有 `activation_decision=ready` 加上 operator 明确批准后，才允许进入 `--enable`。如需中止或回滚，命令仍是 `systemctl disable --now pgc-daily-pipeline.timer`。
 
 定时服务约束：
 

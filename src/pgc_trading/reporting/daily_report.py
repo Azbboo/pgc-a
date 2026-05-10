@@ -18,6 +18,9 @@ from pgc_trading.services.data_quality_service import (
 )
 from pgc_trading.services.operational_readiness_service import (
     OperationalReadinessService,
+    PAPER_ACCEPTANCE_AGENT_REVIEW_CODES,
+    PAPER_ACCEPTANCE_OPEN_EXECUTION_MISMATCH_CODES,
+    PAPER_ACCEPTANCE_STALE_EVIDENCE_CODES,
     PaperReadinessRequest,
     PaperReadinessResult,
 )
@@ -47,6 +50,15 @@ class DailyReviewHistoryRequest:
 
 @dataclass(frozen=True)
 class ReviewTimelineRequest:
+    account_key: str | None = DEFAULT_ACCOUNT_KEY
+    account_id: int | None = None
+    strategy_version: str = STRATEGY_VERSION
+    before_date: str | None = None
+    limit: int = 20
+
+
+@dataclass(frozen=True)
+class PaperAcceptanceHistoryRequest:
     account_key: str | None = DEFAULT_ACCOUNT_KEY
     account_id: int | None = None
     strategy_version: str = STRATEGY_VERSION
@@ -370,6 +382,17 @@ class DailyAcceptanceGate:
 
 
 @dataclass(frozen=True)
+class DailyAcceptanceAlert:
+    severity: str
+    code: str
+    title: str
+    summary: str
+    as_of_date: str
+    gate_key: str | None = None
+    action: str = "quality"
+
+
+@dataclass(frozen=True)
 class DailyAcceptanceOpenExecution:
     as_of_date: str
     status: str
@@ -398,8 +421,44 @@ class DailyAcceptanceReport:
     open_execution_gate: DailyAcceptanceGate
     readiness_gates: list[DailyAcceptanceGate] = field(default_factory=list)
     unresolved_blockers: list[str] = field(default_factory=list)
+    alerts: list[DailyAcceptanceAlert] = field(default_factory=list)
     advisory_note: str = (
         "Acceptance is read-only; it does not execute trades, cancel plans, or mutate strategy parameters."
+    )
+
+
+@dataclass(frozen=True)
+class DailyAcceptanceHistoryItem:
+    as_of_date: str
+    execution_date: str | None
+    status: str
+    summary: str
+    unresolved_blocker_count: int
+    warning_count: int
+    alert_count: int
+    data_freshness_status: str
+    evidence_coverage_status: str
+    agent_status: str
+    open_execution_status: str
+    open_execution_next_action: str
+    open_execution_mismatch: bool
+    blocker_codes: list[str] = field(default_factory=list)
+    warning_codes: list[str] = field(default_factory=list)
+    alert_codes: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class DailyAcceptanceHistory:
+    strategy_version: str
+    account: AccountReport
+    items: list[DailyAcceptanceHistoryItem]
+    alerts: list[DailyAcceptanceAlert]
+    summary: str
+    trend: dict[str, int | str | None]
+    limit: int
+    before_date: str | None = None
+    advisory_note: str = (
+        "Paper acceptance history and alerts are read-only; they never execute trades or cancel plans."
     )
 
 
@@ -571,6 +630,83 @@ class ReportingQueryService:
                 "acceptance_status": result.data.paper_acceptance.status
                 if result.data.paper_acceptance
                 else None,
+            },
+        )
+
+    def list_paper_acceptance_history(
+        self,
+        request: PaperAcceptanceHistoryRequest,
+        ctx: RequestContext | None = None,
+    ) -> ServiceResult[DailyAcceptanceHistory]:
+        context = ctx or RequestContext(source="report")
+        errors = _validate_acceptance_history_request(request)
+        if errors:
+            return ServiceResult(status="validation_failed", request_id=context.request_id, errors=errors)
+
+        with connect(self.db_path) as conn:
+            account = _load_account(
+                conn,
+                DailyReportRequest(
+                    as_of_date=request.before_date or "99991231",
+                    account_key=request.account_key,
+                    account_id=request.account_id,
+                    strategy_version=request.strategy_version,
+                ),
+            )
+            review_dates = _load_acceptance_history_dates(conn, request)
+
+        items: list[DailyAcceptanceHistoryItem] = []
+        alerts: list[DailyAcceptanceAlert] = []
+        for review_date in review_dates:
+            child_context = RequestContext(
+                request_id=f"{context.request_id}:acceptance:{review_date}" if context.request_id else None,
+                dry_run=True,
+                operator=context.operator,
+                source=context.source,
+            )
+            result = self.get_daily_acceptance(
+                DailyReportRequest(
+                    as_of_date=review_date,
+                    account_key=request.account_key,
+                    account_id=request.account_id,
+                    strategy_version=request.strategy_version,
+                ),
+                child_context,
+            )
+            if result.data is None:
+                alert = DailyAcceptanceAlert(
+                    severity="blocker",
+                    code="PAPER_ACCEPTANCE_UNAVAILABLE",
+                    title="验收历史不可用",
+                    summary=f"{_date_text(review_date)} 的 paper acceptance 无法计算。",
+                    as_of_date=review_date,
+                    action="quality",
+                )
+                alerts.append(alert)
+                items.append(_unavailable_acceptance_history_item(review_date, alert))
+                continue
+            items.append(_acceptance_history_item(result.data))
+            alerts.extend(result.data.alerts)
+
+        trend = _acceptance_history_trend(items)
+        return ServiceResult(
+            status="success",
+            request_id=context.request_id,
+            data=DailyAcceptanceHistory(
+                strategy_version=request.strategy_version,
+                account=account,
+                items=items,
+                alerts=alerts[: min(len(alerts), request.limit * 4)],
+                summary=_acceptance_history_summary(trend),
+                trend=trend,
+                limit=request.limit,
+                before_date=request.before_date,
+            ),
+            lineage={
+                "strategy_version": request.strategy_version,
+                "account_id": account.account_id,
+                "review_count": len(items),
+                "alert_count": len(alerts),
             },
         )
 
@@ -871,6 +1007,21 @@ def _validate_timeline_request(request: ReviewTimelineRequest) -> list[ServiceEr
     return errors
 
 
+def _validate_acceptance_history_request(request: PaperAcceptanceHistoryRequest) -> list[ServiceError]:
+    errors: list[ServiceError] = []
+    if not request.strategy_version.strip():
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="strategy_version is required."))
+    if request.account_id is None and not request.account_key:
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="account_key or account_id is required."))
+    if request.account_id is not None and request.account_id <= 0:
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="account_id must be positive."))
+    if request.before_date is not None and not is_yyyymmdd(request.before_date):
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="before_date must use YYYYMMDD format."))
+    if request.limit < 1 or request.limit > 60:
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="limit must be between 1 and 60."))
+    return errors
+
+
 def _data_quality_report(
     result: ServiceResult[Any],
     invariant_report: InvariantReport | None = None,
@@ -1018,7 +1169,7 @@ def _daily_acceptance_report(
         lineage,
     )
     agent_status = _acceptance_agent_gate(agent_advice, lineage)
-    open_execution_gate = _acceptance_open_execution_gate(open_execution)
+    open_execution_gate = _acceptance_open_execution_gate(open_execution, next_trade_date)
     readiness_gates = _acceptance_readiness_gates(
         account,
         data_quality,
@@ -1030,6 +1181,15 @@ def _daily_acceptance_report(
     all_gates = [data_freshness, evidence_coverage, agent_status, open_execution_gate, *readiness_gates]
     status = _combined_acceptance_status(all_gates)
     unresolved_blockers = _acceptance_blockers(all_gates, open_execution)
+    alerts = _acceptance_alerts(
+        as_of_date=request.as_of_date,
+        data_freshness=data_freshness,
+        evidence_coverage=evidence_coverage,
+        agent_status=agent_status,
+        open_execution=open_execution,
+        open_execution_gate=open_execution_gate,
+        unresolved_blockers=unresolved_blockers,
+    )
 
     return DailyAcceptanceReport(
         account_key=account.account_key or request.account_key,
@@ -1044,6 +1204,7 @@ def _daily_acceptance_report(
         open_execution_gate=open_execution_gate,
         readiness_gates=readiness_gates,
         unresolved_blockers=unresolved_blockers,
+        alerts=alerts,
     )
 
 
@@ -1144,13 +1305,24 @@ def _acceptance_agent_gate(
     )
 
 
-def _acceptance_open_execution_gate(open_execution: DailyAcceptanceOpenExecution) -> DailyAcceptanceGate:
+def _acceptance_open_execution_gate(
+    open_execution: DailyAcceptanceOpenExecution,
+    expected_execution_date: str | None,
+) -> DailyAcceptanceGate:
     blocker_codes: list[str] = []
     warning_codes: list[str] = []
     if open_execution.status == "blocked" or open_execution.next_action == "blocked":
         blocker_codes.append("OPEN_EXECUTION_BLOCKED")
     elif open_execution.status == "unavailable":
         warning_codes.append("OPEN_EXECUTION_UNAVAILABLE")
+    if expected_execution_date and open_execution.as_of_date != expected_execution_date:
+        warning_codes.append("OPEN_EXECUTION_DATE_MISMATCH")
+    if (
+        expected_execution_date
+        and open_execution.planned_trade_date is not None
+        and open_execution.planned_trade_date != expected_execution_date
+    ):
+        warning_codes.append("OPEN_EXECUTION_PLAN_DATE_MISMATCH")
     return DailyAcceptanceGate(
         key="open_execution",
         label="open-execution 状态",
@@ -1158,6 +1330,7 @@ def _acceptance_open_execution_gate(open_execution: DailyAcceptanceOpenExecution
         summary=f"{open_execution.status} / {open_execution.next_action}",
         detail=(
             f"执行日 {_date_text(open_execution.as_of_date)}；"
+            f"预期 {_date_text(expected_execution_date)}；"
             f"计划 {open_execution.primary_plan_id or '-'}；"
             f"持仓 {open_execution.primary_position_id or '-'}"
         ),
@@ -1265,6 +1438,195 @@ def _acceptance_summary(
     if status == "warning":
         return f"纸盘每日运营验收有 {warnings} 项证据或 advisory 警告，需人工复核后继续。"
     return "纸盘每日运营验收通过；仍需人工确认开盘检查和成交事实。"
+
+
+def _acceptance_alerts(
+    *,
+    as_of_date: str,
+    data_freshness: DailyAcceptanceGate,
+    evidence_coverage: DailyAcceptanceGate,
+    agent_status: DailyAcceptanceGate,
+    open_execution: DailyAcceptanceOpenExecution,
+    open_execution_gate: DailyAcceptanceGate,
+    unresolved_blockers: list[str],
+) -> list[DailyAcceptanceAlert]:
+    alerts: list[DailyAcceptanceAlert] = []
+    if unresolved_blockers:
+        alerts.append(
+            DailyAcceptanceAlert(
+                severity="blocker",
+                code="UNRESOLVED_ACCEPTANCE_BLOCKERS",
+                title="未处理 blocker",
+                summary=f"{len(unresolved_blockers)} 项 blocker 仍未处理，paper acceptance 不能视为通过。",
+                as_of_date=as_of_date,
+                gate_key="unresolved_blockers",
+                action="quality",
+            )
+        )
+
+    stale_codes = _matching_codes([data_freshness, evidence_coverage], PAPER_ACCEPTANCE_STALE_EVIDENCE_CODES)
+    if stale_codes:
+        alerts.append(
+            DailyAcceptanceAlert(
+                severity="warning",
+                code="STALE_OR_MISSING_EVIDENCE",
+                title="证据或行情不新鲜",
+                summary=f"{_date_text(as_of_date)} 存在 {', '.join(stale_codes[:4])}，需人工复核证据覆盖。",
+                as_of_date=as_of_date,
+                gate_key="evidence_coverage",
+                action="market",
+            )
+        )
+
+    agent_codes = _matching_codes([agent_status], PAPER_ACCEPTANCE_AGENT_REVIEW_CODES)
+    if agent_codes:
+        alerts.append(
+            DailyAcceptanceAlert(
+                severity="warning",
+                code="AGENT_REVIEW_MISSING",
+                title="Agent 复核缺失",
+                summary=f"{_date_text(as_of_date)} 的 Agent 状态为 {agent_status.summary}。",
+                as_of_date=as_of_date,
+                gate_key="agent_status",
+                action="agent",
+            )
+        )
+
+    open_execution_codes = _matching_codes([open_execution_gate], PAPER_ACCEPTANCE_OPEN_EXECUTION_MISMATCH_CODES)
+    if open_execution_codes or _open_execution_mismatch(open_execution_gate, open_execution):
+        alerts.append(
+            DailyAcceptanceAlert(
+                severity="blocker" if "OPEN_EXECUTION_BLOCKED" in open_execution_codes else "warning",
+                code="OPEN_EXECUTION_MISMATCH",
+                title="open-execution 不匹配",
+                summary=f"{_date_text(as_of_date)} open-execution 为 {open_execution.status}/{open_execution.next_action}。",
+                as_of_date=as_of_date,
+                gate_key="open_execution",
+                action="execution",
+            )
+        )
+    return alerts
+
+
+def _acceptance_history_item(acceptance: DailyAcceptanceReport) -> DailyAcceptanceHistoryItem:
+    gates = _acceptance_all_gates(acceptance)
+    return DailyAcceptanceHistoryItem(
+        as_of_date=acceptance.as_of_date,
+        execution_date=acceptance.execution_date,
+        status=acceptance.status,
+        summary=acceptance.summary,
+        unresolved_blocker_count=len(acceptance.unresolved_blockers),
+        warning_count=sum(len(gate.warning_codes) for gate in gates),
+        alert_count=len(acceptance.alerts),
+        data_freshness_status=acceptance.data_freshness.status,
+        evidence_coverage_status=acceptance.evidence_coverage.status,
+        agent_status=acceptance.agent_status.status,
+        open_execution_status=acceptance.open_execution.status,
+        open_execution_next_action=acceptance.open_execution.next_action,
+        open_execution_mismatch=_open_execution_mismatch(acceptance.open_execution_gate, acceptance.open_execution),
+        blocker_codes=_gate_codes(gates, include_blockers=True, include_warnings=False),
+        warning_codes=_gate_codes(gates, include_blockers=False, include_warnings=True),
+        alert_codes=[alert.code for alert in acceptance.alerts],
+    )
+
+
+def _unavailable_acceptance_history_item(
+    review_date: str,
+    alert: DailyAcceptanceAlert,
+) -> DailyAcceptanceHistoryItem:
+    return DailyAcceptanceHistoryItem(
+        as_of_date=review_date,
+        execution_date=None,
+        status="blocked",
+        summary=alert.summary,
+        unresolved_blocker_count=1,
+        warning_count=0,
+        alert_count=1,
+        data_freshness_status="blocked",
+        evidence_coverage_status="blocked",
+        agent_status="blocked",
+        open_execution_status="blocked",
+        open_execution_next_action="blocked",
+        open_execution_mismatch=True,
+        blocker_codes=[alert.code],
+        warning_codes=[],
+        alert_codes=[alert.code],
+    )
+
+
+def _acceptance_all_gates(acceptance: DailyAcceptanceReport) -> list[DailyAcceptanceGate]:
+    return [
+        acceptance.data_freshness,
+        acceptance.evidence_coverage,
+        acceptance.agent_status,
+        acceptance.open_execution_gate,
+        *acceptance.readiness_gates,
+    ]
+
+
+def _matching_codes(gates: list[DailyAcceptanceGate], candidates: frozenset[str]) -> list[str]:
+    matches: list[str] = []
+    for gate in gates:
+        for code in [*gate.blocker_codes, *gate.warning_codes]:
+            if code in candidates and code not in matches:
+                matches.append(code)
+    return matches
+
+
+def _gate_codes(
+    gates: list[DailyAcceptanceGate],
+    *,
+    include_blockers: bool,
+    include_warnings: bool,
+) -> list[str]:
+    codes: list[str] = []
+    for gate in gates:
+        if include_blockers:
+            codes.extend(code for code in gate.blocker_codes if code not in codes)
+        if include_warnings:
+            codes.extend(code for code in gate.warning_codes if code not in codes)
+    return codes
+
+
+def _open_execution_mismatch(
+    gate: DailyAcceptanceGate,
+    open_execution: DailyAcceptanceOpenExecution,
+) -> bool:
+    codes = set(gate.warning_codes) | set(gate.blocker_codes)
+    if codes.intersection(PAPER_ACCEPTANCE_OPEN_EXECUTION_MISMATCH_CODES):
+        return True
+    if open_execution.status == "blocked" or open_execution.next_action == "blocked":
+        return True
+    return False
+
+
+def _acceptance_history_trend(items: list[DailyAcceptanceHistoryItem]) -> dict[str, int | str | None]:
+    blocked_days = sum(1 for item in items if item.status == "blocked")
+    warning_days = sum(1 for item in items if item.status == "warning")
+    pass_days = sum(1 for item in items if item.status == "pass")
+    return {
+        "days": len(items),
+        "blocked_days": blocked_days,
+        "warning_days": warning_days,
+        "pass_days": pass_days,
+        "latest_status": items[0].status if items else None,
+        "latest_as_of_date": items[0].as_of_date if items else None,
+        "unresolved_blocker_days": sum(1 for item in items if item.unresolved_blocker_count > 0),
+        "stale_evidence_days": sum(1 for item in items if "STALE_OR_MISSING_EVIDENCE" in item.alert_codes),
+        "missing_agent_days": sum(1 for item in items if "AGENT_REVIEW_MISSING" in item.alert_codes),
+        "open_execution_mismatch_days": sum(1 for item in items if item.open_execution_mismatch),
+    }
+
+
+def _acceptance_history_summary(trend: dict[str, int | str | None]) -> str:
+    days = int(trend["days"] or 0)
+    if days == 0:
+        return "暂无 paper acceptance 历史。"
+    return (
+        f"近 {days} 日 paper acceptance："
+        f"阻断 {trend['blocked_days']} 日，警告 {trend['warning_days']} 日，通过 {trend['pass_days']} 日；"
+        f"最新 {_date_text(str(trend['latest_as_of_date']))} 为 {_acceptance_status_text(str(trend['latest_status']))}。"
+    )
 
 
 def _load_account(conn: Any, request: DailyReportRequest) -> AccountReport:
@@ -1525,6 +1887,33 @@ def _load_review_history(
         )
         for row in rows
     ]
+
+
+def _load_acceptance_history_dates(conn: Any, request: PaperAcceptanceHistoryRequest) -> list[str]:
+    rows = conn.execute(
+        """
+        WITH latest_runs AS (
+          SELECT MAX(id) AS strategy_run_id
+          FROM strategy_runs
+          WHERE strategy_version = ?
+            AND (? IS NULL OR as_of_date <= ?)
+          GROUP BY as_of_date
+          ORDER BY as_of_date DESC, MAX(id) DESC
+          LIMIT ?
+        )
+        SELECT sr.as_of_date AS review_date
+        FROM latest_runs lr
+        JOIN strategy_runs sr ON sr.id = lr.strategy_run_id
+        ORDER BY sr.as_of_date DESC, sr.id DESC
+        """,
+        (
+            request.strategy_version,
+            request.before_date,
+            request.before_date,
+            request.limit,
+        ),
+    ).fetchall()
+    return [str(row["review_date"]) for row in rows]
 
 
 def _load_review_timeline(
@@ -2692,6 +3081,11 @@ def _daily_acceptance_lines(acceptance: DailyAcceptanceReport | None) -> list[st
     lines.extend(["", "未处理 blocker："])
     if acceptance.unresolved_blockers:
         lines.extend(f"- {blocker}" for blocker in acceptance.unresolved_blockers)
+    else:
+        lines.append("- 无。")
+    lines.extend(["", "验收告警："])
+    if acceptance.alerts:
+        lines.extend(f"- [{alert.severity}] {alert.title}：{alert.summary}" for alert in acceptance.alerts)
     else:
         lines.append("- 无。")
     return lines
