@@ -290,6 +290,62 @@ class MarketExternalDataServiceTest(unittest.TestCase):
             with sqlite3.connect(db_path) as conn:
                 self.assertEqual(self._count(conn, "market_external_items"), 0)
 
+    def test_reviewed_unavailable_sector_source_closes_missing_scope_gap_in_qa(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._migrated_db(tmp)
+            source_file = Path(tmp) / "external_items_20260508.json"
+            source_file.write_text(
+                json.dumps(
+                    {
+                        "provider_file_contract": "market_external_v1",
+                        "as_of_date": "20260508",
+                        "provider": "manual_reviewed_cache",
+                        "items": [
+                            self._record(provider="manual_reviewed_cache"),
+                            self._record(
+                                provider="manual_reviewed_cache",
+                                scope_type="stock",
+                                scope_key="301188.SZ",
+                                item_type="research_note",
+                                title="力诺药包候选股缓存摘要",
+                                summary="候选股缓存摘要已审核，但不代表自动改变交易计划。",
+                            ),
+                        ],
+                        "unavailable_sources": [
+                            {
+                                "scope_type": "sector",
+                                "provider": "official_sector_cache",
+                                "reason": "provider_file_absent",
+                                "note": "复盘日未取得已审核板块 provider 文件。",
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            preview = MarketExternalDataService(db_path).import_external_data(
+                ImportMarketExternalDataRequest(as_of_date="20260508", source_file=source_file),
+                RequestContext(request_id="test-market-unavailable-sector-preview", dry_run=True, operator="tester"),
+            )
+            backfill = MarketExternalDataService(db_path).backfill_external_data(
+                BackfillMarketExternalDataRequest(source_files=[source_file]),
+                RequestContext(request_id="test-market-unavailable-sector-backfill", dry_run=True, operator="tester"),
+            )
+
+            self.assertTrue(preview.ok)
+            self.assertEqual(preview.data.coverage_summary["sector"], "unavailable")
+            self.assertNotIn("sector", preview.data.coverage_details["missing_scopes"])
+            self.assertEqual(preview.data.coverage_details["unavailable_scopes"], ["sector"])
+            self.assertEqual(preview.data.unavailable_sources[0]["reason"], "provider_file_absent")
+            self.assertTrue(backfill.ok)
+            self.assertEqual(backfill.data.coverage_qa["ready_dates"], ["20260508"])
+            self.assertEqual(backfill.data.coverage_qa["missing_scope_dates"]["sector"], [])
+            self.assertEqual(backfill.data.coverage_qa["unavailable_scope_dates"]["sector"], ["20260508"])
+            with sqlite3.connect(db_path) as conn:
+                self.assertEqual(self._count(conn, "market_external_items"), 0)
+
     def test_backfill_apply_rejects_invalid_file_without_partial_writes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = self._migrated_db(tmp)

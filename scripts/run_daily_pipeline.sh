@@ -277,8 +277,16 @@ if [[ -n "$EVIDENCE_RUN_ID" && -e "$LOG_FILE" ]]; then
   exit 1
 fi
 : > "$LOG_FILE"
+printf 'ops_history_event=daily_pipeline_run\n' | tee -a "$LOG_FILE"
+printf 'ops_history_occurred_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" | tee -a "$LOG_FILE"
 printf 'resolved_date=%s\n' "$DATE" >> "$LOG_FILE"
 printf 'log_file=%s\n' "$LOG_FILE" >> "$LOG_FILE"
+printf 'account=%s\n' "$ACCOUNT" >> "$LOG_FILE"
+printf 'operator=%s\n' "${OPERATOR:-none}" >> "$LOG_FILE"
+printf 'mode=%s\n' "${MODE#--}" >> "$LOG_FILE"
+printf 'db_path=%s\n' "$DB_PATH" >> "$LOG_FILE"
+printf 'backup_dir=%s\n' "${BACKUP_DIR:-none}" >> "$LOG_FILE"
+printf 'include_market_review=%s\n' "$INCLUDE_MARKET_REVIEW" >> "$LOG_FILE"
 if [[ -n "$EVIDENCE_RUN_ID" ]]; then
   printf 'evidence_run_id=%s\n' "$EVIDENCE_RUN_ID" | tee -a "$LOG_FILE"
   printf 'evidence_log_role=dry_run_activation_evidence\n' | tee -a "$LOG_FILE"

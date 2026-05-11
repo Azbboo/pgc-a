@@ -896,6 +896,18 @@ code {
   border-left-color: var(--danger);
 }
 
+.decision-status-panel--ready {
+  border-left-color: var(--success);
+}
+
+.decision-status-panel--review_required {
+  border-left-color: var(--warning);
+}
+
+.decision-status-panel--blocked {
+  border-left-color: var(--danger);
+}
+
 .acceptance-status-main {
   display: grid;
   align-content: center;
@@ -1114,6 +1126,151 @@ code {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.35;
+}
+
+.decision-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.decision-system-proposal,
+.decision-strategy-proposal,
+.decision-proposal-card {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.decision-proposal-card strong {
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.decision-checklist-panel {
+  margin-bottom: 14px;
+}
+
+.decision-checklist {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin-bottom: 0;
+}
+
+.decision-check-card > span b {
+  color: var(--ink);
+}
+
+.ops-history-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.ops-history-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ops-history-list {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ops-history-card {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  background: #fff;
+}
+
+.ops-history-card--backup,
+.ops-history-card--timer_evidence {
+  border-left-color: var(--warning);
+}
+
+.ops-history-card--release {
+  border-left-color: var(--success);
+}
+
+.ops-history-card--health {
+  border-left-color: var(--agent);
+}
+
+.ops-history-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ops-history-card__head > div:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ops-history-card__head strong,
+.ops-history-card__head span,
+.ops-history-card p,
+.ops-history-card__details span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ops-history-card__head strong {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.ops-history-card__head span,
+.ops-history-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ops-history-card__chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ops-history-card__details {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ops-history-card__details span {
+  display: grid;
+  gap: 3px;
+  padding: 8px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.ops-history-card__details b {
+  color: var(--ink);
+  font-size: 10px;
+  font-weight: 800;
 }
 
 .toolbar {
@@ -1590,6 +1747,17 @@ code {
 .hypothesis-gate-strip {
   justify-content: flex-start;
   padding-top: 2px;
+}
+
+.proposal-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.proposal-review-actions button {
+  min-height: 32px;
 }
 
 .market-context-card__head > span {
@@ -3086,6 +3254,7 @@ td > .empty-state {
 
   .review-grid,
   .execution-grid,
+  .decision-grid,
   .market-layout,
   .hypothesis-workbench-grid,
   .market-plan-context-pair,
@@ -3122,6 +3291,10 @@ td > .empty-state {
   .acceptance-overview-grid,
   .acceptance-history-list {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .ops-history-card__details {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .action-meta {
@@ -3240,6 +3413,7 @@ td > .empty-state {
   }
 
   .checklist-grid,
+  .decision-grid,
   .review-timeline-row,
   .review-history-list,
   .action-meta,
@@ -3257,6 +3431,7 @@ td > .empty-state {
   .acceptance-overview-grid,
   .acceptance-alert,
   .acceptance-history-list,
+  .ops-history-card__details,
   .market-history-strip,
   .market-regime-strip,
   .market-evidence-item dl {

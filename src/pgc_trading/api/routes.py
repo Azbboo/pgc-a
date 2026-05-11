@@ -11,6 +11,7 @@ from pgc_trading.api.settings import ApiSettings
 from pgc_trading.reporting.daily_report import (
     DailyReportRequest,
     DailyReviewHistoryRequest,
+    OpsHistoryRequest,
     PaperAcceptanceHistoryRequest,
     ReviewTimelineRequest,
 )
@@ -40,7 +41,10 @@ from pgc_trading.services.portfolio_planning_service import (
     PublishTradePlanRequest,
 )
 from pgc_trading.services.position_lifecycle_service import EvaluateExitsRequest, ListPositionsRequest
-from pgc_trading.services.strategy_evolution_service import EvaluateStrategyHypothesesRequest
+from pgc_trading.services.strategy_evolution_service import (
+    CreateStrategyVersionProposalReviewRequest,
+    EvaluateStrategyHypothesesRequest,
+)
 from pgc_trading.strategies.cpb_6157 import STRATEGY_VERSION
 
 
@@ -159,6 +163,48 @@ def register_routes(app: Any) -> None:
             request_id=request_id,
         )
 
+    @app.get("/api/next-day-decision-cockpit/{as_of_date}", tags=["reports"])
+    def next_day_decision_cockpit(
+        as_of_date: str,
+        response: Response,
+        account_key: str | None = DEFAULT_ACCOUNT_KEY,
+        account_id: int | None = None,
+        strategy_version: str = STRATEGY_VERSION,
+        request_id: str | None = None,
+    ) -> dict[str, object]:
+        return get_next_day_decision_cockpit(
+            app.state.settings,
+            app.state.services,
+            response,
+            as_of_date=as_of_date,
+            account_key=_blank_to_none(account_key),
+            account_id=account_id,
+            strategy_version=strategy_version,
+            request_id=request_id,
+        )
+
+    @app.get("/api/ops-history", tags=["system"])
+    def ops_history(
+        response: Response,
+        account_key: str | None = DEFAULT_ACCOUNT_KEY,
+        account_id: int | None = None,
+        strategy_version: str = STRATEGY_VERSION,
+        before_date: str | None = None,
+        limit: int = 50,
+        request_id: str | None = None,
+    ) -> dict[str, object]:
+        return list_ops_history(
+            app.state.settings,
+            app.state.services,
+            response,
+            account_key=_blank_to_none(account_key),
+            account_id=account_id,
+            strategy_version=strategy_version,
+            before_date=_normalize_optional_date(before_date),
+            limit=limit,
+            request_id=request_id,
+        )
+
     @app.get("/api/market-reviews", tags=["market-review"])
     def market_review_history(
         response: Response,
@@ -265,6 +311,20 @@ def register_routes(app: Any) -> None:
             as_of_date=_normalize_optional_date(as_of_date),
             limit=limit,
             request_id=request_id,
+        )
+
+    @app.post("/api/strategy-hypotheses/proposal-reviews", tags=["strategy-evolution"])
+    def strategy_hypothesis_proposal_review(
+        request: Request,
+        response: Response,
+        payload: dict[str, Any] | None = Body(default=None),
+    ) -> dict[str, object]:
+        return create_strategy_version_proposal_review(
+            app.state.settings,
+            app.state.services,
+            response,
+            payload=payload or {},
+            write_token_header=_request_write_token(request),
         )
 
     @app.get("/api/data-quality", tags=["data-quality"])
@@ -538,6 +598,32 @@ def list_paper_acceptance_history(
     return _service_response(result, response)
 
 
+def list_ops_history(
+    settings: ApiSettings,
+    services: ApiServices,
+    response: Any,
+    *,
+    account_key: str | None = DEFAULT_ACCOUNT_KEY,
+    account_id: int | None = None,
+    strategy_version: str = STRATEGY_VERSION,
+    before_date: str | None = None,
+    limit: int = 50,
+    request_id: str | None = None,
+) -> dict[str, object]:
+    service = services.report_service_factory(settings.db_path)
+    result = service.list_ops_history(
+        OpsHistoryRequest(
+            account_key=account_key,
+            account_id=account_id,
+            strategy_version=strategy_version,
+            before_date=_normalize_optional_date(before_date),
+            limit=limit,
+        ),
+        RequestContext(request_id=request_id, dry_run=True, source="api"),
+    )
+    return _service_response(result, response)
+
+
 def get_paper_acceptance(
     settings: ApiSettings,
     services: ApiServices,
@@ -551,6 +637,30 @@ def get_paper_acceptance(
 ) -> dict[str, object]:
     service = services.report_service_factory(settings.db_path)
     result = service.get_daily_acceptance(
+        DailyReportRequest(
+            as_of_date=_normalize_date(as_of_date),
+            account_key=account_key,
+            account_id=account_id,
+            strategy_version=strategy_version,
+        ),
+        RequestContext(request_id=request_id, dry_run=True, source="api"),
+    )
+    return _service_response(result, response)
+
+
+def get_next_day_decision_cockpit(
+    settings: ApiSettings,
+    services: ApiServices,
+    response: Any,
+    *,
+    as_of_date: str,
+    account_key: str | None = DEFAULT_ACCOUNT_KEY,
+    account_id: int | None = None,
+    strategy_version: str = STRATEGY_VERSION,
+    request_id: str | None = None,
+) -> dict[str, object]:
+    service = services.report_service_factory(settings.db_path)
+    result = service.get_next_day_decision_cockpit(
         DailyReportRequest(
             as_of_date=_normalize_date(as_of_date),
             account_key=account_key,
@@ -684,6 +794,48 @@ def list_strategy_hypothesis_workbench(
             limit=limit,
         ),
         RequestContext(request_id=request_id, dry_run=True, source="api"),
+    )
+    return _service_response(result, response)
+
+
+def create_strategy_version_proposal_review(
+    settings: ApiSettings,
+    services: ApiServices,
+    response: Any,
+    *,
+    payload: dict[str, Any],
+    write_token_header: str | None = None,
+) -> dict[str, object]:
+    ctx_or_response = _write_context_or_response(
+        settings,
+        response,
+        payload,
+        allow_dry_run=True,
+        write_token_header=write_token_header,
+    )
+    if isinstance(ctx_or_response, dict):
+        return ctx_or_response
+    ctx = ctx_or_response
+
+    errors: list[ServiceError] = []
+    hypothesis_id = _int_field(payload, "hypothesis_id", errors, required=True)
+    decision = _required_text(payload, "decision", errors)
+    review_note = _optional_text(payload.get("review_note"))
+    proposal_artifact_path = _optional_text(payload.get("proposal_artifact_path"))
+    output_path = _optional_text(payload.get("output_path"))
+    if errors:
+        return _api_error_response(response, "validation_failed", ctx.request_id, errors)
+
+    service = services.strategy_evolution_service_factory(settings.db_path)
+    result = service.create_strategy_version_proposal_review(
+        CreateStrategyVersionProposalReviewRequest(
+            hypothesis_id=hypothesis_id,
+            decision=decision,
+            review_note=review_note,
+            proposal_artifact_path=proposal_artifact_path,
+            output_path=output_path,
+        ),
+        ctx,
     )
     return _service_response(result, response)
 

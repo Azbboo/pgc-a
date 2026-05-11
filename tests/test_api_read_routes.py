@@ -5,11 +5,14 @@ import unittest
 from pathlib import Path
 
 from pgc_trading.api.routes import (
+    create_strategy_version_proposal_review,
     get_daily_review,
+    get_next_day_decision_cockpit,
     get_open_execution,
     get_market_review,
     get_market_review_plan_context,
     get_paper_acceptance,
+    list_ops_history,
     list_paper_acceptance_history,
     list_account_positions,
     list_data_quality_events,
@@ -59,6 +62,21 @@ class _FakeReportService:
                 "open_execution": {"next_action": "record_buy"},
             },
             lineage={"account_id": request.account_id, "acceptance_status": "blocked"},
+        )
+
+    def get_next_day_decision_cockpit(self, request, ctx):
+        self.calls.append((self.db_path, request, ctx))
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data={
+                "as_of_date": request.as_of_date,
+                "account_id": request.account_id,
+                "status": "blocked",
+                "system_proposal": {"action": "record_buy"},
+                "checklist": [{"key": "paper_acceptance", "status": "blocked"}],
+            },
+            lineage={"account_id": request.account_id, "next_day_decision_status": "blocked"},
         )
 
     def list_daily_review_history(self, request, ctx):
@@ -112,6 +130,29 @@ class _FakeReportService:
                 "alerts": [{"code": "UNRESOLVED_ACCEPTANCE_BLOCKERS"}],
             },
             lineage={"account_id": request.account_id, "alert_count": 1},
+        )
+
+    def list_ops_history(self, request, ctx):
+        self.calls.append((self.db_path, request, ctx))
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data={
+                "before_date": request.before_date,
+                "limit": request.limit,
+                "summary": "Ops history 共 1 条；pipeline log 1。",
+                "counts": {"daily_pipeline": 1},
+                "items": [
+                    {
+                        "category": "daily_pipeline",
+                        "status": "pass",
+                        "title": "Daily pipeline log",
+                        "summary": "date=20260508; status=pass",
+                    }
+                ],
+                "advisory_note": "read-only",
+            },
+            lineage={"account_id": request.account_id, "read_only": True},
         )
 
 
@@ -195,6 +236,25 @@ class _FakeStrategyEvolutionService:
                 "source": {"as_of_date": request.as_of_date, "status": request.status, "limit": request.limit},
                 "safety": {"read_only": True, "active_params_mutated": False},
                 "hypotheses": [],
+            },
+        )
+
+    def create_strategy_version_proposal_review(self, request, ctx):
+        self.calls.append((self.db_path, request, ctx))
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data={
+                "hypothesis_id": request.hypothesis_id,
+                "decision": request.decision,
+                "review_note": request.review_note,
+                "proposal_artifact_path": request.proposal_artifact_path,
+                "would_write_artifact": True,
+                "wrote_artifact": not ctx.dry_run,
+                "active_params_mutated": False,
+                "wrote_strategy_version": False,
+                "writes_trade_state": False,
+                "writes_paper_live_behavior": False,
             },
         )
 
@@ -331,6 +391,32 @@ class ApiReadRoutesTest(unittest.TestCase):
         self.assertEqual(ctx.source, "api")
         self.assertEqual(ctx.request_id, "req-api-acceptance")
 
+    def test_next_day_decision_cockpit_route_is_read_only_and_normalizes_date(self) -> None:
+        response = _Response()
+
+        payload = get_next_day_decision_cockpit(
+            self.settings,
+            self.services,
+            response,
+            as_of_date="2026-05-04",
+            account_key=None,
+            account_id=3,
+            request_id="req-api-next-day-decision",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["data"]["status"], "blocked")
+        self.assertEqual(payload["data"]["system_proposal"]["action"], "record_buy")
+        self.assertEqual(payload["data"]["checklist"][0]["key"], "paper_acceptance")
+        db_path, request, ctx = _FakeReportService.calls[0]
+        self.assertEqual(db_path, self.settings.db_path)
+        self.assertEqual(request.as_of_date, "20260504")
+        self.assertEqual(request.account_id, 3)
+        self.assertTrue(ctx.dry_run)
+        self.assertEqual(ctx.source, "api")
+        self.assertEqual(ctx.request_id, "req-api-next-day-decision")
+
     def test_paper_acceptance_history_route_passes_filters_to_reporting_service(self) -> None:
         response = _Response()
 
@@ -360,6 +446,36 @@ class ApiReadRoutesTest(unittest.TestCase):
         self.assertTrue(ctx.dry_run)
         self.assertEqual(ctx.source, "api")
         self.assertEqual(ctx.request_id, "req-api-acceptance-history")
+
+    def test_ops_history_route_passes_read_only_filters_to_reporting_service(self) -> None:
+        response = _Response()
+
+        payload = list_ops_history(
+            self.settings,
+            self.services,
+            response,
+            account_key=None,
+            account_id=3,
+            strategy_version="cpb_6157@2026-05-03",
+            before_date="2026-05-08",
+            limit=33,
+            request_id="req-api-ops-history",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["data"]["before_date"], "20260508")
+        self.assertEqual(payload["data"]["limit"], 33)
+        self.assertEqual(payload["data"]["items"][0]["category"], "daily_pipeline")
+        db_path, request, ctx = _FakeReportService.calls[0]
+        self.assertEqual(db_path, self.settings.db_path)
+        self.assertEqual(request.account_id, 3)
+        self.assertEqual(request.account_key, None)
+        self.assertEqual(request.before_date, "20260508")
+        self.assertEqual(request.limit, 33)
+        self.assertTrue(ctx.dry_run)
+        self.assertEqual(ctx.source, "api")
+        self.assertEqual(ctx.request_id, "req-api-ops-history")
 
     def test_daily_review_history_route_passes_filters_to_reporting_service(self) -> None:
         response = _Response()
@@ -528,6 +644,39 @@ class ApiReadRoutesTest(unittest.TestCase):
         self.assertTrue(ctx.dry_run)
         self.assertEqual(ctx.source, "api")
         self.assertEqual(ctx.request_id, "req-hypothesis-workbench")
+
+    def test_strategy_proposal_review_route_is_artifact_only_and_dry_run_capable(self) -> None:
+        response = _Response()
+
+        payload = create_strategy_version_proposal_review(
+            self.settings,
+            self.services,
+            response,
+            payload={
+                "hypothesis_id": 7,
+                "decision": "request_promotion",
+                "review_note": "Request promotion artifact only.",
+                "proposal_artifact_path": "/tmp/strategy_version_proposal.json",
+                "dry_run": True,
+                "request_id": "req-proposal-review",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["data"]["decision"], "request_promotion")
+        self.assertTrue(payload["data"]["would_write_artifact"])
+        self.assertFalse(payload["data"]["wrote_artifact"])
+        self.assertFalse(payload["data"]["active_params_mutated"])
+        self.assertFalse(payload["data"]["wrote_strategy_version"])
+        db_path, request, ctx = _FakeStrategyEvolutionService.calls[0]
+        self.assertEqual(db_path, self.settings.db_path)
+        self.assertEqual(request.hypothesis_id, 7)
+        self.assertEqual(request.decision, "request_promotion")
+        self.assertEqual(request.proposal_artifact_path, "/tmp/strategy_version_proposal.json")
+        self.assertTrue(ctx.dry_run)
+        self.assertEqual(ctx.source, "api")
+        self.assertEqual(ctx.request_id, "req-proposal-review")
 
     def test_data_quality_route_passes_read_filters(self) -> None:
         response = _Response()

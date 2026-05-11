@@ -472,6 +472,8 @@ class CliMarketReviewTest(unittest.TestCase):
         self.assertIn('"freshness":{"market":"fresh","sector":"fresh","stock":"fresh"}', output)
         self.assertIn("coverage_details_json=", output)
         self.assertIn('"missing_scopes":[]', output)
+        self.assertIn("evidence_gap_json=", output)
+        self.assertIn('"unavailable_scopes":[]', output)
 
     def test_market_external_data_import_apply_mode_uses_write_context(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -550,6 +552,7 @@ class CliMarketReviewTest(unittest.TestCase):
         self.assertIn("market_external_backfill_status=success", output)
         self.assertIn("backfill_totals=files=2 dates=2 rows=4 valid=4 invalid=0", output)
         self.assertIn("coverage_qa_json=", output)
+        self.assertIn("evidence_gap_json=", output)
         self.assertIn('"ready_dates":["20260508"]', output)
         self.assertIn("backfill_dates:", output)
 

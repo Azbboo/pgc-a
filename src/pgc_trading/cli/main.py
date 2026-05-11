@@ -2425,6 +2425,10 @@ def _write_market_external_data_import_result(
     stdout.write(f"duplicates={getattr(data, 'duplicate_count', 0)}\n")
     stdout.write(f"coverage_json={coverage_json}\n")
     stdout.write(f"coverage_details_json={coverage_details_json}\n")
+    stdout.write(
+        "evidence_gap_json="
+        f"{_json_compact(_market_evidence_gap_payload(coverage_summary, coverage_details))}\n"
+    )
     invalid_records = getattr(data, "invalid_records", [])
     if invalid_records:
         stdout.write("invalid_records:\n")
@@ -2478,6 +2482,7 @@ def _write_market_external_data_backfill_result(
         f"duplicates={getattr(data, 'duplicate_count', 0)}\n"
     )
     stdout.write(f"coverage_qa_json={coverage_qa_json}\n")
+    stdout.write(f"evidence_gap_json={_json_compact(_backfill_evidence_gap_payload(getattr(data, 'coverage_qa', {})))}\n")
     date_results = getattr(data, "date_results", [])
     if date_results:
         stdout.write("backfill_dates:\n")
@@ -2519,6 +2524,59 @@ def _write_market_external_data_backfill_result(
                 f"code={getattr(issue, 'code', 'n/a')} "
                 f"message={getattr(issue, 'message', 'n/a')}\n"
             )
+
+
+def _json_compact(payload: object) -> str:
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _market_evidence_gap_payload(
+    coverage_summary: object,
+    coverage_details: object,
+) -> dict[str, object]:
+    summary = coverage_summary if isinstance(coverage_summary, dict) else {}
+    details = coverage_details if isinstance(coverage_details, dict) else {}
+    return {
+        "market": summary.get("market", "missing"),
+        "sector": summary.get("sector", "missing"),
+        "stock": summary.get("stock", "missing"),
+        "news": summary.get("news", "missing"),
+        "sentiment": summary.get("sentiment", "missing"),
+        "missing_scopes": details.get("missing_scopes", []),
+        "unavailable_scopes": details.get("unavailable_scopes", []),
+        "unavailable_sources": details.get("unavailable_sources", []),
+        "duplicate_count": details.get("duplicate_count", 0),
+        "stale_scopes": details.get("stale_scopes", []),
+    }
+
+
+def _agent_evidence_gap_payload(coverage_summary: object) -> dict[str, object]:
+    summary = coverage_summary if isinstance(coverage_summary, dict) else {}
+    return {
+        "fundamental": summary.get("fundamental", "missing"),
+        "announcement": summary.get("announcement", "missing"),
+        "news": summary.get("news", "missing"),
+        "sentiment": summary.get("sentiment", "missing"),
+        "missing_item_types": summary.get("missing_item_types", []),
+        "unavailable_item_types": summary.get("unavailable_item_types", []),
+        "unavailable_sources": summary.get("unavailable_sources", []),
+        "duplicate_count": summary.get("duplicate_count", 0),
+        "freshness": summary.get("freshness", "unknown"),
+    }
+
+
+def _backfill_evidence_gap_payload(coverage_qa: object) -> dict[str, object]:
+    qa = coverage_qa if isinstance(coverage_qa, dict) else {}
+    return {
+        "ready_dates": qa.get("ready_dates", []),
+        "blocking_dates": qa.get("blocking_dates", []),
+        "missing_scope_dates": qa.get("missing_scope_dates", {}),
+        "unavailable_scope_dates": qa.get("unavailable_scope_dates", {}),
+        "missing_item_type_dates": qa.get("missing_item_type_dates", {}),
+        "unavailable_item_type_dates": qa.get("unavailable_item_type_dates", {}),
+        "stale_dates": qa.get("stale_dates", []),
+        "duplicate_dates": qa.get("duplicate_dates", []),
+    }
 
 
 def _write_plan_cancel_result(
@@ -2743,6 +2801,7 @@ def _write_agent_external_data_import_result(
         f"updated={getattr(data, 'updated_count', 0)}\n"
     )
     stdout.write(f"coverage_json={coverage_json}\n")
+    stdout.write(f"evidence_gap_json={_json_compact(_agent_evidence_gap_payload(coverage_summary))}\n")
     invalid_records = getattr(data, "invalid_records", [])
     if invalid_records:
         stdout.write("invalid_records:\n")
@@ -2797,6 +2856,7 @@ def _write_agent_external_data_backfill_result(
         f"updated={getattr(data, 'updated_count', 0)}\n"
     )
     stdout.write(f"coverage_qa_json={coverage_qa_json}\n")
+    stdout.write(f"evidence_gap_json={_json_compact(_backfill_evidence_gap_payload(getattr(data, 'coverage_qa', {})))}\n")
     date_results = getattr(data, "date_results", [])
     if date_results:
         stdout.write("backfill_dates:\n")

@@ -1,6 +1,6 @@
 # Global Task Ledger
 
-Last updated: 2026-05-10
+Last updated: 2026-05-11
 
 This ledger is the single index for historical and active project work. Detailed specs remain in the linked plan and design documents; this file tracks the global status, release anchors, and next dependencies.
 
@@ -9,12 +9,12 @@ This ledger is the single index for historical and active project work. Detailed
 | Field | Value |
 | --- | --- |
 | Branch | `codex/m60-strategy-version-proposal` |
-| Latest deployed commit | See release tag `pgc-v0.1.0-20260510-m59-m62` |
-| Latest release tag | `pgc-v0.1.0-20260510-m59-m62` |
+| Latest deployed commit | See release tag `pgc-v0.1.0-20260511-m63-m66` |
+| Latest release tag | `pgc-v0.1.0-20260511-m63-m66` |
 | Remote API | `http://150.158.121.150:8020` |
 | Remote migration state | `012_market_review`, `pending_migrations=none` |
 | Latest release health | `api_health_ok=true`, HTTP `200` |
-| Latest full verification | `367 passed, 3 skipped, 10 subtests passed` locally on 2026-05-10 for M59-M62; frontend/script syntax checks and `git diff --check` passed before release. |
+| Latest full verification | `379 passed, 3 skipped, 10 subtests passed` locally on 2026-05-11 for M63-M66; frontend/script syntax checks, boundary search, and `git diff --check` passed before release. |
 
 ## Status Legend
 
@@ -45,6 +45,8 @@ This ledger is the single index for historical and active project work. Detailed
 | M55-M58 paper intelligence ops wave | `docs/plans/2026-05-10-m55-m58-paper-intelligence-ops-plan.md` |
 | M59-M62 paper ops evidence and strategy wave | `docs/plans/2026-05-10-m59-m62-paper-ops-evidence-strategy-plan.md` |
 | M63-M66 evidence, proposal, ops, and decision wave | `docs/plans/2026-05-10-m63-m66-paper-decision-quality-plan.md` |
+| M67-M70 pool, evidence, strategy, and decision follow-up | `docs/plans/2026-05-11-m67-m70-pool-evidence-strategy-followup-plan.md` |
+| OPS-20260511 daily review and stock pool intake | `docs/plans/2026-05-11-ops-daily-review-stock-pool-plan.md` |
 
 ## DEV Work Packages
 
@@ -135,19 +137,25 @@ This ledger is the single index for historical and active project work. Detailed
 | M60 | Strategy-version proposal workflow | Done, Deployed | release `pgc-v0.1.0-20260510-m59-m62` | Added `strategy-evolution proposal` JSON artifacts from accepted hypotheses; verification: `node --check web/dashboard/app.js`, targeted M60 pytest, full `PYTHONPATH=src:. pytest -q`, and `git diff --check`. |
 | M61 | Paper acceptance history and alerting | Done, Deployed | release `pgc-v0.1.0-20260510-m59-m62` | Added read-only paper acceptance history API/Dashboard trend, alert list for unresolved blockers, stale evidence, missing Agent review, and open-execution mismatch; no trade execution or plan cancellation writes. |
 | M62 | Timer dry-run evidence collection | Done, Deployed | release `pgc-v0.1.0-20260510-m59-m62` | Added numbered dry-run evidence logs and remote collect action; 2026-05-10 remote dry-run passed but had `duplicate_apply_count=2` for `20260508`, so three M58-ready `duplicate_apply_count=0` logs remain pending and timer stays disabled. |
-| M63 | Evidence blocker closure for sector/news/sentiment | Next | `docs/plans/2026-05-10-m63-m66-paper-decision-quality-plan.md` | Add reviewed cached provider files and import/report QA so missing sector and Agent announcement/news/sentiment blockers become auditable data instead of open gaps. |
-| M64 | Strategy proposal review and promotion gate | Next | `docs/plans/2026-05-10-m63-m66-paper-decision-quality-plan.md` | Add explicit proposal review, approval/rejection, and promotion-request artifacts without mutating active strategy params or paper/live behavior. |
-| M65 | Ops run history and evidence observability | Next | `docs/plans/2026-05-10-m63-m66-paper-decision-quality-plan.md` | Persist and surface pipeline runs, backups, health, release, and timer-evidence attempts in one read-only operator history. |
-| M66 | Next-trading-day decision cockpit | Next | `docs/plans/2026-05-10-m63-m66-paper-decision-quality-plan.md` | Combine market review, evidence blockers, paper acceptance, open execution, and strategy proposals into one clear next-day decision checklist. |
+| M63 | Evidence blocker closure for sector/news/sentiment | Done, Deployed | release `pgc-v0.1.0-20260511-m63-m66` | Added reviewed `unavailable_sources` provider-file states for market sector and Agent announcement/news/sentiment gaps, import/backfill QA gap summaries, CLI `evidence_gap_json`, and daily-report explicit missing/partial/unavailable evidence coverage. |
+| M64 | Strategy proposal review and promotion gate | Done, Deployed | release `pgc-v0.1.0-20260511-m63-m66` | Added proposal review and promotion-request artifact workflow, API route, Dashboard controls, workbench review counts, and safety checks; proposal/promotion artifacts do not mutate strategy versions or trading state. |
+| M65 | Ops run history and evidence observability | Done, Deployed | release `pgc-v0.1.0-20260511-m63-m66` | Added read-only `/api/ops-history` and Dashboard 运维历史 over operation requests, pipeline/evidence logs, backups, release artifacts, health evidence, paper acceptance snapshots, and timer action evidence; scripts now emit `ops_history_*` fields without enabling timers or rerunning apply jobs. |
+| M66 | Next-trading-day decision cockpit | Done, Deployed | release `pgc-v0.1.0-20260511-m63-m66` | Added read-only next-day decision cockpit in report/API/Dashboard, combining market review, evidence blockers, paper acceptance, open execution, and strategy proposals into one manual action checklist. |
+| M67 | Stock pool intake validator and audit trail | Next | `docs/plans/2026-05-11-m67-m70-pool-evidence-strategy-followup-plan.md` | Turn new-stock入池 into a structured validator/deduper with source, reason, event date, and review output audit trail before OPS runs mutate pool files. |
+| M68 | Evidence provider pack automation | Next | `docs/plans/2026-05-11-m67-m70-pool-evidence-strategy-followup-plan.md` | Build an ops-only provider-file pack flow for sector/news/sentiment/announcement evidence so M63 unavailable states can be closed without live fetches in trading paths. |
+| M69 | Strategy promotion shadow evaluation | Next | `docs/plans/2026-05-11-m67-m70-pool-evidence-strategy-followup-plan.md` | Run promotion-request artifacts through shadow/replay evaluation and compare against frozen strategy without changing active params or paper/live behavior. |
+| M70 | Decision cockpit action log and review loop | Next | `docs/plans/2026-05-11-m67-m70-pool-evidence-strategy-followup-plan.md` | Record manual operator decisions from the cockpit and compare next-day outcomes, keeping the action log advisory and non-trading. |
+| OPS-20260511 | Daily review and new stock pool intake | Next | `docs/plans/2026-05-11-ops-daily-review-stock-pool-plan.md` | Operational session for 2026-05-11: refresh latest market data, ingest reviewed new pool stocks/events, run dry-run then apply daily review for `paper-main`, generate reports, and keep all outputs auditable. |
 
 ## Active Parallel Plan
 
 | Lane | Task | Status | Depends On | Review Focus |
 | --- | --- | --- | --- | --- |
-| A | M63 Evidence blocker closure for sector/news/sentiment | Next | M59 backfill execution, M54 provider-file contracts | Cached provider files only; no live fetch in trading path; keep missing data explicit if provider files are absent. |
-| B | M64 Strategy proposal review and promotion gate | Next | M60 proposal artifacts, M50 validation gates | Approval/rejection/promotion-request artifacts only; no active strategy params or paper/live behavior mutation. |
-| C | M65 Ops run history and evidence observability | Next | M61 acceptance history, M62 evidence logs, M52 monitor | Read-only history over pipeline runs, backups, release, health, and timer-evidence attempts. |
-| D | M66 Next-trading-day decision cockpit | Next | M59-M65 outputs | One operator checklist for next-day action; it may explain blockers and recommendations but must not execute trades or enable timers. |
+| A | OPS-20260511 Daily review and new stock pool intake | Next | Deployed M63-M66 release, current Tushare token/data access, reviewed new stock list | Operational run only: backup first, refresh data, update pool/events, dry-run, apply only with operator, generate reports; no timer enablement or broker auto-order. |
+| B | M67 Stock pool intake validator and audit trail | Next | OPS-20260511 plan, existing `data/pgc_pool.json` / `data/pgc_raw_events.json` formats | Structured validation/dedup/source trace before mutating pool files. |
+| C | M68 Evidence provider pack automation | Next | M63 unavailable-source states, M54 provider-file contracts | Ops-only evidence pack generation/import; no live fetch in daily-close/open-execution/report/Dashboard paths. |
+| D | M69 Strategy promotion shadow evaluation | Next | M64 promotion-request artifacts, M50 backtest gates | Shadow/replay comparison only; no active strategy params or paper/live behavior mutation. |
+| E | M70 Decision cockpit action log and review loop | Next | M66 cockpit, M65 ops history | Advisory operator action log and next-day outcome review; no trade execution or timer enablement. |
 
 ## Review Rules For Future Sessions
 

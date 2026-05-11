@@ -30,6 +30,7 @@ NEWS_LIKE_ITEM_TYPES = {"news", "announcement", "policy", "risk_note", "research
 MARKET_EXTERNAL_PROVIDER_FILE_CONTRACT = "market_external_v1"
 VALID_MARKET_EXTERNAL_PROVIDER_FILE_CONTRACTS = {MARKET_EXTERNAL_PROVIDER_FILE_CONTRACT}
 SUMMARY_MAX_CHARS = 200
+UNAVAILABLE_SOURCE_DEFAULT_REASON = "provider_unavailable"
 
 
 @dataclass(frozen=True)
@@ -62,6 +63,7 @@ class ImportMarketExternalDataResult:
     coverage_details: dict[str, Any] = field(default_factory=dict)
     provider_file_contract: str = MARKET_EXTERNAL_PROVIDER_FILE_CONTRACT
     market_external_item_ids: list[int] = field(default_factory=list)
+    unavailable_sources: list[dict[str, Any]] = field(default_factory=list)
     invalid_records: list[MarketExternalDataValidationIssue] = field(default_factory=list)
 
 
@@ -83,6 +85,7 @@ class MarketExternalBackfillDateResult:
     duplicate_count: int
     coverage_summary: dict[str, Any]
     coverage_details: dict[str, Any]
+    unavailable_sources: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -127,11 +130,28 @@ class _CoverageItem:
 
 
 @dataclass(frozen=True)
+class _UnavailableMarketExternalSource:
+    scope_type: str
+    provider: str
+    reason: str
+    scope_key: str | None = None
+    item_type: str | None = None
+    note: str | None = None
+
+
+@dataclass(frozen=True)
+class _MarketExternalInput:
+    records: list[Mapping[str, Any]]
+    unavailable_sources: list[_UnavailableMarketExternalSource]
+
+
+@dataclass(frozen=True)
 class _MarketExternalBackfillBatch:
     as_of_date: str
     source_files: list[Path]
     row_count: int
     prepared: list[_PreparedMarketExternalItem]
+    unavailable_sources: list[_UnavailableMarketExternalSource]
     invalid_records: list[MarketExternalDataValidationIssue]
 
 
@@ -159,28 +179,35 @@ class MarketExternalDataService:
                 coverage_details=_empty_coverage_details(request.as_of_date),
             )
 
-        records_result = _load_request_records(request, as_of_date)
-        if isinstance(records_result, ServiceError):
+        input_result = _load_request_input(request, as_of_date)
+        if isinstance(input_result, ServiceError):
             return _validation_failed_result(
                 ctx,
                 as_of_date=as_of_date,
                 row_count=0,
                 valid_items=[],
                 invalid_records=[],
-                errors=[records_result],
+                errors=[input_result],
                 coverage_summary=self._coverage_for_import(as_of_date, []),
                 coverage_details=self._coverage_details_for_import(as_of_date, []),
             )
 
-        records = records_result
+        records = input_result.records
+        unavailable_sources = input_result.unavailable_sources
         prepared, invalid_records = _prepare_records(as_of_date, records)
         would_insert_count, duplicate_count = (0, 0)
         if prepared:
             would_insert_count, duplicate_count = _preview_inserts(self.db_path, prepared)
-        coverage_summary = self._coverage_for_import(as_of_date, prepared, duplicate_count=duplicate_count)
+        coverage_summary = self._coverage_for_import(
+            as_of_date,
+            prepared,
+            unavailable_sources=unavailable_sources,
+            duplicate_count=duplicate_count,
+        )
         coverage_details = self._coverage_details_for_import(
             as_of_date,
             prepared,
+            unavailable_sources=unavailable_sources,
             duplicate_count=duplicate_count,
         )
 
@@ -196,6 +223,7 @@ class MarketExternalDataService:
                 duplicate_count=duplicate_count,
                 coverage_summary=coverage_summary,
                 coverage_details=coverage_details,
+                unavailable_sources=unavailable_sources,
             )
 
         if ctx.dry_run:
@@ -213,6 +241,7 @@ class MarketExternalDataService:
                     coverage_summary=coverage_summary,
                     coverage_details=coverage_details,
                     market_external_item_ids=[],
+                    unavailable_sources=_unavailable_source_payloads(unavailable_sources),
                     invalid_records=[],
                 ),
                 lineage={"source_file": str(request.source_file) if request.source_file else None},
@@ -241,12 +270,19 @@ class MarketExternalDataService:
                 would_insert_count=inserted_count,
                 inserted_count=inserted_count,
                 duplicate_count=apply_duplicate_count,
-                coverage_summary=self.summarize_coverage(as_of_date),
+                coverage_summary=self._coverage_for_import(
+                    as_of_date,
+                    [],
+                    unavailable_sources=unavailable_sources,
+                    duplicate_count=apply_duplicate_count,
+                ),
                 coverage_details=self.summarize_coverage_details(
                     as_of_date,
+                    unavailable_sources=unavailable_sources,
                     duplicate_count=apply_duplicate_count,
                 ),
                 market_external_item_ids=item_ids,
+                unavailable_sources=_unavailable_source_payloads(unavailable_sources),
                 invalid_records=[],
             ),
             created_ids={"market_external_items": item_ids},
@@ -283,7 +319,7 @@ class MarketExternalDataService:
                 continue
 
             as_of_date = as_of_date_or_error
-            records_result = _load_request_records(
+            input_result = _load_request_input(
                 ImportMarketExternalDataRequest(
                     as_of_date=as_of_date,
                     source_file=source_file,
@@ -291,11 +327,11 @@ class MarketExternalDataService:
                 ),
                 as_of_date,
             )
-            if isinstance(records_result, ServiceError):
-                errors.append(records_result)
+            if isinstance(input_result, ServiceError):
+                errors.append(input_result)
                 continue
 
-            records = records_result
+            records = input_result.records
             prepared, invalid_records = _prepare_records(as_of_date, records)
             if invalid_records:
                 errors.extend(_service_errors_for_issues(invalid_records))
@@ -307,6 +343,7 @@ class MarketExternalDataService:
                     source_files=[source_file],
                     row_count=len(records),
                     prepared=prepared,
+                    unavailable_sources=input_result.unavailable_sources,
                     invalid_records=invalid_records,
                 )
             else:
@@ -315,6 +352,7 @@ class MarketExternalDataService:
                     source_files=[*existing_batch.source_files, source_file],
                     row_count=existing_batch.row_count + len(records),
                     prepared=[*existing_batch.prepared, *prepared],
+                    unavailable_sources=[*existing_batch.unavailable_sources, *input_result.unavailable_sources],
                     invalid_records=[*existing_batch.invalid_records, *invalid_records],
                 )
 
@@ -384,7 +422,13 @@ class MarketExternalDataService:
         with connect(self.db_path) as conn:
             return build_market_external_coverage_summary(_load_coverage_items(conn, compact_date), compact_date)
 
-    def summarize_coverage_details(self, as_of_date: str, *, duplicate_count: int = 0) -> dict[str, Any]:
+    def summarize_coverage_details(
+        self,
+        as_of_date: str,
+        *,
+        unavailable_sources: Sequence[_UnavailableMarketExternalSource] = (),
+        duplicate_count: int = 0,
+    ) -> dict[str, Any]:
         compact_date = _compact_date(as_of_date)
         if compact_date is None or not _is_yyyymmdd(compact_date):
             return _empty_coverage_details(as_of_date)
@@ -392,6 +436,7 @@ class MarketExternalDataService:
             return build_market_external_coverage_details(
                 _load_coverage_items(conn, compact_date),
                 compact_date,
+                unavailable_sources=unavailable_sources,
                 duplicate_count=duplicate_count,
             )
 
@@ -400,6 +445,7 @@ class MarketExternalDataService:
         as_of_date: str,
         prepared: Sequence[_PreparedMarketExternalItem],
         *,
+        unavailable_sources: Sequence[_UnavailableMarketExternalSource] = (),
         duplicate_count: int = 0,
     ) -> dict[str, Any]:
         with connect(self.db_path) as conn:
@@ -408,13 +454,19 @@ class MarketExternalDataService:
             _CoverageItem(item.scope_type, item.item_type, item.sentiment, item.published_date)
             for item in prepared
         )
-        return build_market_external_coverage_summary(items, as_of_date, duplicate_count=duplicate_count)
+        return build_market_external_coverage_summary(
+            items,
+            as_of_date,
+            unavailable_sources=unavailable_sources,
+            duplicate_count=duplicate_count,
+        )
 
     def _coverage_details_for_import(
         self,
         as_of_date: str,
         prepared: Sequence[_PreparedMarketExternalItem],
         *,
+        unavailable_sources: Sequence[_UnavailableMarketExternalSource] = (),
         duplicate_count: int = 0,
     ) -> dict[str, Any]:
         with connect(self.db_path) as conn:
@@ -423,7 +475,12 @@ class MarketExternalDataService:
             _CoverageItem(item.scope_type, item.item_type, item.sentiment, item.published_date)
             for item in prepared
         )
-        return build_market_external_coverage_details(items, as_of_date, duplicate_count=duplicate_count)
+        return build_market_external_coverage_details(
+            items,
+            as_of_date,
+            unavailable_sources=unavailable_sources,
+            duplicate_count=duplicate_count,
+        )
 
 
 def build_market_external_source_hash(
@@ -453,6 +510,7 @@ def build_market_external_coverage_summary(
     items: Sequence[_CoverageItem],
     as_of_date: str,
     *,
+    unavailable_sources: Sequence[_UnavailableMarketExternalSource] = (),
     duplicate_count: int = 0,
 ) -> dict[str, Any]:
     has_market = any(item.scope_type == "market" for item in items)
@@ -460,35 +518,42 @@ def build_market_external_coverage_summary(
     has_stock = any(item.scope_type == "stock" for item in items)
     known_sentiment_count = sum(1 for item in items if item.sentiment != "unknown")
     has_news = any(item.item_type in NEWS_LIKE_ITEM_TYPES for item in items)
+    unavailable_scopes = _unavailable_scope_set(unavailable_sources)
+    unavailable_item_types = _unavailable_item_type_set(unavailable_sources)
 
     if not items:
-        sentiment_status = "missing"
+        sentiment_status = "unavailable" if "sentiment" in unavailable_item_types else "missing"
     elif known_sentiment_count == 0:
-        sentiment_status = "missing"
+        sentiment_status = "unavailable" if "sentiment" in unavailable_item_types else "missing"
     elif known_sentiment_count == len(items):
         sentiment_status = "available"
     else:
         sentiment_status = "partial"
 
-    return {
-        "market": "available" if has_market else "missing",
-        "sector": "partial" if has_sector else "missing",
-        "stock": "partial" if has_stock else "missing",
+    summary = {
+        "market": _scope_status("market", has_market, unavailable_scopes),
+        "sector": "partial" if has_sector else ("unavailable" if "sector" in unavailable_scopes else "missing"),
+        "stock": "partial" if has_stock else ("unavailable" if "stock" in unavailable_scopes else "missing"),
         "sentiment": sentiment_status,
-        "news": "available" if has_news else "missing",
+        "news": "available" if has_news else ("unavailable" if unavailable_item_types & NEWS_LIKE_ITEM_TYPES else "missing"),
         "duplicates": "duplicate" if duplicate_count else "none",
-        "freshness": _freshness_summary(items, as_of_date),
+        "freshness": _freshness_summary(items, as_of_date, unavailable_sources=unavailable_sources),
     }
+    if unavailable_sources:
+        summary["unavailable_sources"] = _unavailable_source_payloads(unavailable_sources)
+    return summary
 
 
 def build_market_external_coverage_details(
     items: Sequence[_CoverageItem],
     as_of_date: str,
     *,
+    unavailable_sources: Sequence[_UnavailableMarketExternalSource] = (),
     duplicate_count: int = 0,
 ) -> dict[str, Any]:
-    freshness = _freshness_summary(items, as_of_date)
+    freshness = _freshness_summary(items, as_of_date, unavailable_sources=unavailable_sources)
     stale_scopes = [scope for scope, status in freshness.items() if status in {"stale", "partial"}]
+    unavailable_scopes = sorted(_unavailable_scope_set(unavailable_sources))
     return {
         "as_of_date": as_of_date,
         "total_count": len(items),
@@ -496,8 +561,11 @@ def build_market_external_coverage_details(
         "missing_scopes": [
             scope
             for scope in ("market", "sector", "stock")
-            if not any(item.scope_type == scope for item in items)
+            if not any(item.scope_type == scope for item in items) and scope not in unavailable_scopes
         ],
+        "unavailable_count": len(unavailable_sources),
+        "unavailable_scopes": unavailable_scopes,
+        "unavailable_sources": _unavailable_source_payloads(unavailable_sources),
         "stale_scopes": stale_scopes,
         "fresh_count": sum(1 for item in items if item.published_date == as_of_date),
         "stale_count": sum(1 for item in items if item.published_date < as_of_date),
@@ -531,6 +599,14 @@ def build_market_external_backfill_coverage_qa(
         ]
         for scope in ("market", "sector", "stock")
     }
+    unavailable_scope_dates = {
+        scope: [
+            result.as_of_date
+            for result in date_results
+            if scope in result.coverage_details.get("unavailable_scopes", [])
+        ]
+        for scope in ("market", "sector", "stock")
+    }
     duplicate_dates = [
         result.as_of_date
         for result in date_results
@@ -561,6 +637,7 @@ def build_market_external_backfill_coverage_qa(
         "invalid_dates": invalid_dates,
         "duplicate_dates": duplicate_dates,
         "missing_scope_dates": missing_scope_dates,
+        "unavailable_scope_dates": unavailable_scope_dates,
         "stale_scope_dates": stale_scope_dates,
         "freshness_by_date": {
             result.as_of_date: result.coverage_summary.get("freshness", {})
@@ -573,20 +650,23 @@ def build_market_external_backfill_coverage_qa(
     }
 
 
-def _load_request_records(
+def _load_request_input(
     request: ImportMarketExternalDataRequest,
     as_of_date: str,
-) -> list[Mapping[str, Any]] | ServiceError:
+) -> _MarketExternalInput | ServiceError:
     if request.source_file is None and request.records is None:
         return ServiceError("VALIDATION_ERROR", "source_file or records is required.")
     if request.source_file is not None and request.records is not None:
         return ServiceError("VALIDATION_ERROR", "choose either source_file or records, not both.")
     if request.records is not None:
-        return _validated_import_records(
+        records = _validated_import_records(
             list(request.records),
             as_of_date=as_of_date,
             default_provider=request.provider,
         )
+        if isinstance(records, ServiceError):
+            return records
+        return _MarketExternalInput(records=records, unavailable_sources=[])
 
     source_file = Path(request.source_file) if request.source_file is not None else None
     if source_file is None:
@@ -627,7 +707,86 @@ def _load_request_records(
         return ServiceError("VALIDATION_ERROR", "source_file field items must be a list.")
 
     provider = _first_text(payload, "provider") or request.provider
-    return _validated_import_records(items, as_of_date=as_of_date, default_provider=provider)
+    unavailable_sources = _unavailable_sources_from_payload(
+        payload,
+        as_of_date=as_of_date,
+        default_provider=provider,
+    )
+    if isinstance(unavailable_sources, ServiceError):
+        return unavailable_sources
+    records = _validated_import_records(items, as_of_date=as_of_date, default_provider=provider)
+    if isinstance(records, ServiceError):
+        return records
+    return _MarketExternalInput(records=records, unavailable_sources=unavailable_sources)
+
+
+def _load_request_records(
+    request: ImportMarketExternalDataRequest,
+    as_of_date: str,
+) -> list[Mapping[str, Any]] | ServiceError:
+    input_result = _load_request_input(request, as_of_date)
+    if isinstance(input_result, ServiceError):
+        return input_result
+    return input_result.records
+
+
+def _unavailable_sources_from_payload(
+    payload: Mapping[str, Any],
+    *,
+    as_of_date: str,
+    default_provider: str | None,
+) -> list[_UnavailableMarketExternalSource] | ServiceError:
+    raw_sources = payload.get("unavailable_sources", payload.get("unavailable"))
+    if raw_sources is None:
+        return []
+    if not isinstance(raw_sources, list):
+        return ServiceError("INVALID_UNAVAILABLE_SOURCE", "unavailable_sources must be a list.")
+
+    unavailable_sources: list[_UnavailableMarketExternalSource] = []
+    for index, raw_source in enumerate(raw_sources, start=1):
+        if not isinstance(raw_source, Mapping):
+            return ServiceError(
+                "INVALID_UNAVAILABLE_SOURCE",
+                f"unavailable_sources[{index}] must be a JSON object.",
+            )
+        source_date = _compact_date(_first_text(raw_source, "as_of_date", "date", "published_date") or as_of_date)
+        if source_date is None or not _is_yyyymmdd(source_date) or source_date != as_of_date:
+            return ServiceError(
+                "INVALID_UNAVAILABLE_SOURCE",
+                f"unavailable_sources[{index}].as_of_date must match {as_of_date}.",
+            )
+        scope_type = _first_text(raw_source, "scope_type", "scope")
+        if scope_type not in VALID_MARKET_EXTERNAL_SCOPE_TYPES:
+            return ServiceError(
+                "INVALID_UNAVAILABLE_SOURCE",
+                f"unavailable_sources[{index}].scope_type must be one of: "
+                f"{', '.join(sorted(VALID_MARKET_EXTERNAL_SCOPE_TYPES))}.",
+            )
+        item_type = _first_text(raw_source, "item_type", "category")
+        if item_type is not None and item_type not in VALID_MARKET_EXTERNAL_ITEM_TYPES:
+            return ServiceError(
+                "INVALID_UNAVAILABLE_SOURCE",
+                f"unavailable_sources[{index}].item_type must be one of: "
+                f"{', '.join(sorted(VALID_MARKET_EXTERNAL_ITEM_TYPES))}.",
+            )
+        provider = _first_text(raw_source, "provider", "source", "data_source") or default_provider
+        if provider is None:
+            return ServiceError(
+                "INVALID_UNAVAILABLE_SOURCE",
+                f"unavailable_sources[{index}].provider is required when the provider file has no provider.",
+            )
+        reason = _first_text(raw_source, "reason", "code") or UNAVAILABLE_SOURCE_DEFAULT_REASON
+        unavailable_sources.append(
+            _UnavailableMarketExternalSource(
+                scope_type=scope_type,
+                scope_key=_first_text(raw_source, "scope_key", "key"),
+                item_type=item_type,
+                provider=provider,
+                reason=reason,
+                note=_first_text(raw_source, "note", "message", "summary"),
+            )
+        )
+    return unavailable_sources
 
 
 def _source_file_as_of_date(
@@ -1207,6 +1366,9 @@ def _empty_coverage_details(as_of_date: str | None = None) -> dict[str, Any]:
         "total_count": 0,
         "duplicate_count": 0,
         "missing_scopes": ["market", "sector", "stock"],
+        "unavailable_count": 0,
+        "unavailable_scopes": [],
+        "unavailable_sources": [],
         "stale_scopes": [],
         "fresh_count": 0,
         "stale_count": 0,
@@ -1221,19 +1383,26 @@ def _empty_coverage_details(as_of_date: str | None = None) -> dict[str, Any]:
     }
 
 
-def _freshness_summary(items: Sequence[_CoverageItem], as_of_date: str) -> dict[str, str]:
+def _freshness_summary(
+    items: Sequence[_CoverageItem],
+    as_of_date: str,
+    *,
+    unavailable_sources: Sequence[_UnavailableMarketExternalSource] = (),
+) -> dict[str, str]:
+    unavailable_scopes = _unavailable_scope_set(unavailable_sources)
     return {
         scope_type: _freshness_for_scope(
             [item for item in items if item.scope_type == scope_type],
             as_of_date,
+            unavailable=scope_type in unavailable_scopes,
         )
         for scope_type in ("market", "sector", "stock")
     }
 
 
-def _freshness_for_scope(items: Sequence[_CoverageItem], as_of_date: str) -> str:
+def _freshness_for_scope(items: Sequence[_CoverageItem], as_of_date: str, *, unavailable: bool = False) -> str:
     if not items:
-        return "missing"
+        return "unavailable" if unavailable else "missing"
     fresh_count = sum(1 for item in items if item.published_date == as_of_date)
     if fresh_count == len(items):
         return "fresh"
@@ -1250,6 +1419,42 @@ def _count_by(items: Sequence[_CoverageItem], field: str) -> dict[str, int]:
     return {key: counts[key] for key in sorted(counts)}
 
 
+def _scope_status(
+    scope_type: str,
+    has_items: bool,
+    unavailable_scopes: set[str],
+) -> str:
+    if has_items:
+        return "available"
+    if scope_type in unavailable_scopes:
+        return "unavailable"
+    return "missing"
+
+
+def _unavailable_scope_set(sources: Sequence[_UnavailableMarketExternalSource]) -> set[str]:
+    return {source.scope_type for source in sources}
+
+
+def _unavailable_item_type_set(sources: Sequence[_UnavailableMarketExternalSource]) -> set[str]:
+    return {source.item_type for source in sources if source.item_type is not None}
+
+
+def _unavailable_source_payloads(
+    sources: Sequence[_UnavailableMarketExternalSource],
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "scope_type": source.scope_type,
+            "scope_key": source.scope_key,
+            "item_type": source.item_type,
+            "provider": source.provider,
+            "reason": source.reason,
+            "note": source.note,
+        }
+        for source in sources
+    ]
+
+
 def _validation_failed_result(
     ctx: RequestContext,
     *,
@@ -1260,6 +1465,7 @@ def _validation_failed_result(
     errors: list[ServiceError],
     coverage_summary: dict[str, Any],
     coverage_details: dict[str, Any],
+    unavailable_sources: Sequence[_UnavailableMarketExternalSource] = (),
     would_insert_count: int = 0,
     duplicate_count: int = 0,
 ) -> ServiceResult[ImportMarketExternalDataResult]:
@@ -1277,6 +1483,7 @@ def _validation_failed_result(
             coverage_summary=coverage_summary,
             coverage_details=coverage_details,
             market_external_item_ids=[],
+            unavailable_sources=_unavailable_source_payloads(unavailable_sources),
             invalid_records=invalid_records,
         ),
         errors=errors,
@@ -1335,11 +1542,13 @@ def _build_market_backfill_result(
             coverage_summary = build_market_external_coverage_summary(
                 coverage_items,
                 batch.as_of_date,
+                unavailable_sources=batch.unavailable_sources,
                 duplicate_count=coverage_duplicate_count,
             )
             coverage_details = build_market_external_coverage_details(
                 coverage_items,
                 batch.as_of_date,
+                unavailable_sources=batch.unavailable_sources,
                 duplicate_count=coverage_duplicate_count,
             )
             date_results.append(
@@ -1354,6 +1563,7 @@ def _build_market_backfill_result(
                     duplicate_count=coverage_duplicate_count,
                     coverage_summary=coverage_summary,
                     coverage_details=coverage_details,
+                    unavailable_sources=_unavailable_source_payloads(batch.unavailable_sources),
                 )
             )
 

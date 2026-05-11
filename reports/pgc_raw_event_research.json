@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-08T12:08:16.769Z",
+  "generated_at": "2026-05-11T08:07:49.344Z",
   "input_path": "/Users/azboo/Desktop/Person/pgc/data/pgc_pool.json",
   "methodology": {
     "raw_fields_used": [
@@ -30,10 +30,10 @@
     "rule": "Only entry facts are used. Existing score, reason, status, industry, and post-entry performance fields are ignored."
   },
   "data_quality": {
-    "rows": 244,
+    "rows": 250,
     "entry_date_min": "2025-11-10",
-    "entry_date_max": "2026-05-08",
-    "unique_ts_code": 241,
+    "entry_date_max": "2026-05-11",
+    "unique_ts_code": 247,
     "duplicate_exact_events": 0,
     "weekend_entries": [],
     "repeated_ts_code_events": [
@@ -61,118 +61,123 @@
   },
   "raw_statistics": {
     "entry_price": {
-      "n": 244,
+      "n": 250,
       "min": 1.91,
-      "p25": 7.63,
+      "p25": 7.7,
       "median": 15.03,
       "p75": 26.52,
       "max": 450.86,
-      "mean": 25.98
+      "mean": 25.84
     },
     "entry_month": [
       {
         "key": "202511",
         "count": 83,
-        "pct": 34
+        "pct": 33.2
       },
       {
         "key": "202603",
         "count": 59,
-        "pct": 24.2
+        "pct": 23.6
       },
       {
         "key": "202604",
         "count": 90,
-        "pct": 36.9
+        "pct": 36
       },
       {
         "key": "202605",
-        "count": 12,
-        "pct": 4.9
+        "count": 18,
+        "pct": 7.2
       }
     ],
     "entry_weekday": [
       {
         "key": "Thu",
         "count": 55,
-        "pct": 22.5
+        "pct": 22
       },
       {
         "key": "Wed",
         "count": 54,
-        "pct": 22.1
+        "pct": 21.6
       },
       {
         "key": "Fri",
         "count": 51,
-        "pct": 20.9
+        "pct": 20.4
+      },
+      {
+        "key": "Mon",
+        "count": 46,
+        "pct": 18.4
       },
       {
         "key": "Tue",
         "count": 44,
-        "pct": 18
-      },
-      {
-        "key": "Mon",
-        "count": 40,
-        "pct": 16.4
+        "pct": 17.6
       }
     ],
     "entry_date_top20": [
       {
         "key": "20251111",
         "count": 7,
-        "pct": 2.9
+        "pct": 2.8
       },
       {
         "key": "20251121",
         "count": 7,
-        "pct": 2.9
+        "pct": 2.8
       },
       {
         "key": "20251127",
         "count": 7,
-        "pct": 2.9
+        "pct": 2.8
       },
       {
         "key": "20260508",
         "count": 7,
-        "pct": 2.9
+        "pct": 2.8
       },
       {
         "key": "20251117",
         "count": 6,
-        "pct": 2.5
+        "pct": 2.4
       },
       {
         "key": "20251119",
         "count": 6,
-        "pct": 2.5
+        "pct": 2.4
       },
       {
         "key": "20260317",
         "count": 6,
-        "pct": 2.5
+        "pct": 2.4
       },
       {
         "key": "20260319",
         "count": 6,
-        "pct": 2.5
+        "pct": 2.4
       },
       {
         "key": "20260330",
         "count": 6,
-        "pct": 2.5
+        "pct": 2.4
       },
       {
         "key": "20260402",
         "count": 6,
-        "pct": 2.5
+        "pct": 2.4
       },
       {
         "key": "20260409",
         "count": 6,
-        "pct": 2.5
+        "pct": 2.4
+      },
+      {
+        "key": "20260511",
+        "count": 6,
+        "pct": 2.4
       },
       {
         "key": "20251110",
@@ -213,43 +218,38 @@
         "key": "20251125",
         "count": 5,
         "pct": 2
-      },
-      {
-        "key": "20251126",
-        "count": 5,
-        "pct": 2
       }
     ],
     "price_bucket": [
       {
         "key": "10-20",
         "count": 74,
-        "pct": 30.3
+        "pct": 29.6
       },
       {
         "key": "20-50",
-        "count": 58,
-        "pct": 23.8
+        "count": 61,
+        "pct": 24.4
       },
       {
         "key": "5-10",
-        "count": 56,
-        "pct": 23
+        "count": 59,
+        "pct": 23.6
       },
       {
         "key": "<5",
         "count": 28,
-        "pct": 11.5
+        "pct": 11.2
       },
       {
         "key": "50-100",
         "count": 18,
-        "pct": 7.4
+        "pct": 7.2
       },
       {
         "key": ">=100",
         "count": 10,
-        "pct": 4.1
+        "pct": 4
       }
     ]
   },

@@ -27,6 +27,7 @@ VALID_AGENT_EXTERNAL_SENTIMENTS = {"positive", "neutral", "negative", "mixed", "
 VALID_AGENT_EXTERNAL_IMPORTANCE = {"low", "medium", "high", "unknown"}
 AGENT_EXTERNAL_PROVIDER_FILE_CONTRACT = "agent_external_v1"
 VALID_AGENT_EXTERNAL_PROVIDER_FILE_CONTRACTS = {AGENT_EXTERNAL_PROVIDER_FILE_CONTRACT}
+UNAVAILABLE_SOURCE_DEFAULT_REASON = "provider_unavailable"
 STRUCTURED_EXTERNAL_COLLECTIONS = {
     "fundamental_snapshots": "fundamental",
     "fundamentals": "fundamental",
@@ -69,6 +70,7 @@ class ImportAgentExternalDataResult:
     coverage_summary: dict[str, Any] = field(default_factory=dict)
     provider_file_contract: str = AGENT_EXTERNAL_PROVIDER_FILE_CONTRACT
     agent_external_item_ids: list[int] = field(default_factory=list)
+    unavailable_sources: list[dict[str, Any]] = field(default_factory=list)
     invalid_records: list[AgentExternalDataValidationIssue] = field(default_factory=list)
 
 
@@ -91,6 +93,7 @@ class AgentExternalBackfillDateResult:
     inserted_count: int
     updated_count: int
     coverage_summary: dict[str, Any]
+    unavailable_sources: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -134,11 +137,28 @@ class _AgentCoverageItem:
 
 
 @dataclass(frozen=True)
+class _UnavailableAgentExternalSource:
+    item_type: str
+    provider: str
+    reason: str
+    ts_code: str | None = None
+    note: str | None = None
+
+
+@dataclass(frozen=True)
+class _AgentExternalInput:
+    records: list[Mapping[str, Any]]
+    unavailable_sources: list[_UnavailableAgentExternalSource]
+    as_of_date: str | None
+
+
+@dataclass(frozen=True)
 class _AgentExternalBackfillBatch:
     as_of_date: str
     source_files: list[Path]
     row_count: int
     prepared: list[_PreparedExternalItem]
+    unavailable_sources: list[_UnavailableAgentExternalSource]
     invalid_records: list[AgentExternalDataValidationIssue]
 
 
@@ -153,20 +173,21 @@ class AgentExternalDataService:
         request: ImportAgentExternalDataRequest,
         ctx: RequestContext,
     ) -> ServiceResult[ImportAgentExternalDataResult]:
-        records_result = _load_request_records(request)
-        if isinstance(records_result, ServiceError):
+        input_result = _load_request_input(request)
+        if isinstance(input_result, ServiceError):
             return _validation_failed_result(
                 ctx,
                 as_of_date=_compact_structured_date(request.default_published_date),
                 row_count=0,
                 valid_items=[],
                 invalid_records=[],
-                errors=[records_result],
+                errors=[input_result],
             )
 
-        records = records_result
+        records = input_result.records
+        unavailable_sources = input_result.unavailable_sources
         prepared, invalid_records = _prepare_records(records)
-        coverage_as_of_date = _coverage_as_of_date(request, records)
+        coverage_as_of_date = _coverage_as_of_date(request, records, input_as_of_date=input_result.as_of_date)
         preview_insert_count = 0
         preview_update_count = 0
         if prepared:
@@ -174,6 +195,7 @@ class AgentExternalDataService:
         coverage_summary = self._coverage_for_import(
             coverage_as_of_date,
             prepared,
+            unavailable_sources=unavailable_sources,
             duplicate_count=preview_update_count,
         )
 
@@ -188,6 +210,7 @@ class AgentExternalDataService:
                 would_insert_count=preview_insert_count,
                 would_update_count=preview_update_count,
                 coverage_summary=coverage_summary,
+                unavailable_sources=unavailable_sources,
             )
 
         if ctx.dry_run:
@@ -205,6 +228,7 @@ class AgentExternalDataService:
                     updated_count=0,
                     coverage_summary=coverage_summary,
                     agent_external_item_ids=[],
+                    unavailable_sources=_unavailable_source_payloads(unavailable_sources),
                     invalid_records=[],
                 ),
                 lineage={"source_file": str(request.source_file) if request.source_file else None},
@@ -243,9 +267,11 @@ class AgentExternalDataService:
                 updated_count=updated_count,
                 coverage_summary=self.summarize_coverage(
                     coverage_as_of_date,
+                    unavailable_sources=unavailable_sources,
                     duplicate_count=updated_count,
                 ),
                 agent_external_item_ids=item_ids,
+                unavailable_sources=_unavailable_source_payloads(unavailable_sources),
                 invalid_records=[],
             ),
             created_ids={"agent_external_items": item_ids},
@@ -272,18 +298,18 @@ class AgentExternalDataService:
         batches_by_date: dict[str, _AgentExternalBackfillBatch] = {}
         errors: list[ServiceError] = []
         for source_file in source_files:
-            records_result = _load_request_records(
+            input_result = _load_request_input(
                 ImportAgentExternalDataRequest(
                     source_file=source_file,
                     encoding=request.encoding,
                     default_provider=request.default_provider,
                 )
             )
-            if isinstance(records_result, ServiceError):
-                errors.append(records_result)
+            if isinstance(input_result, ServiceError):
+                errors.append(input_result)
                 continue
 
-            records = records_result
+            records = input_result.records
             prepared, invalid_records = _prepare_records(records)
             coverage_as_of_date = _coverage_as_of_date(
                 ImportAgentExternalDataRequest(
@@ -292,6 +318,7 @@ class AgentExternalDataService:
                     default_provider=request.default_provider,
                 ),
                 records,
+                input_as_of_date=input_result.as_of_date,
             )
             if coverage_as_of_date is None or not _is_yyyymmdd(coverage_as_of_date):
                 errors.append(
@@ -311,6 +338,7 @@ class AgentExternalDataService:
                     source_files=[source_file],
                     row_count=len(records),
                     prepared=prepared,
+                    unavailable_sources=input_result.unavailable_sources,
                     invalid_records=invalid_records,
                 )
             else:
@@ -319,6 +347,7 @@ class AgentExternalDataService:
                     source_files=[*existing_batch.source_files, source_file],
                     row_count=existing_batch.row_count + len(records),
                     prepared=[*existing_batch.prepared, *prepared],
+                    unavailable_sources=[*existing_batch.unavailable_sources, *input_result.unavailable_sources],
                     invalid_records=[*existing_batch.invalid_records, *invalid_records],
                 )
 
@@ -385,15 +414,22 @@ class AgentExternalDataService:
         self,
         as_of_date: str | None,
         *,
+        unavailable_sources: Sequence[_UnavailableAgentExternalSource] = (),
         duplicate_count: int = 0,
     ) -> dict[str, Any]:
         compact_date = _compact_structured_date(as_of_date)
         if compact_date is None or not _is_yyyymmdd(compact_date):
-            return build_agent_external_coverage_summary([], None, duplicate_count=duplicate_count)
+            return build_agent_external_coverage_summary(
+                [],
+                None,
+                unavailable_sources=unavailable_sources,
+                duplicate_count=duplicate_count,
+            )
         with connect(self.db_path) as conn:
             return build_agent_external_coverage_summary(
                 _load_agent_coverage_items(conn, compact_date),
                 compact_date,
+                unavailable_sources=unavailable_sources,
                 duplicate_count=duplicate_count,
             )
 
@@ -402,6 +438,7 @@ class AgentExternalDataService:
         as_of_date: str | None,
         prepared: Sequence[_PreparedExternalItem],
         *,
+        unavailable_sources: Sequence[_UnavailableAgentExternalSource] = (),
         duplicate_count: int = 0,
     ) -> dict[str, Any]:
         compact_date = _compact_structured_date(as_of_date)
@@ -421,6 +458,7 @@ class AgentExternalDataService:
         return build_agent_external_coverage_summary(
             items,
             compact_date if compact_date is not None and _is_yyyymmdd(compact_date) else None,
+            unavailable_sources=unavailable_sources,
             duplicate_count=duplicate_count,
         )
 
@@ -452,29 +490,43 @@ def build_agent_external_coverage_summary(
     items: Sequence[_AgentCoverageItem],
     as_of_date: str | None,
     *,
+    unavailable_sources: Sequence[_UnavailableAgentExternalSource] = (),
     duplicate_count: int = 0,
 ) -> dict[str, Any]:
     by_item_type = _count_agent_by(items, "item_type")
     freshness = _agent_freshness(items, as_of_date)
+    unavailable_item_types = _unavailable_item_type_set(unavailable_sources)
+    item_type_statuses = {
+        item_type: _agent_item_type_status(by_item_type, item_type, unavailable_item_types)
+        for item_type in ("fundamental", "announcement", "news", "sentiment")
+    }
     missing_item_types = [
         item_type
         for item_type in ("fundamental", "announcement", "news", "sentiment")
-        if by_item_type.get(item_type, 0) == 0
+        if item_type_statuses[item_type] == "missing"
+    ]
+    unavailable_item_type_list = [
+        item_type
+        for item_type in ("fundamental", "announcement", "news", "sentiment")
+        if item_type_statuses[item_type] == "unavailable"
     ]
     return {
         "as_of_date": as_of_date or "unknown",
         "total_count": len(items),
         "stock_count": len({item.ts_code for item in items}),
-        "fundamental": "available" if by_item_type.get("fundamental", 0) else "missing",
-        "announcement": "available" if by_item_type.get("announcement", 0) else "missing",
-        "news": "available" if by_item_type.get("news", 0) else "missing",
-        "sentiment": _agent_sentiment_status(items),
+        "fundamental": item_type_statuses["fundamental"],
+        "announcement": item_type_statuses["announcement"],
+        "news": item_type_statuses["news"],
+        "sentiment": _agent_sentiment_status(items, unavailable_item_types),
         "risk_or_research": "available"
         if by_item_type.get("risk_note", 0) or by_item_type.get("research_note", 0)
         else "missing",
         "duplicates": "duplicate" if duplicate_count else "none",
         "duplicate_count": duplicate_count,
         "missing_item_types": missing_item_types,
+        "unavailable_count": len(unavailable_sources),
+        "unavailable_item_types": unavailable_item_type_list,
+        "unavailable_sources": _unavailable_source_payloads(unavailable_sources),
         "freshness": freshness,
         "fresh_count": _agent_fresh_count(items, as_of_date),
         "stale_count": _agent_stale_count(items, as_of_date),
@@ -491,6 +543,14 @@ def build_agent_external_backfill_coverage_qa(
             result.as_of_date
             for result in date_results
             if item_type in result.coverage_summary.get("missing_item_types", [])
+        ]
+        for item_type in ("fundamental", "announcement", "news", "sentiment")
+    }
+    unavailable_item_type_dates = {
+        item_type: [
+            result.as_of_date
+            for result in date_results
+            if item_type in result.coverage_summary.get("unavailable_item_types", [])
         ]
         for item_type in ("fundamental", "announcement", "news", "sentiment")
     }
@@ -526,6 +586,7 @@ def build_agent_external_backfill_coverage_qa(
         "duplicate_dates": duplicate_dates,
         "stale_dates": stale_dates,
         "missing_item_type_dates": missing_item_type_dates,
+        "unavailable_item_type_dates": unavailable_item_type_dates,
         "freshness_by_date": {
             result.as_of_date: result.coverage_summary.get("freshness", "unknown")
             for result in date_results
@@ -541,16 +602,23 @@ def build_agent_external_backfill_coverage_qa(
     }
 
 
-def _load_request_records(request: ImportAgentExternalDataRequest) -> list[Mapping[str, Any]] | ServiceError:
+def _load_request_input(request: ImportAgentExternalDataRequest) -> _AgentExternalInput | ServiceError:
     if request.source_file is None and request.records is None:
         return ServiceError("VALIDATION_ERROR", "source_file or records is required.")
     if request.source_file is not None and request.records is not None:
         return ServiceError("VALIDATION_ERROR", "choose either source_file or records, not both.")
     if request.records is not None:
-        return _validated_import_records(
+        records = _validated_import_records(
             list(request.records),
             default_provider=request.default_provider,
             default_published_date=request.default_published_date,
+        )
+        if isinstance(records, ServiceError):
+            return records
+        return _AgentExternalInput(
+            records=records,
+            unavailable_sources=[],
+            as_of_date=_compact_structured_date(request.default_published_date),
         )
 
     source_file = Path(request.source_file) if request.source_file is not None else None
@@ -568,18 +636,42 @@ def _load_request_records(request: ImportAgentExternalDataRequest) -> list[Mappi
     except json.JSONDecodeError as exc:
         return ServiceError("VALIDATION_ERROR", f"source_file is not valid JSON: {exc}")
 
-    return _records_from_payload(payload, request)
+    return _input_from_payload(payload, request)
+
+
+def _load_request_records(request: ImportAgentExternalDataRequest) -> list[Mapping[str, Any]] | ServiceError:
+    input_result = _load_request_input(request)
+    if isinstance(input_result, ServiceError):
+        return input_result
+    return input_result.records
 
 
 def _records_from_payload(
     payload: Any,
     request: ImportAgentExternalDataRequest,
 ) -> list[Mapping[str, Any]] | ServiceError:
+    input_result = _input_from_payload(payload, request)
+    if isinstance(input_result, ServiceError):
+        return input_result
+    return input_result.records
+
+
+def _input_from_payload(
+    payload: Any,
+    request: ImportAgentExternalDataRequest,
+) -> _AgentExternalInput | ServiceError:
     if isinstance(payload, list):
-        return _validated_import_records(
+        records = _validated_import_records(
             payload,
             default_provider=request.default_provider,
             default_published_date=request.default_published_date,
+        )
+        if isinstance(records, ServiceError):
+            return records
+        return _AgentExternalInput(
+            records=records,
+            unavailable_sources=[],
+            as_of_date=_compact_structured_date(request.default_published_date),
         )
     if not isinstance(payload, Mapping):
         return ServiceError(
@@ -602,22 +694,42 @@ def _records_from_payload(
         "as_of_date",
         "trade_date",
     )
+    payload_as_of_date = _compact_structured_date(default_published_date)
+    unavailable_sources = _unavailable_sources_from_payload(
+        payload,
+        as_of_date=payload_as_of_date,
+        default_provider=default_provider,
+    )
+    if isinstance(unavailable_sources, ServiceError):
+        return unavailable_sources
+
     if _looks_like_normalized_fixture(payload):
-        return _records_from_normalized_fixture(
+        records = _records_from_normalized_fixture(
             payload,
             default_provider=default_provider,
             default_published_date=default_published_date,
         )
+        if isinstance(records, ServiceError):
+            return records
+        fixture_date = _compact_structured_date(_first_text(payload, "as_of_date", "date", "trade_date"))
+        return _AgentExternalInput(records=records, unavailable_sources=unavailable_sources, as_of_date=fixture_date)
     for key in ("records", "items"):
         if key not in payload:
             continue
         records = payload[key]
         if not isinstance(records, list):
             return ServiceError("VALIDATION_ERROR", f"source_file field {key} must be a list.")
-        return _validated_import_records(
+        validated = _validated_import_records(
             records,
             default_provider=default_provider,
             default_published_date=default_published_date,
+        )
+        if isinstance(validated, ServiceError):
+            return validated
+        return _AgentExternalInput(
+            records=validated,
+            unavailable_sources=unavailable_sources,
+            as_of_date=payload_as_of_date,
         )
 
     normalized: list[Mapping[str, Any]] = []
@@ -640,12 +752,75 @@ def _records_from_payload(
             )
 
     if normalized:
-        return normalized
+        return _AgentExternalInput(
+            records=normalized,
+            unavailable_sources=unavailable_sources,
+            as_of_date=payload_as_of_date,
+        )
+    if unavailable_sources:
+        return _AgentExternalInput(
+            records=[],
+            unavailable_sources=unavailable_sources,
+            as_of_date=payload_as_of_date,
+        )
     return ServiceError(
         "VALIDATION_ERROR",
         "source_file JSON must be a list, an object with records/items, or structured keys like "
         "fundamental_snapshots, announcements, news, or sentiment_snippets.",
     )
+
+
+def _unavailable_sources_from_payload(
+    payload: Mapping[str, Any],
+    *,
+    as_of_date: str | None,
+    default_provider: str | None,
+) -> list[_UnavailableAgentExternalSource] | ServiceError:
+    raw_sources = payload.get("unavailable_sources", payload.get("unavailable"))
+    if raw_sources is None:
+        return []
+    if not isinstance(raw_sources, list):
+        return ServiceError("INVALID_UNAVAILABLE_SOURCE", "unavailable_sources must be a list.")
+
+    unavailable_sources: list[_UnavailableAgentExternalSource] = []
+    for index, raw_source in enumerate(raw_sources, start=1):
+        if not isinstance(raw_source, Mapping):
+            return ServiceError(
+                "INVALID_UNAVAILABLE_SOURCE",
+                f"unavailable_sources[{index}] must be a JSON object.",
+            )
+        source_date = _compact_structured_date(
+            _first_text(raw_source, "as_of_date", "date", "published_date") or as_of_date
+        )
+        if as_of_date is not None and (source_date is None or source_date != as_of_date):
+            return ServiceError(
+                "INVALID_UNAVAILABLE_SOURCE",
+                f"unavailable_sources[{index}].as_of_date must match {as_of_date}.",
+            )
+        item_type = _normalize_fixture_category(_first_text(raw_source, "item_type", "category", "type"))
+        if item_type not in VALID_AGENT_EXTERNAL_ITEM_TYPES:
+            return ServiceError(
+                "INVALID_UNAVAILABLE_SOURCE",
+                f"unavailable_sources[{index}].item_type must be one of: "
+                f"{', '.join(sorted(VALID_AGENT_EXTERNAL_ITEM_TYPES))}.",
+            )
+        provider = _first_text(raw_source, "provider", "source", "data_source") or default_provider
+        if provider is None:
+            return ServiceError(
+                "INVALID_UNAVAILABLE_SOURCE",
+                f"unavailable_sources[{index}].provider is required when the provider file has no provider.",
+            )
+        reason = _first_text(raw_source, "reason", "code") or UNAVAILABLE_SOURCE_DEFAULT_REASON
+        unavailable_sources.append(
+            _UnavailableAgentExternalSource(
+                item_type=item_type,
+                ts_code=_first_text(raw_source, "ts_code", "code", "symbol"),
+                provider=provider,
+                reason=reason,
+                note=_first_text(raw_source, "note", "message", "summary"),
+            )
+        )
+    return unavailable_sources
 
 
 def _looks_like_normalized_fixture(payload: Mapping[str, Any]) -> bool:
@@ -1367,10 +1542,17 @@ def _upsert_backfill_items(
     return counts, item_ids
 
 
-def _coverage_as_of_date(request: ImportAgentExternalDataRequest, records: list[Mapping[str, Any]]) -> str | None:
+def _coverage_as_of_date(
+    request: ImportAgentExternalDataRequest,
+    records: list[Mapping[str, Any]],
+    *,
+    input_as_of_date: str | None = None,
+) -> str | None:
     request_date = _compact_structured_date(request.default_published_date)
     if request_date is not None and _is_yyyymmdd(request_date):
         return request_date
+    if input_as_of_date is not None and _is_yyyymmdd(input_as_of_date):
+        return input_as_of_date
     for record in records:
         value = _compact_structured_date(_first_text(record, "_as_of_date", "as_of_date"))
         if value is not None and _is_yyyymmdd(value):
@@ -1398,13 +1580,13 @@ def _load_agent_coverage_items(conn: sqlite3.Connection, as_of_date: str) -> lis
     ]
 
 
-def _agent_sentiment_status(items: Sequence[_AgentCoverageItem]) -> str:
+def _agent_sentiment_status(items: Sequence[_AgentCoverageItem], unavailable_item_types: set[str]) -> str:
     sentiment_items = [item for item in items if item.item_type == "sentiment" or item.sentiment != "unknown"]
     if not sentiment_items:
-        return "missing"
+        return "unavailable" if "sentiment" in unavailable_item_types else "missing"
     known_count = sum(1 for item in sentiment_items if item.sentiment != "unknown")
     if known_count == 0:
-        return "missing"
+        return "unavailable" if "sentiment" in unavailable_item_types else "missing"
     if known_count == len(sentiment_items):
         return "available"
     return "partial"
@@ -1443,6 +1625,37 @@ def _count_agent_by(items: Sequence[_AgentCoverageItem], field: str) -> dict[str
     return {key: counts[key] for key in sorted(counts)}
 
 
+def _agent_item_type_status(
+    by_item_type: Mapping[str, int],
+    item_type: str,
+    unavailable_item_types: set[str],
+) -> str:
+    if by_item_type.get(item_type, 0) > 0:
+        return "available"
+    if item_type in unavailable_item_types:
+        return "unavailable"
+    return "missing"
+
+
+def _unavailable_item_type_set(sources: Sequence[_UnavailableAgentExternalSource]) -> set[str]:
+    return {source.item_type for source in sources}
+
+
+def _unavailable_source_payloads(
+    sources: Sequence[_UnavailableAgentExternalSource],
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "item_type": source.item_type,
+            "ts_code": source.ts_code,
+            "provider": source.provider,
+            "reason": source.reason,
+            "note": source.note,
+        }
+        for source in sources
+    ]
+
+
 def _validation_failed_result(
     ctx: RequestContext,
     *,
@@ -1454,6 +1667,7 @@ def _validation_failed_result(
     would_insert_count: int = 0,
     would_update_count: int = 0,
     coverage_summary: dict[str, Any] | None = None,
+    unavailable_sources: Sequence[_UnavailableAgentExternalSource] = (),
 ) -> ServiceResult[ImportAgentExternalDataResult]:
     return ServiceResult(
         status="validation_failed",
@@ -1467,8 +1681,14 @@ def _validation_failed_result(
             would_update_count=would_update_count,
             inserted_count=0,
             updated_count=0,
-            coverage_summary=coverage_summary or build_agent_external_coverage_summary([], as_of_date),
+            coverage_summary=coverage_summary
+            or build_agent_external_coverage_summary(
+                [],
+                as_of_date,
+                unavailable_sources=unavailable_sources,
+            ),
             agent_external_item_ids=[],
+            unavailable_sources=_unavailable_source_payloads(unavailable_sources),
             invalid_records=invalid_records,
         ),
         errors=errors,
@@ -1532,6 +1752,7 @@ def _build_agent_backfill_result(
             coverage_summary = build_agent_external_coverage_summary(
                 coverage_items,
                 batch.as_of_date,
+                unavailable_sources=batch.unavailable_sources,
                 duplicate_count=coverage_duplicate_count,
             )
             date_results.append(
@@ -1546,6 +1767,7 @@ def _build_agent_backfill_result(
                     inserted_count=inserted_count,
                     updated_count=updated_count,
                     coverage_summary=coverage_summary,
+                    unavailable_sources=_unavailable_source_payloads(batch.unavailable_sources),
                 )
             )
 

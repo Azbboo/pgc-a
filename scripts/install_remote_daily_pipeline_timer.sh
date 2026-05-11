@@ -195,6 +195,8 @@ elif [[ "$ACTION" == "collect-evidence" ]]; then
 fi
 
 print_summary() {
+  printf 'ops_history_event=timer_action\n'
+  printf 'ops_history_occurred_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   printf 'remote_host=%s\n' "$REMOTE_HOST"
   printf 'action=%s\n' "$ACTION"
   printf 'timer_enablement=%s\n' "$TIMER_ENABLEMENT"
@@ -227,6 +229,35 @@ print_summary() {
   printf 'journal_command=journalctl -u %s -n 100 --no-pager\n' "$SERVICE_NAME"
   printf 'rollback_command=systemctl disable --now %s\n' "$TIMER_NAME"
   printf 'duplicate_write_guard=run_daily_pipeline.sh blocks completed apply runs unless --allow-rerun is passed\n'
+}
+
+write_timer_action_log() {
+  local local_evidence_file="${1:-}"
+  local remote_evidence_log="${2:-}"
+  local action_log
+  mkdir -p "$LOCAL_EVIDENCE_DIR"
+  action_log="${LOCAL_EVIDENCE_DIR}/timer-action-$(date -u +%Y%m%dT%H%M%SZ)-${ACTION}-$$.log"
+  {
+    printf 'ops_history_event=timer_action\n'
+    printf 'ops_history_occurred_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    printf 'action=%s\n' "$ACTION"
+    printf 'timer_enablement=%s\n' "$TIMER_ENABLEMENT"
+    printf 'remote_host=%s\n' "$REMOTE_HOST"
+    printf 'db_path=%s\n' "$REMOTE_DB_PATH"
+    printf 'backup_dir=%s\n' "$REMOTE_BACKUP_DIR"
+    printf 'log_dir=%s\n' "$REMOTE_LOG_DIR"
+    printf 'health_url=%s\n' "$REMOTE_HEALTH_URL"
+    printf 'health_command=%s\n' "$REMOTE_HEALTH_COMMAND"
+    printf 'mode=%s\n' "$MODE"
+    printf 'account=%s\n' "$ACCOUNT"
+    printf 'operator=%s\n' "$OPERATOR"
+    printf 'evidence_run_id=%s\n' "${EVIDENCE_RUN_ID:-missing}"
+    printf 'local_evidence_log_file=%s\n' "${local_evidence_file:-none}"
+    printf 'remote_evidence_log_file=%s\n' "${remote_evidence_log:-none}"
+    printf 'activation_decision=not_evaluated\n'
+    printf 'timer_state=unchanged_disabled_until_enable_gate\n'
+  } > "$action_log"
+  printf 'local_timer_action_log_file=%s\n' "$action_log"
 }
 
 validate_activation_decision() {
@@ -379,6 +410,7 @@ REMOTE_COLLECT
   scp "${REMOTE_HOST}:${REMOTE_EVIDENCE_LOG}" "$LOCAL_EVIDENCE_FILE"
   printf 'remote_evidence_log_file=%s\n' "$REMOTE_EVIDENCE_LOG"
   printf 'local_evidence_log_file=%s\n' "$LOCAL_EVIDENCE_FILE"
+  write_timer_action_log "$LOCAL_EVIDENCE_FILE" "$REMOTE_EVIDENCE_LOG"
   printf 'dry_run_evidence_arg=--dry-run-evidence %s\n' "$LOCAL_EVIDENCE_FILE"
   printf 'activation_decision=not_evaluated\n'
   printf 'timer_state=unchanged_disabled_until_enable_gate\n'

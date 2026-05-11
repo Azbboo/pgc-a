@@ -38,10 +38,14 @@ const state = {
   reviewDatePinned: false,
   report: null,
   reportEnvelope: null,
+  nextDayDecision: null,
+  nextDayDecisionEnvelope: null,
   paperAcceptance: null,
   paperAcceptanceEnvelope: null,
   paperAcceptanceHistory: null,
   paperAcceptanceHistoryEnvelope: null,
+  opsHistory: null,
+  opsHistoryEnvelope: null,
   reviewHistory: [],
   reviewTimeline: [],
   reviewTimelineEnvelope: null,
@@ -98,6 +102,13 @@ function cacheElements() {
     "apiBaseInput",
     "dryRunInput",
     "executionBadge",
+    "decisionBadge",
+    "reloadDecisionButton",
+    "decisionDateLabel",
+    "decisionStatusPanel",
+    "decisionSystemProposal",
+    "decisionStrategyProposal",
+    "decisionChecklist",
     "reloadExecutionButton",
     "executionEvaluateExitsButton",
     "openingWorkflowGuide",
@@ -128,6 +139,11 @@ function cacheElements() {
     "acceptanceBlockerList",
     "acceptanceHistorySummary",
     "acceptanceHistoryList",
+    "opsBadge",
+    "reloadOpsHistoryButton",
+    "opsHistorySummary",
+    "opsHistoryCounts",
+    "opsHistoryList",
     "hypothesesBadge",
     "reloadMarketButton",
     "marketReviewDateInput",
@@ -271,6 +287,12 @@ function bindEvents() {
   els.acceptanceGateBody.addEventListener("click", onAcceptanceActionClick);
   els.acceptanceBlockerList.addEventListener("click", onAcceptanceActionClick);
   els.acceptanceHistoryList.addEventListener("click", onAcceptanceHistoryClick);
+  els.reloadDecisionButton.addEventListener("click", loadNextDayDecisionAndRender);
+  els.decisionStatusPanel.addEventListener("click", onDecisionActionClick);
+  els.decisionSystemProposal.addEventListener("click", onDecisionActionClick);
+  els.decisionStrategyProposal.addEventListener("click", onDecisionActionClick);
+  els.decisionChecklist.addEventListener("click", onDecisionActionClick);
+  els.reloadOpsHistoryButton.addEventListener("click", loadOpsHistoryAndRender);
   els.reloadMarketButton.addEventListener("click", loadMarketReviewAndRender);
   els.marketApplyDateButton.addEventListener("click", applyMarketReviewDateInput);
   els.marketReviewDateInput.addEventListener("change", applyMarketReviewDateInput);
@@ -518,8 +540,10 @@ async function refreshAll(options = {}) {
       loadPositions(),
       loadMarketReview(),
       loadOpenExecution(),
+      loadNextDayDecision(),
       loadPaperAcceptance(),
       loadPaperAcceptanceHistory(),
+      loadOpsHistory(),
       loadStrategyHypothesisWorkbench(),
     ]);
     renderAll();
@@ -543,6 +567,25 @@ async function loadDailyReport() {
   state.reportEnvelope = envelope;
   state.report = envelope.data || null;
   syncExecutionDateFromReport();
+}
+
+async function loadNextDayDecision() {
+  const params = new URLSearchParams();
+  params.set("strategy_version", state.strategyVersion);
+  params.set("request_id", requestId("next-day-decision"));
+  const accountId = resolvedAccountId();
+  if (accountId) {
+    params.set("account_id", accountId);
+  } else if (state.accountKey) {
+    params.set("account_key", state.accountKey);
+  } else {
+    state.nextDayDecision = state.report?.next_day_decision || null;
+    state.nextDayDecisionEnvelope = null;
+    return;
+  }
+  const envelope = await apiRequest(`/api/next-day-decision-cockpit/${state.asOfDate}?${params.toString()}`);
+  state.nextDayDecisionEnvelope = envelope;
+  state.nextDayDecision = envelope.data || state.report?.next_day_decision || null;
 }
 
 async function loadPaperAcceptance() {
@@ -582,6 +625,26 @@ async function loadPaperAcceptanceHistory() {
   const envelope = await apiRequest(`/api/paper-acceptance-history?${params.toString()}`);
   state.paperAcceptanceHistoryEnvelope = envelope;
   state.paperAcceptanceHistory = envelope.data || null;
+}
+
+async function loadOpsHistory() {
+  const params = new URLSearchParams();
+  params.set("strategy_version", state.strategyVersion);
+  params.set("limit", "50");
+  params.set("request_id", requestId("ops-history"));
+  const accountId = resolvedAccountId();
+  if (accountId) {
+    params.set("account_id", accountId);
+  } else if (state.accountKey) {
+    params.set("account_key", state.accountKey);
+  } else {
+    state.opsHistory = null;
+    state.opsHistoryEnvelope = null;
+    return;
+  }
+  const envelope = await apiRequest(`/api/ops-history?${params.toString()}`);
+  state.opsHistoryEnvelope = envelope;
+  state.opsHistory = envelope.data || null;
 }
 
 async function loadReviewHistory() {
@@ -797,6 +860,22 @@ async function loadPaperAcceptanceAndRender() {
   });
 }
 
+async function loadNextDayDecisionAndRender() {
+  await runWithNotice(async () => {
+    await loadNextDayDecision();
+    renderNextDayDecision();
+    renderBadges();
+  });
+}
+
+async function loadOpsHistoryAndRender() {
+  await runWithNotice(async () => {
+    await loadOpsHistory();
+    renderOpsHistory();
+    renderBadges();
+  });
+}
+
 async function loadMarketReviewAndRender() {
   await runWithNotice(async () => {
     await loadMarketReview();
@@ -1005,6 +1084,49 @@ async function evaluateExits() {
   });
 }
 
+async function reviewStrategyVersionProposal(evaluation, decision) {
+  const hypothesis = evaluation?.hypothesis || {};
+  const proposal = latestStrategyVersionProposal(evaluation);
+  if (!hypothesis.hypothesis_id || !decision) return;
+  if (!proposal) {
+    showNotice("没有可审阅的 strategy-version proposal artifact。");
+    return;
+  }
+  const ok = await confirmAction({
+    title: proposalReviewConfirmTitle(decision),
+    body: proposalReviewConfirmBody(decision, hypothesis),
+    inputLabel: "Review note",
+    quickChoices: proposalReviewQuickChoices(decision),
+    details: [
+      ["假设 ID", hypothesis.hypothesis_id],
+      ["Proposal key", proposal?.proposal_key || "-"],
+      ["Proposal artifact", proposal?.path || "-"],
+      ["Artifact-only", "不会写 strategy_versions、active params、trade_plans、trades、positions 或 paper/live 行为"],
+      ["Dry-run / Apply", state.dryRun ? "Dry run：只预演 artifact" : "Apply：仅写 proposal review / promotion-request artifact"],
+      ["操作者要求", state.dryRun ? `dry-run 可预演；apply 必填：${state.operator || "未填写"}` : `apply 必填：${state.operator || "未填写"}`],
+    ],
+    submitLabel: confirmationSubmitLabel(),
+  });
+  if (!ok.confirmed) return;
+  await runWithNotice(async () => {
+    const payload = supportedWritePayload(`strategy-proposal-review:${hypothesis.hypothesis_id}:${decision}`, {
+      hypothesis_id: Number(hypothesis.hypothesis_id),
+      decision,
+      review_note: ok.value.trim() || proposalReviewDefaultNote(decision),
+      proposal_artifact_path: proposal?.path,
+    });
+    const envelope = await apiRequest("/api/strategy-hypotheses/proposal-reviews", {
+      method: "POST",
+      body: payload,
+    });
+    handleMutationEnvelope(envelope, mutationSuccessText(
+      "Proposal review artifact 已写入；策略版本和交易状态未改变。",
+      "Proposal review dry run 成功，未写入 artifact、策略版本或交易状态。",
+    ));
+    await loadStrategyHypothesisWorkbenchAndRender();
+  });
+}
+
 function handleMutationEnvelope(envelope, successText) {
   if (envelope.status !== "success" && envelope.status !== "skipped") {
     const messages = errorMessages(envelope).join("；") || `请求状态：${envelope.status}`;
@@ -1062,7 +1184,9 @@ function renderAll() {
   renderReviewHistory();
   renderReviewScopeMarkers();
   renderReview();
+  renderNextDayDecision();
   renderPaperAcceptance();
+  renderOpsHistory();
   renderMarketReview();
   renderStrategyHypothesisWorkbench();
   renderPlans();
@@ -1739,6 +1863,142 @@ function renderReview() {
   renderAgent();
 }
 
+function renderNextDayDecision() {
+  const cockpit = nextDayDecisionData();
+  els.decisionDateLabel.textContent = cockpit
+    ? `复盘日 ${displayDate(cockpit.as_of_date)} / 执行日 ${displayDate(cockpit.execution_date)}`
+    : `复盘日 ${displayDate(state.asOfDate)}`;
+  if (!cockpit) {
+    els.decisionStatusPanel.className = "acceptance-status-panel decision-status-panel";
+    els.decisionStatusPanel.innerHTML = emptyState("下一交易日决策驾驶舱暂无数据。");
+    els.decisionSystemProposal.innerHTML = emptyState("暂无系统建议。");
+    els.decisionStrategyProposal.innerHTML = emptyState("暂无策略 proposal 摘要。");
+    els.decisionChecklist.innerHTML = emptyState("暂无决策清单。");
+    return;
+  }
+
+  const proposal = cockpit.system_proposal || {};
+  els.decisionStatusPanel.className = `acceptance-status-panel decision-status-panel decision-status-panel--${escapeHtml(cockpit.status || "review_required")}`;
+  els.decisionStatusPanel.innerHTML = `
+    <div class="acceptance-status-main">
+      <span class="workflow-guide__kicker">只读驾驶舱 · 不执行交易 / 不开 timer</span>
+      <h2>${escapeHtml(decisionStatusText(cockpit.status))}</h2>
+      <p>${escapeHtml(cockpit.headline || "下一交易日决策状态待确认。")}</p>
+    </div>
+    ${actionMetrics([
+      ["复盘日", displayDate(cockpit.as_of_date)],
+      ["执行日", displayDate(cockpit.execution_date)],
+      ["建议动作", openExecutionActionText(proposal.action)],
+      ["blocker", String(cockpit.blocker_count || 0)],
+      ["warning", String(cockpit.warning_count || 0)],
+      ["人工下一步", cockpit.recommended_manual_action || "-"],
+    ])}
+    <div class="acceptance-actions">
+      <button type="button" data-decision-action="execution">开盘执行</button>
+      <button type="button" data-decision-action="acceptance">运营验收</button>
+      <button type="button" data-decision-action="refresh">刷新驾驶舱</button>
+    </div>
+  `;
+
+  els.decisionSystemProposal.innerHTML = `
+    <div class="decision-proposal-card">
+      ${chipHtml(openExecutionActionText(proposal.action), decisionStatusClass(cockpit.status))}
+      <strong>${escapeHtml(proposal.rationale || "等待人工复核。")}</strong>
+      ${actionMetrics([
+        ["目标", proposal.target || "-"],
+        ["计划 ID", dash(proposal.trade_plan_id)],
+        ["持仓 ID", dash(proposal.position_id)],
+        ["计划交易日", displayDate(proposal.planned_trade_date)],
+        ["计划股数", integerText(proposal.planned_shares)],
+      ])}
+      <button type="button" class="link-button" data-decision-action="execution">查看 open-execution</button>
+    </div>
+  `;
+
+  renderDecisionStrategyProposal(cockpit.strategy_proposals);
+  const items = Array.isArray(cockpit.checklist) ? cockpit.checklist : [];
+  els.decisionChecklist.innerHTML = items.length
+    ? items.map(decisionChecklistCard).join("")
+    : emptyState("暂无决策清单。");
+}
+
+function nextDayDecisionData() {
+  return state.nextDayDecision || state.report?.next_day_decision || null;
+}
+
+function renderDecisionStrategyProposal(proposals) {
+  if (!proposals) {
+    els.decisionStrategyProposal.innerHTML = emptyState("暂无策略 proposal 摘要。");
+    return;
+  }
+  const items = Array.isArray(proposals.items) ? proposals.items : [];
+  els.decisionStrategyProposal.innerHTML = `
+    <div class="decision-proposal-card">
+      ${chipHtml(`${proposals.review_required_count || 0} 待审阅`, proposals.review_required_count ? "chip-amber" : "chip-green")}
+      <strong>total ${integerText(proposals.total_count)} / accepted ${integerText(proposals.accepted_count)}</strong>
+      ${actionMetrics([
+        ["proposed", integerText(proposals.proposed_count)],
+        ["testing", integerText(proposals.testing_count)],
+        ["accepted", integerText(proposals.accepted_count)],
+        ["rejected", integerText(proposals.rejected_count)],
+      ])}
+      <div class="compact-list">
+        ${items.length ? items.slice(0, 4).map((item) => `
+          <div class="list-row">
+            ${chipHtml(statusText(item.status), item.status === "accepted" ? "chip-amber" : "chip-neutral")}
+            <span>${escapeHtml(item.title || `hypothesis ${item.hypothesis_id}`)}</span>
+            <button type="button" data-decision-action="hypotheses">审阅</button>
+          </div>
+        `).join("") : emptyState("没有待审阅策略假设或 proposal。")}
+      </div>
+    </div>
+  `;
+}
+
+function decisionChecklistCard(item) {
+  const action = decisionActionForItem(item);
+  const blockers = listValue(item.blocker_codes);
+  const warnings = listValue(item.warning_codes);
+  const refs = listValue(item.source_refs);
+  return `
+    <article class="acceptance-gate acceptance-gate--${escapeHtml(item.status || "warning")} decision-check-card">
+      <div class="acceptance-gate__head">
+        <strong>${escapeHtml(item.label || item.key || "decision check")}</strong>
+        ${chipHtml(decisionItemStatusText(item.status), acceptanceStatusClass(item.status))}
+      </div>
+      <p>${escapeHtml(item.summary || "-")}</p>
+      <span>${escapeHtml(item.detail || "只读检查项。")}</span>
+      <span><b>下一步：</b>${escapeHtml(item.manual_action || "-")}</span>
+      ${blockers.length ? `<div class="acceptance-code-row">${blockers.map((code) => chipHtml(code, "chip-red")).join("")}</div>` : ""}
+      ${warnings.length ? `<div class="acceptance-code-row">${warnings.map((code) => chipHtml(code, "chip-amber")).join("")}</div>` : ""}
+      ${refs.length ? `<div class="acceptance-source-refs">${refs.slice(0, 4).map((ref) => chipHtml(sourceRefText(ref), sourceRefClass(ref))).join("")}</div>` : ""}
+      <button type="button" class="link-button" data-decision-action="${escapeHtml(action)}">${escapeHtml(decisionActionText(action))}</button>
+    </article>
+  `;
+}
+
+function decisionActionForItem(item) {
+  const key = String(item?.key || "");
+  if (key === "paper_acceptance") return "acceptance";
+  if (key === "evidence_blockers") return item?.status === "blocked" ? "quality" : "market";
+  if (key === "market_review") return "market";
+  if (key === "open_execution") return "execution";
+  if (key === "strategy_proposals") return "hypotheses";
+  return "acceptance";
+}
+
+function onDecisionActionClick(event) {
+  const button = event.target.closest("button[data-decision-action]");
+  if (!button) return;
+  const action = button.dataset.decisionAction;
+  if (action === "refresh") loadNextDayDecisionAndRender();
+  if (action === "execution") setActivePage("execution");
+  if (action === "acceptance") setActivePage("acceptance");
+  if (action === "market") setActivePage("market");
+  if (action === "quality") setActivePage("quality");
+  if (action === "hypotheses") setActivePage("hypotheses");
+}
+
 function renderPaperAcceptance() {
   const acceptance = paperAcceptanceData();
   els.acceptanceDateLabel.textContent = acceptance
@@ -1857,6 +2117,74 @@ function acceptanceAlertList(acceptance, history) {
     seen.add(key);
     return true;
   });
+}
+
+function renderOpsHistory() {
+  const history = opsHistoryData();
+  const items = Array.isArray(history?.items) ? history.items : [];
+  els.opsHistorySummary.textContent = history?.summary || "暂无 ops run history；该视图不会主动运行远端命令。";
+  els.opsHistoryCounts.innerHTML = opsHistoryCountChips(history?.counts || {});
+  els.opsHistoryList.innerHTML = items.length
+    ? items.map(opsHistoryCard).join("")
+    : emptyState("暂无 pipeline / backup / release / health / timer evidence 历史。");
+}
+
+function opsHistoryData() {
+  return state.opsHistory || null;
+}
+
+function opsHistoryCountChips(counts) {
+  const entries = [
+    ["daily_pipeline", "pipeline"],
+    ["pipeline_step", "step"],
+    ["backup", "backup"],
+    ["release", "release"],
+    ["health", "health"],
+    ["paper_acceptance", "acceptance"],
+    ["timer_evidence", "timer evidence"],
+    ["timer_action", "timer action"],
+  ];
+  const chips = entries
+    .filter(([key]) => Number(counts[key] || 0) > 0)
+    .map(([key, label]) => chipHtml(`${label} ${counts[key]}`, opsHistoryCategoryClass(key)));
+  return chips.length ? chips.join("") : chipHtml("0", "chip-neutral");
+}
+
+function opsHistoryCard(item) {
+  const details = item.details || {};
+  const detailRows = [
+    ["来源", item.source],
+    ["日期", displayDate(item.as_of_date)],
+    ["操作者", item.operator || "-"],
+    ["operation", item.operation_type || "-"],
+    ["log", item.log_file || "-"],
+    ["backup", details.backup_path || "-"],
+    ["duplicate", details.duplicate_apply_count ?? "-"],
+    ["health", details.health_url || details.health_command || "-"],
+    ["release", details.release_tag || "-"],
+  ].filter(([, value]) => value !== "-" && value !== "" && value !== null && value !== undefined);
+  return `
+    <article class="ops-history-card ops-history-card--${escapeHtml(item.category || "operation")}">
+      <div class="ops-history-card__head">
+        <div>
+          <strong>${escapeHtml(item.title || opsHistoryCategoryText(item.category))}</strong>
+          <span>${escapeHtml(displayTimestamp(item.occurred_at) || displayDate(item.as_of_date))}</span>
+        </div>
+        <div class="ops-history-card__chips">
+          ${chipHtml(opsHistoryCategoryText(item.category), opsHistoryCategoryClass(item.category))}
+          ${chipHtml(opsHistoryStatusText(item.status), opsHistoryStatusClass(item.status))}
+        </div>
+      </div>
+      <p>${escapeHtml(item.summary || "-")}</p>
+      ${detailRows.length ? `
+        <div class="ops-history-card__details">
+          ${detailRows.slice(0, 6).map(([label, value]) => `
+            <span><b>${escapeHtml(label)}</b>${escapeHtml(String(value))}</span>
+          `).join("")}
+        </div>
+      ` : ""}
+    </article>
+  `;
 }
 
 function acceptanceGateCard(gate) {
@@ -2246,10 +2574,17 @@ function renderStrategyHypothesisSummary(summary) {
     ["可进入接受复核", integerText(summary.ready_to_accept_count || 0)],
     ["待 strategy-version task", integerText(summary.strategy_version_task_required_count || 0)],
     ["待 proposal artifact", integerText(summary.proposal_required_count || 0)],
+    ["待 proposal review", integerText(summary.proposal_review_required_count || 0)],
     ["proposal ready", integerText(summary.proposal_ready_count || 0)],
+    ["review artifacts", integerText(summary.proposal_review_artifact_count || 0)],
+    ["promotion requests", integerText(summary.promotion_request_count || 0)],
     ["Backtest artifacts", integerText(summary.artifact_count || 0)],
     ["Proposal artifacts", integerText(summary.proposal_artifact_count || 0)],
-    ["异常 artifacts", integerText((summary.invalid_artifact_count || 0) + (summary.invalid_proposal_artifact_count || 0))],
+    ["异常 artifacts", integerText(
+      (summary.invalid_artifact_count || 0)
+      + (summary.invalid_proposal_artifact_count || 0)
+      + (summary.invalid_proposal_review_artifact_count || 0),
+    )],
   ]);
 }
 
@@ -2286,7 +2621,9 @@ function renderStrategyHypothesisSafety(safety) {
       ["paper/live 行为", safety.writes_paper_live_behavior ? "会改变" : "不改变"],
       ["accepted 后续", safety.accepted_creates_separate_strategy_version_task ? "单独 proposal" : "-"],
       ["proposal_artifacts_only", safety.proposal_artifacts_only ? "是" : "-"],
+      ["proposal_review_artifacts_only", safety.proposal_review_artifacts_only ? "是" : "-"],
       ["API", "/api/strategy-hypotheses/workbench"],
+      ["Review API", "/api/strategy-hypotheses/proposal-reviews"],
     ])}
   `;
 }
@@ -2303,6 +2640,8 @@ function renderStrategyHypothesisCard(evaluation) {
   const safety = evaluation.safety || {};
   const artifactCount = (evaluation.backtest_artifacts || []).length;
   const proposalCount = (evaluation.strategy_version_proposals || []).length;
+  const proposalReviewCount = (evaluation.strategy_version_proposal_reviews || []).length;
+  const latestReview = latestStrategyProposalReview(evaluation);
   const gateClass = safety.proposed_change_mutates_active_params || safety.artifact_reports_active_param_mutation
     ? "chip-red"
     : gate.can_accept
@@ -2330,12 +2669,15 @@ function renderStrategyHypothesisCard(evaluation) {
         ${chipHtml(artifactCount ? `${artifactCount} artifact` : "缺 backtest artifact", artifactCount ? "chip-blue" : "chip-amber")}
         ${chipHtml(gate.backtest_artifacts_valid ? "artifact 有效" : "artifact 待确认", gate.backtest_artifacts_valid ? "chip-green" : "chip-neutral")}
         ${chipHtml(proposalCount ? `${proposalCount} proposal` : "缺 proposal artifact", proposalCount ? "chip-indigo" : "chip-neutral")}
+        ${chipHtml(proposalReviewCount ? `${proposalReviewCount} review` : "待 proposal review", proposalReviewCount ? "chip-blue" : "chip-neutral")}
+        ${chipHtml(latestReview?.decision ? proposalReviewDecisionText(latestReview.decision) : "未请求 promotion", latestReview?.decision ? proposalReviewDecisionClass(latestReview.decision) : "chip-neutral")}
         ${chipHtml(gate.can_accept ? "可接受复核" : gate.accepted_complete ? "accepted 完整" : "gate 未完成", gateClass)}
       </div>
       <div class="row-actions">
         <button type="button" data-strategy-hypothesis-id="${escapeHtml(hypothesis.hypothesis_id)}">评估详情</button>
         <button type="button" data-page-jump="market">回到全市场</button>
       </div>
+      ${strategyProposalReviewButtons(evaluation)}
     </article>
   `;
 }
@@ -3074,14 +3416,17 @@ function renderQuality() {
 function renderBadges() {
   const blockers = blockingEvents().length;
   const acceptance = paperAcceptanceData();
+  const decision = nextDayDecisionData();
   const acceptanceBlockers = acceptanceBlockerList(acceptance).length;
   const activePlans = state.tradePlans.filter((plan) => plan.status === "active").length;
   const draftPlans = state.tradePlans.filter((plan) => plan.status === "draft").length;
   const due = duePositions().length;
   els.executionBadge.textContent = String(todaysBuyPlans().filter((plan) => plan.status === "active").length + due);
+  els.decisionBadge.textContent = decision?.blocker_count ? String(decision.blocker_count) : decisionStatusText(decision?.status);
   els.reviewBadge.textContent = blockers ? String(blockers) : state.report?.buy_plan ? "1" : "0";
   els.marketBadge.textContent = state.marketReview?.exists ? String(state.marketSectors.length || 1) : "0";
   els.acceptanceBadge.textContent = acceptanceBlockers ? String(acceptanceBlockers) : acceptanceStatusText(acceptance?.status);
+  els.opsBadge.textContent = String(state.opsHistory?.items?.length || 0);
   els.hypothesesBadge.textContent = String(state.strategyHypothesisWorkbench?.summary?.total || 0);
   els.plansBadge.textContent = String(activePlans + draftPlans);
   els.recordBadge.textContent = String(activePlans + due);
@@ -3191,6 +3536,12 @@ function onStrategyHypothesisWorkbenchClick(event) {
     setActivePage(pageButton.dataset.pageJump);
     return;
   }
+  const reviewButton = event.target.closest("button[data-strategy-proposal-review]");
+  if (reviewButton) {
+    const evaluation = findStrategyHypothesisEvaluation(Number(reviewButton.dataset.strategyHypothesisId));
+    if (evaluation) reviewStrategyVersionProposal(evaluation, reviewButton.dataset.strategyProposalReview);
+    return;
+  }
   const button = event.target.closest("button[data-strategy-hypothesis-id]");
   if (!button) return;
   const evaluation = findStrategyHypothesisEvaluation(Number(button.dataset.strategyHypothesisId));
@@ -3211,6 +3562,10 @@ function onDrawerActionClick(event) {
   if (action === "candidate") openCandidateDrawer();
   if (action === "agent") openAgentDrawer();
   if (action === "market-news") openMarketNewsDrawer(button.dataset.scopeType, button.dataset.scopeKey);
+  if (action === "strategy-proposal-review") {
+    const evaluation = findStrategyHypothesisEvaluation(Number(button.dataset.strategyHypothesisId));
+    if (evaluation) reviewStrategyVersionProposal(evaluation, button.dataset.decision);
+  }
   if (action === "record-plan" && plan) selectPlan(plan, { openRecordPage: true });
   if (action === "publish-plan" && planId) publishPlan(planId);
   if (action === "cancel-plan" && planId) cancelPlan(planId);
@@ -3612,6 +3967,7 @@ function openStrategyHypothesisEvaluationDrawer(evaluation) {
     actions: [
       { label: "假设评估页", action: "page", page: "hypotheses" },
       { label: "全市场页", action: "page", page: "market" },
+      ...strategyProposalReviewDrawerActions(evaluation),
     ],
     sections: [
       detailSection("Acceptance gate", strategyHypothesisGateRows(evaluation)),
@@ -3628,12 +3984,17 @@ function openStrategyHypothesisEvaluationDrawer(evaluation) {
         "Strategy-version proposal artifacts",
         strategyHypothesisProposalRows(evaluation.strategy_version_proposals || []),
       ),
+      detailSection(
+        "Proposal review / promotion-request artifacts",
+        strategyHypothesisProposalReviewRows(evaluation.strategy_version_proposal_reviews || []),
+      ),
       detailSection("Validation events", strategyHypothesisValidationEvents(evaluation.validation_events || [])),
       detailSection("Safety", detailRows([
         ["只读评估", safety.read_only_evaluation ? "是" : "-"],
         ["拟议变更是否改 active params", safety.proposed_change_mutates_active_params ? "是" : "否"],
         ["artifact 是否报告 active param mutation", safety.artifact_reports_active_param_mutation ? "是" : "否"],
         ["proposal 是否 artifact-only", safety.proposal_artifacts_only ? "是" : "-"],
+        ["proposal review 是否 artifact-only", safety.proposal_review_artifacts_only ? "是" : "-"],
         ["proposal 是否写 strategy_versions", safety.proposal_wrote_strategy_versions ? "是" : "否"],
         ["本工作台写交易状态", safety.writes_trade_state ? "是" : "否"],
         ["本工作台改变 paper/live", safety.writes_paper_live_behavior ? "是" : "否"],
@@ -3700,6 +4061,8 @@ function drawerActionButton(action) {
     `data-drawer-action="${escapeHtml(action.action)}"`,
     action.planId ? `data-plan-id="${escapeHtml(action.planId)}"` : "",
     action.positionId ? `data-position-id="${escapeHtml(action.positionId)}"` : "",
+    action.hypothesisId ? `data-strategy-hypothesis-id="${escapeHtml(action.hypothesisId)}"` : "",
+    action.decision ? `data-decision="${escapeHtml(action.decision)}"` : "",
     action.page ? `data-page="${escapeHtml(action.page)}"` : "",
     action.scopeType ? `data-scope-type="${escapeHtml(action.scopeType)}"` : "",
     action.scopeKey ? `data-scope-key="${escapeHtml(action.scopeKey)}"` : "",
@@ -4301,6 +4664,77 @@ function findStrategyHypothesisEvaluation(id) {
   return strategyHypothesisEvaluations().find((item) => Number(item.hypothesis?.hypothesis_id) === Number(id));
 }
 
+function latestStrategyVersionProposal(evaluation) {
+  const proposals = evaluation?.strategy_version_proposals || [];
+  return proposals.length ? proposals[proposals.length - 1] : null;
+}
+
+function latestStrategyProposalReview(evaluation) {
+  const reviews = evaluation?.strategy_version_proposal_reviews || [];
+  return reviews.length ? reviews[reviews.length - 1] : null;
+}
+
+function strategyProposalReviewButtons(evaluation) {
+  const actions = strategyProposalReviewActions(evaluation);
+  if (!actions.length) return "";
+  const hypothesisId = evaluation?.hypothesis?.hypothesis_id;
+  return `
+    <div class="proposal-review-actions" aria-label="proposal review artifact actions">
+      ${actions.map((action) => `
+        <button
+          type="button"
+          data-strategy-hypothesis-id="${escapeHtml(hypothesisId)}"
+          data-strategy-proposal-review="${escapeHtml(action.decision)}"
+          ${action.disabled ? "disabled" : ""}
+          title="${escapeHtml(action.title)}"
+        >${escapeHtml(action.label)}</button>
+      `).join("")}
+    </div>
+  `;
+}
+
+function strategyProposalReviewActions(evaluation) {
+  const hypothesis = evaluation?.hypothesis || {};
+  const proposals = evaluation?.strategy_version_proposals || [];
+  if (hypothesis.status !== "accepted" || !proposals.length) return [];
+  const hasValidProposal = proposals.some((proposal) => proposal.valid);
+  const latestReview = latestStrategyProposalReview(evaluation);
+  return [
+    {
+      decision: "approve",
+      label: "批准 proposal",
+      title: "写入 proposal review artifact，不创建策略版本。",
+      disabled: !hasValidProposal || latestReview?.decision === "request_promotion",
+    },
+    {
+      decision: "reject",
+      label: "拒绝 artifact",
+      title: "写入 rejection review artifact，active strategy 不变。",
+      disabled: latestReview?.decision === "request_promotion",
+    },
+    {
+      decision: "request_promotion",
+      label: "生成 promotion-request",
+      title: "写入 promotion-request artifact，不创建/提升 strategy_version。",
+      disabled: !hasValidProposal || latestReview?.decision === "request_promotion",
+    },
+  ];
+}
+
+function strategyProposalReviewDrawerActions(evaluation) {
+  const hypothesisId = evaluation?.hypothesis?.hypothesis_id;
+  if (!hypothesisId) return [];
+  return strategyProposalReviewActions(evaluation).map((action) => ({
+    label: action.label,
+    action: "strategy-proposal-review",
+    hypothesisId,
+    decision: action.decision,
+    disabled: action.disabled,
+    title: action.title,
+    primary: action.decision === "request_promotion",
+  }));
+}
+
 function strategyHypothesisQueueSort(a, b) {
   const priority = {
     reject_or_rewrite: 0,
@@ -4311,8 +4745,13 @@ function strategyHypothesisQueueSort(a, b) {
     move_to_testing: 5,
     create_strategy_version_proposal: 6,
     fix_strategy_version_proposal: 7,
-    proposal_ready: 8,
-    strategy_version_task_required: 9,
+    review_strategy_version_proposal: 8,
+    fix_strategy_version_proposal_review: 9,
+    request_strategy_promotion: 10,
+    promotion_requested: 11,
+    proposal_rejected: 12,
+    proposal_ready: 13,
+    strategy_version_task_required: 14,
   };
   const aPriority = priority[a.next_action] ?? 99;
   const bPriority = priority[b.next_action] ?? 99;
@@ -4387,6 +4826,42 @@ function strategyHypothesisProposalRows(artifacts) {
               <td>${chipHtml(artifact.valid ? "有效" : artifact.exists ? "无效" : "缺失", artifact.valid ? "chip-green" : "chip-red")}</td>
               <td>${escapeHtml(artifact.proposal_key || "-")}</td>
               <td>${escapeHtml(artifact.candidate_strategy_version || "-")}</td>
+              <td>${artifact.wrote_strategy_versions ? "写 strategy_versions" : "artifact-only"}</td>
+              <td>${escapeHtml(artifact.error || "-")}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function strategyHypothesisProposalReviewRows(artifacts) {
+  if (!artifacts.length) {
+    return emptyState("暂无 proposal review artifact；可 approve、reject 或生成 promotion-request artifact。");
+  }
+  return `
+    <div class="table-wrap market-leadership-table">
+      <table>
+        <thead>
+          <tr>
+            <th>路径</th>
+            <th>状态</th>
+            <th>Decision</th>
+            <th>Review key</th>
+            <th>Promotion request</th>
+            <th>安全边界</th>
+            <th>错误</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${artifacts.map((artifact) => `
+            <tr>
+              <td>${escapeHtml(artifact.path || "-")}</td>
+              <td>${chipHtml(artifact.valid ? "有效" : artifact.exists ? "无效" : "缺失", artifact.valid ? "chip-green" : "chip-red")}</td>
+              <td>${chipHtml(proposalReviewDecisionText(artifact.decision), proposalReviewDecisionClass(artifact.decision))}</td>
+              <td>${escapeHtml(artifact.review_key || "-")}</td>
+              <td>${escapeHtml(artifact.promotion_request_key || "-")}</td>
               <td>${artifact.wrote_strategy_versions ? "写 strategy_versions" : "artifact-only"}</td>
               <td>${escapeHtml(artifact.error || "-")}</td>
             </tr>
@@ -4595,7 +5070,7 @@ function defaultReviewDate() {
 
 function initialPage() {
   const page = String(window.location.hash || "").replace(/^#/, "");
-  return ["execution", "review", "market", "acceptance", "hypotheses", "plans", "record", "positions", "quality", "agent"].includes(page)
+  return ["execution", "decision", "review", "market", "acceptance", "ops", "hypotheses", "plans", "record", "positions", "quality", "agent"].includes(page)
     ? page
     : "execution";
 }
@@ -4727,6 +5202,90 @@ function acceptanceStatusClass(value) {
     warning: "chip-amber",
     blocked: "chip-red",
   }[value] || "chip-neutral";
+}
+
+function decisionStatusText(value) {
+  return {
+    ready: "就绪",
+    review_required: "需复核",
+    blocked: "阻断",
+  }[value] || "-";
+}
+
+function decisionItemStatusText(value) {
+  return {
+    pass: "通过",
+    warning: "警告",
+    blocked: "阻断",
+  }[value] || decisionStatusText(value);
+}
+
+function decisionStatusClass(value) {
+  return {
+    ready: "chip-green",
+    review_required: "chip-amber",
+    blocked: "chip-red",
+  }[value] || acceptanceStatusClass(value);
+}
+
+function decisionActionText(value) {
+  return {
+    execution: "开盘执行",
+    acceptance: "运营验收",
+    market: "全市场",
+    quality: "数据质量",
+    hypotheses: "假设评估",
+    refresh: "刷新",
+  }[value] || "查看";
+}
+
+function opsHistoryCategoryText(value) {
+  return {
+    daily_pipeline: "pipeline",
+    pipeline_step: "pipeline step",
+    backup: "backup",
+    release: "release",
+    health: "health",
+    paper_acceptance: "acceptance",
+    timer_evidence: "timer evidence",
+    timer_action: "timer action",
+    operation: "operation",
+  }[value] || dash(value);
+}
+
+function opsHistoryCategoryClass(value) {
+  return {
+    daily_pipeline: "chip-blue",
+    pipeline_step: "chip-indigo",
+    backup: "chip-amber",
+    release: "chip-green",
+    health: "chip-agent",
+    paper_acceptance: "chip-blue",
+    timer_evidence: "chip-amber",
+    timer_action: "chip-indigo",
+  }[value] || "chip-neutral";
+}
+
+function opsHistoryStatusText(value) {
+  return {
+    pass: "通过",
+    success: "成功",
+    ready: "ready",
+    artifact: "artifact",
+    recorded: "已记录",
+    blocked: "阻断",
+    failed: "失败",
+    not_evaluated: "未评估",
+    preview: "preview",
+    observed: "observed",
+  }[value] || dash(value);
+}
+
+function opsHistoryStatusClass(value) {
+  if (["pass", "success", "ready", "recorded", "artifact"].includes(value)) return "chip-green";
+  if (["blocked", "failed"].includes(value)) return "chip-red";
+  if (["not_evaluated", "preview", "observed"].includes(value)) return "chip-amber";
+  return "chip-neutral";
 }
 
 function statusText(value) {
@@ -4929,6 +5488,55 @@ function hypothesisStatusClass(value) {
   }[value] || "chip-neutral";
 }
 
+function proposalReviewConfirmTitle(decision) {
+  return {
+    approve: "批准 strategy-version proposal artifact",
+    reject: "拒绝 strategy-version proposal artifact",
+    request_promotion: "生成 promotion-request artifact",
+  }[decision] || "审阅 strategy-version proposal artifact";
+}
+
+function proposalReviewConfirmBody(decision, hypothesis) {
+  const title = hypothesis?.title || `假设 ${hypothesis?.hypothesis_id || "-"}`;
+  return {
+    approve: `将批准 proposal artifact：${title}。只写 review artifact，不创建策略版本。`,
+    reject: `将拒绝 proposal artifact：${title}。只写 rejection artifact，不改变策略状态。`,
+    request_promotion: `将为 ${title} 生成 promotion-request artifact。后续仍需单独任务创建或提升候选策略版本。`,
+  }[decision] || `将审阅 proposal artifact：${title}。`;
+}
+
+function proposalReviewQuickChoices(decision) {
+  return {
+    approve: ["证据完整，允许进入 promotion request", "artifact-only 边界已核对"],
+    reject: ["证据不足，拒绝 proposal", "安全边界不清晰，退回重写"],
+    request_promotion: ["请求创建候选 strategy version", "请求进入独立 promotion gate"],
+  }[decision] || ["人工审阅完成"];
+}
+
+function proposalReviewDefaultNote(decision) {
+  return {
+    approve: "Approved proposal artifact for separate promotion request review.",
+    reject: "Rejected proposal artifact; active strategy remains unchanged.",
+    request_promotion: "Requested explicit promotion artifact; candidate creation remains a separate task.",
+  }[decision] || "Reviewed proposal artifact.";
+}
+
+function proposalReviewDecisionText(value) {
+  return {
+    approve: "proposal approved",
+    reject: "proposal rejected",
+    request_promotion: "promotion requested",
+  }[value] || dash(value);
+}
+
+function proposalReviewDecisionClass(value) {
+  return {
+    approve: "chip-green",
+    reject: "chip-red",
+    request_promotion: "chip-indigo",
+  }[value] || "chip-neutral";
+}
+
 function hypothesisNextActionText(value) {
   return {
     move_to_testing: "进入 testing",
@@ -4939,6 +5547,11 @@ function hypothesisNextActionText(value) {
     ready_to_accept: "可接受复核",
     create_strategy_version_proposal: "创建 proposal",
     fix_strategy_version_proposal: "修复 proposal",
+    review_strategy_version_proposal: "审阅 proposal",
+    fix_strategy_version_proposal_review: "修复 review artifact",
+    request_strategy_promotion: "请求 promotion",
+    promotion_requested: "promotion requested",
+    proposal_rejected: "proposal rejected",
     proposal_ready: "proposal ready",
     strategy_version_task_required: "单独策略版本任务",
     reject_or_rewrite: "拒绝或重写",
@@ -4958,6 +5571,11 @@ function hypothesisNextActionClass(value) {
     ready_to_accept: "chip-green",
     create_strategy_version_proposal: "chip-indigo",
     fix_strategy_version_proposal: "chip-red",
+    review_strategy_version_proposal: "chip-indigo",
+    fix_strategy_version_proposal_review: "chip-red",
+    request_strategy_promotion: "chip-indigo",
+    promotion_requested: "chip-green",
+    proposal_rejected: "chip-red",
     proposal_ready: "chip-green",
     strategy_version_task_required: "chip-indigo",
     reject_or_rewrite: "chip-red",
@@ -5337,7 +5955,7 @@ function actionMetrics(items) {
   return `
     <div class="action-meta">
       ${items.map(([label, value]) => `
-        <div class="metric"><span>${escapeHtml(label)}</span><strong>${String(value)}</strong></div>
+        <div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></div>
       `).join("")}
     </div>
   `;

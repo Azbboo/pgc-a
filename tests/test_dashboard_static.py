@@ -30,7 +30,7 @@ class DashboardStaticTest(unittest.TestCase):
             ]
         )
 
-        for label in ["开盘执行", "每日复盘", "运营验收", "交易计划", "成交录入", "当前持仓", "数据质量", "Agent 复核"]:
+        for label in ["开盘执行", "决策驾驶舱", "每日复盘", "运营验收", "运维历史", "交易计划", "成交录入", "当前持仓", "数据质量", "Agent 复核"]:
             self.assertIn(label, source)
         self.assertIn("T+2", source)
         self.assertIn("T+5", source)
@@ -43,6 +43,8 @@ class DashboardStaticTest(unittest.TestCase):
             "/api/daily-reviews/",
             "/api/paper-acceptance/",
             "/api/paper-acceptance-history",
+            "/api/next-day-decision-cockpit/",
+            "/api/ops-history",
             "/api/review-timeline",
             "/api/trade-plans",
             "/api/open-execution",
@@ -58,6 +60,35 @@ class DashboardStaticTest(unittest.TestCase):
         self.assertNotIn("sqlite", script.lower())
         self.assertNotIn("pgc_trading.db", script)
         self.assertNotIn("data/pgc", script)
+
+    def test_dashboard_m65_ops_history_is_visible_and_read_only(self) -> None:
+        source = "\n".join(
+            [
+                (DASHBOARD_DIR / "index.html").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "styles.css").read_text(encoding="utf-8"),
+            ]
+        )
+
+        for label in [
+            "运维历史",
+            "Ops run history",
+            "pipeline runs",
+            "backups",
+            "release tags",
+            "remote health",
+            "paper acceptance snapshots",
+            "timer dry-run evidence attempts",
+            "不会启用 timer、重跑 apply、创建交易或修改策略状态",
+            'id="opsHistoryList"',
+            'id="opsHistoryCounts"',
+        ]:
+            self.assertIn(label, source)
+        self.assertIn("/api/ops-history", source)
+        self.assertIn("function loadOpsHistory", source)
+        self.assertIn("function renderOpsHistory", source)
+        self.assertIn("function opsHistoryCard", source)
+        self.assertIn(".ops-history-card", source)
 
     def test_dashboard_p1_execution_workbench_is_visible(self) -> None:
         source = "\n".join(
@@ -505,6 +536,50 @@ class DashboardStaticTest(unittest.TestCase):
         self.assertNotIn('apiRequest("/api/paper-acceptance", { method: "POST"', script)
         self.assertNotIn('apiRequest("/api/paper-acceptance-history", { method: "POST"', script)
 
+    def test_dashboard_m66_next_day_decision_cockpit_is_read_only(self) -> None:
+        source = "\n".join(
+            [
+                (DASHBOARD_DIR / "index.html").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "styles.css").read_text(encoding="utf-8"),
+            ]
+        )
+        script = (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8")
+
+        for label in [
+            "决策驾驶舱",
+            "下一交易日决策驾驶舱",
+            "系统建议",
+            "策略 proposal",
+            "决策清单",
+            "allowed / blocked / manual review",
+            "Dashboard 不会执行交易、开启 timer 或修改策略参数",
+            "/api/next-day-decision-cockpit/",
+        ]:
+            self.assertIn(label, source)
+        for html_id in [
+            'id="decisionBadge"',
+            'id="decisionDateLabel"',
+            'id="decisionStatusPanel"',
+            'id="decisionSystemProposal"',
+            'id="decisionStrategyProposal"',
+            'id="decisionChecklist"',
+            'id="reloadDecisionButton"',
+        ]:
+            self.assertIn(html_id, source)
+        for fn_name in [
+            "function loadNextDayDecision",
+            "function renderNextDayDecision",
+            "function renderDecisionStrategyProposal",
+            "function decisionChecklistCard",
+            "function decisionStatusText",
+            "function onDecisionActionClick",
+        ]:
+            self.assertIn(fn_name, source)
+        self.assertIn('data-page-button="decision"', source)
+        self.assertNotIn("nextDayDecisionExecute", script)
+        self.assertNotIn('apiRequest("/api/next-day-decision-cockpit", { method: "POST"', script)
+
     def test_dashboard_m48_market_interactions_are_read_only_and_cross_day(self) -> None:
         source = "\n".join(
             [
@@ -575,11 +650,21 @@ class DashboardStaticTest(unittest.TestCase):
             "accepted 只代表研究结论",
             "单独创建 strategy-version proposal",
             "Strategy-version proposal artifacts",
+            "Proposal review / promotion-request artifacts",
+            "proposal review",
+            "promotion-request artifacts",
+            "待 proposal review",
+            "review artifacts",
+            "promotion requests",
             "proposal_artifact_count",
             "proposal_ready_count",
+            "proposal_review_artifact_count",
+            "promotion_request_count",
             "proposal_artifacts_only",
+            "proposal_review_artifacts_only",
             "不修改 paper/live 行为",
             "/api/strategy-hypotheses/workbench",
+            "/api/strategy-hypotheses/proposal-reviews",
         ]:
             self.assertIn(label, source)
         for html_id in [
@@ -598,6 +683,11 @@ class DashboardStaticTest(unittest.TestCase):
             "function openStrategyHypothesisEvaluationDrawer",
             "function strategyHypothesisGateRows",
             "function strategyHypothesisProposalRows",
+            "function strategyHypothesisProposalReviewRows",
+            "function reviewStrategyVersionProposal",
+            "function strategyProposalReviewActions",
+            "function strategyProposalReviewButtons",
+            "function proposalReviewDecisionText",
             "function findStrategyHypothesisEvaluation",
             "function hypothesisNextActionText",
         ]:
@@ -605,6 +695,10 @@ class DashboardStaticTest(unittest.TestCase):
         self.assertIn("active_params_mutated", source)
         self.assertIn("writes_trade_state", source)
         self.assertIn("create_strategy_version_proposal", source)
+        self.assertIn("review_strategy_version_proposal", source)
+        self.assertIn("request_strategy_promotion", source)
+        self.assertIn("promotion_requested", source)
+        self.assertIn("data-strategy-proposal-review", source)
         self.assertIn("proposal_ready", source)
         self.assertNotIn("POST /api/strategy-hypotheses", source)
         self.assertNotIn('apiRequest("/api/strategy-hypotheses", { method: "POST"', script)

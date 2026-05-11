@@ -25,6 +25,7 @@ from pgc_trading.storage.database import connect
 
 
 VALID_HYPOTHESIS_STATUSES = {"proposed", "testing", "accepted", "rejected", "archived"}
+VALID_PROPOSAL_REVIEW_DECISIONS = {"approve", "reject", "request_promotion"}
 VALID_HYPOTHESIS_TRANSITIONS = {
     "proposed": {"proposed", "testing", "rejected", "archived"},
     "testing": {"testing", "accepted", "rejected", "archived"},
@@ -71,6 +72,15 @@ class CreateStrategyVersionProposalRequest:
 
 
 @dataclass(frozen=True)
+class CreateStrategyVersionProposalReviewRequest:
+    hypothesis_id: int
+    decision: str
+    review_note: str | None = None
+    proposal_artifact_path: str | None = None
+    output_path: str | None = None
+
+
+@dataclass(frozen=True)
 class StrategyHypothesis:
     as_of_date: str
     hypothesis_type: str
@@ -104,6 +114,7 @@ class StrategyHypothesisEvaluation:
     evidence_ids: list[str] = field(default_factory=list)
     backtest_artifacts: list[StrategyHypothesisBacktestArtifactReview] = field(default_factory=list)
     strategy_version_proposals: list["StrategyVersionProposalArtifactReview"] = field(default_factory=list)
+    strategy_version_proposal_reviews: list["StrategyVersionProposalReviewArtifactReview"] = field(default_factory=list)
     validation_events: list[dict[str, Any]] = field(default_factory=list)
     acceptance_gate: dict[str, Any] = field(default_factory=dict)
     safety: dict[str, Any] = field(default_factory=dict)
@@ -151,6 +162,26 @@ class StrategyVersionProposalArtifactReview:
 
 
 @dataclass(frozen=True)
+class StrategyVersionProposalReviewArtifactReview:
+    path: str
+    exists: bool
+    valid: bool
+    artifact_type: str | None = None
+    hypothesis_id: int | None = None
+    hypothesis_matches: bool = False
+    proposal_key: str | None = None
+    proposal_matches: bool = False
+    review_key: str | None = None
+    decision: str | None = None
+    promotion_request_key: str | None = None
+    active_params_mutated: bool | None = None
+    wrote_strategy_versions: bool | None = None
+    writes_trade_state: bool | None = None
+    writes_paper_live_behavior: bool | None = None
+    error: str | None = None
+
+
+@dataclass(frozen=True)
 class CreateStrategyVersionProposalResult:
     hypothesis_id: int | None = None
     hypothesis_status: str | None = None
@@ -166,6 +197,26 @@ class CreateStrategyVersionProposalResult:
     recorded_hypothesis_validation: bool = False
     validation_evidence_ids: list[str] = field(default_factory=list)
     backtest_artifact_paths: list[str] = field(default_factory=list)
+    artifact: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class CreateStrategyVersionProposalReviewResult:
+    hypothesis_id: int | None = None
+    hypothesis_status: str | None = None
+    decision: str | None = None
+    would_write_artifact: bool = False
+    wrote_artifact: bool = False
+    artifact_path: str | None = None
+    proposal_artifact_path: str | None = None
+    proposal_key: str | None = None
+    review_key: str | None = None
+    promotion_request_key: str | None = None
+    active_params_mutated: bool = False
+    wrote_strategy_version: bool = False
+    writes_trade_state: bool = False
+    writes_paper_live_behavior: bool = False
+    recorded_hypothesis_validation: bool = False
     artifact: dict[str, Any] = field(default_factory=dict)
 
 
@@ -334,6 +385,8 @@ class StrategyEvolutionService:
                     "tables": ["strategy_hypotheses"],
                     "artifact_type": "strategy_hypothesis_backtest_request",
                     "proposal_artifact_type": "strategy_version_proposal",
+                    "proposal_review_artifact_type": "strategy_version_proposal_review",
+                    "promotion_request_artifact_type": "strategy_version_promotion_request",
                     "as_of_date": request.as_of_date,
                     "status": request.status,
                     "limit": request.limit,
@@ -345,6 +398,8 @@ class StrategyEvolutionService:
                     "writes_paper_live_behavior": False,
                     "accepted_creates_separate_strategy_version_task": True,
                     "proposal_artifacts_only": True,
+                    "proposal_review_artifacts_only": True,
+                    "promotion_request_artifacts_only": True,
                 },
             ),
             lineage={"as_of_date": request.as_of_date, "status": request.status},
@@ -615,6 +670,170 @@ class StrategyEvolutionService:
             },
         )
 
+    def create_strategy_version_proposal_review(
+        self,
+        request: CreateStrategyVersionProposalReviewRequest,
+        ctx: RequestContext,
+    ) -> ServiceResult[CreateStrategyVersionProposalReviewResult]:
+        validation_errors = _validate_strategy_version_proposal_review_request(request)
+        if validation_errors:
+            return ServiceResult(
+                status="validation_failed",
+                request_id=ctx.request_id,
+                data=CreateStrategyVersionProposalReviewResult(decision=request.decision),
+                errors=validation_errors,
+            )
+
+        with connect(self.db_path) as conn:
+            hypothesis = _get_hypothesis(conn, request.hypothesis_id)
+            if hypothesis is None:
+                return ServiceResult(
+                    status="validation_failed",
+                    request_id=ctx.request_id,
+                    data=CreateStrategyVersionProposalReviewResult(
+                        hypothesis_id=request.hypothesis_id,
+                        decision=request.decision,
+                    ),
+                    errors=[
+                        ServiceError(
+                            code="HYPOTHESIS_NOT_FOUND",
+                            message=f"strategy hypothesis id={request.hypothesis_id} was not found.",
+                            entity_type="strategy_hypothesis",
+                            entity_id=request.hypothesis_id,
+                        )
+                    ],
+                )
+
+            proposal_artifact_path = _proposal_artifact_path_for_review(hypothesis, request.proposal_artifact_path)
+            proposal_review = (
+                review_strategy_version_proposal_artifact(
+                    proposal_artifact_path,
+                    expected_hypothesis_id=request.hypothesis_id,
+                )
+                if proposal_artifact_path is not None
+                else None
+            )
+            review_errors = _validate_strategy_version_proposal_review_gate(
+                hypothesis,
+                request,
+                proposal_review,
+            )
+            if review_errors:
+                return ServiceResult(
+                    status="validation_failed",
+                    request_id=ctx.request_id,
+                    data=CreateStrategyVersionProposalReviewResult(
+                        hypothesis_id=request.hypothesis_id,
+                        hypothesis_status=hypothesis.status,
+                        decision=request.decision,
+                        proposal_artifact_path=str(proposal_artifact_path) if proposal_artifact_path else None,
+                    ),
+                    errors=review_errors,
+                    lineage={
+                        "hypothesis_id": request.hypothesis_id,
+                        "hypothesis_status": hypothesis.status,
+                        "decision": request.decision,
+                    },
+                )
+
+        if proposal_review is None:
+            raise RuntimeError("proposal review gate returned no errors without a proposal artifact path")
+        artifact = _build_strategy_version_proposal_review_artifact(
+            hypothesis=hypothesis,
+            proposal_review=proposal_review,
+            decision=request.decision,
+            review_note=request.review_note,
+            operator=ctx.operator,
+            idempotency_key=ctx.idempotency_key,
+        )
+        artifact_path = self._strategy_version_proposal_review_artifact_path(request)
+        review = artifact.get("review", {})
+        promotion_request = artifact.get("promotion_request", {})
+        review_key = review.get("review_key") if isinstance(review, dict) else None
+        proposal_key = review.get("proposal_key") if isinstance(review, dict) else None
+        promotion_request_key = (
+            promotion_request.get("request_key") if isinstance(promotion_request, dict) else None
+        )
+
+        if ctx.dry_run:
+            return ServiceResult(
+                status="success",
+                request_id=ctx.request_id,
+                data=CreateStrategyVersionProposalReviewResult(
+                    hypothesis_id=request.hypothesis_id,
+                    hypothesis_status=hypothesis.status,
+                    decision=request.decision,
+                    would_write_artifact=True,
+                    wrote_artifact=False,
+                    artifact_path=None,
+                    proposal_artifact_path=proposal_review.path,
+                    proposal_key=str(proposal_key) if proposal_key is not None else None,
+                    review_key=str(review_key) if review_key is not None else None,
+                    promotion_request_key=(
+                        str(promotion_request_key) if promotion_request_key is not None else None
+                    ),
+                    active_params_mutated=False,
+                    wrote_strategy_version=False,
+                    writes_trade_state=False,
+                    writes_paper_live_behavior=False,
+                    recorded_hypothesis_validation=False,
+                    artifact=artifact,
+                ),
+                warnings=[
+                    ServiceWarning(
+                        code="STRATEGY_VERSION_PROPOSAL_REVIEW_DRY_RUN",
+                        message=(
+                            "Strategy-version proposal review artifact was built in memory only; no file, "
+                            "strategy version, params, or trade state was written."
+                        ),
+                    )
+                ],
+                lineage={
+                    "hypothesis_id": request.hypothesis_id,
+                    "hypothesis_status": hypothesis.status,
+                    "decision": request.decision,
+                    "artifact_path": str(artifact_path),
+                },
+            )
+
+        self._write_strategy_version_proposal_review_artifact(artifact_path, artifact)
+        _record_strategy_version_proposal_review_artifact(
+            self.db_path,
+            request.hypothesis_id,
+            artifact_path,
+            artifact,
+            ctx.operator,
+        )
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data=CreateStrategyVersionProposalReviewResult(
+                hypothesis_id=request.hypothesis_id,
+                hypothesis_status=hypothesis.status,
+                decision=request.decision,
+                would_write_artifact=True,
+                wrote_artifact=True,
+                artifact_path=str(artifact_path),
+                proposal_artifact_path=proposal_review.path,
+                proposal_key=str(proposal_key) if proposal_key is not None else None,
+                review_key=str(review_key) if review_key is not None else None,
+                promotion_request_key=str(promotion_request_key) if promotion_request_key is not None else None,
+                active_params_mutated=False,
+                wrote_strategy_version=False,
+                writes_trade_state=False,
+                writes_paper_live_behavior=False,
+                recorded_hypothesis_validation=True,
+                artifact=artifact,
+            ),
+            created_ids={"strategy_version_proposal_review_artifact": request.hypothesis_id},
+            lineage={
+                "hypothesis_id": request.hypothesis_id,
+                "hypothesis_status": hypothesis.status,
+                "decision": request.decision,
+                "artifact_path": str(artifact_path),
+            },
+        )
+
     def _strategy_version_proposal_artifact_path(self, request: CreateStrategyVersionProposalRequest) -> Path:
         if request.output_path is not None:
             return Path(request.output_path).expanduser()
@@ -625,6 +844,28 @@ class StrategyEvolutionService:
         )
 
     def _write_strategy_version_proposal_artifact(self, path: Path, artifact: dict[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_json_dumps(artifact) + "\n", encoding="utf-8")
+
+    def _strategy_version_proposal_review_artifact_path(
+        self,
+        request: CreateStrategyVersionProposalReviewRequest,
+    ) -> Path:
+        if request.output_path is not None:
+            return Path(request.output_path).expanduser()
+        if request.decision == "request_promotion":
+            return (
+                self.reports_dir
+                / "strategy_promotion_requests"
+                / f"hypothesis_{request.hypothesis_id}_strategy_promotion_request.json"
+            )
+        return (
+            self.reports_dir
+            / "strategy_proposal_reviews"
+            / f"hypothesis_{request.hypothesis_id}_strategy_proposal_{request.decision}.json"
+        )
+
+    def _write_strategy_version_proposal_review_artifact(self, path: Path, artifact: dict[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(_json_dumps(artifact) + "\n", encoding="utf-8")
 
@@ -678,6 +919,23 @@ def _validate_strategy_version_proposal_request(
     errors: list[ServiceError] = []
     if request.hypothesis_id < 1:
         errors.append(ServiceError(code="VALIDATION_ERROR", message="hypothesis_id must be greater than zero."))
+    if request.output_path is not None and not str(request.output_path).strip():
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="output_path must not be blank."))
+    return errors
+
+
+def _validate_strategy_version_proposal_review_request(
+    request: CreateStrategyVersionProposalReviewRequest,
+) -> list[ServiceError]:
+    errors: list[ServiceError] = []
+    if request.hypothesis_id < 1:
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="hypothesis_id must be greater than zero."))
+    if request.decision not in VALID_PROPOSAL_REVIEW_DECISIONS:
+        errors.append(ServiceError(code="VALIDATION_ERROR", message=f"invalid proposal review decision: {request.decision}"))
+    if request.review_note is not None and not request.review_note.strip():
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="review_note must not be blank."))
+    if request.proposal_artifact_path is not None and not str(request.proposal_artifact_path).strip():
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="proposal_artifact_path must not be blank."))
     if request.output_path is not None and not str(request.output_path).strip():
         errors.append(ServiceError(code="VALIDATION_ERROR", message="output_path must not be blank."))
     return errors
@@ -803,6 +1061,52 @@ def _validate_strategy_version_proposal_gate(
             )
         ]
     return []
+
+
+def _validate_strategy_version_proposal_review_gate(
+    hypothesis: StrategyHypothesis,
+    request: CreateStrategyVersionProposalReviewRequest,
+    proposal_review: StrategyVersionProposalArtifactReview | None,
+) -> list[ServiceError]:
+    errors: list[ServiceError] = []
+    if hypothesis.status != "accepted":
+        errors.append(
+            ServiceError(
+                code="PROPOSAL_REVIEW_REQUIRES_ACCEPTED_HYPOTHESIS",
+                message="strategy-version proposal reviews can only be created for accepted hypotheses.",
+                entity_type="strategy_hypothesis",
+                entity_id=hypothesis.hypothesis_id,
+            )
+        )
+    if proposal_review is None:
+        errors.append(
+            ServiceError(
+                code="PROPOSAL_REVIEW_REQUIRES_PROPOSAL_ARTIFACT",
+                message="proposal review requires an explicit or recorded strategy_version_proposal artifact.",
+                entity_type="strategy_hypothesis",
+                entity_id=hypothesis.hypothesis_id,
+            )
+        )
+        return errors
+    if not proposal_review.exists:
+        errors.append(
+            ServiceError(
+                code="PROPOSAL_ARTIFACT_NOT_FOUND",
+                message=f"strategy-version proposal artifact was not found: {proposal_review.path}",
+                entity_type="strategy_hypothesis",
+                entity_id=hypothesis.hypothesis_id,
+            )
+        )
+    if request.decision in {"approve", "request_promotion"} and not proposal_review.valid:
+        errors.append(
+            ServiceError(
+                code="PROPOSAL_REVIEW_REQUIRES_VALID_PROPOSAL",
+                message="approval and promotion requests require a valid artifact-only strategy-version proposal.",
+                entity_type="strategy_hypothesis",
+                entity_id=hypothesis.hypothesis_id,
+            )
+        )
+    return errors
 
 
 def _append_validation_event(
@@ -967,6 +1271,220 @@ def review_strategy_version_proposal_artifact(
     )
 
 
+def review_strategy_version_proposal_review_artifact(
+    artifact_path: str | Path,
+    *,
+    expected_hypothesis_id: int | None = None,
+    expected_proposal_key: str | None = None,
+) -> StrategyVersionProposalReviewArtifactReview:
+    path = Path(artifact_path).expanduser()
+    if not path.exists():
+        return StrategyVersionProposalReviewArtifactReview(
+            path=str(path),
+            exists=False,
+            valid=False,
+            error="strategy-version proposal review artifact was not found.",
+        )
+    try:
+        artifact = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return StrategyVersionProposalReviewArtifactReview(
+            path=str(path),
+            exists=True,
+            valid=False,
+            error=f"strategy-version proposal review artifact is not valid JSON: {exc}",
+        )
+    if not isinstance(artifact, dict):
+        return StrategyVersionProposalReviewArtifactReview(
+            path=str(path),
+            exists=True,
+            valid=False,
+            error="strategy-version proposal review artifact must be a JSON object.",
+        )
+
+    artifact_type = artifact.get("artifact_type")
+    hypothesis = artifact.get("hypothesis", {})
+    parsed_hypothesis_id = _optional_int(hypothesis.get("id") if isinstance(hypothesis, dict) else None)
+    hypothesis_matches = (
+        parsed_hypothesis_id is not None
+        if expected_hypothesis_id is None
+        else parsed_hypothesis_id == expected_hypothesis_id
+    )
+    review = artifact.get("review", {})
+    proposal = artifact.get("proposal", {})
+    promotion_request = artifact.get("promotion_request", {})
+    decision = review.get("decision") if isinstance(review, dict) else None
+    proposal_key = None
+    if isinstance(review, dict) and review.get("proposal_key") is not None:
+        proposal_key = review.get("proposal_key")
+    elif isinstance(proposal, dict) and proposal.get("proposal_key") is not None:
+        proposal_key = proposal.get("proposal_key")
+    proposal_matches = (
+        bool(proposal_key)
+        if expected_proposal_key is None
+        else proposal_key == expected_proposal_key
+    )
+    safety = artifact.get("safety", {})
+    active_params_mutated = safety.get("active_params_mutated") if isinstance(safety, dict) else None
+    wrote_strategy_versions = safety.get("wrote_strategy_versions") if isinstance(safety, dict) else None
+    writes_trade_state = safety.get("writes_trade_state") if isinstance(safety, dict) else None
+    writes_paper_live_behavior = safety.get("writes_paper_live_behavior") if isinstance(safety, dict) else None
+    valid_safety = not any(
+        value is True
+        for value in [
+            active_params_mutated,
+            wrote_strategy_versions,
+            writes_trade_state,
+            writes_paper_live_behavior,
+        ]
+    )
+    valid_type = artifact_type in {"strategy_version_proposal_review", "strategy_version_promotion_request"}
+    promotion_request_key = (
+        promotion_request.get("request_key")
+        if isinstance(promotion_request, dict) and promotion_request.get("request_key") is not None
+        else None
+    )
+
+    error = None
+    if not valid_type:
+        error = (
+            "proposal review artifact must use artifact_type=strategy_version_proposal_review "
+            "or strategy_version_promotion_request."
+        )
+    elif decision not in VALID_PROPOSAL_REVIEW_DECISIONS:
+        error = "proposal review artifact has an invalid decision."
+    elif not hypothesis_matches:
+        error = "proposal review artifact hypothesis id does not match."
+    elif not proposal_matches:
+        error = "proposal review artifact proposal key does not match."
+    elif not valid_safety:
+        error = "proposal review artifact reports forbidden state mutation."
+    elif artifact_type == "strategy_version_promotion_request" and decision != "request_promotion":
+        error = "promotion request artifact must use decision=request_promotion."
+    elif decision == "request_promotion" and not promotion_request_key:
+        error = "promotion request artifact must include a promotion_request.request_key."
+
+    return StrategyVersionProposalReviewArtifactReview(
+        path=str(path),
+        exists=True,
+        valid=error is None,
+        artifact_type=str(artifact_type) if artifact_type is not None else None,
+        hypothesis_id=parsed_hypothesis_id,
+        hypothesis_matches=hypothesis_matches,
+        proposal_key=str(proposal_key) if proposal_key is not None else None,
+        proposal_matches=proposal_matches,
+        review_key=(
+            str(review.get("review_key"))
+            if isinstance(review, dict) and review.get("review_key") is not None
+            else None
+        ),
+        decision=str(decision) if decision is not None else None,
+        promotion_request_key=str(promotion_request_key) if promotion_request_key is not None else None,
+        active_params_mutated=bool(active_params_mutated) if active_params_mutated is not None else None,
+        wrote_strategy_versions=bool(wrote_strategy_versions) if wrote_strategy_versions is not None else None,
+        writes_trade_state=bool(writes_trade_state) if writes_trade_state is not None else None,
+        writes_paper_live_behavior=(
+            bool(writes_paper_live_behavior) if writes_paper_live_behavior is not None else None
+        ),
+        error=error,
+    )
+
+
+def _proposal_artifact_path_for_review(hypothesis: StrategyHypothesis, explicit_path: str | None) -> Path | None:
+    if explicit_path is not None:
+        return Path(explicit_path).expanduser()
+    proposal_paths = _validation_values(hypothesis.evidence, "strategy_version_proposals")
+    if not proposal_paths:
+        return None
+    return Path(proposal_paths[-1]).expanduser()
+
+
+def _build_strategy_version_proposal_review_artifact(
+    *,
+    hypothesis: StrategyHypothesis,
+    proposal_review: StrategyVersionProposalArtifactReview,
+    decision: str,
+    review_note: str | None,
+    operator: str | None,
+    idempotency_key: str | None,
+) -> dict[str, Any]:
+    hypothesis_id = int(hypothesis.hypothesis_id or 0)
+    review_key = f"strategy-hypothesis:{hypothesis_id}:strategy-proposal-review:{decision}"
+    promotion_request_key = (
+        f"strategy-hypothesis:{hypothesis_id}:strategy-version-promotion-request"
+        if decision == "request_promotion"
+        else None
+    )
+    artifact_type = (
+        "strategy_version_promotion_request"
+        if decision == "request_promotion"
+        else "strategy_version_proposal_review"
+    )
+    artifact: dict[str, Any] = {
+        "artifact_type": artifact_type,
+        "artifact_version": 1,
+        "created_at": _utc_timestamp(),
+        "operator": operator,
+        "idempotency_key": idempotency_key,
+        "hypothesis": {
+            "id": hypothesis_id,
+            "as_of_date": hypothesis.as_of_date,
+            "status": hypothesis.status,
+            "hypothesis_type": hypothesis.hypothesis_type,
+            "title": hypothesis.title,
+        },
+        "proposal": {
+            "artifact_path": proposal_review.path,
+            "proposal_key": proposal_review.proposal_key,
+            "strategy_version_task_key": proposal_review.strategy_version_task_key,
+            "candidate_strategy_version": proposal_review.candidate_strategy_version,
+            "valid": proposal_review.valid,
+        },
+        "review": {
+            "review_key": review_key,
+            "proposal_key": proposal_review.proposal_key,
+            "decision": decision,
+            "status": _proposal_review_status(decision),
+            "review_note": review_note,
+            "artifact_only": True,
+        },
+        "promotion_gate": {
+            "artifact_only": True,
+            "creates_strategy_version_row": False,
+            "active_params_mutated": False,
+            "active_deployment_unchanged": True,
+            "paper_live_behavior_unchanged": True,
+            "allowed_decisions": sorted(VALID_PROPOSAL_REVIEW_DECISIONS),
+        },
+        "safety": {
+            "active_params_mutated": False,
+            "wrote_strategy_versions": False,
+            "writes_trade_state": False,
+            "writes_paper_live_behavior": False,
+            "paper_live_deployment_changed": False,
+        },
+    }
+    if promotion_request_key is not None:
+        artifact["promotion_request"] = {
+            "request_key": promotion_request_key,
+            "status": "requested",
+            "proposal_key": proposal_review.proposal_key,
+            "candidate_strategy_version": proposal_review.candidate_strategy_version,
+            "requires_separate_candidate_version_task": True,
+            "requires_operator_promotion_approval": True,
+            "artifact_only": True,
+        }
+    return artifact
+
+
+def _proposal_review_status(decision: str) -> str:
+    return {
+        "approve": "approved",
+        "reject": "rejected",
+        "request_promotion": "promotion_requested",
+    }.get(decision, "unknown")
+
+
 def _build_strategy_version_proposal_artifact(
     *,
     hypothesis: StrategyHypothesis,
@@ -1074,6 +1592,53 @@ def _record_strategy_version_proposal_artifact(
         )
 
 
+def _record_strategy_version_proposal_review_artifact(
+    db_path: Path,
+    hypothesis_id: int,
+    artifact_path: Path,
+    artifact: dict[str, Any],
+    operator: str | None,
+) -> None:
+    with connect(db_path) as conn:
+        hypothesis = _get_hypothesis(conn, hypothesis_id)
+        if hypothesis is None:
+            raise RuntimeError(f"strategy hypothesis id={hypothesis_id} was not found while recording review")
+        evidence = dict(hypothesis.evidence)
+        validation = _validation_payload(evidence)
+        review_paths = _merge_validation_values(
+            _validation_values(evidence, "strategy_version_proposal_reviews"),
+            [str(artifact_path)],
+        )
+        review = artifact.get("review", {})
+        promotion_request = artifact.get("promotion_request", {})
+        decision = review.get("decision") if isinstance(review, dict) else None
+        validation["strategy_version_proposal_reviews"] = review_paths
+        validation["latest_strategy_version_proposal_review_key"] = (
+            review.get("review_key") if isinstance(review, dict) else None
+        )
+        validation["latest_strategy_version_proposal_review_decision"] = decision
+        validation["latest_strategy_version_proposal_reviewed_at"] = _utc_timestamp()
+        validation["latest_strategy_version_proposal_review_operator"] = operator
+        if decision == "request_promotion":
+            promotion_paths = _merge_validation_values(
+                _validation_values(evidence, "strategy_version_promotion_requests"),
+                [str(artifact_path)],
+            )
+            validation["strategy_version_promotion_requests"] = promotion_paths
+            validation["latest_strategy_version_promotion_request_key"] = (
+                promotion_request.get("request_key") if isinstance(promotion_request, dict) else None
+            )
+        evidence["validation"] = validation
+        conn.execute(
+            """
+            UPDATE strategy_hypotheses
+            SET evidence_json = ?
+            WHERE id = ?
+            """,
+            (_json_dumps(evidence), hypothesis_id),
+        )
+
+
 def _evaluate_hypothesis(hypothesis: StrategyHypothesis) -> StrategyHypothesisEvaluation:
     evidence_ids = _validation_values(hypothesis.evidence, "evidence_ids")
     artifact_reviews = [
@@ -1090,14 +1655,24 @@ def _evaluate_hypothesis(hypothesis: StrategyHypothesis) -> StrategyHypothesisEv
         )
         for artifact_path in _validation_values(hypothesis.evidence, "strategy_version_proposals")
     ]
+    expected_proposal_key = proposal_reviews[-1].proposal_key if proposal_reviews else None
+    proposal_review_artifacts = [
+        review_strategy_version_proposal_review_artifact(
+            artifact_path,
+            expected_hypothesis_id=int(hypothesis.hypothesis_id or 0),
+            expected_proposal_key=expected_proposal_key,
+        )
+        for artifact_path in _validation_values(hypothesis.evidence, "strategy_version_proposal_reviews")
+    ]
     validation_events = _validation_events(hypothesis.evidence)
     acceptance_gate = _acceptance_gate_payload(hypothesis, evidence_ids, artifact_reviews)
-    safety = _hypothesis_safety_payload(hypothesis, artifact_reviews, proposal_reviews)
+    safety = _hypothesis_safety_payload(hypothesis, artifact_reviews, proposal_reviews, proposal_review_artifacts)
     next_action, next_action_label = _evaluation_next_action(
         hypothesis,
         acceptance_gate,
         safety,
         proposal_reviews,
+        proposal_review_artifacts,
     )
     strategy_version_task = (
         _future_strategy_version_task_payload(
@@ -1113,6 +1688,7 @@ def _evaluate_hypothesis(hypothesis: StrategyHypothesis) -> StrategyHypothesisEv
         evidence_ids=evidence_ids,
         backtest_artifacts=artifact_reviews,
         strategy_version_proposals=proposal_reviews,
+        strategy_version_proposal_reviews=proposal_review_artifacts,
         validation_events=validation_events,
         acceptance_gate=acceptance_gate,
         safety=safety,
@@ -1157,20 +1733,28 @@ def _hypothesis_safety_payload(
     hypothesis: StrategyHypothesis,
     artifact_reviews: list[StrategyHypothesisBacktestArtifactReview],
     proposal_reviews: list[StrategyVersionProposalArtifactReview],
+    proposal_review_artifacts: list[StrategyVersionProposalReviewArtifactReview],
 ) -> dict[str, Any]:
     artifact_reports_mutation = any(artifact.active_params_mutated is True for artifact in artifact_reviews)
     proposal_reports_mutation = any(proposal.active_params_mutated is True for proposal in proposal_reviews)
+    review_reports_mutation = any(review.active_params_mutated is True for review in proposal_review_artifacts)
     proposal_wrote_strategy_versions = any(proposal.wrote_strategy_versions is True for proposal in proposal_reviews)
+    review_wrote_strategy_versions = any(
+        review.wrote_strategy_versions is True for review in proposal_review_artifacts
+    )
     return {
         "read_only_evaluation": True,
         "proposed_change_mutates_active_params": bool(hypothesis.proposed_change.get("mutates_active_params")),
-        "artifact_reports_active_param_mutation": artifact_reports_mutation or proposal_reports_mutation,
-        "proposal_wrote_strategy_versions": proposal_wrote_strategy_versions,
-        "proposal_artifacts_only": not proposal_wrote_strategy_versions,
+        "artifact_reports_active_param_mutation": (
+            artifact_reports_mutation or proposal_reports_mutation or review_reports_mutation
+        ),
+        "proposal_wrote_strategy_versions": proposal_wrote_strategy_versions or review_wrote_strategy_versions,
+        "proposal_artifacts_only": not (proposal_wrote_strategy_versions or review_wrote_strategy_versions),
         "active_params_mutated": False,
         "writes_trade_state": False,
         "writes_paper_live_behavior": False,
         "accepted_creates_separate_strategy_version_task": hypothesis.status == "accepted",
+        "proposal_review_artifacts_only": not review_wrote_strategy_versions,
     }
 
 
@@ -1179,6 +1763,7 @@ def _evaluation_next_action(
     acceptance_gate: dict[str, Any],
     safety: dict[str, Any],
     proposal_reviews: list[StrategyVersionProposalArtifactReview],
+    proposal_review_artifacts: list[StrategyVersionProposalReviewArtifactReview],
 ) -> tuple[str, str]:
     if (
         safety["proposed_change_mutates_active_params"]
@@ -1207,6 +1792,26 @@ def _evaluation_next_action(
             )
         if not all(proposal.valid for proposal in proposal_reviews):
             return "fix_strategy_version_proposal", "Fix the strategy-version proposal artifact before review."
+        if proposal_review_artifacts and not all(review.valid for review in proposal_review_artifacts):
+            return "fix_strategy_version_proposal_review", "Fix the proposal review artifact before promotion review."
+        latest_review = proposal_review_artifacts[-1] if proposal_review_artifacts else None
+        if latest_review is None:
+            return (
+                "review_strategy_version_proposal",
+                "Review the strategy-version proposal artifact and approve, reject, or request promotion.",
+            )
+        if latest_review.decision == "reject":
+            return "proposal_rejected", "Proposal review rejected the artifact; keep active strategy unchanged."
+        if latest_review.decision == "approve":
+            return (
+                "request_strategy_promotion",
+                "Proposal artifact is approved; create an explicit promotion-request artifact if desired.",
+            )
+        if latest_review.decision == "request_promotion":
+            return (
+                "promotion_requested",
+                "Promotion-request artifact exists; a later task must create or promote candidate versions.",
+            )
         return "proposal_ready", "Strategy-version proposal artifact is ready for separate candidate-version review."
     if hypothesis.status == "rejected":
         return "closed_rejected", "Rejected; keep as research record."
@@ -1222,9 +1827,15 @@ def _evaluation_summary(evaluations: list[StrategyHypothesisEvaluation]) -> dict
     invalid_artifact_count = 0
     proposal_artifact_count = 0
     invalid_proposal_artifact_count = 0
+    proposal_review_artifact_count = 0
+    invalid_proposal_review_artifact_count = 0
+    proposal_review_approved_count = 0
+    proposal_review_rejected_count = 0
+    promotion_request_count = 0
     ready_to_accept_count = 0
     strategy_version_task_required_count = 0
     proposal_required_count = 0
+    proposal_review_required_count = 0
     proposal_ready_count = 0
     unsafe_count = 0
     for evaluation in evaluations:
@@ -1237,13 +1848,32 @@ def _evaluation_summary(evaluations: list[StrategyHypothesisEvaluation]) -> dict
         invalid_proposal_artifact_count += len(
             [artifact for artifact in evaluation.strategy_version_proposals if not artifact.valid]
         )
+        proposal_review_artifact_count += len(evaluation.strategy_version_proposal_reviews)
+        invalid_proposal_review_artifact_count += len(
+            [artifact for artifact in evaluation.strategy_version_proposal_reviews if not artifact.valid]
+        )
+        proposal_review_approved_count += len(
+            [artifact for artifact in evaluation.strategy_version_proposal_reviews if artifact.decision == "approve"]
+        )
+        proposal_review_rejected_count += len(
+            [artifact for artifact in evaluation.strategy_version_proposal_reviews if artifact.decision == "reject"]
+        )
+        promotion_request_count += len(
+            [
+                artifact
+                for artifact in evaluation.strategy_version_proposal_reviews
+                if artifact.decision == "request_promotion"
+            ]
+        )
         if evaluation.acceptance_gate.get("can_accept"):
             ready_to_accept_count += 1
         if evaluation.strategy_version_task is not None:
             strategy_version_task_required_count += 1
         if evaluation.next_action == "create_strategy_version_proposal":
             proposal_required_count += 1
-        if evaluation.next_action == "proposal_ready":
+        if evaluation.next_action == "review_strategy_version_proposal":
+            proposal_review_required_count += 1
+        if evaluation.next_action in {"proposal_ready", "review_strategy_version_proposal"}:
             proposal_ready_count += 1
         if (
             evaluation.safety.get("proposed_change_mutates_active_params")
@@ -1263,6 +1893,12 @@ def _evaluation_summary(evaluations: list[StrategyHypothesisEvaluation]) -> dict
         "proposal_ready_count": proposal_ready_count,
         "proposal_artifact_count": proposal_artifact_count,
         "invalid_proposal_artifact_count": invalid_proposal_artifact_count,
+        "proposal_review_required_count": proposal_review_required_count,
+        "proposal_review_artifact_count": proposal_review_artifact_count,
+        "invalid_proposal_review_artifact_count": invalid_proposal_review_artifact_count,
+        "proposal_review_approved_count": proposal_review_approved_count,
+        "proposal_review_rejected_count": proposal_review_rejected_count,
+        "promotion_request_count": promotion_request_count,
         "unsafe_count": unsafe_count,
     }
 

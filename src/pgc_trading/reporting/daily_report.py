@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -17,12 +19,15 @@ from pgc_trading.services.data_quality_service import (
     DataQualityService,
 )
 from pgc_trading.services.operational_readiness_service import (
+    NextDayDecisionChecklistItem,
+    NextDayDecisionSummary,
     OperationalReadinessService,
     PAPER_ACCEPTANCE_AGENT_REVIEW_CODES,
     PAPER_ACCEPTANCE_OPEN_EXECUTION_MISMATCH_CODES,
     PAPER_ACCEPTANCE_STALE_EVIDENCE_CODES,
     PaperReadinessRequest,
     PaperReadinessResult,
+    summarize_next_day_decision,
 )
 from pgc_trading.services.open_execution_service import OpenExecutionRequest, OpenExecutionService
 from pgc_trading.portfolio.state_machines import BUY_PLAN_ACTION, OPEN_POSITION_STATUSES, SELL_PLAN_ACTIONS
@@ -64,6 +69,15 @@ class PaperAcceptanceHistoryRequest:
     strategy_version: str = STRATEGY_VERSION
     before_date: str | None = None
     limit: int = 20
+
+
+@dataclass(frozen=True)
+class OpsHistoryRequest:
+    account_key: str | None = DEFAULT_ACCOUNT_KEY
+    account_id: int | None = None
+    strategy_version: str = STRATEGY_VERSION
+    before_date: str | None = None
+    limit: int = 50
 
 
 @dataclass(frozen=True)
@@ -463,6 +477,84 @@ class DailyAcceptanceHistory:
 
 
 @dataclass(frozen=True)
+class NextDayStrategyProposalSummary:
+    total_count: int
+    proposed_count: int
+    testing_count: int
+    accepted_count: int
+    rejected_count: int
+    archived_count: int
+    review_required_count: int
+    items: list[StrategyHypothesisSummaryReport] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class NextDaySystemProposal:
+    action: str
+    target: str | None
+    trade_plan_id: int | None
+    position_id: int | None
+    planned_trade_date: str | None
+    planned_shares: int | None
+    rationale: str
+
+
+@dataclass(frozen=True)
+class NextDayDecisionCockpit:
+    account_key: str | None
+    as_of_date: str
+    execution_date: str | None
+    status: str
+    headline: str
+    recommended_manual_action: str
+    blocker_count: int
+    warning_count: int
+    system_proposal: NextDaySystemProposal
+    checklist: list[NextDayDecisionChecklistItem] = field(default_factory=list)
+    strategy_proposals: NextDayStrategyProposalSummary | None = None
+    acceptance_status: str | None = None
+    acceptance_summary: str | None = None
+    open_execution: DailyAcceptanceOpenExecution | None = None
+    market_review: MarketReviewReport | None = None
+    market_plan_context: MarketPlanContextReport | None = None
+    advisory_note: str = (
+        "Next-day decision cockpit is read-only; it explains blockers and next manual actions "
+        "but never executes trades, enables timers, or mutates strategy parameters."
+    )
+
+
+@dataclass(frozen=True)
+class OpsHistoryItem:
+    occurred_at: str
+    category: str
+    status: str
+    title: str
+    summary: str
+    as_of_date: str | None = None
+    source: str = "database"
+    operation_id: int | None = None
+    operation_type: str | None = None
+    idempotency_key: str | None = None
+    request_id: str | None = None
+    operator: str | None = None
+    log_file: str | None = None
+    details: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class OpsHistory:
+    items: list[OpsHistoryItem]
+    summary: str
+    counts: dict[str, int]
+    limit: int
+    before_date: str | None = None
+    advisory_note: str = (
+        "Ops history is read-only observability; it never enables timers, reruns jobs, executes trades, "
+        "or mutates strategy state."
+    )
+
+
+@dataclass(frozen=True)
 class DailyReport:
     generated_at: str
     as_of_date: str
@@ -473,6 +565,7 @@ class DailyReport:
     data_quality: DataQualityReport
     paper_promotion: PaperReadinessResult | None
     paper_acceptance: DailyAcceptanceReport | None
+    next_day_decision: NextDayDecisionCockpit | None
     candidate: CandidateReport | None
     no_candidate_reason: str | None
     buy_plan: BuyPlanReport | None
@@ -528,6 +621,7 @@ class ReportingQueryService:
             no_candidate_reason = _no_candidate_reason(conn, request, candidate)
             latest_market_date = _latest_market_date(conn, request.as_of_date)
             next_trade_date = _next_trade_date(conn, request.as_of_date)
+            strategy_proposals = _load_next_day_strategy_proposals(conn, request.as_of_date)
 
         data_quality = _data_quality_report(readiness, invariant_report)
         open_execution = _open_execution_acceptance(
@@ -570,6 +664,14 @@ class ReportingQueryService:
             open_execution=open_execution,
             lineage=lineage,
         )
+        next_day_decision = _next_day_decision_cockpit(
+            report_request=request,
+            account=account,
+            paper_acceptance=paper_acceptance,
+            market_review=market_review,
+            market_plan_context=market_plan_context,
+            strategy_proposals=strategy_proposals,
+        )
         report = DailyReport(
             generated_at=datetime.now(UTC).isoformat(),
             as_of_date=request.as_of_date,
@@ -580,6 +682,7 @@ class ReportingQueryService:
             data_quality=data_quality,
             paper_promotion=paper_promotion,
             paper_acceptance=paper_acceptance,
+            next_day_decision=next_day_decision,
             candidate=candidate,
             no_candidate_reason=no_candidate_reason,
             buy_plan=buy_plan,
@@ -630,6 +733,35 @@ class ReportingQueryService:
                 "acceptance_status": result.data.paper_acceptance.status
                 if result.data.paper_acceptance
                 else None,
+            },
+        )
+
+    def get_next_day_decision_cockpit(
+        self,
+        request: DailyReportRequest,
+        ctx: RequestContext | None = None,
+    ) -> ServiceResult[NextDayDecisionCockpit]:
+        result = self.get_daily_report(request, ctx)
+        if result.data is None:
+            return ServiceResult(
+                status=result.status,
+                request_id=result.request_id,
+                warnings=result.warnings,
+                errors=result.errors,
+                lineage=result.lineage,
+            )
+        return ServiceResult(
+            status=result.status,
+            request_id=result.request_id,
+            data=result.data.next_day_decision,
+            warnings=result.warnings,
+            errors=result.errors,
+            lineage={
+                **result.lineage,
+                "next_day_decision_status": result.data.next_day_decision.status
+                if result.data.next_day_decision
+                else None,
+                "read_only": True,
             },
         )
 
@@ -707,6 +839,83 @@ class ReportingQueryService:
                 "account_id": account.account_id,
                 "review_count": len(items),
                 "alert_count": len(alerts),
+            },
+        )
+
+    def list_ops_history(
+        self,
+        request: OpsHistoryRequest,
+        ctx: RequestContext | None = None,
+    ) -> ServiceResult[OpsHistory]:
+        context = ctx or RequestContext(source="report")
+        errors = _validate_ops_history_request(request)
+        if errors:
+            return ServiceResult(status="validation_failed", request_id=context.request_id, errors=errors)
+
+        with connect(self.db_path) as conn:
+            account = _load_account(
+                conn,
+                DailyReportRequest(
+                    as_of_date=request.before_date or "99991231",
+                    account_key=request.account_key,
+                    account_id=request.account_id,
+                    strategy_version=request.strategy_version,
+                ),
+            )
+            operation_items = _load_ops_history_operations(conn, request)
+            acceptance_dates = _load_acceptance_history_dates(
+                conn,
+                PaperAcceptanceHistoryRequest(
+                    account_key=request.account_key,
+                    account_id=request.account_id,
+                    strategy_version=request.strategy_version,
+                    before_date=request.before_date,
+                    limit=min(request.limit, 10),
+                ),
+            )
+
+        acceptance_items: list[OpsHistoryItem] = []
+        for review_date in acceptance_dates:
+            acceptance_result = self.get_daily_acceptance(
+                DailyReportRequest(
+                    as_of_date=review_date,
+                    account_key=request.account_key,
+                    account_id=request.account_id,
+                    strategy_version=request.strategy_version,
+                ),
+                RequestContext(
+                    request_id=f"{context.request_id}:ops-acceptance:{review_date}" if context.request_id else None,
+                    dry_run=True,
+                    operator=context.operator,
+                    source=context.source,
+                ),
+            )
+            if acceptance_result.data is not None:
+                acceptance_items.append(_ops_history_acceptance_item(acceptance_result.data))
+
+        file_items = [
+            *_load_ops_history_log_items(request),
+            *_load_ops_history_release_items(request),
+        ]
+        items = _dedupe_ops_history_items([*operation_items, *acceptance_items, *file_items])
+        items.sort(key=_ops_history_sort_key, reverse=True)
+        items = items[: request.limit]
+        counts = _ops_history_counts(items)
+        return ServiceResult(
+            status="success",
+            request_id=context.request_id,
+            data=OpsHistory(
+                items=items,
+                summary=_ops_history_summary(items, counts),
+                counts=counts,
+                limit=request.limit,
+                before_date=request.before_date,
+            ),
+            lineage={
+                "strategy_version": request.strategy_version,
+                "account_id": account.account_id,
+                "item_count": len(items),
+                "read_only": True,
             },
         )
 
@@ -813,6 +1022,7 @@ def render_daily_report_markdown(report: DailyReport) -> str:
     ]
     lines.extend(_paper_promotion_lines(report.paper_promotion))
     lines.extend(_daily_acceptance_lines(report.paper_acceptance))
+    lines.extend(_next_day_decision_lines(report.next_day_decision))
     lines.extend([
         "",
         "## 数据状态",
@@ -1022,6 +1232,21 @@ def _validate_acceptance_history_request(request: PaperAcceptanceHistoryRequest)
     return errors
 
 
+def _validate_ops_history_request(request: OpsHistoryRequest) -> list[ServiceError]:
+    errors: list[ServiceError] = []
+    if not request.strategy_version.strip():
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="strategy_version is required."))
+    if request.account_id is None and not request.account_key:
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="account_key or account_id is required."))
+    if request.account_id is not None and request.account_id <= 0:
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="account_id must be positive."))
+    if request.before_date is not None and not is_yyyymmdd(request.before_date):
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="before_date must use YYYYMMDD format."))
+    if request.limit < 1 or request.limit > 200:
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="limit must be between 1 and 200."))
+    return errors
+
+
 def _data_quality_report(
     result: ServiceResult[Any],
     invariant_report: InvariantReport | None = None,
@@ -1206,6 +1431,210 @@ def _daily_acceptance_report(
         unresolved_blockers=unresolved_blockers,
         alerts=alerts,
     )
+
+
+def _next_day_decision_cockpit(
+    *,
+    report_request: DailyReportRequest,
+    account: AccountReport,
+    paper_acceptance: DailyAcceptanceReport,
+    market_review: MarketReviewReport | None,
+    market_plan_context: MarketPlanContextReport | None,
+    strategy_proposals: NextDayStrategyProposalSummary,
+) -> NextDayDecisionCockpit:
+    system_proposal = _next_day_system_proposal(paper_acceptance.open_execution)
+    checklist = [
+        _next_day_acceptance_check(paper_acceptance),
+        _next_day_evidence_check(paper_acceptance.evidence_coverage),
+        _next_day_market_review_check(market_review, market_plan_context),
+        _next_day_open_execution_check(paper_acceptance.open_execution, paper_acceptance.open_execution_gate),
+        _next_day_strategy_proposal_check(strategy_proposals),
+    ]
+    decision: NextDayDecisionSummary = summarize_next_day_decision(
+        checklist,
+        default_action=system_proposal.rationale,
+    )
+    return NextDayDecisionCockpit(
+        account_key=account.account_key or report_request.account_key,
+        as_of_date=report_request.as_of_date,
+        execution_date=paper_acceptance.execution_date,
+        status=decision.status,
+        headline=decision.headline,
+        recommended_manual_action=decision.recommended_manual_action,
+        blocker_count=decision.blocker_count,
+        warning_count=decision.warning_count,
+        system_proposal=system_proposal,
+        checklist=checklist,
+        strategy_proposals=strategy_proposals,
+        acceptance_status=paper_acceptance.status,
+        acceptance_summary=paper_acceptance.summary,
+        open_execution=paper_acceptance.open_execution,
+        market_review=market_review,
+        market_plan_context=market_plan_context,
+    )
+
+
+def _next_day_system_proposal(open_execution: DailyAcceptanceOpenExecution) -> NextDaySystemProposal:
+    target = " ".join(part for part in [open_execution.target_stock, open_execution.target_name] if part)
+    action_text = {
+        "record_buy": "人工核对开盘条件后录入买入成交。",
+        "record_sell": "人工核对卖出计划后录入卖出成交。",
+        "evaluate_exit": "人工评估到期持仓并按显式流程生成退出动作。",
+        "wait": "等待未来计划交易日，不做当日成交录入。",
+        "none": "下一交易日没有待执行动作，保持观察。",
+        "blocked": "先处理 blocker，再重新刷新决策清单。",
+    }.get(open_execution.next_action, "人工复核 open-execution 返回的下一步动作。")
+    return NextDaySystemProposal(
+        action=open_execution.next_action,
+        target=target or None,
+        trade_plan_id=open_execution.primary_plan_id,
+        position_id=open_execution.primary_position_id,
+        planned_trade_date=open_execution.planned_trade_date,
+        planned_shares=open_execution.planned_shares,
+        rationale=action_text,
+    )
+
+
+def _next_day_acceptance_check(acceptance: DailyAcceptanceReport) -> NextDayDecisionChecklistItem:
+    return NextDayDecisionChecklistItem(
+        key="paper_acceptance",
+        label="paper acceptance",
+        status=acceptance.status,
+        summary=acceptance.summary,
+        manual_action=(
+            "处理 paper acceptance 未处理 blocker。"
+            if acceptance.status == "blocked"
+            else "人工复核 paper acceptance warning。"
+            if acceptance.status == "warning"
+            else "保持只读验收通过记录。"
+        ),
+        detail="汇总数据新鲜度、证据覆盖、Agent、open-execution 和 readiness gates。",
+        blocker_codes=_gate_codes(_acceptance_all_gates(acceptance), include_blockers=True, include_warnings=False),
+        warning_codes=_gate_codes(_acceptance_all_gates(acceptance), include_blockers=False, include_warnings=True),
+        source_refs=_acceptance_source_refs(acceptance),
+    )
+
+
+def _next_day_evidence_check(gate: DailyAcceptanceGate) -> NextDayDecisionChecklistItem:
+    return NextDayDecisionChecklistItem(
+        key="evidence_blockers",
+        label="证据 freshness / coverage",
+        status=gate.status,
+        summary=gate.summary,
+        manual_action=(
+            "补齐或确认 cached provider evidence，再重新运行只读验收。"
+            if gate.status in {"blocked", "warning"}
+            else "证据覆盖通过，保留 source_refs 供人工抽查。"
+        ),
+        detail=gate.detail,
+        blocker_codes=list(gate.blocker_codes),
+        warning_codes=list(gate.warning_codes),
+        source_refs=list(gate.source_refs),
+    )
+
+
+def _next_day_market_review_check(
+    market_review: MarketReviewReport | None,
+    market_plan_context: MarketPlanContextReport | None,
+) -> NextDayDecisionChecklistItem:
+    if market_review is None:
+        return NextDayDecisionChecklistItem(
+            key="market_review",
+            label="全市场复盘",
+            status="warning",
+            summary="未找到全市场复盘，市场状态和板块轮动需要人工复核。",
+            manual_action="运行或导入只读全市场复盘证据，或人工记录缺失原因。",
+            detail="缺失市场复盘不会被当作安全信号。",
+            warning_codes=["MARKET_REVIEW_MISSING"],
+        )
+    warning_codes: list[str] = []
+    status = "pass"
+    manual_action = "按全市场复盘和计划关系继续人工核对。"
+    if market_plan_context is None:
+        status = "warning"
+        warning_codes.append("MARKET_PLAN_CONTEXT_MISSING")
+        manual_action = "补齐全市场复盘与明日计划关系，或人工确认该计划无需市场上下文。"
+    elif market_plan_context.management_action in {"manual_review", "consider_cancel", "unknown"}:
+        status = "warning"
+        warning_codes.append(f"MARKET_ACTION_{market_plan_context.management_action.upper()}")
+        manual_action = "人工复核全市场复盘给出的计划管理建议。"
+    return NextDayDecisionChecklistItem(
+        key="market_review",
+        label="全市场复盘 / 计划关系",
+        status=status,
+        summary=(
+            f"{market_review.regime}；{market_review.summary or '无摘要'}；"
+            f"计划建议 {market_plan_context.management_action if market_plan_context else 'missing'}"
+        ),
+        manual_action=manual_action,
+        detail="市场复盘只提供 advisory，不会创建、取消或执行交易计划。",
+        warning_codes=warning_codes,
+        source_refs=[
+            f"market_review_runs:{market_review.market_review_run_id}",
+            *(
+                [f"market_plan_contexts:{market_plan_context.market_review_run_id}:{market_plan_context.trade_plan_id}"]
+                if market_plan_context
+                else []
+            ),
+        ],
+    )
+
+
+def _next_day_open_execution_check(
+    open_execution: DailyAcceptanceOpenExecution,
+    gate: DailyAcceptanceGate,
+) -> NextDayDecisionChecklistItem:
+    return NextDayDecisionChecklistItem(
+        key="open_execution",
+        label="open-execution 下一步",
+        status=gate.status,
+        summary=f"{open_execution.status} / {open_execution.next_action}",
+        manual_action=(
+            "先处理 open-execution blocker，再进入成交或退出流程。"
+            if gate.status == "blocked"
+            else _next_day_system_proposal(open_execution).rationale
+        ),
+        detail=gate.detail,
+        blocker_codes=list(gate.blocker_codes),
+        warning_codes=list(gate.warning_codes),
+        source_refs=list(gate.source_refs),
+    )
+
+
+def _next_day_strategy_proposal_check(
+    proposals: NextDayStrategyProposalSummary,
+) -> NextDayDecisionChecklistItem:
+    if proposals.review_required_count:
+        return NextDayDecisionChecklistItem(
+            key="strategy_proposals",
+            label="策略 proposal / hypothesis",
+            status="warning",
+            summary=(
+                f"{proposals.review_required_count} 项策略假设或 proposal 需要人工审阅；"
+                f"accepted={proposals.accepted_count} testing={proposals.testing_count} proposed={proposals.proposed_count}"
+            ),
+            manual_action="审阅策略假设和 proposal artifact；不要直接改 active params 或 paper/live 行为。",
+            detail="策略提案只生成研究/晋级任务线索，不会自动修改策略参数。",
+            warning_codes=["STRATEGY_PROPOSAL_REVIEW_REQUIRED"],
+            source_refs=[f"strategy_hypotheses:{item.hypothesis_id}" for item in proposals.items],
+        )
+    return NextDayDecisionChecklistItem(
+        key="strategy_proposals",
+        label="策略 proposal / hypothesis",
+        status="pass",
+        summary="没有待审阅策略假设或 proposal。",
+        manual_action="无需策略参数动作；继续保持策略 evolution 只读边界。",
+        detail="没有 active strategy 参数、trade plan、position 或 live 行为被修改。",
+    )
+
+
+def _acceptance_source_refs(acceptance: DailyAcceptanceReport) -> list[str]:
+    refs: list[str] = []
+    for gate in _acceptance_all_gates(acceptance):
+        for ref in gate.source_refs:
+            if ref not in refs:
+                refs.append(ref)
+    return refs
 
 
 def _acceptance_data_freshness_gate(
@@ -1916,6 +2345,379 @@ def _load_acceptance_history_dates(conn: Any, request: PaperAcceptanceHistoryReq
     return [str(row["review_date"]) for row in rows]
 
 
+def _load_ops_history_operations(conn: Any, request: OpsHistoryRequest) -> list[OpsHistoryItem]:
+    rows = conn.execute(
+        """
+        SELECT
+          id,
+          idempotency_key,
+          request_id,
+          operation_type,
+          account_id,
+          as_of_date,
+          status,
+          request_json,
+          response_json,
+          error_code,
+          error_message,
+          operator,
+          started_at,
+          finished_at,
+          COALESCE(finished_at, started_at) AS occurred_at
+        FROM operation_requests
+        WHERE (? IS NULL OR as_of_date IS NULL OR as_of_date <= ?)
+        ORDER BY COALESCE(finished_at, started_at) DESC, id DESC
+        LIMIT ?
+        """,
+        (request.before_date, request.before_date, request.limit * 3),
+    ).fetchall()
+
+    items: list[OpsHistoryItem] = []
+    for row in rows:
+        operation_type = str(row["operation_type"])
+        idempotency_key = row["idempotency_key"]
+        category = _ops_operation_category(operation_type, idempotency_key)
+        request_payload = _loads_json_object(row["request_json"])
+        response_payload = _loads_json_object(row["response_json"])
+        items.append(
+            OpsHistoryItem(
+                occurred_at=str(row["occurred_at"] or row["started_at"] or ""),
+                category=category,
+                status=str(row["status"]),
+                title=_ops_operation_title(operation_type, idempotency_key),
+                summary=_ops_operation_summary(row, request_payload, response_payload),
+                as_of_date=row["as_of_date"],
+                source="operation_requests",
+                operation_id=int(row["id"]),
+                operation_type=operation_type,
+                idempotency_key=idempotency_key,
+                request_id=row["request_id"],
+                operator=row["operator"],
+                details={
+                    "account_id": row["account_id"],
+                    "dry_run": _ops_request_dry_run(request_payload),
+                    "started_at": row["started_at"],
+                    "finished_at": row["finished_at"],
+                    "error_code": row["error_code"],
+                    "error_message": row["error_message"],
+                    "response_keys": sorted(response_payload.keys()),
+                    "read_only_history": True,
+                },
+            )
+        )
+    return items
+
+
+def _ops_history_acceptance_item(acceptance: DailyAcceptanceReport) -> OpsHistoryItem:
+    return OpsHistoryItem(
+        occurred_at=acceptance.as_of_date,
+        category="paper_acceptance",
+        status=acceptance.status,
+        title="Paper acceptance snapshot",
+        summary=acceptance.summary,
+        as_of_date=acceptance.as_of_date,
+        source="computed_acceptance_history",
+        details={
+            "execution_date": acceptance.execution_date,
+            "unresolved_blocker_count": len(acceptance.unresolved_blockers),
+            "alert_count": len(acceptance.alerts),
+            "open_execution_next_action": acceptance.open_execution.next_action,
+            "read_only_history": True,
+        },
+    )
+
+
+def _load_ops_history_log_items(request: OpsHistoryRequest) -> list[OpsHistoryItem]:
+    items: list[OpsHistoryItem] = []
+    seen_paths: set[Path] = set()
+    for log_dir in _ops_history_log_dirs():
+        if not log_dir.exists() or not log_dir.is_dir():
+            continue
+        for path in sorted(log_dir.glob("*.log")):
+            resolved = path.resolve()
+            if resolved in seen_paths:
+                continue
+            seen_paths.add(resolved)
+            payload = _parse_ops_log_file(path)
+            if not payload:
+                continue
+            as_of_date = payload.get("resolved_date") or payload.get("review_date") or _date_from_filename(path.name)
+            if request.before_date is not None and as_of_date is not None and as_of_date > request.before_date:
+                continue
+            items.extend(_ops_history_items_from_log(path, payload, as_of_date))
+    return items
+
+
+def _load_ops_history_release_items(request: OpsHistoryRequest) -> list[OpsHistoryItem]:
+    release_dir = Path(os.environ.get("PGC_ARTIFACT_DIR", ".pgc-release"))
+    if not release_dir.exists() or not release_dir.is_dir():
+        return []
+
+    items: list[OpsHistoryItem] = []
+    for path in sorted(release_dir.glob("pgc-v*.tar.gz")):
+        as_of_date = _date_from_filename(path.name)
+        if request.before_date is not None and as_of_date is not None and as_of_date > request.before_date:
+            continue
+        stat = path.stat()
+        release_tag = path.name.removesuffix(".tar.gz")
+        items.append(
+            OpsHistoryItem(
+                occurred_at=_iso_from_timestamp(stat.st_mtime),
+                category="release",
+                status="artifact",
+                title="Release artifact",
+                summary=f"{release_tag} is available in {release_dir}.",
+                as_of_date=as_of_date,
+                source="release_artifact_dir",
+                log_file=str(path),
+                details={
+                    "release_tag": release_tag,
+                    "artifact_path": str(path),
+                    "size_bytes": stat.st_size,
+                    "read_only_history": True,
+                },
+            )
+        )
+    return items
+
+
+def _ops_history_items_from_log(path: Path, payload: dict[str, str], as_of_date: str | None) -> list[OpsHistoryItem]:
+    status = payload.get("pipeline_status") or payload.get("activation_decision") or payload.get("action") or "observed"
+    category = "timer_evidence" if _is_timer_evidence_log(payload) else "daily_pipeline"
+    title = "Timer dry-run evidence" if category == "timer_evidence" else "Daily pipeline log"
+    if payload.get("ops_history_event") == "timer_action":
+        category = "timer_action"
+        title = "Timer action evidence"
+    occurred_at = payload.get("ops_history_occurred_at") or _iso_from_timestamp(path.stat().st_mtime)
+    summary_parts = [
+        f"date={as_of_date or 'unknown'}",
+        f"status={status}",
+    ]
+    if payload.get("duplicate_apply_count") is not None:
+        summary_parts.append(f"duplicate_apply_count={payload['duplicate_apply_count']}")
+    if payload.get("backup_path") and payload.get("backup_path") != "none":
+        summary_parts.append("backup recorded")
+    items = [
+        OpsHistoryItem(
+            occurred_at=occurred_at,
+            category=category,
+            status=status,
+            title=title,
+            summary="; ".join(summary_parts),
+            as_of_date=as_of_date,
+            source="local_log",
+            operator=payload.get("operator"),
+            log_file=str(path),
+            details={
+                "evidence_run_id": payload.get("evidence_run_id"),
+                "evidence_log_role": payload.get("evidence_log_role"),
+                "duplicate_apply_count": payload.get("duplicate_apply_count"),
+                "duplicate_write_guard": payload.get("duplicate_write_guard"),
+                "backup_path": payload.get("backup_path"),
+                "changed": payload.get("changed"),
+                "health_url": payload.get("health_url"),
+                "health_command": payload.get("health_command"),
+                "release_tag": payload.get("release_tag"),
+                "read_only_history": True,
+            },
+        )
+    ]
+    backup_path = payload.get("backup_path")
+    if backup_path and backup_path != "none":
+        items.append(
+            OpsHistoryItem(
+                occurred_at=occurred_at,
+                category="backup",
+                status="recorded",
+                title="Pipeline backup",
+                summary=f"Backup captured before apply: {backup_path}",
+                as_of_date=as_of_date,
+                source="local_log",
+                log_file=str(path),
+                details={
+                    "backup_path": backup_path,
+                    "pipeline_status": payload.get("pipeline_status"),
+                    "read_only_history": True,
+                },
+            )
+        )
+    if payload.get("health_url") or payload.get("health_command"):
+        items.append(
+            OpsHistoryItem(
+                occurred_at=occurred_at,
+                category="health",
+                status=payload.get("health_status") or "observed",
+                title="Remote health evidence",
+                summary=payload.get("health_url") or payload.get("health_command") or "Health command was recorded.",
+                as_of_date=as_of_date,
+                source="local_log",
+                log_file=str(path),
+                details={
+                    "health_url": payload.get("health_url"),
+                    "health_command": payload.get("health_command"),
+                    "read_only_history": True,
+                },
+            )
+        )
+    return items
+
+
+def _ops_history_log_dirs() -> list[Path]:
+    candidates = [
+        os.environ.get("PGC_DAILY_PIPELINE_LOG_DIR"),
+        os.environ.get("PGC_TIMER_EVIDENCE_DIR"),
+        ".pgc-runs",
+        ".pgc-runs/timer-evidence",
+    ]
+    dirs: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in candidates:
+        if not candidate:
+            continue
+        path = Path(candidate)
+        resolved = path.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        dirs.append(path)
+    return dirs
+
+
+def _parse_ops_log_file(path: Path) -> dict[str, str]:
+    payload: dict[str, str] = {}
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return payload
+    for line in lines:
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if not key or " " in key:
+            continue
+        payload[key] = value.strip()
+    return payload
+
+
+def _parse_bool_text(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    if text in {"true", "1", "yes"}:
+        return True
+    if text in {"false", "0", "no"}:
+        return False
+    return None
+
+
+def _ops_request_dry_run(payload: dict[str, Any]) -> bool | None:
+    if "dry_run" in payload:
+        return _parse_bool_text(payload.get("dry_run"))
+    request_payload = payload.get("request")
+    if isinstance(request_payload, dict) and "dry_run" in request_payload:
+        return _parse_bool_text(request_payload.get("dry_run"))
+    return None
+
+
+def _ops_operation_category(operation_type: str, idempotency_key: str | None) -> str:
+    if operation_type == "ops_backup":
+        return "backup"
+    if operation_type == "ops_health":
+        return "health"
+    if operation_type == "ops_release":
+        return "release"
+    if idempotency_key and idempotency_key.startswith("daily-pipeline:"):
+        return "pipeline_step"
+    return "operation"
+
+
+def _ops_operation_title(operation_type: str, idempotency_key: str | None) -> str:
+    if idempotency_key and idempotency_key.startswith("daily-pipeline:"):
+        step = idempotency_key.split(":")[-1]
+        return f"Daily pipeline step: {step}"
+    return operation_type.replace("_", " ")
+
+
+def _ops_operation_summary(row: Any, request_payload: dict[str, Any], response_payload: dict[str, Any]) -> str:
+    dry_run = _ops_request_dry_run(request_payload)
+    mode = "dry-run" if dry_run is True else "apply" if dry_run is False else "unknown mode"
+    status = row["status"]
+    as_of_date = row["as_of_date"] or "no date"
+    error = row["error_code"] or row["error_message"]
+    if error:
+        return f"{row['operation_type']} {mode} for {as_of_date} ended {status}: {error}"
+    response_status = response_payload.get("status") or response_payload.get("pipeline_status")
+    if response_status:
+        return f"{row['operation_type']} {mode} for {as_of_date} ended {status}; response={response_status}."
+    return f"{row['operation_type']} {mode} for {as_of_date} ended {status}."
+
+
+def _is_timer_evidence_log(payload: dict[str, str]) -> bool:
+    return payload.get("evidence_log_role") == "dry_run_activation_evidence" or bool(payload.get("evidence_run_id"))
+
+
+def _date_from_filename(name: str) -> str | None:
+    match = re.search(r"(20\d{6})", name)
+    return match.group(1) if match else None
+
+
+def _iso_from_timestamp(timestamp: float) -> str:
+    return datetime.fromtimestamp(timestamp, UTC).isoformat()
+
+
+def _dedupe_ops_history_items(items: list[OpsHistoryItem]) -> list[OpsHistoryItem]:
+    deduped: list[OpsHistoryItem] = []
+    seen: set[tuple[Any, ...]] = set()
+    for item in items:
+        key = (
+            item.category,
+            item.operation_id,
+            item.log_file,
+            item.as_of_date,
+            item.title,
+            item.summary,
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+    return deduped
+
+
+def _ops_history_sort_key(item: OpsHistoryItem) -> str:
+    return item.occurred_at or item.as_of_date or ""
+
+
+def _ops_history_counts(items: list[OpsHistoryItem]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in items:
+        counts[item.category] = counts.get(item.category, 0) + 1
+    return counts
+
+
+def _ops_history_summary(items: list[OpsHistoryItem], counts: dict[str, int]) -> str:
+    if not items:
+        return "暂无 ops run history；该视图只读，不会主动运行远端命令。"
+    parts = [
+        f"{label} {counts[key]}"
+        for key, label in [
+            ("daily_pipeline", "pipeline log"),
+            ("pipeline_step", "pipeline step"),
+            ("backup", "backup"),
+            ("health", "health"),
+            ("release", "release"),
+            ("paper_acceptance", "paper acceptance"),
+            ("timer_evidence", "timer evidence"),
+            ("timer_action", "timer action"),
+        ]
+        if counts.get(key)
+    ]
+    return f"Ops history 共 {len(items)} 条；" + " / ".join(parts) + "。"
+
+
 def _load_review_timeline(
     conn: Any,
     request: ReviewTimelineRequest,
@@ -2367,11 +3169,11 @@ def _market_sector_report(row: Any) -> MarketSectorReport:
 def _load_market_external_evidence_coverage(conn: Any, as_of_date: str) -> dict[str, Any]:
     rows = conn.execute(
         """
-        SELECT scope_type, item_type, sentiment, importance, provider, COUNT(*) AS count
+        SELECT scope_type, item_type, sentiment, importance, provider, published_date, COUNT(*) AS count
         FROM market_external_items
         WHERE as_of_date = ?
-        GROUP BY scope_type, item_type, sentiment, importance, provider
-        ORDER BY scope_type, item_type, sentiment, importance, provider
+        GROUP BY scope_type, item_type, sentiment, importance, provider, published_date
+        ORDER BY scope_type, item_type, sentiment, importance, provider, published_date
         """,
         (as_of_date,),
     ).fetchall()
@@ -2381,6 +3183,8 @@ def _load_market_external_evidence_coverage(conn: Any, as_of_date: str) -> dict[
     by_sentiment: dict[str, int] = {}
     by_importance: dict[str, int] = {}
     by_provider: dict[str, int] = {}
+    fresh_count = 0
+    stale_count = 0
     for row in rows:
         count = int(row["count"] or 0)
         total_count += count
@@ -2389,9 +3193,34 @@ def _load_market_external_evidence_coverage(conn: Any, as_of_date: str) -> dict[
         _increment_count(by_sentiment, row["sentiment"], count)
         _increment_count(by_importance, row["importance"], count)
         _increment_count(by_provider, row["provider"], count)
+        if row["published_date"] == as_of_date:
+            fresh_count += count
+        elif str(row["published_date"] or "") < as_of_date:
+            stale_count += count
+    known_sentiment_count = sum(count for sentiment, count in by_sentiment.items() if sentiment != "unknown")
+    if total_count == 0:
+        sentiment_status = "missing"
+    elif known_sentiment_count == 0:
+        sentiment_status = "missing"
+    elif known_sentiment_count == total_count:
+        sentiment_status = "available"
+    else:
+        sentiment_status = "partial"
+    scope_status = {
+        "market": "available" if by_scope.get("market", 0) else "missing",
+        "sector": "partial" if by_scope.get("sector", 0) else "missing",
+        "stock": "partial" if by_scope.get("stock", 0) else "missing",
+    }
+    news_like_types = {"news", "announcement", "policy", "risk_note", "research_note"}
     return {
         "total_count": total_count,
         "coverage": "available" if total_count else "missing",
+        **scope_status,
+        "news": "available" if any(by_item_type.get(item_type, 0) for item_type in news_like_types) else "missing",
+        "sentiment": sentiment_status,
+        "missing_scopes": [scope for scope, status in scope_status.items() if status == "missing"],
+        "fresh_count": fresh_count,
+        "stale_count": stale_count,
         "by_scope": by_scope,
         "by_item_type": by_item_type,
         "by_sentiment": by_sentiment,
@@ -2426,6 +3255,65 @@ def _load_strategy_hypothesis_summaries(conn: Any, as_of_date: str) -> list[Stra
         )
         for row in rows
     ]
+
+
+def _load_next_day_strategy_proposals(conn: Any, as_of_date: str) -> NextDayStrategyProposalSummary:
+    count_rows = conn.execute(
+        """
+        SELECT status, COUNT(*) AS count
+        FROM strategy_hypotheses
+        WHERE as_of_date = ?
+        GROUP BY status
+        """,
+        (as_of_date,),
+    ).fetchall()
+    counts = {key: 0 for key in ("proposed", "testing", "accepted", "rejected", "archived")}
+    for row in count_rows:
+        status = str(row["status"])
+        if status in counts:
+            counts[status] = int(row["count"] or 0)
+
+    rows = conn.execute(
+        """
+        SELECT id, hypothesis_type, title, status, rationale
+        FROM strategy_hypotheses
+        WHERE as_of_date = ?
+        ORDER BY
+          CASE status
+            WHEN 'accepted' THEN 1
+            WHEN 'testing' THEN 2
+            WHEN 'proposed' THEN 3
+            WHEN 'rejected' THEN 4
+            ELSE 9
+          END,
+          id
+        LIMIT 20
+        """,
+        (as_of_date,),
+    ).fetchall()
+    items: list[StrategyHypothesisSummaryReport] = []
+    for row in rows:
+        status = str(row["status"])
+        items.append(
+            StrategyHypothesisSummaryReport(
+                hypothesis_id=int(row["id"]),
+                hypothesis_type=row["hypothesis_type"],
+                title=row["title"],
+                status=status,
+                rationale=row["rationale"],
+            )
+        )
+    review_required_count = counts["proposed"] + counts["testing"] + counts["accepted"]
+    return NextDayStrategyProposalSummary(
+        total_count=sum(counts.values()),
+        proposed_count=counts["proposed"],
+        testing_count=counts["testing"],
+        accepted_count=counts["accepted"],
+        rejected_count=counts["rejected"],
+        archived_count=counts["archived"],
+        review_required_count=review_required_count,
+        items=items,
+    )
 
 
 def _load_market_plan_context(
@@ -2564,7 +3452,7 @@ def _load_agent_external_data_coverage(payload: dict[str, Any], raw_decision: di
     coverage: dict[str, str] = {}
     for key in ("fundamental", "news", "sentiment", "technical", "sector"):
         status = str(raw_coverage.get(key) or "").strip().lower()
-        if status in {"available", "partial", "unavailable"}:
+        if status in {"available", "partial", "unavailable", "missing"}:
             coverage[key] = status
     return coverage
 
@@ -2704,7 +3592,7 @@ def _load_agent_missing_data_warnings(
     return [
         f"{labels[key]}未接入/数据不足。"
         for key, status in external_data_coverage.items()
-        if status == "unavailable"
+        if status in {"unavailable", "missing"}
     ]
 
 
@@ -3091,6 +3979,80 @@ def _daily_acceptance_lines(acceptance: DailyAcceptanceReport | None) -> list[st
     return lines
 
 
+def _next_day_decision_lines(cockpit: NextDayDecisionCockpit | None) -> list[str]:
+    if cockpit is None:
+        return [
+            "",
+            "## 下一交易日决策驾驶舱",
+            "",
+            "- 状态：未计算",
+            "- 提醒：驾驶舱只读，不会执行交易、开启 timer 或修改策略参数。",
+        ]
+
+    proposal = cockpit.system_proposal
+    lines = [
+        "",
+        "## 下一交易日决策驾驶舱",
+        "",
+        f"- 状态：{_decision_status_text(cockpit.status)}",
+        f"- 摘要：{cockpit.headline}",
+        f"- 推荐人工动作：{cockpit.recommended_manual_action}",
+        f"- 执行日：{_date_text(cockpit.execution_date)}",
+        f"- 系统建议：{_open_execution_action_text(proposal.action)}",
+        f"- 目标：{proposal.target or '-'}",
+        f"- 计划 / 持仓：{proposal.trade_plan_id or '-'} / {proposal.position_id or '-'}",
+        f"- 计划股数：{_none_dash(proposal.planned_shares)}",
+        "- 提醒：驾驶舱只读，不会执行交易、开启 timer 或修改策略参数。",
+        "",
+        "决策清单：",
+    ]
+    if cockpit.checklist:
+        for item in cockpit.checklist:
+            blockers = f"；blocker {', '.join(item.blocker_codes)}" if item.blocker_codes else ""
+            warnings = f"；warning {', '.join(item.warning_codes)}" if item.warning_codes else ""
+            lines.append(
+                f"- {item.label}：{_acceptance_status_text(item.status)}；"
+                f"{item.summary}{blockers}{warnings}；下一步：{item.manual_action}"
+            )
+    else:
+        lines.append("- 暂无 checklist。")
+    if cockpit.strategy_proposals is not None:
+        proposals = cockpit.strategy_proposals
+        lines.extend(
+            [
+                "",
+                "策略 proposal / hypothesis：",
+                (
+                    f"- total={proposals.total_count} proposed={proposals.proposed_count} "
+                    f"testing={proposals.testing_count} accepted={proposals.accepted_count} "
+                    f"review_required={proposals.review_required_count}"
+                ),
+            ]
+        )
+        if proposals.items:
+            lines.extend(f"- {item.title}（{_status_text(item.status)}）" for item in proposals.items[:5])
+    return lines
+
+
+def _decision_status_text(value: str) -> str:
+    return {
+        "ready": "就绪",
+        "review_required": "需要人工复核",
+        "blocked": "阻断",
+    }.get(value, value)
+
+
+def _open_execution_action_text(value: str) -> str:
+    return {
+        "record_buy": "录入买入成交",
+        "record_sell": "录入卖出成交",
+        "evaluate_exit": "评估退出",
+        "wait": "等待",
+        "none": "无动作",
+        "blocked": "阻断",
+    }.get(value, value)
+
+
 def _acceptance_gate_text(gate: DailyAcceptanceGate) -> str:
     blockers = f"；blocker {', '.join(gate.blocker_codes)}" if gate.blocker_codes else ""
     warnings = f"；warning {', '.join(gate.warning_codes)}" if gate.warning_codes else ""
@@ -3257,7 +4219,22 @@ def _external_coverage_text(coverage: dict[str, Any]) -> str:
     scope_text = _count_dict_text(scope if isinstance(scope, dict) else {})
     sentiment_text = _count_dict_text(sentiment if isinstance(sentiment, dict) else {})
     provider_text = _count_dict_text(provider if isinstance(provider, dict) else {})
-    return f"{total_count} 条；范围 {scope_text}；情绪 {sentiment_text}；来源 {provider_text}"
+    status_parts = []
+    for label, key in (("市场", "market"), ("板块", "sector"), ("个股", "stock"), ("新闻", "news"), ("情绪", "sentiment")):
+        value = _optional_text_value(coverage.get(key))
+        if value:
+            status_parts.append(f"{label}{_evidence_status_text(value)}")
+    status_text = f"；状态 {' / '.join(status_parts)}" if status_parts else ""
+    return f"{total_count} 条；范围 {scope_text}；情绪 {sentiment_text}；来源 {provider_text}{status_text}"
+
+
+def _evidence_status_text(value: str) -> str:
+    return {
+        "available": "可用",
+        "partial": "部分",
+        "missing": "缺失",
+        "unavailable": "不可用",
+    }.get(value, value)
 
 
 def _strategy_hypotheses_text(hypotheses: list[StrategyHypothesisSummaryReport]) -> str:
@@ -3436,6 +4413,7 @@ def _agent_coverage_text(value: str | None) -> str:
     return {
         "available": "可用",
         "partial": "部分",
+        "missing": "缺失",
         "unavailable": "未接入",
     }.get(value or "", value or "未知")
 

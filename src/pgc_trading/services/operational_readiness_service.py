@@ -103,6 +103,28 @@ class PaperReadinessGate:
 
 
 @dataclass(frozen=True)
+class NextDayDecisionChecklistItem:
+    key: str
+    label: str
+    status: str
+    summary: str
+    manual_action: str
+    detail: str
+    blocker_codes: list[str] = field(default_factory=list)
+    warning_codes: list[str] = field(default_factory=list)
+    source_refs: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class NextDayDecisionSummary:
+    status: str
+    headline: str
+    recommended_manual_action: str
+    blocker_count: int
+    warning_count: int
+
+
+@dataclass(frozen=True)
 class PaperReadinessResult:
     account_key: str
     as_of_date: str
@@ -283,6 +305,42 @@ class OperationalReadinessService:
                 errors=errors,
                 lineage={"account_id": account.id, "as_of_date": request.as_of_date},
             )
+
+
+def summarize_next_day_decision(
+    checklist: list[NextDayDecisionChecklistItem],
+    *,
+    default_action: str = "人工确认下一交易日没有待执行动作。",
+) -> NextDayDecisionSummary:
+    """Summarize read-only next-day decision checks for operator review."""
+
+    blocker_count = sum(1 for item in checklist if item.status == "blocked")
+    warning_count = sum(1 for item in checklist if item.status == "warning")
+    if blocker_count:
+        first_blocker = next(item for item in checklist if item.status == "blocked")
+        return NextDayDecisionSummary(
+            status="blocked",
+            headline=f"下一交易日决策被 {blocker_count} 项 blocker 阻断。",
+            recommended_manual_action=first_blocker.manual_action,
+            blocker_count=blocker_count,
+            warning_count=warning_count,
+        )
+    if warning_count:
+        first_warning = next(item for item in checklist if item.status == "warning")
+        return NextDayDecisionSummary(
+            status="review_required",
+            headline=f"下一交易日决策需要人工复核 {warning_count} 项 warning。",
+            recommended_manual_action=first_warning.manual_action,
+            blocker_count=0,
+            warning_count=warning_count,
+        )
+    return NextDayDecisionSummary(
+        status="ready",
+        headline="下一交易日决策清单通过；仍需人工确认实际开盘和成交事实。",
+        recommended_manual_action=default_action,
+        blocker_count=0,
+        warning_count=0,
+    )
 
 
 def _validate_request(request: PaperReadinessRequest) -> list[ServiceError]:

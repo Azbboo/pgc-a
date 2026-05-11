@@ -437,6 +437,77 @@ class AgentExternalDataServiceTest(unittest.TestCase):
             with sqlite3.connect(db_path) as conn:
                 self.assertEqual(self._count(conn, "agent_external_items"), 0)
 
+    def test_reviewed_unavailable_agent_sources_close_item_type_gaps_in_qa(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._migrated_db(tmp)
+            source_file = Path(tmp) / "agent_external_20260508.json"
+            source_file.write_text(
+                json.dumps(
+                    {
+                        "provider_file_contract": "agent_external_v1",
+                        "as_of_date": "20260508",
+                        "provider": "manual_reviewed_cache",
+                        "items": [
+                            self._record(
+                                provider="manual_reviewed_cache",
+                                published_date="20260508",
+                                item_type="fundamental",
+                                title="估值成交缓存",
+                                summary="已审核基本面缓存摘要。",
+                                sentiment="unknown",
+                            )
+                        ],
+                        "unavailable_sources": [
+                            {
+                                "item_type": "announcement",
+                                "provider": "announcement_cache",
+                                "reason": "provider_file_absent",
+                                "note": "公告 provider 文件本轮未取得。",
+                            },
+                            {
+                                "item_type": "news",
+                                "provider": "news_cache",
+                                "reason": "provider_file_absent",
+                            },
+                            {
+                                "item_type": "sentiment",
+                                "provider": "sentiment_cache",
+                                "reason": "provider_file_absent",
+                            },
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            preview = AgentExternalDataService(db_path).import_external_data(
+                ImportAgentExternalDataRequest(source_file=source_file),
+                RequestContext(request_id="test-agent-unavailable-preview", dry_run=True, operator="tester"),
+            )
+            backfill = AgentExternalDataService(db_path).backfill_external_data(
+                BackfillAgentExternalDataRequest(source_files=[source_file]),
+                RequestContext(request_id="test-agent-unavailable-backfill", dry_run=True, operator="tester"),
+            )
+
+            self.assertTrue(preview.ok)
+            self.assertEqual(preview.data.coverage_summary["fundamental"], "available")
+            self.assertEqual(preview.data.coverage_summary["announcement"], "unavailable")
+            self.assertEqual(preview.data.coverage_summary["news"], "unavailable")
+            self.assertEqual(preview.data.coverage_summary["sentiment"], "unavailable")
+            self.assertEqual(preview.data.coverage_summary["missing_item_types"], [])
+            self.assertEqual(
+                preview.data.coverage_summary["unavailable_item_types"],
+                ["announcement", "news", "sentiment"],
+            )
+            self.assertEqual(preview.data.unavailable_sources[0]["reason"], "provider_file_absent")
+            self.assertTrue(backfill.ok)
+            self.assertEqual(backfill.data.coverage_qa["ready_dates"], ["20260508"])
+            self.assertEqual(backfill.data.coverage_qa["missing_item_type_dates"]["news"], [])
+            self.assertEqual(backfill.data.coverage_qa["unavailable_item_type_dates"]["news"], ["20260508"])
+            with sqlite3.connect(db_path) as conn:
+                self.assertEqual(self._count(conn, "agent_external_items"), 0)
+
     def test_backfill_apply_requires_as_of_date_without_partial_writes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = self._migrated_db(tmp)

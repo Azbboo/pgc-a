@@ -4,8 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>PGC 操作台</title>
-    <link rel="stylesheet" href="/dashboard/assets/styles.css?v=20260510-m61-acceptance-history-1" />
-    <script defer src="/dashboard/assets/app.js?v=20260510-m61-acceptance-history-1"></script>
+    <link rel="stylesheet" href="/dashboard/assets/styles.css?v=20260511-m66-decision-cockpit-1" />
+    <script defer src="/dashboard/assets/app.js?v=20260511-m66-decision-cockpit-1"></script>
   </head>
   <body>
     <div class="app-shell">
@@ -25,6 +25,13 @@
             </span>
             <span>开盘执行</span>
             <b id="executionBadge">0</b>
+          </button>
+          <button class="nav-item" type="button" data-page-button="decision">
+            <span class="nav-glyph">
+              <img src="/dashboard/assets/icon-connect.svg" alt="" aria-hidden="true" />
+            </span>
+            <span>决策驾驶舱</span>
+            <b id="decisionBadge">-</b>
           </button>
           <button class="nav-item" type="button" data-page-button="review">
             <span class="nav-glyph">
@@ -46,6 +53,13 @@
             </span>
             <span>运营验收</span>
             <b id="acceptanceBadge">-</b>
+          </button>
+          <button class="nav-item" type="button" data-page-button="ops">
+            <span class="nav-glyph">
+              <img src="/dashboard/assets/icon-tasks.svg" alt="" aria-hidden="true" />
+            </span>
+            <span>运维历史</span>
+            <b id="opsBadge">0</b>
           </button>
           <button class="nav-item" type="button" data-page-button="hypotheses">
             <span class="nav-glyph">
@@ -256,6 +270,46 @@
           </section>
         </section>
 
+        <section class="page" data-page="decision">
+          <div class="page-heading">
+            <div>
+              <h1>下一交易日决策驾驶舱</h1>
+              <p>把全市场复盘、证据 blocker、paper acceptance、open-execution 和策略 proposal 收束成一张只读人工动作清单；Dashboard 不会执行交易、开启 timer 或修改策略参数。</p>
+            </div>
+            <div class="toolbar">
+              <span id="decisionDateLabel" class="review-scope-chip">复盘日 -</span>
+              <button type="button" id="reloadDecisionButton">刷新驾驶舱</button>
+            </div>
+          </div>
+
+          <section class="acceptance-status-panel decision-status-panel" id="decisionStatusPanel" aria-live="polite"></section>
+
+          <section class="decision-grid">
+            <div class="panel">
+              <div class="panel-heading">
+                <h2>系统建议</h2>
+                <span class="chip chip-agent">人工确认</span>
+              </div>
+              <div id="decisionSystemProposal" class="decision-system-proposal"></div>
+            </div>
+            <div class="panel">
+              <div class="panel-heading">
+                <h2>策略 proposal</h2>
+                <span class="chip chip-neutral">不改 paper/live 行为</span>
+              </div>
+              <div id="decisionStrategyProposal" class="decision-strategy-proposal"></div>
+            </div>
+          </section>
+
+          <section class="panel decision-checklist-panel">
+            <div class="panel-heading">
+              <h2>决策清单</h2>
+              <span class="muted">显示 allowed / blocked / manual review</span>
+            </div>
+            <div id="decisionChecklist" class="acceptance-overview-grid decision-checklist"></div>
+          </section>
+        </section>
+
         <section class="page" data-page="review">
           <div class="page-heading">
             <div>
@@ -429,6 +483,28 @@
           </section>
         </section>
 
+        <section class="page" data-page="ops">
+          <div class="page-heading">
+            <div>
+              <h1>运维历史</h1>
+              <p>只读 operator history：pipeline runs、backups、release tags、remote health、paper acceptance snapshots 和 timer dry-run evidence attempts；不会启用 timer、重跑 apply、创建交易或修改策略状态。</p>
+            </div>
+            <div class="toolbar">
+              <span class="chip chip-agent">只读观测</span>
+              <button type="button" id="reloadOpsHistoryButton">刷新运维历史</button>
+            </div>
+          </div>
+
+          <section class="panel ops-history-panel">
+            <div class="panel-heading">
+              <h2>Ops run history</h2>
+              <span id="opsHistorySummary" class="muted">暂无 ops run history。</span>
+            </div>
+            <div id="opsHistoryCounts" class="ops-history-counts" aria-label="ops history 计数"></div>
+            <div id="opsHistoryList" class="ops-history-list" aria-label="ops run history"></div>
+          </section>
+        </section>
+
         <section class="page" data-page="market">
           <div class="page-heading">
             <div>
@@ -518,7 +594,7 @@
           <div class="page-heading">
             <div>
               <h1>假设评估</h1>
-              <p>策略假设评估工作台：审阅 evidence、backtest artifact 和 acceptance gate；accepted 只代表研究结论，后续必须单独创建 strategy-version proposal。</p>
+              <p>策略假设评估工作台：审阅 evidence、backtest artifact、proposal review 和 promotion-request artifacts；accepted 只代表研究结论，后续必须单独创建 strategy-version proposal。</p>
             </div>
             <div class="toolbar">
               <label class="review-date-field">

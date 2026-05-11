@@ -8,12 +8,14 @@ from pathlib import Path
 
 from pgc_trading.services.common import RequestContext
 from pgc_trading.services.strategy_evolution_service import (
+    CreateStrategyVersionProposalReviewRequest,
     CreateStrategyVersionProposalRequest,
     EvaluateStrategyHypothesesRequest,
     ListStrategyHypothesesRequest,
     MarkStrategyHypothesisRequest,
     ProposeStrategyHypothesesRequest,
     StrategyEvolutionService,
+    review_strategy_version_proposal_review_artifact,
     review_strategy_version_proposal_artifact,
 )
 from pgc_trading.storage.migrate import run_migrations
@@ -296,6 +298,129 @@ class StrategyEvolutionServiceTest(unittest.TestCase):
             self.assertEqual(evaluation.data.summary["proposal_artifact_count"], 1)
             self.assertEqual(evaluation.data.summary["proposal_ready_count"], 1)
 
+    def test_strategy_version_proposal_review_dry_run_builds_artifact_without_strategy_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc.db"
+            reports_dir = Path(tmp) / "reports"
+            backtest_path = Path(tmp) / "hypothesis_backtest_request.json"
+            proposal_path = Path(tmp) / "strategy_version_proposal.json"
+            run_migrations(db_path)
+            _seed_market_review_observations(db_path)
+            params_before = _strategy_param_file_contents()
+            strategy_versions_before = _count_strategy_versions(db_path)
+            service = StrategyEvolutionService(db_path, reports_dir=reports_dir)
+            hypothesis_id = _accepted_hypothesis(service, backtest_path)
+            proposal = service.create_strategy_version_proposal(
+                CreateStrategyVersionProposalRequest(
+                    hypothesis_id=hypothesis_id,
+                    output_path=str(proposal_path),
+                ),
+                RequestContext(request_id="proposal-apply", dry_run=False, operator="azboo"),
+            )
+            assert proposal.ok
+
+            result = service.create_strategy_version_proposal_review(
+                CreateStrategyVersionProposalReviewRequest(
+                    hypothesis_id=hypothesis_id,
+                    decision="approve",
+                    review_note="Proposal artifact is ready for promotion request review.",
+                ),
+                RequestContext(request_id="proposal-review-dry-run", dry_run=True, operator="azboo"),
+            )
+
+            self.assertEqual(result.status, "success")
+            self.assertIsNotNone(result.data)
+            assert result.data is not None
+            self.assertTrue(result.data.would_write_artifact)
+            self.assertFalse(result.data.wrote_artifact)
+            self.assertIsNone(result.data.artifact_path)
+            self.assertEqual(result.data.proposal_artifact_path, str(proposal_path))
+            self.assertEqual(result.data.decision, "approve")
+            self.assertFalse(result.data.active_params_mutated)
+            self.assertFalse(result.data.wrote_strategy_version)
+            self.assertFalse(result.data.writes_trade_state)
+            self.assertFalse(result.data.writes_paper_live_behavior)
+            self.assertEqual(result.data.artifact["artifact_type"], "strategy_version_proposal_review")
+            self.assertEqual(result.data.artifact["review"]["decision"], "approve")
+            self.assertTrue(result.data.artifact["promotion_gate"]["artifact_only"])
+            self.assertFalse((reports_dir / "strategy_proposal_reviews").exists())
+            validation = _hypothesis_validation(db_path, hypothesis_id)
+            self.assertNotIn("strategy_version_proposal_reviews", validation)
+            self.assertEqual(_strategy_param_file_contents(), params_before)
+            self.assertEqual(_count_strategy_versions(db_path), strategy_versions_before)
+
+    def test_strategy_version_promotion_request_apply_records_review_metadata_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc.db"
+            reports_dir = Path(tmp) / "reports"
+            backtest_path = Path(tmp) / "hypothesis_backtest_request.json"
+            proposal_path = Path(tmp) / "strategy_version_proposal.json"
+            promotion_path = Path(tmp) / "strategy_promotion_request.json"
+            run_migrations(db_path)
+            _seed_market_review_observations(db_path)
+            params_before = _strategy_param_file_contents()
+            strategy_versions_before = _count_strategy_versions(db_path)
+            service = StrategyEvolutionService(db_path, reports_dir=reports_dir)
+            hypothesis_id = _accepted_hypothesis(service, backtest_path)
+            proposal = service.create_strategy_version_proposal(
+                CreateStrategyVersionProposalRequest(
+                    hypothesis_id=hypothesis_id,
+                    output_path=str(proposal_path),
+                ),
+                RequestContext(request_id="proposal-apply", dry_run=False, operator="azboo"),
+            )
+            assert proposal.ok
+
+            result = service.create_strategy_version_proposal_review(
+                CreateStrategyVersionProposalReviewRequest(
+                    hypothesis_id=hypothesis_id,
+                    decision="request_promotion",
+                    review_note="Request a candidate promotion task from the approved proposal.",
+                    output_path=str(promotion_path),
+                ),
+                RequestContext(
+                    request_id="promotion-request",
+                    idempotency_key="test:promotion-request",
+                    dry_run=False,
+                    operator="azboo",
+                ),
+            )
+            evaluation = service.evaluate_hypotheses(
+                EvaluateStrategyHypothesesRequest(status="accepted", as_of_date="20260508", limit=10),
+                RequestContext(request_id="workbench", dry_run=True),
+            )
+
+            self.assertEqual(result.status, "success")
+            self.assertIsNotNone(result.data)
+            assert result.data is not None
+            self.assertTrue(result.data.wrote_artifact)
+            self.assertEqual(result.data.decision, "request_promotion")
+            self.assertEqual(result.data.proposal_artifact_path, str(proposal_path))
+            self.assertTrue(promotion_path.exists())
+            artifact = json.loads(promotion_path.read_text(encoding="utf-8"))
+            self.assertEqual(artifact["artifact_type"], "strategy_version_promotion_request")
+            self.assertEqual(artifact["promotion_request"]["status"], "requested")
+            self.assertTrue(artifact["promotion_request"]["artifact_only"])
+            validation = _hypothesis_validation(db_path, hypothesis_id)
+            self.assertEqual(validation["strategy_version_proposal_reviews"], [str(promotion_path)])
+            self.assertEqual(validation["strategy_version_promotion_requests"], [str(promotion_path)])
+            self.assertEqual(validation["latest_strategy_version_proposal_review_decision"], "request_promotion")
+            self.assertEqual(
+                validation["latest_strategy_version_promotion_request_key"],
+                f"strategy-hypothesis:{hypothesis_id}:strategy-version-promotion-request",
+            )
+            self.assertEqual(_strategy_param_file_contents(), params_before)
+            self.assertEqual(_count_strategy_versions(db_path), strategy_versions_before)
+
+            self.assertIsNotNone(evaluation.data)
+            assert evaluation.data is not None
+            reviewed = evaluation.data.hypotheses[0].strategy_version_proposal_reviews[0]
+            self.assertTrue(reviewed.valid)
+            self.assertEqual(reviewed.decision, "request_promotion")
+            self.assertEqual(evaluation.data.hypotheses[0].next_action, "promotion_requested")
+            self.assertEqual(evaluation.data.summary["proposal_review_artifact_count"], 1)
+            self.assertEqual(evaluation.data.summary["promotion_request_count"], 1)
+
     def test_strategy_version_proposal_requires_accepted_hypothesis_and_valid_backtest_gate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "pgc.db"
@@ -340,6 +465,79 @@ class StrategyEvolutionServiceTest(unittest.TestCase):
             self.assertEqual(mismatch.error, "strategy-version proposal artifact hypothesis id does not match.")
             self.assertFalse(missing.exists)
             self.assertFalse(missing.valid)
+
+    def test_reviews_strategy_version_proposal_review_artifact_for_workbench_without_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            review_path = Path(tmp) / "strategy_version_proposal_review.json"
+            promotion_path = Path(tmp) / "strategy_version_promotion_request.json"
+            _write_strategy_version_proposal_review_artifact(review_path, hypothesis_id=7, decision="approve")
+            _write_strategy_version_proposal_review_artifact(
+                promotion_path,
+                hypothesis_id=7,
+                decision="request_promotion",
+            )
+
+            review = review_strategy_version_proposal_review_artifact(
+                review_path,
+                expected_hypothesis_id=7,
+                expected_proposal_key="strategy-hypothesis:7:strategy-version-proposal",
+            )
+            promotion = review_strategy_version_proposal_review_artifact(
+                promotion_path,
+                expected_hypothesis_id=7,
+                expected_proposal_key="strategy-hypothesis:7:strategy-version-proposal",
+            )
+            mismatch = review_strategy_version_proposal_review_artifact(
+                review_path,
+                expected_hypothesis_id=8,
+            )
+
+            self.assertTrue(review.exists)
+            self.assertTrue(review.valid)
+            self.assertEqual(review.decision, "approve")
+            self.assertEqual(review.proposal_key, "strategy-hypothesis:7:strategy-version-proposal")
+            self.assertFalse(review.active_params_mutated)
+            self.assertTrue(promotion.valid)
+            self.assertEqual(promotion.artifact_type, "strategy_version_promotion_request")
+            self.assertEqual(promotion.promotion_request_key, "strategy-hypothesis:7:strategy-version-promotion-request")
+            self.assertFalse(mismatch.valid)
+            self.assertEqual(mismatch.error, "proposal review artifact hypothesis id does not match.")
+
+    def test_strategy_version_proposal_review_requires_accepted_hypothesis_and_valid_proposal_for_approval(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc.db"
+            reports_dir = Path(tmp) / "reports"
+            invalid_proposal_path = Path(tmp) / "invalid_strategy_version_proposal.json"
+            run_migrations(db_path)
+            _seed_market_review_observations(db_path)
+            service = StrategyEvolutionService(db_path, reports_dir=reports_dir)
+            proposed = service.propose_hypotheses(
+                ProposeStrategyHypothesesRequest(as_of_date="20260508"),
+                RequestContext(dry_run=False, operator="azboo"),
+            )
+            assert proposed.data is not None
+            hypothesis_id = proposed.data.hypotheses[0].hypothesis_id
+            assert hypothesis_id is not None
+            _write_strategy_version_proposal_artifact(invalid_proposal_path, hypothesis_id=hypothesis_id)
+            invalid_artifact = json.loads(invalid_proposal_path.read_text(encoding="utf-8"))
+            invalid_artifact["safety"]["wrote_strategy_versions"] = True
+            invalid_proposal_path.write_text(json.dumps(invalid_artifact), encoding="utf-8")
+
+            wrong_status = service.create_strategy_version_proposal_review(
+                CreateStrategyVersionProposalReviewRequest(
+                    hypothesis_id=hypothesis_id,
+                    decision="approve",
+                    proposal_artifact_path=str(invalid_proposal_path),
+                ),
+                RequestContext(request_id="proposal-review-blocked", dry_run=False, operator="azboo"),
+            )
+
+            self.assertEqual(wrong_status.status, "validation_failed")
+            self.assertEqual(
+                {error.code for error in wrong_status.errors},
+                {"PROPOSAL_REVIEW_REQUIRES_ACCEPTED_HYPOTHESIS", "PROPOSAL_REVIEW_REQUIRES_VALID_PROPOSAL"},
+            )
+            self.assertFalse((reports_dir / "strategy_proposal_reviews").exists())
 
     def test_no_observations_is_skipped_without_writes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -589,6 +787,37 @@ def _write_strategy_version_proposal_artifact(path: Path, hypothesis_id: int) ->
         ),
         encoding="utf-8",
     )
+
+
+def _write_strategy_version_proposal_review_artifact(path: Path, hypothesis_id: int, decision: str) -> None:
+    proposal_key = f"strategy-hypothesis:{hypothesis_id}:strategy-version-proposal"
+    payload = {
+        "artifact_type": (
+            "strategy_version_promotion_request"
+            if decision == "request_promotion"
+            else "strategy_version_proposal_review"
+        ),
+        "hypothesis": {"id": hypothesis_id},
+        "proposal": {"proposal_key": proposal_key},
+        "review": {
+            "review_key": f"strategy-hypothesis:{hypothesis_id}:strategy-proposal-review:{decision}",
+            "proposal_key": proposal_key,
+            "decision": decision,
+        },
+        "promotion_gate": {"artifact_only": True},
+        "safety": {
+            "active_params_mutated": False,
+            "wrote_strategy_versions": False,
+            "writes_trade_state": False,
+            "writes_paper_live_behavior": False,
+        },
+    }
+    if decision == "request_promotion":
+        payload["promotion_request"] = {
+            "request_key": f"strategy-hypothesis:{hypothesis_id}:strategy-version-promotion-request",
+            "artifact_only": True,
+        }
+    path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
 
 
 def _hypothesis_validation(db_path: Path, hypothesis_id: int) -> dict[str, object]:

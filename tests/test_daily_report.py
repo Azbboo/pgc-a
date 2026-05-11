@@ -11,6 +11,7 @@ from pgc_trading.cli.main import main
 from pgc_trading.reporting.daily_report import (
     DailyReportRequest,
     DailyReviewHistoryRequest,
+    OpsHistoryRequest,
     PaperAcceptanceHistoryRequest,
     ReviewTimelineRequest,
     ReportingQueryService,
@@ -63,6 +64,13 @@ class DailyReportTest(unittest.TestCase):
             self.assertTrue(
                 any(alert.code == "UNRESOLVED_ACCEPTANCE_BLOCKERS" for alert in result.data.paper_acceptance.alerts)
             )
+            self.assertIsNotNone(result.data.next_day_decision)
+            self.assertEqual(result.data.next_day_decision.status, "blocked")
+            self.assertEqual(result.data.next_day_decision.system_proposal.action, "record_buy")
+            self.assertTrue(
+                any(item.key == "paper_acceptance" for item in result.data.next_day_decision.checklist)
+            )
+            self.assertIn("MIN_PAPER_TRADES_NOT_MET", result.data.next_day_decision.checklist[0].blocker_codes)
             self.assertEqual(result.data.candidate.ts_code, "000001.SZ")
             self.assertEqual(result.data.buy_plan.status, "active")
 
@@ -75,6 +83,10 @@ class DailyReportTest(unittest.TestCase):
             self.assertIn("readiness gates", markdown)
             self.assertIn("验收告警", markdown)
             self.assertIn("只读验收面板，不会执行交易", markdown)
+            self.assertIn("## 下一交易日决策驾驶舱", markdown)
+            self.assertIn("推荐人工动作", markdown)
+            self.assertIn("决策清单", markdown)
+            self.assertIn("不会执行交易、开启 timer 或修改策略参数", markdown)
             self.assertIn("样本交易", markdown)
             self.assertIn("晋级 live 前还差什么", markdown)
             self.assertIn("## 今日候选", markdown)
@@ -87,7 +99,10 @@ class DailyReportTest(unittest.TestCase):
             self.assertEqual(payload["as_of_date"], AS_OF_DATE)
             self.assertIn("paper_promotion", payload)
             self.assertIn("paper_acceptance", payload)
+            self.assertIn("next_day_decision", payload)
             self.assertEqual(payload["paper_acceptance"]["open_execution"]["next_action"], "record_buy")
+            self.assertEqual(payload["next_day_decision"]["system_proposal"]["action"], "record_buy")
+            self.assertEqual(payload["next_day_decision"]["checklist"][0]["key"], "paper_acceptance")
             self.assertIn("readiness_gates", payload["paper_acceptance"])
             self.assertIn("alerts", payload["paper_acceptance"])
             self.assertIn("MIN_PAPER_TRADES_NOT_MET", payload["paper_promotion"]["promotion_blockers"])
@@ -111,6 +126,12 @@ class DailyReportTest(unittest.TestCase):
             self.assertEqual(result.data.market_plan_context.market_review_run_id, market_review_run_id)
             self.assertEqual(result.data.market_plan_context.management_action, "proceed")
             self.assertEqual(result.data.lineage.market_review_run_id, market_review_run_id)
+            self.assertIsNotNone(result.data.next_day_decision)
+            self.assertEqual(result.data.next_day_decision.market_review.market_review_run_id, market_review_run_id)
+            self.assertEqual(result.data.next_day_decision.strategy_proposals.review_required_count, 1)
+            self.assertTrue(
+                any(item.key == "strategy_proposals" for item in result.data.next_day_decision.checklist)
+            )
 
             markdown = render_daily_report_markdown(result.data)
             self.assertIn("## 全市场复盘", markdown)
@@ -129,10 +150,14 @@ class DailyReportTest(unittest.TestCase):
             self.assertEqual(payload["market_review"]["market_review_run_id"], market_review_run_id)
             self.assertEqual(payload["market_review"]["top_sectors"][0]["sector_name"], "人工智能")
             self.assertEqual(payload["market_review"]["external_evidence_coverage"]["total_count"], 1)
+            self.assertEqual(payload["market_review"]["external_evidence_coverage"]["sector"], "partial")
+            self.assertEqual(payload["market_review"]["external_evidence_coverage"]["market"], "missing")
+            self.assertIn("market", payload["market_review"]["external_evidence_coverage"]["missing_scopes"])
             self.assertEqual(payload["market_review"]["strategy_hypotheses"][0]["status"], "proposed")
             self.assertEqual(payload["market_plan_context"]["management_action"], "proceed")
             self.assertEqual(payload["lineage"]["market_review_run_id"], market_review_run_id)
             self.assertEqual(payload["market_plan_context"]["evidence"]["top_sectors"][0]["sector_name"], "人工智能")
+            self.assertEqual(payload["next_day_decision"]["strategy_proposals"]["proposed_count"], 1)
 
     def test_review_history_lists_latest_runs_with_pick_plan_and_no_candidate_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -181,6 +206,57 @@ class DailyReportTest(unittest.TestCase):
             self.assertTrue(any(alert.code == "AGENT_REVIEW_MISSING" for alert in result.data.alerts))
             self.assertIn("近 2 日 paper acceptance", result.data.summary)
             self.assertIn("alert_count", result.lineage)
+
+    def test_ops_history_combines_pipeline_steps_and_acceptance_snapshots_read_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._plan_ready_db(tmp)
+            with sqlite3.connect(db_path) as conn:
+                conn.execute(
+                    """
+                    INSERT INTO operation_requests
+                      (
+                        idempotency_key,
+                        request_id,
+                        operation_type,
+                        account_id,
+                        as_of_date,
+                        status,
+                        request_json,
+                        response_json,
+                        operator,
+                        started_at,
+                        finished_at
+                      )
+                    VALUES
+                      (?, 'req-pipeline', 'daily_review', 1, ?, 'success', ?, ?, 'tester',
+                       '2026-05-10 16:20:00', '2026-05-10 16:20:03')
+                    """,
+                    (
+                        f"daily-pipeline:{ACCOUNT_KEY}:{AS_OF_DATE}:cpb_6157@2026-05-03:paper:daily-close",
+                        AS_OF_DATE,
+                        '{"dry_run": false}',
+                        '{"status": "success"}',
+                    ),
+                )
+
+            result = ReportingQueryService(db_path).list_ops_history(
+                OpsHistoryRequest(account_key=ACCOUNT_KEY, limit=20),
+                RequestContext(request_id="req-ops-history"),
+            )
+
+            self.assertEqual(result.status, "success")
+            self.assertIsNotNone(result.data)
+            categories = {item.category for item in result.data.items}
+            self.assertIn("pipeline_step", categories)
+            self.assertIn("paper_acceptance", categories)
+            pipeline_item = next(item for item in result.data.items if item.category == "pipeline_step")
+            self.assertEqual(pipeline_item.source, "operation_requests")
+            self.assertFalse(pipeline_item.details["dry_run"])
+            acceptance_item = next(item for item in result.data.items if item.category == "paper_acceptance")
+            self.assertEqual(acceptance_item.as_of_date, AS_OF_DATE)
+            self.assertTrue(acceptance_item.details["read_only_history"])
+            self.assertTrue(result.lineage["read_only"])
+            self.assertIn("Ops history", result.data.summary)
 
     def test_review_timeline_combines_review_market_plan_context_and_execution_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
