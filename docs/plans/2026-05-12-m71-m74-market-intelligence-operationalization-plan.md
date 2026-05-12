@@ -19,10 +19,10 @@
 
 | Track | Task | Status | Can Run In Parallel? | Depends On | Suggested Session |
 | --- | --- | --- | --- | --- | --- |
-| M71 | Evidence pack execution and 20260511 external coverage closure | Next | Yes | M68 evidence packs, reviewed provider files | Session A |
-| M72 | Market review data sync and empty-state diagnostics | Next | Yes | M41B/M48 Dashboard, M65 ops history | Session B |
-| M73 | Shadow strategy promotion workbench | Next | Yes | M69 shadow reports, M64/M50 gates | Session C |
-| M74 | Decision action outcome review and ops audit hardening | Next | After M70 response shapes | Session D |
+| M71 | Evidence pack execution and 20260511 external coverage closure | Done | Yes | M68 evidence packs, reviewed provider files | Session A |
+| M72 | Market review data sync and empty-state diagnostics | Done | Yes | M41B/M48 Dashboard, M65 ops history | Session B |
+| M73 | Shadow strategy promotion workbench | Done | Yes | M69 shadow reports, M64/M50 gates | Session C |
+| M74 | Decision action outcome review and ops audit hardening | Done | After M70 response shapes | Session D |
 
 ## M71: Evidence Pack Execution And 20260511 External Coverage Closure
 
@@ -43,6 +43,8 @@ git diff --check
 ```
 
 **Review focus:** no fabricated external evidence, no trading writes, and Dashboard/report coverage wording remains honest.
+
+**M71 completion note:** Executed reviewed local-cache provider pack for `20260511` through `ops evidence-pack` with `evidence_provider_pack_v1`, copied audited market/Agent provider files into `.pgc-runs/m71-evidence-pack-20260512/pack/`, and applied only those copied files into `market_external_items` and `agent_external_items`. Market evidence inserted 4 fresh rows covering market/sector/stock, Agent evidence inserted 6 fresh cached rows covering fundamentals plus risk/research context, and absent announcement/news/sentiment provider files remain explicit as missing/unavailable rather than fabricated. Re-rendered `reports/daily_review_20260511.{json,md}` so paper evidence coverage passes with source refs while Agent review itself remains not-run. Verified with targeted M71 pytest, full `PYTHONPATH=src:. pytest -q`, and `git diff --check`.
 
 ## M72: Market Review Data Sync And Empty-State Diagnostics
 
@@ -65,6 +67,8 @@ git diff --check
 
 **Review focus:** empty states identify root cause without hiding missing evidence or silently switching trading context.
 
+**M72 completion note:** Added `diagnostics` to market-review detail payloads, a Dashboard all-market diagnostic strip showing API Base, selected/latest market dates, localStorage pinning, source DB freshness, downstream table counts and empty-state reasons, plus a read-only `pgc ops market-review-parity` check for local/remote parity across `market_review_runs`, `sector_daily_snapshots`, `market_external_items`, `market_plan_contexts`, and `strategy_hypotheses`. Runbook and static tests document the workflow. Verified with `node --check web/dashboard/app.js`, targeted M72 pytest, full `PYTHONPATH=src:. pytest -q`, and `git diff --check`.
+
 ## M73: Shadow Strategy Promotion Workbench
 
 **Goal:** Convert M69 shadow research into a controlled workbench that can compare candidate ideas against frozen CPB.
@@ -84,6 +88,8 @@ git diff --check
 ```
 
 **Review focus:** research artifacts only; no trade plans, no active params, no paper/live behavior mutation.
+
+**M73 completion note:** Added `strategy-evolution register-shadow` to register M69 research outputs as artifact-only `strategy_hypotheses`, with replay/shadow comparison summaries for `trend_extension_shadow`, `breakout_pressure_shadow`, `low_price_momentum_shadow`, `preconfirm_watchlist`, and `pullback_dip_buy`. The strategy workbench now surfaces shadow comparison payloads plus explicit blocked gates for paper observation and strategy-version proposal; accepted shadow candidates stay research-only until blockers are cleared. Registered 5 local 20260511 shadow candidates in `data/pgc_trading.db`. Codex review restored the active CPB `min_entry_price=10.0`/params hash boundary and added regression coverage so shadow candidates cannot silently broaden the active strategy. Verified with targeted M73 pytest, full `PYTHONPATH=src:. pytest -q`, and `git diff --check`. No active strategy params, trade plans, trades, positions, paper/live behavior, broker execution, or timer state were changed.
 
 ## M74: Decision Action Outcome Review And Ops Audit Hardening
 
@@ -105,6 +111,8 @@ git diff --check
 ```
 
 **Review focus:** action logs are advisory audit records and cannot place trades, enable timers, or mutate strategy state.
+
+**M74 completion note:** Implemented local outcome-review hardening for decision action logs: outcome buckets/counts for matched, deferred, pending, unexpected, override, and review-only states; execution-date constrained trade matching; unexpected-trade detection; ops-history summaries/details for action-log audit records; and Dashboard outcome drill-down controls. Safety flags remain false for trade state, strategy state, and timer mutation. Verified with `node --check web/dashboard/app.js`, targeted M74 pytest, full `PYTHONPATH=src:. pytest -q` (`405 passed, 3 skipped, 10 subtests passed`), and `git diff --check`.
 
 ## Parallelization Notes
 

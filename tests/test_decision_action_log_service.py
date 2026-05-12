@@ -86,6 +86,98 @@ class DecisionActionLogServiceTest(unittest.TestCase):
                 op_type = conn.execute("SELECT operation_type FROM operation_requests").fetchone()[0]
             self.assertEqual(op_type, "decision_action_log")
 
+    def test_outcome_review_buckets_matched_pending_and_unexpected_trades(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._db(tmp)
+            service = DecisionActionLogService(db_path)
+
+            for key, request in [
+                (
+                    "matched",
+                    CreateDecisionActionLogRequest(
+                        review_date="20260504",
+                        execution_date="20260505",
+                        system_action="record_buy",
+                        operator_decision="followed",
+                        target_type="trade_plan",
+                        target_id=12,
+                    ),
+                ),
+                (
+                    "pending",
+                    CreateDecisionActionLogRequest(
+                        review_date="20260504",
+                        execution_date="20260506",
+                        system_action="record_sell",
+                        operator_decision="followed",
+                        target_type="position",
+                        target_id=4,
+                    ),
+                ),
+                (
+                    "unexpected",
+                    CreateDecisionActionLogRequest(
+                        review_date="20260504",
+                        execution_date="20260505",
+                        system_action="wait",
+                        operator_decision="followed",
+                        target_type="none",
+                    ),
+                ),
+            ]:
+                result = service.create_action_log(
+                    request,
+                    RequestContext(
+                        request_id=f"req-{key}",
+                        idempotency_key=f"decision-log:paper-main:20260504:{key}",
+                        operator="tester",
+                    ),
+                )
+                self.assertEqual(result.status, "success")
+
+            with sqlite3.connect(db_path) as conn:
+                conn.execute(
+                    """
+                    INSERT INTO trades
+                      (
+                        account_id,
+                        trade_plan_id,
+                        ts_code,
+                        name,
+                        side,
+                        planned_date,
+                        executed_date,
+                        executed_price,
+                        amount,
+                        shares,
+                        status,
+                        source,
+                        operator
+                      )
+                    VALUES
+                      (1, 12, '000001.SZ', 'Matched Buy', 'buy', '20260505', '20260505',
+                       10.0, 1000.0, 100, 'executed', 'manual', 'tester')
+                    """
+                )
+
+            listed = service.list_action_logs(
+                ListDecisionActionLogsRequest(review_date="20260504", account_key="paper-main", limit=10),
+                RequestContext(request_id="req-list-buckets", dry_run=True),
+            )
+
+            self.assertEqual(listed.status, "success")
+            self.assertEqual(listed.data.outcome_counts["matched"], 1)
+            self.assertEqual(listed.data.outcome_counts["pending"], 1)
+            self.assertEqual(listed.data.outcome_counts["unexpected"], 1)
+            self.assertEqual(listed.data.matched_outcome_count, 1)
+            self.assertEqual(listed.data.pending_outcome_count, 1)
+            self.assertEqual(listed.data.unexpected_trade_count, 1)
+            statuses_by_action = {item.system_action: item.outcome.outcome_status for item in listed.data.items}
+            self.assertEqual(statuses_by_action["record_buy"], "matched")
+            self.assertEqual(statuses_by_action["record_sell"], "pending_outcome")
+            self.assertEqual(statuses_by_action["wait"], "unexpected_trade_recorded")
+            self.assertIn("Outcomes: matched=1", listed.data.summary)
+
     def _db(self, tmp: str) -> Path:
         db_path = Path(tmp) / "pgc.db"
         run_migrations(db_path)

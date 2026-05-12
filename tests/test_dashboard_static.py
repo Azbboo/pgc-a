@@ -597,6 +597,8 @@ class DashboardStaticTest(unittest.TestCase):
             "记录 follow",
             "记录 defer",
             "记录 override",
+            "复核结果",
+            "unexpected trade",
             "不会执行交易、开启 timer 或修改策略参数",
             "/api/decision-action-log",
         ]:
@@ -611,10 +613,15 @@ class DashboardStaticTest(unittest.TestCase):
             "function recordDecisionActionLog",
             "function decisionActionLogTarget",
             "function decisionChecklistCodes",
+            "function decisionOutcomeClass",
+            "function openDecisionActionLogDetail",
         ]:
             self.assertIn(fn_name, source)
         self.assertIn('apiRequest("/api/decision-action-log"', script)
         self.assertIn("writes_trade_state", script)
+        self.assertIn("matched_outcome_count", script)
+        self.assertIn("unexpected_trade_count", script)
+        self.assertIn('["decision_action_log", "action log"]', script)
         self.assertNotIn("recordDecisionActionLogExecute", script)
         self.assertNotIn("trade_record_from_decision_action_log", script)
 
@@ -666,6 +673,36 @@ class DashboardStaticTest(unittest.TestCase):
         self.assertIn('localStorage.setItem("pgc.dashboard.marketAsOfDate"', source)
         self.assertNotIn("POST /api/market-reviews", source)
         self.assertNotIn('apiRequest("/api/market-reviews", { method: "POST"', script)
+
+    def test_dashboard_m72_market_empty_state_diagnostics_are_visible(self) -> None:
+        source = "\n".join(
+            [
+                (DASHBOARD_DIR / "index.html").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "styles.css").read_text(encoding="utf-8"),
+            ]
+        )
+        script = (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8")
+
+        for label in [
+            'id="marketDiagnosticsPanel"',
+            "API Base",
+            "source DB",
+            "missing_downstream_tables",
+            "empty_state_reasons",
+            "localStorage 固定",
+            "下游表状态未知",
+        ]:
+            self.assertIn(label, source)
+        for fn_name in [
+            "function renderMarketDiagnostics",
+            "function marketDiagnosticTableChips",
+            "function marketDiagnosticReasonText",
+            "function sourceDbFreshnessText",
+            "function sourceDbFreshnessClass",
+        ]:
+            self.assertIn(fn_name, script)
+        self.assertNotIn("POST /api/market-reviews", source)
 
     def test_dashboard_m56_strategy_hypothesis_workbench_is_read_only(self) -> None:
         source = "\n".join(

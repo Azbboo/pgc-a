@@ -20,16 +20,31 @@
     "artifacts": [],
     "confidence": null,
     "execution_mode": null,
-    "external_data_coverage": {},
+    "external_data_coverage": {
+      "announcement": "missing",
+      "fundamental": "available",
+      "news": "missing",
+      "risk_or_research": "available",
+      "sentiment": "missing"
+    },
     "external_evidence": [],
-    "missing_data_warnings": [],
+    "missing_data_warnings": [
+      "Agent cached provider evidence 缺失：公告/新闻/情绪。"
+    ],
     "note": "Agent 复核尚未接入本次日报；确定性策略和人工检查优先。",
     "report_markdown": null,
     "report_sections": [],
     "risk_level": "unknown",
     "risk_points": [],
     "source_label": null,
-    "source_refs": [],
+    "source_refs": [
+      "agent_external_items:7",
+      "agent_external_items:8",
+      "agent_external_items:9",
+      "agent_external_items:10",
+      "agent_external_items:11",
+      "agent_external_items:12"
+    ],
     "status": "not_run",
     "summary": null,
     "supporting_points": []
@@ -51,7 +66,7 @@
     "warning_count": 0
   },
   "due_positions": [],
-  "generated_at": "2026-05-11T09:15:29.225895+00:00",
+  "generated_at": "2026-05-12T08:29:16.916185+00:00",
   "latest_market_date": "20260511",
   "lineage": {
     "agent_decision_id": null,
@@ -69,35 +84,187 @@
   "market_review": {
     "breadth_score": 0.5726,
     "external_evidence_coverage": {
-      "by_importance": {},
-      "by_item_type": {},
-      "by_provider": {},
-      "by_scope": {},
-      "by_sentiment": {},
-      "coverage": "missing",
-      "fresh_count": 0,
-      "market": "missing",
-      "missing_scopes": [
-        "market",
-        "sector",
-        "stock"
-      ],
-      "news": "missing",
-      "sector": "missing",
+      "by_importance": {
+        "high": 2,
+        "medium": 2
+      },
+      "by_item_type": {
+        "research_note": 4
+      },
+      "by_provider": {
+        "pgc_reviewed_cache_m71": 4
+      },
+      "by_scope": {
+        "market": 1,
+        "sector": 1,
+        "stock": 2
+      },
+      "by_sentiment": {
+        "unknown": 4
+      },
+      "coverage": "available",
+      "fresh_count": 4,
+      "market": "available",
+      "missing_scopes": [],
+      "news": "available",
+      "sector": "partial",
       "sentiment": "missing",
       "stale_count": 0,
-      "stock": "missing",
-      "total_count": 0
+      "stock": "partial",
+      "total_count": 4
     },
     "market_review_run_id": 3,
     "persistence_score": 0.4085,
     "regime": "neutral",
-    "sector_persistence": [],
+    "sector_persistence": [
+      {
+        "breadth_score": 1.0,
+        "leader_count": 1,
+        "persistence_score": 1.0,
+        "rank_overall": 1,
+        "return_1d": 0.057946189839572115,
+        "return_3d": 0.0692634354272107,
+        "sector_code": "PGC_U88C5_U4FEE_U88C5_U9970",
+        "sector_name": "装修装饰",
+        "volume_score": 0.5
+      },
+      {
+        "breadth_score": 0.8333333333333334,
+        "leader_count": 2,
+        "persistence_score": 1.0,
+        "rank_overall": 2,
+        "return_1d": 0.04095791501828411,
+        "return_3d": 0.08493460337480585,
+        "sector_code": "PGC_U534A_U5BFC_U4F53",
+        "sector_name": "半导体",
+        "volume_score": 1.0
+      },
+      {
+        "breadth_score": 0.3333333333333333,
+        "leader_count": 1,
+        "persistence_score": 1.0,
+        "rank_overall": 3,
+        "return_1d": 0.0637781629116118,
+        "return_3d": 0.11279896711549427,
+        "sector_code": "PGC_U73BB_U7483",
+        "sector_name": "玻璃",
+        "volume_score": 0.3333333333333333
+      },
+      {
+        "breadth_score": 1.0,
+        "leader_count": 1,
+        "persistence_score": 1.0,
+        "rank_overall": 4,
+        "return_1d": 0.03814114591251683,
+        "return_3d": 0.07247124990294485,
+        "sector_code": "PGC_U77FF_U7269_U5236_U54C1",
+        "sector_name": "矿物制品",
+        "volume_score": 1.0
+      },
+      {
+        "breadth_score": 0.5,
+        "leader_count": 1,
+        "persistence_score": 1.0,
+        "rank_overall": 5,
+        "return_1d": 0.04327531645569627,
+        "return_3d": 0.10539611005692595,
+        "sector_code": "PGC_U673A_U5E8A_U5236_U9020",
+        "sector_name": "机床制造",
+        "volume_score": 0.0
+      }
+    ],
     "sentiment_score": null,
     "status": "completed",
-    "strategy_hypotheses": [],
+    "strategy_hypotheses": [
+      {
+        "hypothesis_id": 1,
+        "hypothesis_type": "sector_persistence_filter",
+        "paper_observation_gate": {},
+        "rationale": "Top-ranked sectors with persistent strength may improve CPB selectivity and reduce weak-theme entries.",
+        "shadow_comparison": {},
+        "status": "proposed",
+        "strategy_version_gate": {},
+        "title": "Only buy CPB candidates when their sector persistence score is above threshold."
+      },
+      {
+        "hypothesis_id": 2,
+        "hypothesis_type": "sector_leader_rank_boost",
+        "paper_observation_gate": {},
+        "rationale": "Sector leaders inside top sectors may deserve a scoring boost, but this needs replay validation first.",
+        "shadow_comparison": {},
+        "status": "proposed",
+        "strategy_version_gate": {},
+        "title": "Boost rank when stock is sector leader and sector is in top 5."
+      },
+      {
+        "hypothesis_id": 3,
+        "hypothesis_type": "market_plan_conflict_manual_review",
+        "paper_observation_gate": {},
+        "rationale": "Market-plan conflicts should become a tested review gate rather than an automatic plan change.",
+        "shadow_comparison": {},
+        "status": "proposed",
+        "strategy_version_gate": {},
+        "title": "Require manual review when market-plan context conflicts with a candidate."
+      }
+    ],
     "summary": "Market regime neutral: breadth=0.57 trend=0.72 volume=0.54 persistence=0.41 coverage=1.00.",
-    "top_sectors": [],
+    "top_sectors": [
+      {
+        "breadth_score": 1.0,
+        "leader_count": 1,
+        "persistence_score": 1.0,
+        "rank_overall": 1,
+        "return_1d": 0.057946189839572115,
+        "return_3d": 0.0692634354272107,
+        "sector_code": "PGC_U88C5_U4FEE_U88C5_U9970",
+        "sector_name": "装修装饰",
+        "volume_score": 0.5
+      },
+      {
+        "breadth_score": 0.8333333333333334,
+        "leader_count": 2,
+        "persistence_score": 1.0,
+        "rank_overall": 2,
+        "return_1d": 0.04095791501828411,
+        "return_3d": 0.08493460337480585,
+        "sector_code": "PGC_U534A_U5BFC_U4F53",
+        "sector_name": "半导体",
+        "volume_score": 1.0
+      },
+      {
+        "breadth_score": 0.3333333333333333,
+        "leader_count": 1,
+        "persistence_score": 1.0,
+        "rank_overall": 3,
+        "return_1d": 0.0637781629116118,
+        "return_3d": 0.11279896711549427,
+        "sector_code": "PGC_U73BB_U7483",
+        "sector_name": "玻璃",
+        "volume_score": 0.3333333333333333
+      },
+      {
+        "breadth_score": 1.0,
+        "leader_count": 1,
+        "persistence_score": 1.0,
+        "rank_overall": 4,
+        "return_1d": 0.03814114591251683,
+        "return_3d": 0.07247124990294485,
+        "sector_code": "PGC_U77FF_U7269_U5236_U54C1",
+        "sector_name": "矿物制品",
+        "volume_score": 1.0
+      },
+      {
+        "breadth_score": 0.5,
+        "leader_count": 1,
+        "persistence_score": 1.0,
+        "rank_overall": 5,
+        "return_1d": 0.04327531645569627,
+        "return_3d": 0.10539611005692595,
+        "sector_code": "PGC_U673A_U5E8A_U5236_U9020",
+        "sector_name": "机床制造",
+        "volume_score": 0.0
+      }
+    ],
     "trend_score": 0.7177,
     "volume_score": 0.5447
   },
@@ -105,6 +272,25 @@
     "acceptance_status": "blocked",
     "acceptance_summary": "纸盘每日运营验收阻断：1 项 blocker 需要先处理。",
     "account_key": "paper-main",
+    "action_log": {
+      "account_id": 1,
+      "account_key": "paper-main",
+      "advisory_note": "Decision cockpit action logs are advisory audit records; they never execute trades, enable timers, or mutate strategy state.",
+      "deferred_count": 0,
+      "deferred_outcome_count": 0,
+      "followed_count": 0,
+      "items": [],
+      "matched_outcome_count": 0,
+      "outcome_counts": {},
+      "override_count": 0,
+      "override_outcome_count": 0,
+      "pending_outcome_count": 0,
+      "review_date": "20260511",
+      "review_only_outcome_count": 0,
+      "summary": "Decision action log has 0 entries: followed=0, deferred=0, overrode=0.",
+      "unexpected_trade_count": 0,
+      "unresolved_blocker_codes": []
+    },
     "advisory_note": "Next-day decision cockpit is read-only; it explains blockers and next manual actions but never executes trades, enables timers, or mutates strategy parameters.",
     "as_of_date": "20260511",
     "blocker_count": 1,
@@ -119,13 +305,17 @@
         "manual_action": "处理 paper acceptance 未处理 blocker。",
         "source_refs": [
           "market_review_runs:3",
+          "agent_external_items:7",
+          "agent_external_items:8",
+          "agent_external_items:9",
+          "agent_external_items:10",
+          "agent_external_items:11",
+          "agent_external_items:12",
           "positions:1"
         ],
         "status": "blocked",
         "summary": "纸盘每日运营验收阻断：1 项 blocker 需要先处理。",
         "warning_codes": [
-          "MARKET_EVIDENCE_MISSING",
-          "AGENT_EXTERNAL_EVIDENCE_MISSING",
           "AGENT_REVIEW_NOT_RUN",
           "AGENT_EVIDENCE_MISSING"
         ]
@@ -135,16 +325,19 @@
         "detail": "Missing evidence is explicit and remains advisory; no cached evidence mutates strategy or trades.",
         "key": "evidence_blockers",
         "label": "证据 freshness / coverage",
-        "manual_action": "补齐或确认 cached provider evidence，再重新运行只读验收。",
+        "manual_action": "证据覆盖通过，保留 source_refs 供人工抽查。",
         "source_refs": [
-          "market_review_runs:3"
+          "market_review_runs:3",
+          "agent_external_items:7",
+          "agent_external_items:8",
+          "agent_external_items:9",
+          "agent_external_items:10",
+          "agent_external_items:11",
+          "agent_external_items:12"
         ],
-        "status": "warning",
-        "summary": "全市场证据 0 条；Agent 覆盖 0 项",
-        "warning_codes": [
-          "MARKET_EVIDENCE_MISSING",
-          "AGENT_EXTERNAL_EVIDENCE_MISSING"
-        ]
+        "status": "pass",
+        "summary": "全市场证据 4 条；Agent 覆盖 5 项",
+        "warning_codes": []
       },
       {
         "blocker_codes": [],
@@ -176,14 +369,20 @@
       },
       {
         "blocker_codes": [],
-        "detail": "没有 active strategy 参数、trade plan、position 或 live 行为被修改。",
+        "detail": "策略提案只生成研究/晋级任务线索，不会自动修改策略参数。",
         "key": "strategy_proposals",
         "label": "策略 proposal / hypothesis",
-        "manual_action": "无需策略参数动作；继续保持策略 evolution 只读边界。",
-        "source_refs": [],
-        "status": "pass",
-        "summary": "没有待审阅策略假设或 proposal。",
-        "warning_codes": []
+        "manual_action": "审阅策略假设和 proposal artifact；不要直接改 active params 或 paper/live 行为。",
+        "source_refs": [
+          "strategy_hypotheses:1",
+          "strategy_hypotheses:2",
+          "strategy_hypotheses:3"
+        ],
+        "status": "warning",
+        "summary": "3 项策略假设或 proposal 需要人工审阅；accepted=0 testing=0 proposed=3",
+        "warning_codes": [
+          "STRATEGY_PROPOSAL_REVIEW_REQUIRED"
+        ]
       }
     ],
     "execution_date": "20260512",
@@ -192,35 +391,187 @@
     "market_review": {
       "breadth_score": 0.5726,
       "external_evidence_coverage": {
-        "by_importance": {},
-        "by_item_type": {},
-        "by_provider": {},
-        "by_scope": {},
-        "by_sentiment": {},
-        "coverage": "missing",
-        "fresh_count": 0,
-        "market": "missing",
-        "missing_scopes": [
-          "market",
-          "sector",
-          "stock"
-        ],
-        "news": "missing",
-        "sector": "missing",
+        "by_importance": {
+          "high": 2,
+          "medium": 2
+        },
+        "by_item_type": {
+          "research_note": 4
+        },
+        "by_provider": {
+          "pgc_reviewed_cache_m71": 4
+        },
+        "by_scope": {
+          "market": 1,
+          "sector": 1,
+          "stock": 2
+        },
+        "by_sentiment": {
+          "unknown": 4
+        },
+        "coverage": "available",
+        "fresh_count": 4,
+        "market": "available",
+        "missing_scopes": [],
+        "news": "available",
+        "sector": "partial",
         "sentiment": "missing",
         "stale_count": 0,
-        "stock": "missing",
-        "total_count": 0
+        "stock": "partial",
+        "total_count": 4
       },
       "market_review_run_id": 3,
       "persistence_score": 0.4085,
       "regime": "neutral",
-      "sector_persistence": [],
+      "sector_persistence": [
+        {
+          "breadth_score": 1.0,
+          "leader_count": 1,
+          "persistence_score": 1.0,
+          "rank_overall": 1,
+          "return_1d": 0.057946189839572115,
+          "return_3d": 0.0692634354272107,
+          "sector_code": "PGC_U88C5_U4FEE_U88C5_U9970",
+          "sector_name": "装修装饰",
+          "volume_score": 0.5
+        },
+        {
+          "breadth_score": 0.8333333333333334,
+          "leader_count": 2,
+          "persistence_score": 1.0,
+          "rank_overall": 2,
+          "return_1d": 0.04095791501828411,
+          "return_3d": 0.08493460337480585,
+          "sector_code": "PGC_U534A_U5BFC_U4F53",
+          "sector_name": "半导体",
+          "volume_score": 1.0
+        },
+        {
+          "breadth_score": 0.3333333333333333,
+          "leader_count": 1,
+          "persistence_score": 1.0,
+          "rank_overall": 3,
+          "return_1d": 0.0637781629116118,
+          "return_3d": 0.11279896711549427,
+          "sector_code": "PGC_U73BB_U7483",
+          "sector_name": "玻璃",
+          "volume_score": 0.3333333333333333
+        },
+        {
+          "breadth_score": 1.0,
+          "leader_count": 1,
+          "persistence_score": 1.0,
+          "rank_overall": 4,
+          "return_1d": 0.03814114591251683,
+          "return_3d": 0.07247124990294485,
+          "sector_code": "PGC_U77FF_U7269_U5236_U54C1",
+          "sector_name": "矿物制品",
+          "volume_score": 1.0
+        },
+        {
+          "breadth_score": 0.5,
+          "leader_count": 1,
+          "persistence_score": 1.0,
+          "rank_overall": 5,
+          "return_1d": 0.04327531645569627,
+          "return_3d": 0.10539611005692595,
+          "sector_code": "PGC_U673A_U5E8A_U5236_U9020",
+          "sector_name": "机床制造",
+          "volume_score": 0.0
+        }
+      ],
       "sentiment_score": null,
       "status": "completed",
-      "strategy_hypotheses": [],
+      "strategy_hypotheses": [
+        {
+          "hypothesis_id": 1,
+          "hypothesis_type": "sector_persistence_filter",
+          "paper_observation_gate": {},
+          "rationale": "Top-ranked sectors with persistent strength may improve CPB selectivity and reduce weak-theme entries.",
+          "shadow_comparison": {},
+          "status": "proposed",
+          "strategy_version_gate": {},
+          "title": "Only buy CPB candidates when their sector persistence score is above threshold."
+        },
+        {
+          "hypothesis_id": 2,
+          "hypothesis_type": "sector_leader_rank_boost",
+          "paper_observation_gate": {},
+          "rationale": "Sector leaders inside top sectors may deserve a scoring boost, but this needs replay validation first.",
+          "shadow_comparison": {},
+          "status": "proposed",
+          "strategy_version_gate": {},
+          "title": "Boost rank when stock is sector leader and sector is in top 5."
+        },
+        {
+          "hypothesis_id": 3,
+          "hypothesis_type": "market_plan_conflict_manual_review",
+          "paper_observation_gate": {},
+          "rationale": "Market-plan conflicts should become a tested review gate rather than an automatic plan change.",
+          "shadow_comparison": {},
+          "status": "proposed",
+          "strategy_version_gate": {},
+          "title": "Require manual review when market-plan context conflicts with a candidate."
+        }
+      ],
       "summary": "Market regime neutral: breadth=0.57 trend=0.72 volume=0.54 persistence=0.41 coverage=1.00.",
-      "top_sectors": [],
+      "top_sectors": [
+        {
+          "breadth_score": 1.0,
+          "leader_count": 1,
+          "persistence_score": 1.0,
+          "rank_overall": 1,
+          "return_1d": 0.057946189839572115,
+          "return_3d": 0.0692634354272107,
+          "sector_code": "PGC_U88C5_U4FEE_U88C5_U9970",
+          "sector_name": "装修装饰",
+          "volume_score": 0.5
+        },
+        {
+          "breadth_score": 0.8333333333333334,
+          "leader_count": 2,
+          "persistence_score": 1.0,
+          "rank_overall": 2,
+          "return_1d": 0.04095791501828411,
+          "return_3d": 0.08493460337480585,
+          "sector_code": "PGC_U534A_U5BFC_U4F53",
+          "sector_name": "半导体",
+          "volume_score": 1.0
+        },
+        {
+          "breadth_score": 0.3333333333333333,
+          "leader_count": 1,
+          "persistence_score": 1.0,
+          "rank_overall": 3,
+          "return_1d": 0.0637781629116118,
+          "return_3d": 0.11279896711549427,
+          "sector_code": "PGC_U73BB_U7483",
+          "sector_name": "玻璃",
+          "volume_score": 0.3333333333333333
+        },
+        {
+          "breadth_score": 1.0,
+          "leader_count": 1,
+          "persistence_score": 1.0,
+          "rank_overall": 4,
+          "return_1d": 0.03814114591251683,
+          "return_3d": 0.07247124990294485,
+          "sector_code": "PGC_U77FF_U7269_U5236_U54C1",
+          "sector_name": "矿物制品",
+          "volume_score": 1.0
+        },
+        {
+          "breadth_score": 0.5,
+          "leader_count": 1,
+          "persistence_score": 1.0,
+          "rank_overall": 5,
+          "return_1d": 0.04327531645569627,
+          "return_3d": 0.10539611005692595,
+          "sector_code": "PGC_U673A_U5E8A_U5236_U9020",
+          "sector_name": "机床制造",
+          "volume_score": 0.0
+        }
+      ],
       "trend_score": 0.7177,
       "volume_score": 0.5447
     },
@@ -242,12 +593,43 @@
     "strategy_proposals": {
       "accepted_count": 0,
       "archived_count": 0,
-      "items": [],
-      "proposed_count": 0,
+      "items": [
+        {
+          "hypothesis_id": 1,
+          "hypothesis_type": "sector_persistence_filter",
+          "paper_observation_gate": {},
+          "rationale": "Top-ranked sectors with persistent strength may improve CPB selectivity and reduce weak-theme entries.",
+          "shadow_comparison": {},
+          "status": "proposed",
+          "strategy_version_gate": {},
+          "title": "Only buy CPB candidates when their sector persistence score is above threshold."
+        },
+        {
+          "hypothesis_id": 2,
+          "hypothesis_type": "sector_leader_rank_boost",
+          "paper_observation_gate": {},
+          "rationale": "Sector leaders inside top sectors may deserve a scoring boost, but this needs replay validation first.",
+          "shadow_comparison": {},
+          "status": "proposed",
+          "strategy_version_gate": {},
+          "title": "Boost rank when stock is sector leader and sector is in top 5."
+        },
+        {
+          "hypothesis_id": 3,
+          "hypothesis_type": "market_plan_conflict_manual_review",
+          "paper_observation_gate": {},
+          "rationale": "Market-plan conflicts should become a tested review gate rather than an automatic plan change.",
+          "shadow_comparison": {},
+          "status": "proposed",
+          "strategy_version_gate": {},
+          "title": "Require manual review when market-plan context conflicts with a candidate."
+        }
+      ],
+      "proposed_count": 3,
       "rejected_count": 0,
-      "review_required_count": 0,
+      "review_required_count": 3,
       "testing_count": 0,
-      "total_count": 0
+      "total_count": 3
     },
     "system_proposal": {
       "action": "evaluate_exit",
@@ -288,15 +670,6 @@
         "title": "未处理 blocker"
       },
       {
-        "action": "market",
-        "as_of_date": "20260511",
-        "code": "STALE_OR_MISSING_EVIDENCE",
-        "gate_key": "evidence_coverage",
-        "severity": "warning",
-        "summary": "2026-05-11 存在 MARKET_EVIDENCE_MISSING, AGENT_EXTERNAL_EVIDENCE_MISSING，需人工复核证据覆盖。",
-        "title": "证据或行情不新鲜"
-      },
-      {
         "action": "agent",
         "as_of_date": "20260511",
         "code": "AGENT_REVIEW_MISSING",
@@ -323,14 +696,17 @@
       "key": "evidence_coverage",
       "label": "证据覆盖",
       "source_refs": [
-        "market_review_runs:3"
+        "market_review_runs:3",
+        "agent_external_items:7",
+        "agent_external_items:8",
+        "agent_external_items:9",
+        "agent_external_items:10",
+        "agent_external_items:11",
+        "agent_external_items:12"
       ],
-      "status": "warning",
-      "summary": "全市场证据 0 条；Agent 覆盖 0 项",
-      "warning_codes": [
-        "MARKET_EVIDENCE_MISSING",
-        "AGENT_EXTERNAL_EVIDENCE_MISSING"
-      ]
+      "status": "pass",
+      "summary": "全市场证据 4 条；Agent 覆盖 5 项",
+      "warning_codes": []
     },
     "execution_date": "20260512",
     "open_execution": {

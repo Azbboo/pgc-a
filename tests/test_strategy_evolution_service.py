@@ -14,6 +14,7 @@ from pgc_trading.services.strategy_evolution_service import (
     ListStrategyHypothesesRequest,
     MarkStrategyHypothesisRequest,
     ProposeStrategyHypothesesRequest,
+    RegisterShadowStrategyCandidatesRequest,
     StrategyEvolutionService,
     review_strategy_version_proposal_review_artifact,
     review_strategy_version_proposal_artifact,
@@ -90,6 +91,128 @@ class StrategyEvolutionServiceTest(unittest.TestCase):
             for _, evidence_json, proposed_change_json in rows:
                 self.assertIn("as_of_date", evidence_json)
                 self.assertIn("requires_replay_backtest", proposed_change_json)
+
+    def test_register_shadow_candidates_loads_m69_artifacts_without_param_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc.db"
+            reports_dir = Path(tmp) / "reports"
+            run_migrations(db_path)
+            _write_shadow_artifacts(reports_dir)
+            params_before = _strategy_param_file_contents()
+            strategy_versions_before = _count_strategy_versions(db_path)
+            service = StrategyEvolutionService(db_path, reports_dir=reports_dir)
+
+            preview = service.register_shadow_candidates(
+                RegisterShadowStrategyCandidatesRequest(as_of_date="20260511"),
+                RequestContext(request_id="shadow-preview", dry_run=True, operator="azboo"),
+            )
+
+            self.assertEqual(preview.status, "success")
+            self.assertIsNotNone(preview.data)
+            assert preview.data is not None
+            self.assertEqual(preview.data.generated_count, 5)
+            self.assertEqual(preview.data.would_insert_count, 5)
+            self.assertEqual(preview.data.inserted_count, 0)
+            self.assertEqual(preview.data.comparison_summary["paper_observation_blocked_count"], 5)
+            self.assertEqual(_count_hypotheses(db_path), 0)
+
+            applied = service.register_shadow_candidates(
+                RegisterShadowStrategyCandidatesRequest(as_of_date="20260511"),
+                RequestContext(request_id="shadow-apply", dry_run=False, operator="azboo"),
+            )
+            replay = service.register_shadow_candidates(
+                RegisterShadowStrategyCandidatesRequest(as_of_date="20260511"),
+                RequestContext(request_id="shadow-replay", dry_run=False, operator="azboo"),
+            )
+
+            self.assertEqual(applied.status, "success")
+            self.assertIsNotNone(applied.data)
+            assert applied.data is not None
+            self.assertEqual(applied.data.inserted_count, 5)
+            self.assertEqual(applied.data.skipped_existing_count, 0)
+            self.assertEqual(replay.data.skipped_existing_count, 5)
+            self.assertEqual(_count_hypotheses(db_path), 5)
+            self.assertEqual(_strategy_param_file_contents(), params_before)
+            self.assertEqual(_count_strategy_versions(db_path), strategy_versions_before)
+
+            evaluation = service.evaluate_hypotheses(
+                EvaluateStrategyHypothesesRequest(as_of_date="20260511", limit=10),
+                RequestContext(request_id="shadow-workbench", dry_run=True),
+            )
+            self.assertEqual(evaluation.status, "success")
+            self.assertIsNotNone(evaluation.data)
+            assert evaluation.data is not None
+            self.assertEqual(evaluation.data.summary["shadow_candidate_count"], 5)
+            self.assertEqual(evaluation.data.summary["shadow_comparison_count"], 5)
+            self.assertEqual(evaluation.data.summary["paper_observation_blocked_count"], 5)
+            self.assertEqual(evaluation.data.summary["strategy_version_proposal_blocked_count"], 5)
+            first = evaluation.data.hypotheses[0]
+            self.assertTrue(first.shadow_comparison)
+            self.assertEqual(first.paper_observation_gate["status"], "blocked")
+            self.assertEqual(first.strategy_version_gate["status"], "blocked")
+            self.assertTrue(first.safety["shadow_candidate"])
+            self.assertFalse(first.safety["active_params_mutated"])
+
+    def test_shadow_accepted_hypothesis_blocks_strategy_version_proposal_until_clearance(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc.db"
+            reports_dir = Path(tmp) / "reports"
+            backtest_artifact_path = Path(tmp) / "shadow_backtest_request.json"
+            run_migrations(db_path)
+            _write_shadow_artifacts(reports_dir)
+            service = StrategyEvolutionService(db_path, reports_dir=reports_dir)
+            registered = service.register_shadow_candidates(
+                RegisterShadowStrategyCandidatesRequest(as_of_date="20260511"),
+                RequestContext(dry_run=False, operator="azboo"),
+            )
+            assert registered.data is not None
+            hypothesis_id = registered.data.hypotheses[0].hypothesis_id
+            assert hypothesis_id is not None
+            _write_backtest_artifact(backtest_artifact_path, hypothesis_id)
+
+            testing = service.mark_hypothesis(
+                MarkStrategyHypothesisRequest(
+                    hypothesis_id=hypothesis_id,
+                    status="testing",
+                    review_note="Ready for shadow replay request.",
+                ),
+                RequestContext(request_id="testing", operator="azboo"),
+            )
+            accepted = service.mark_hypothesis(
+                MarkStrategyHypothesisRequest(
+                    hypothesis_id=hypothesis_id,
+                    status="accepted",
+                    review_note="Accepted as research-only shadow candidate.",
+                    evidence_ids=("m69_shadow_research:trend_extension_shadow",),
+                    backtest_artifact_path=str(backtest_artifact_path),
+                ),
+                RequestContext(request_id="accepted", operator="azboo"),
+            )
+            proposal = service.create_strategy_version_proposal(
+                CreateStrategyVersionProposalRequest(hypothesis_id=hypothesis_id),
+                RequestContext(request_id="shadow-proposal", dry_run=False, operator="azboo"),
+            )
+            evaluation = service.evaluate_hypotheses(
+                EvaluateStrategyHypothesesRequest(status="accepted", as_of_date="20260511", limit=10),
+                RequestContext(request_id="workbench", dry_run=True),
+            )
+
+            self.assertTrue(testing.ok)
+            self.assertEqual(accepted.status, "success")
+            self.assertIsNotNone(accepted.data)
+            assert accepted.data is not None
+            self.assertIsNotNone(accepted.data.strategy_version_task)
+            assert accepted.data.strategy_version_task is not None
+            self.assertEqual(accepted.data.strategy_version_task["status"], "blocked")
+            self.assertTrue(accepted.data.strategy_version_task["strategy_version_proposal_blockers"])
+            self.assertEqual(proposal.status, "validation_failed")
+            self.assertEqual(
+                [error.code for error in proposal.errors],
+                ["SHADOW_PROPOSAL_REQUIRES_BLOCKER_CLEARANCE"],
+            )
+            self.assertIsNotNone(evaluation.data)
+            assert evaluation.data is not None
+            self.assertEqual(evaluation.data.hypotheses[0].next_action, "shadow_gate_blocked")
 
     def test_list_and_mark_review_status(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -818,6 +941,129 @@ def _write_strategy_version_proposal_review_artifact(path: Path, hypothesis_id: 
             "artifact_only": True,
         }
     path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+
+
+def _write_shadow_artifacts(reports_dir: Path) -> None:
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    (reports_dir / "strategy_shadow_review_20260511.json").write_text(
+        json.dumps(
+            {
+                "review_date": "20260511",
+                "feature_cutoff_date": "20260508",
+                "gainer5_shadow_bucket_counts": {
+                    "trend_extension_shadow": 14,
+                    "breakout_pressure_shadow": 10,
+                    "low_price_momentum_shadow": 7,
+                },
+                "shadow_rule_v0": {
+                    "trend_extension_shadow": "Strong trend continuation.",
+                    "breakout_pressure_shadow": "Near high pressure setup.",
+                    "low_price_momentum_shadow": "Low-price momentum sleeve.",
+                },
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    summary = [
+        _shadow_summary("daily_top1_trend_extension_shadow", 24, 1.11, 7.38),
+        _shadow_summary("all_trend_extension_shadow", 467, 1.18, 5.86),
+        _shadow_summary("daily_top1_breakout_pressure_shadow", 24, 0.22, 4.77),
+        _shadow_summary("all_breakout_pressure_shadow", 1095, 0.67, 3.18),
+        _shadow_summary("daily_top1_low_price_momentum_shadow", 24, 2.61, 9.97),
+        _shadow_summary("all_low_price_momentum_shadow", 553, 0.19, 0.94),
+        _shadow_summary("active_cpb_persisted_picks", 2, 9.57, None),
+    ]
+    (reports_dir / "strategy_shadow_backtest_20260401_20260508.json").write_text(
+        json.dumps(
+            {
+                "start_date": "20260401",
+                "end_date": "20260508",
+                "summary": summary,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    (reports_dir / "preconfirm_watchlist_backtest.json").write_text(
+        json.dumps(
+            {
+                "meta": {"start_date": "20251110", "end_date": "20260511"},
+                "summary": [
+                    {
+                        "pre_action": "高潜伏预警",
+                        "signals": 38,
+                        "review_days": 27,
+                        "stocks": 16,
+                        "confirm_next_day_n": 37,
+                        "confirm_next_day_rate": 0.2432,
+                        "next_open_ret_1d_mean": 0.0278,
+                        "next_open_ret_3d_mean": 0.0486,
+                        "next_open_ret_5d_mean": 0.0757,
+                        "watch_mfe_5d_mean": 0.1303,
+                    },
+                    {"pre_action": "全部", "signals": 426, "review_days": 64, "stocks": 112},
+                ],
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    (reports_dir / "pgc_pullback_dip_buy.json").write_text(
+        json.dumps(
+            {
+                "selected_variant": "dip_r15_a6_run05",
+                "selected_params": {"variant_id": "dip_r15_a6_run05", "retrace_pct": 0.15},
+                "selected_groups": {
+                    "score": [
+                        {
+                            "group": "全部",
+                            "ret_5d_n": 99,
+                            "ret_5d_win_rate": 0.5354,
+                            "ret_5d_mean": 0.0123,
+                            "ret_5d_median": 0.0037,
+                        },
+                        {
+                            "group": "潜力分>=75",
+                            "ret_5d_n": 28,
+                            "ret_5d_win_rate": 0.6071,
+                            "ret_5d_mean": 0.0527,
+                            "ret_5d_median": 0.0083,
+                        },
+                    ],
+                    "age": [
+                        {
+                            "group": "9-13天",
+                            "ret_5d_n": 24,
+                            "ret_5d_win_rate": 0.625,
+                            "ret_5d_mean": 0.0389,
+                            "ret_5d_median": 0.0328,
+                        }
+                    ],
+                },
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+
+def _shadow_summary(label: str, n: int, t1_close_mean_pct: float, t5_close_mean_pct: float | None) -> dict[str, object]:
+    return {
+        "label": label,
+        "n": n,
+        "days": 24,
+        "t1_close_mean_pct": t1_close_mean_pct,
+        "t1_close_win_rate_pct": 58.3,
+        "t1_high_mean_pct": 4.64,
+        "t3_high_mean_pct": 8.94,
+        "t5_close_mean_pct": t5_close_mean_pct,
+        "t5_close_win_rate_pct": 65.0,
+    }
 
 
 def _hypothesis_validation(db_path: Path, hypothesis_id: int) -> dict[str, object]:

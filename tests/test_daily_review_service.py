@@ -137,6 +137,43 @@ class DailyReviewServiceTest(unittest.TestCase):
                 self.assertEqual(self._count(conn, "daily_picks"), 0)
                 self.assertEqual(self._count(conn, "operation_requests"), 0)
 
+    def test_low_entry_price_still_blocks_active_cpb_signal(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._migrated_seeded_db(tmp)
+            with sqlite3.connect(db_path) as conn:
+                self._insert_open_calendar(conn)
+                self._insert_contracting_pullback_case(
+                    conn,
+                    "000003.SZ",
+                    "Low Price CPB",
+                    0.5,
+                )
+
+            result = DailyReviewService(db_path).run_daily_review(
+                RunDailyReviewRequest(as_of_date=AS_OF_DATE),
+                RequestContext(request_id="req-low-price", operator="tester"),
+            )
+
+            self.assertEqual(result.status, "success")
+            self.assertEqual(result.data.signals_count, 0)
+            self.assertIsNone(result.data.daily_pick)
+            self.assertEqual(result.data.skipped_reason, "no_strategy_signals")
+            with sqlite3.connect(db_path) as conn:
+                features = json.loads(
+                    conn.execute(
+                        """
+                        SELECT features_json
+                        FROM feature_snapshots
+                        ORDER BY id DESC
+                        LIMIT 1
+                        """
+                    ).fetchone()[0]
+                )
+                self.assertFalse(features["signal_passed"])
+                self.assertEqual(features["invalid_reason"], "entry_price_below_min")
+                self.assertEqual(features["min_entry_price"], 10.0)
+                self.assertLess(features["entry_price"], 10.0)
+
     def test_cpb_v2_dry_run_uses_enriched_decision_without_portfolio_writes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = self._migrated_seeded_db(tmp)

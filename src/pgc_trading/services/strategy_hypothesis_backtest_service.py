@@ -344,6 +344,7 @@ def _build_artifact(
     hypothesis_id = int(hypothesis["id"])
     status = str(hypothesis["status"])
     strategy_id = str(proposed_change.get("strategy_id") or StrategyConfig().strategy_id)
+    evidence = _json_loads(hypothesis["evidence_json"])
     strategy = _strategy_payload(current_strategy, strategy_id)
     backtest_request = _backtest_request_payload(
         hypothesis_id=hypothesis_id,
@@ -371,7 +372,7 @@ def _build_artifact(
             "hypothesis_type": hypothesis["hypothesis_type"],
             "title": hypothesis["title"],
             "rationale": hypothesis["rationale"],
-            "evidence": _json_loads(hypothesis["evidence_json"]),
+            "evidence": evidence,
             "proposed_change": proposed_change,
         },
         "strategy": strategy,
@@ -381,13 +382,20 @@ def _build_artifact(
             "required_before_acceptance": ["validation_evidence_ids", "backtest_request_artifact"],
             "suggested_validation_evidence_ids": _suggested_validation_evidence_ids(hypothesis),
             "accepted_is_research_outcome_only": True,
+            "shadow_candidate_blockers": _shadow_blockers(evidence, proposed_change),
         },
+        "shadow_comparison": _shadow_comparison(evidence),
+        "paper_observation_gate": _shadow_gate(evidence, "paper_observation_gate"),
+        "strategy_version_gate": _shadow_gate(evidence, "strategy_version_gate"),
         "safety": {
             "active_params_mutated": False,
             "writes_trade_state": False,
             "writes_backtest_results": False,
             "requires_replay_before_param_change": True,
             "accepted_creates_separate_strategy_version_task": status == "accepted",
+            "shadow_candidate": _is_shadow_candidate(evidence, proposed_change),
+            "paper_observation_allowed": not _shadow_gate(evidence, "paper_observation_gate"),
+            "strategy_version_proposal_allowed": not _shadow_gate(evidence, "strategy_version_gate"),
         },
     }
 
@@ -425,6 +433,43 @@ def _record_hypothesis_backtest_artifact(
             (_json_dumps(evidence), hypothesis_id),
         )
         return evidence_ids
+
+
+def _is_shadow_candidate(evidence: dict[str, Any], proposed_change: dict[str, Any]) -> bool:
+    return (
+        evidence.get("source") == "m69_shadow_research"
+        or bool(evidence.get("artifact_only"))
+        or bool(proposed_change.get("artifact_only"))
+        or str(proposed_change.get("change_type") or "") == "shadow_candidate"
+    )
+
+
+def _shadow_comparison(evidence: dict[str, Any]) -> dict[str, Any]:
+    comparison = evidence.get("shadow_comparison")
+    return dict(comparison) if isinstance(comparison, dict) else {}
+
+
+def _shadow_gate(evidence: dict[str, Any], key: str) -> dict[str, Any]:
+    gate = evidence.get(key)
+    return dict(gate) if isinstance(gate, dict) else {}
+
+
+def _shadow_blockers(evidence: dict[str, Any], proposed_change: dict[str, Any]) -> dict[str, list[str]]:
+    if not _is_shadow_candidate(evidence, proposed_change):
+        return {}
+    paper_gate = _shadow_gate(evidence, "paper_observation_gate")
+    strategy_gate = _shadow_gate(evidence, "strategy_version_gate")
+    return {
+        "paper_observation": _gate_blockers(paper_gate),
+        "strategy_version_proposal": _gate_blockers(strategy_gate),
+    }
+
+
+def _gate_blockers(gate: dict[str, Any]) -> list[str]:
+    blockers = gate.get("blockers")
+    if not isinstance(blockers, list):
+        return []
+    return [str(blocker) for blocker in blockers if str(blocker)]
 
 
 def _suggested_validation_evidence_ids(hypothesis: sqlite3.Row) -> list[str]:

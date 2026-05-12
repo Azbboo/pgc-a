@@ -493,8 +493,9 @@ def build_agent_external_coverage_summary(
     unavailable_sources: Sequence[_UnavailableAgentExternalSource] = (),
     duplicate_count: int = 0,
 ) -> dict[str, Any]:
-    by_item_type = _count_agent_by(items, "item_type")
-    freshness = _agent_freshness(items, as_of_date)
+    coverage_items = _latest_agent_coverage_items(items)
+    by_item_type = _count_agent_by(coverage_items, "item_type")
+    freshness = _agent_freshness(coverage_items, as_of_date)
     unavailable_item_types = _unavailable_item_type_set(unavailable_sources)
     item_type_statuses = {
         item_type: _agent_item_type_status(by_item_type, item_type, unavailable_item_types)
@@ -512,12 +513,12 @@ def build_agent_external_coverage_summary(
     ]
     return {
         "as_of_date": as_of_date or "unknown",
-        "total_count": len(items),
-        "stock_count": len({item.ts_code for item in items}),
+        "total_count": len(coverage_items),
+        "stock_count": len({item.ts_code for item in coverage_items}),
         "fundamental": item_type_statuses["fundamental"],
         "announcement": item_type_statuses["announcement"],
         "news": item_type_statuses["news"],
-        "sentiment": _agent_sentiment_status(items, unavailable_item_types),
+        "sentiment": _agent_sentiment_status(coverage_items, unavailable_item_types),
         "risk_or_research": "available"
         if by_item_type.get("risk_note", 0) or by_item_type.get("research_note", 0)
         else "missing",
@@ -528,10 +529,23 @@ def build_agent_external_coverage_summary(
         "unavailable_item_types": unavailable_item_type_list,
         "unavailable_sources": _unavailable_source_payloads(unavailable_sources),
         "freshness": freshness,
-        "fresh_count": _agent_fresh_count(items, as_of_date),
-        "stale_count": _agent_stale_count(items, as_of_date),
+        "fresh_count": _agent_fresh_count(coverage_items, as_of_date),
+        "stale_count": _agent_stale_count(coverage_items, as_of_date),
         "by_item_type": by_item_type,
     }
+
+
+def _latest_agent_coverage_items(items: Sequence[_AgentCoverageItem]) -> list[_AgentCoverageItem]:
+    latest_by_key: dict[tuple[str, str], str] = {}
+    for item in items:
+        key = (item.ts_code, item.item_type)
+        if item.published_date > latest_by_key.get(key, ""):
+            latest_by_key[key] = item.published_date
+    return [
+        item
+        for item in items
+        if item.published_date == latest_by_key.get((item.ts_code, item.item_type))
+    ]
 
 
 def build_agent_external_backfill_coverage_qa(
@@ -1563,11 +1577,21 @@ def _coverage_as_of_date(
 def _load_agent_coverage_items(conn: sqlite3.Connection, as_of_date: str) -> list[_AgentCoverageItem]:
     rows = conn.execute(
         """
-        SELECT ts_code, item_type, sentiment, published_date
-        FROM agent_external_items
-        WHERE published_date <= ?
+        WITH latest_items AS (
+          SELECT ts_code, item_type, MAX(published_date) AS latest_published_date
+          FROM agent_external_items
+          WHERE published_date <= ?
+          GROUP BY ts_code, item_type
+        )
+        SELECT a.ts_code, a.item_type, a.sentiment, a.published_date
+        FROM agent_external_items a
+        JOIN latest_items l
+          ON l.ts_code = a.ts_code
+         AND l.item_type = a.item_type
+         AND l.latest_published_date = a.published_date
+        WHERE a.published_date <= ?
         """,
-        (as_of_date,),
+        (as_of_date, as_of_date),
     ).fetchall()
     return [
         _AgentCoverageItem(

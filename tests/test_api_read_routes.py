@@ -281,9 +281,11 @@ class _FakeDecisionActionLogService:
                         "decision_action_log_id": 5,
                         "operator_decision": "followed",
                         "system_action": "record_buy",
-                        "outcome": {"outcome_status": "pending_outcome"},
+                        "outcome": {"outcome_status": "pending_outcome", "outcome_bucket": "pending"},
                     }
                 ],
+                "pending_outcome_count": 1,
+                "outcome_counts": {"pending": 1},
                 "advisory_note": "advisory only",
             },
             lineage={"account_id": request.account_id, "read_only": True},
@@ -489,6 +491,8 @@ class ApiReadRoutesTest(unittest.TestCase):
         self.assertEqual(payload["status"], "success")
         self.assertEqual(payload["data"]["review_date"], "20260504")
         self.assertEqual(payload["data"]["items"][0]["operator_decision"], "followed")
+        self.assertEqual(payload["data"]["items"][0]["outcome"]["outcome_bucket"], "pending")
+        self.assertEqual(payload["data"]["outcome_counts"]["pending"], 1)
         db_path, request, ctx, method = _FakeDecisionActionLogService.calls[0]
         self.assertEqual(method, "list")
         self.assertEqual(db_path, self.settings.db_path)
@@ -743,6 +747,13 @@ class ApiReadRoutesTest(unittest.TestCase):
         self.assertIn("missing_data", payload["data"])
         self.assertIn("market_review_runs", payload["data"]["missing_data"])
         self.assertFalse(payload["data"]["coverage"]["has_review"])
+        diagnostics = payload["data"]["diagnostics"]
+        self.assertEqual(diagnostics["selected_market_date"], "20260508")
+        self.assertIsNone(diagnostics["latest_market_review_date"])
+        self.assertIn("source_db", diagnostics)
+        self.assertIn("market_review_runs", diagnostics["downstream_tables"])
+        self.assertIn("market_external_items", diagnostics["missing_downstream_tables"])
+        self.assertEqual(diagnostics["empty_state_reasons"][0]["code"], "MARKET_REVIEW_RUN_MISSING")
 
     def test_strategy_hypothesis_workbench_route_is_read_only_and_filterable(self) -> None:
         response = _Response()

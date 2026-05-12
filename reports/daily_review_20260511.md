@@ -1,6 +1,6 @@
 # PGC 每日复盘报告
 
-生成时间：2026-05-11T09:15:29.225895+00:00
+生成时间：2026-05-12T08:29:16.956856+00:00
 复盘日：2026-05-11
 最新行情日：2026-05-11
 下一交易日：2026-05-12
@@ -34,7 +34,7 @@
 - 验收摘要：纸盘每日运营验收阻断：1 项 blocker 需要先处理。
 - 执行日：2026-05-12
 - 数据新鲜度：通过；最新行情日 2026-05-11 / 复盘日 2026-05-11
-- 证据覆盖：警告；全市场证据 0 条；Agent 覆盖 0 项；warning MARKET_EVIDENCE_MISSING, AGENT_EXTERNAL_EVIDENCE_MISSING
+- 证据覆盖：通过；全市场证据 4 条；Agent 覆盖 5 项
 - Agent 状态：警告；not_run / no_opinion / risk unknown；warning AGENT_REVIEW_NOT_RUN
 - open-execution 状态：通过；ready / evaluate_exit
 - 提醒：只读验收面板，不会执行交易、取消计划或改策略参数。
@@ -54,7 +54,6 @@ readiness gates：
 
 验收告警：
 - [blocker] 未处理 blocker：1 项 blocker 仍未处理，paper acceptance 不能视为通过。
-- [warning] 证据或行情不新鲜：2026-05-11 存在 MARKET_EVIDENCE_MISSING, AGENT_EXTERNAL_EVIDENCE_MISSING，需人工复核证据覆盖。
 - [warning] Agent 复核缺失：2026-05-11 的 Agent 状态为 not_run / no_opinion / risk unknown。
 
 ## 下一交易日决策驾驶舱
@@ -70,14 +69,20 @@ readiness gates：
 - 提醒：驾驶舱只读，不会执行交易、开启 timer 或修改策略参数。
 
 决策清单：
-- paper acceptance：阻断；纸盘每日运营验收阻断：1 项 blocker 需要先处理。；blocker MIN_PAPER_TRADES_NOT_MET；warning MARKET_EVIDENCE_MISSING, AGENT_EXTERNAL_EVIDENCE_MISSING, AGENT_REVIEW_NOT_RUN, AGENT_EVIDENCE_MISSING；下一步：处理 paper acceptance 未处理 blocker。
-- 证据 freshness / coverage：警告；全市场证据 0 条；Agent 覆盖 0 项；warning MARKET_EVIDENCE_MISSING, AGENT_EXTERNAL_EVIDENCE_MISSING；下一步：补齐或确认 cached provider evidence，再重新运行只读验收。
+- paper acceptance：阻断；纸盘每日运营验收阻断：1 项 blocker 需要先处理。；blocker MIN_PAPER_TRADES_NOT_MET；warning AGENT_REVIEW_NOT_RUN, AGENT_EVIDENCE_MISSING；下一步：处理 paper acceptance 未处理 blocker。
+- 证据 freshness / coverage：通过；全市场证据 4 条；Agent 覆盖 5 项；下一步：证据覆盖通过，保留 source_refs 供人工抽查。
 - 全市场复盘 / 计划关系：警告；neutral；Market regime neutral: breadth=0.57 trend=0.72 volume=0.54 persistence=0.41 coverage=1.00.；计划建议 missing；warning MARKET_PLAN_CONTEXT_MISSING；下一步：补齐全市场复盘与明日计划关系，或人工确认该计划无需市场上下文。
 - open-execution 下一步：通过；ready / evaluate_exit；下一步：人工评估到期持仓并按显式流程生成退出动作。
-- 策略 proposal / hypothesis：通过；没有待审阅策略假设或 proposal。；下一步：无需策略参数动作；继续保持策略 evolution 只读边界。
+- 策略 proposal / hypothesis：警告；3 项策略假设或 proposal 需要人工审阅；accepted=0 testing=0 proposed=3；warning STRATEGY_PROPOSAL_REVIEW_REQUIRED；下一步：审阅策略假设和 proposal artifact；不要直接改 active params 或 paper/live 行为。
 
 策略 proposal / hypothesis：
-- total=0 proposed=0 testing=0 accepted=0 review_required=0
+- total=3 proposed=3 testing=0 accepted=0 review_required=3
+- Only buy CPB candidates when their sector persistence score is above threshold.（proposed）
+- Boost rank when stock is sector leader and sector is in top 5.（proposed）
+- Require manual review when market-plan context conflicts with a candidate.（proposed）
+
+动作日志 / 次日复核：
+- 暂无驾驶舱动作日志；该日志只记录人工 follow/defer/override，不会执行交易或修改策略。
 
 ## 数据状态
 
@@ -98,10 +103,10 @@ readiness gates：
 ## 全市场复盘
 
 - 状态：已完成；中性（宽度0.57 / 趋势0.72 / 持续0.41）：Market regime neutral: breadth=0.57 trend=0.72 volume=0.54 persistence=0.41 coverage=1.00.
-- Top 5 板块：未找到板块轮动数据
-- 板块持续性：未找到持续性板块数据
-- 外部证据覆盖：未找到全市场新闻/情绪证据
-- 策略假设：未生成策略假设
+- Top 5 板块：装修装饰#1，持续 1.00；半导体#2，持续 1.00；玻璃#3，持续 1.00
+- 板块持续性：装修装饰#1 持续 1.00；半导体#2 持续 1.00；玻璃#3 持续 1.00；矿物制品#4 持续 1.00；机床制造#5 持续 1.00
+- 外部证据覆盖：4 条；范围 market 1 / sector 1 / stock 2；情绪 unknown 4；来源 pgc_reviewed_cache_m71 4；状态 市场可用 / 板块部分 / 个股部分 / 新闻可用 / 情绪缺失
+- 策略假设：3 条；Only buy CPB candidates when their sector persistence score is above threshold.（proposed）；Boost rank when stock is sector leader and sector is in top 5.（proposed）；Require manual review when market-plan context conflicts with a candidate.（proposed）
 
 ## 全市场复盘与明日计划关系
 
@@ -117,6 +122,10 @@ readiness gates：
 - 风险：未知
 - 摘要：Agent 复核尚未接入本次日报；确定性策略和人工检查优先。
 - 提醒：Agent 只提供复核意见，不会自动改变交易计划。
+- 数据覆盖：技术面 未知 / 基本面 可用 / 新闻面 缺失 / 情绪面 缺失
+
+未接入/缺失：
+- Agent cached provider evidence 缺失：公告/新闻/情绪。
 
 ## 当前持仓处理
 

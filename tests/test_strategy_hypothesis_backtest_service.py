@@ -97,6 +97,63 @@ class StrategyHypothesisBacktestServiceTest(unittest.TestCase):
             self.assertEqual(_strategy_param_file_contents(), params_before)
             self.assertEqual(_count_rows(db_path, "strategy_versions"), strategy_versions_before)
 
+    def test_shadow_hypothesis_backtest_artifact_carries_comparison_and_blockers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc.db"
+            reports_dir = Path(tmp) / "reports"
+            run_migrations(db_path)
+            seed_reference_data(db_path)
+            hypothesis_id = _insert_hypothesis(
+                db_path,
+                status="proposed",
+                evidence={
+                    "source": "m69_shadow_research",
+                    "as_of_date": "20260511",
+                    "artifact_only": True,
+                    "shadow_comparison": {
+                        "candidate_key": "trend_extension_shadow",
+                        "daily_top1_metrics": {"n": 24, "t1_close_mean_pct": 1.11},
+                    },
+                    "paper_observation_gate": {
+                        "status": "blocked",
+                        "blockers": ["paper_observation_not_authorized"],
+                    },
+                    "strategy_version_gate": {
+                        "status": "blocked",
+                        "blockers": ["strategy_version_proposal_not_authorized"],
+                    },
+                },
+                proposed_change={
+                    "strategy_id": "cpb_6157",
+                    "change_type": "shadow_candidate",
+                    "candidate_key": "trend_extension_shadow",
+                    "artifact_only": True,
+                    "requires_replay_backtest": True,
+                    "mutates_active_params": False,
+                },
+            )
+
+            service = StrategyHypothesisBacktestService(db_path, reports_dir=reports_dir)
+            result = service.create_backtest_request(
+                CreateStrategyHypothesisBacktestRequest(hypothesis_id=hypothesis_id),
+                RequestContext(request_id="shadow-backtest", dry_run=True, operator="azboo"),
+            )
+
+            self.assertEqual(result.status, "success")
+            self.assertIsNotNone(result.data)
+            assert result.data is not None
+            artifact = result.data.artifact
+            self.assertEqual(artifact["shadow_comparison"]["candidate_key"], "trend_extension_shadow")
+            self.assertEqual(artifact["paper_observation_gate"]["status"], "blocked")
+            self.assertEqual(artifact["strategy_version_gate"]["status"], "blocked")
+            self.assertTrue(artifact["safety"]["shadow_candidate"])
+            self.assertFalse(artifact["safety"]["paper_observation_allowed"])
+            self.assertFalse(artifact["safety"]["strategy_version_proposal_allowed"])
+            self.assertIn(
+                "strategy_version_proposal_not_authorized",
+                artifact["validation_gate"]["shadow_candidate_blockers"]["strategy_version_proposal"],
+            )
+
     def test_accepted_hypothesis_creates_separate_strategy_version_task_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "pgc.db"
@@ -174,6 +231,7 @@ def _insert_hypothesis(
     db_path: Path,
     *,
     status: str,
+    evidence: dict[str, Any] | None = None,
     proposed_change: dict[str, Any] | None = None,
 ) -> int:
     change = proposed_change or {
@@ -183,7 +241,7 @@ def _insert_hypothesis(
         "requires_replay_backtest": True,
         "mutates_active_params": False,
     }
-    evidence = {
+    evidence_payload = evidence or {
         "source": "market_regime_snapshots",
         "as_of_date": "20260508",
         "regime": "risk_off",
@@ -201,7 +259,7 @@ def _insert_hypothesis(
                 "market_regime_position_sizing",
                 "Reduce position size when market regime is risk_off.",
                 "Risk-off market-review evidence should be validated with lower exposure.",
-                json.dumps(evidence, ensure_ascii=False, sort_keys=True),
+                json.dumps(evidence_payload, ensure_ascii=False, sort_keys=True),
                 json.dumps(change, ensure_ascii=False, sort_keys=True),
                 status,
             ),

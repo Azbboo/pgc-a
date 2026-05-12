@@ -35,6 +35,13 @@ VALID_HYPOTHESIS_TRANSITIONS = {
 }
 SECTOR_PERSISTENCE_THRESHOLD = 0.7
 TOP_SECTOR_RANK_LIMIT = 5
+SHADOW_RESEARCH_SOURCE = "m69_shadow_research"
+SHADOW_RESEARCH_ARTIFACTS = {
+    "shadow_review": "strategy_shadow_review_20260511.json",
+    "shadow_backtest": "strategy_shadow_backtest_20260401_20260508.json",
+    "preconfirm_watchlist": "preconfirm_watchlist_backtest.json",
+    "dip_buy": "pgc_pullback_dip_buy.json",
+}
 
 
 @dataclass(frozen=True)
@@ -54,6 +61,15 @@ class EvaluateStrategyHypothesesRequest:
     status: str | None = None
     as_of_date: str | None = None
     limit: int | None = 100
+
+
+@dataclass(frozen=True)
+class RegisterShadowStrategyCandidatesRequest:
+    as_of_date: str
+    shadow_review_artifact_path: str | None = None
+    shadow_backtest_artifact_path: str | None = None
+    preconfirm_watchlist_artifact_path: str | None = None
+    dip_buy_artifact_path: str | None = None
 
 
 @dataclass(frozen=True)
@@ -104,6 +120,18 @@ class ProposeStrategyHypothesesResult:
 
 
 @dataclass(frozen=True)
+class RegisterShadowStrategyCandidatesResult:
+    as_of_date: str
+    generated_count: int
+    would_insert_count: int
+    inserted_count: int
+    skipped_existing_count: int
+    artifact_paths: dict[str, str] = field(default_factory=dict)
+    comparison_summary: dict[str, Any] = field(default_factory=dict)
+    hypotheses: list[StrategyHypothesis] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class ListStrategyHypothesesResult:
     hypotheses: list[StrategyHypothesis] = field(default_factory=list)
 
@@ -118,6 +146,9 @@ class StrategyHypothesisEvaluation:
     validation_events: list[dict[str, Any]] = field(default_factory=list)
     acceptance_gate: dict[str, Any] = field(default_factory=dict)
     safety: dict[str, Any] = field(default_factory=dict)
+    shadow_comparison: dict[str, Any] = field(default_factory=dict)
+    paper_observation_gate: dict[str, Any] = field(default_factory=dict)
+    strategy_version_gate: dict[str, Any] = field(default_factory=dict)
     next_action: str = "review"
     next_action_label: str = "Review hypothesis."
     strategy_version_task: dict[str, Any] | None = None
@@ -230,6 +261,27 @@ class _MarketObservations:
     conflicted_plan_rows: list[sqlite3.Row]
 
 
+@dataclass(frozen=True)
+class _ShadowResearchArtifacts:
+    shadow_review_path: Path
+    shadow_review: dict[str, Any]
+    shadow_backtest_path: Path
+    shadow_backtest: dict[str, Any]
+    preconfirm_watchlist_path: Path
+    preconfirm_watchlist: dict[str, Any]
+    dip_buy_path: Path
+    dip_buy: dict[str, Any]
+
+    @property
+    def paths(self) -> dict[str, str]:
+        return {
+            "shadow_review": str(self.shadow_review_path),
+            "shadow_backtest": str(self.shadow_backtest_path),
+            "preconfirm_watchlist": str(self.preconfirm_watchlist_path),
+            "dip_buy": str(self.dip_buy_path),
+        }
+
+
 class StrategyEvolutionService:
     """Generate, list, and update controlled strategy hypotheses."""
 
@@ -328,6 +380,96 @@ class StrategyEvolutionService:
             lineage={"as_of_date": request.as_of_date, "market_review_run_id": observations.run_id},
         )
 
+    def register_shadow_candidates(
+        self,
+        request: RegisterShadowStrategyCandidatesRequest,
+        ctx: RequestContext,
+    ) -> ServiceResult[RegisterShadowStrategyCandidatesResult]:
+        validation_errors = _validate_shadow_register_request(request)
+        if validation_errors:
+            return ServiceResult(
+                status="validation_failed",
+                request_id=ctx.request_id,
+                data=RegisterShadowStrategyCandidatesResult(
+                    as_of_date=request.as_of_date,
+                    generated_count=0,
+                    would_insert_count=0,
+                    inserted_count=0,
+                    skipped_existing_count=0,
+                ),
+                errors=validation_errors,
+            )
+
+        artifacts_or_errors = _load_shadow_research_artifacts(request, self.reports_dir)
+        if isinstance(artifacts_or_errors, list):
+            return ServiceResult(
+                status="validation_failed",
+                request_id=ctx.request_id,
+                data=RegisterShadowStrategyCandidatesResult(
+                    as_of_date=request.as_of_date,
+                    generated_count=0,
+                    would_insert_count=0,
+                    inserted_count=0,
+                    skipped_existing_count=0,
+                ),
+                errors=artifacts_or_errors,
+            )
+        artifacts = artifacts_or_errors
+        generated = _generate_shadow_candidates(request.as_of_date, artifacts)
+        comparison_summary = _shadow_register_summary(generated)
+
+        with connect(self.db_path) as conn:
+            new_hypotheses = [item for item in generated if _find_existing_hypothesis_id(conn, item) is None]
+            skipped_existing_count = len(generated) - len(new_hypotheses)
+
+            if ctx.dry_run:
+                return ServiceResult(
+                    status="success",
+                    request_id=ctx.request_id,
+                    data=RegisterShadowStrategyCandidatesResult(
+                        as_of_date=request.as_of_date,
+                        generated_count=len(generated),
+                        would_insert_count=len(new_hypotheses),
+                        inserted_count=0,
+                        skipped_existing_count=skipped_existing_count,
+                        artifact_paths=artifacts.paths,
+                        comparison_summary=comparison_summary,
+                        hypotheses=generated,
+                    ),
+                    lineage={"as_of_date": request.as_of_date, "source": SHADOW_RESEARCH_SOURCE},
+                )
+
+            inserted: list[StrategyHypothesis] = []
+            inserted_ids: list[int] = []
+            conn.execute("BEGIN")
+            try:
+                for hypothesis in new_hypotheses:
+                    inserted_hypothesis = _insert_hypothesis(conn, hypothesis)
+                    inserted.append(inserted_hypothesis)
+                    if inserted_hypothesis.hypothesis_id is not None:
+                        inserted_ids.append(inserted_hypothesis.hypothesis_id)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data=RegisterShadowStrategyCandidatesResult(
+                as_of_date=request.as_of_date,
+                generated_count=len(generated),
+                would_insert_count=len(new_hypotheses),
+                inserted_count=len(inserted),
+                skipped_existing_count=skipped_existing_count,
+                artifact_paths=artifacts.paths,
+                comparison_summary=comparison_summary,
+                hypotheses=inserted,
+            ),
+            created_ids={"strategy_hypotheses": inserted_ids},
+            lineage={"as_of_date": request.as_of_date, "source": SHADOW_RESEARCH_SOURCE},
+        )
+
     def list_hypotheses(
         self,
         request: ListStrategyHypothesesRequest,
@@ -387,6 +529,8 @@ class StrategyEvolutionService:
                     "proposal_artifact_type": "strategy_version_proposal",
                     "proposal_review_artifact_type": "strategy_version_proposal_review",
                     "promotion_request_artifact_type": "strategy_version_promotion_request",
+                    "shadow_research_source": SHADOW_RESEARCH_SOURCE,
+                    "shadow_artifacts": sorted(SHADOW_RESEARCH_ARTIFACTS.values()),
                     "as_of_date": request.as_of_date,
                     "status": request.status,
                     "limit": request.limit,
@@ -400,6 +544,9 @@ class StrategyEvolutionService:
                     "proposal_artifacts_only": True,
                     "proposal_review_artifacts_only": True,
                     "promotion_request_artifacts_only": True,
+                    "shadow_candidates_artifact_only": True,
+                    "shadow_candidates_require_blocker_clearance": True,
+                    "shadow_candidates_cannot_create_paper_observation": True,
                 },
             ),
             lineage={"as_of_date": request.as_of_date, "status": request.status},
@@ -897,6 +1044,21 @@ def _validate_evaluate_request(request: EvaluateStrategyHypothesesRequest) -> li
     )
 
 
+def _validate_shadow_register_request(request: RegisterShadowStrategyCandidatesRequest) -> list[ServiceError]:
+    errors: list[ServiceError] = []
+    if not is_yyyymmdd(request.as_of_date):
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="as_of_date must use YYYYMMDD format."))
+    for label, value in [
+        ("shadow_review_artifact_path", request.shadow_review_artifact_path),
+        ("shadow_backtest_artifact_path", request.shadow_backtest_artifact_path),
+        ("preconfirm_watchlist_artifact_path", request.preconfirm_watchlist_artifact_path),
+        ("dip_buy_artifact_path", request.dip_buy_artifact_path),
+    ]:
+        if value is not None and not str(value).strip():
+            errors.append(ServiceError(code="VALIDATION_ERROR", message=f"{label} must not be blank."))
+    return errors
+
+
 def _validate_mark_request(request: MarkStrategyHypothesisRequest) -> list[ServiceError]:
     errors: list[ServiceError] = []
     if request.hypothesis_id < 1:
@@ -1060,6 +1222,19 @@ def _validate_strategy_version_proposal_gate(
                 entity_id=hypothesis.hypothesis_id,
             )
         ]
+    shadow_blockers = _shadow_strategy_version_blockers(hypothesis)
+    if shadow_blockers:
+        return [
+            ServiceError(
+                code="SHADOW_PROPOSAL_REQUIRES_BLOCKER_CLEARANCE",
+                message=(
+                    "shadow strategy candidates require explicit blocker clearance before any "
+                    "strategy-version proposal artifact."
+                ),
+                entity_type="strategy_hypothesis",
+                entity_id=hypothesis.hypothesis_id,
+            )
+        ]
     return []
 
 
@@ -1153,10 +1328,11 @@ def _future_strategy_version_task_payload(
         **hypothesis.proposed_change,
         "mutates_active_params": False,
     }
+    shadow_blockers = _shadow_strategy_version_blockers(hypothesis)
     return {
         "task_key": f"strategy-hypothesis:{hypothesis_id}:strategy-version",
         "task_type": "create_candidate_strategy_version",
-        "status": "pending",
+        "status": "blocked" if shadow_blockers else "pending",
         "strategy_id": str(proposed_change.get("strategy_id") or "cpb_6157"),
         "hypothesis_id": hypothesis_id,
         "hypothesis_type": hypothesis.hypothesis_type,
@@ -1167,6 +1343,8 @@ def _future_strategy_version_task_payload(
         "proposal_artifact_required": True,
         "proposal_artifact_type": "strategy_version_proposal",
         "proposed_change": proposed_change,
+        "shadow_candidate": _is_shadow_candidate(hypothesis),
+        "strategy_version_proposal_blockers": shadow_blockers,
         "acceptance_rules": [
             "Generate a strategy-version proposal artifact before creating any strategy_version row.",
             "Create a new draft or candidate strategy_version row rather than mutating the active version.",
@@ -1639,6 +1817,77 @@ def _record_strategy_version_proposal_review_artifact(
         )
 
 
+def _is_shadow_candidate(hypothesis: StrategyHypothesis) -> bool:
+    return (
+        hypothesis.evidence.get("source") == SHADOW_RESEARCH_SOURCE
+        or bool(hypothesis.evidence.get("artifact_only"))
+        or bool(hypothesis.proposed_change.get("artifact_only"))
+        or str(hypothesis.proposed_change.get("change_type") or "") == "shadow_candidate"
+    )
+
+
+def _shadow_paper_observation_gate(hypothesis: StrategyHypothesis) -> dict[str, Any]:
+    return _shadow_gate_payload_from_evidence(hypothesis, "paper_observation_gate")
+
+
+def _shadow_strategy_version_gate(hypothesis: StrategyHypothesis) -> dict[str, Any]:
+    return _shadow_gate_payload_from_evidence(hypothesis, "strategy_version_gate")
+
+
+def _shadow_gate_payload_from_evidence(hypothesis: StrategyHypothesis, key: str) -> dict[str, Any]:
+    gate = hypothesis.evidence.get(key)
+    if isinstance(gate, dict):
+        return dict(gate)
+    if not _is_shadow_candidate(hypothesis):
+        return {}
+    if key == "paper_observation_gate":
+        blockers = hypothesis.proposed_change.get("paper_observation_blockers")
+        return _blocked_gate_payload(
+            "paper_observation",
+            [str(blocker) for blocker in blockers] if isinstance(blockers, list) else _shadow_base_paper_blockers(),
+        )
+    blockers = hypothesis.proposed_change.get("strategy_version_proposal_blockers")
+    return _blocked_gate_payload(
+        "strategy_version_proposal",
+        [str(blocker) for blocker in blockers]
+        if isinstance(blockers, list)
+        else _shadow_base_strategy_version_blockers(),
+    )
+
+
+def _shadow_comparison_from_evidence(hypothesis: StrategyHypothesis) -> dict[str, Any]:
+    comparison = hypothesis.evidence.get("shadow_comparison")
+    return dict(comparison) if isinstance(comparison, dict) else {}
+
+
+def _shadow_paper_observation_blockers(hypothesis: StrategyHypothesis) -> list[str]:
+    return _unresolved_shadow_blockers(
+        hypothesis,
+        _shadow_paper_observation_gate(hypothesis),
+        "cleared_shadow_paper_observation_blockers",
+    )
+
+
+def _shadow_strategy_version_blockers(hypothesis: StrategyHypothesis) -> list[str]:
+    return _unresolved_shadow_blockers(
+        hypothesis,
+        _shadow_strategy_version_gate(hypothesis),
+        "cleared_shadow_strategy_version_blockers",
+    )
+
+
+def _unresolved_shadow_blockers(
+    hypothesis: StrategyHypothesis,
+    gate: dict[str, Any],
+    cleared_key: str,
+) -> list[str]:
+    blockers = gate.get("blockers") if isinstance(gate, dict) else None
+    if not isinstance(blockers, list):
+        return []
+    cleared = set(_validation_values(hypothesis.evidence, cleared_key))
+    return [str(blocker) for blocker in blockers if str(blocker) and str(blocker) not in cleared]
+
+
 def _evaluate_hypothesis(hypothesis: StrategyHypothesis) -> StrategyHypothesisEvaluation:
     evidence_ids = _validation_values(hypothesis.evidence, "evidence_ids")
     artifact_reviews = [
@@ -1666,6 +1915,9 @@ def _evaluate_hypothesis(hypothesis: StrategyHypothesis) -> StrategyHypothesisEv
     ]
     validation_events = _validation_events(hypothesis.evidence)
     acceptance_gate = _acceptance_gate_payload(hypothesis, evidence_ids, artifact_reviews)
+    shadow_comparison = _shadow_comparison_from_evidence(hypothesis)
+    paper_observation_gate = _shadow_paper_observation_gate(hypothesis)
+    strategy_version_gate = _shadow_strategy_version_gate(hypothesis)
     safety = _hypothesis_safety_payload(hypothesis, artifact_reviews, proposal_reviews, proposal_review_artifacts)
     next_action, next_action_label = _evaluation_next_action(
         hypothesis,
@@ -1692,6 +1944,9 @@ def _evaluate_hypothesis(hypothesis: StrategyHypothesis) -> StrategyHypothesisEv
         validation_events=validation_events,
         acceptance_gate=acceptance_gate,
         safety=safety,
+        shadow_comparison=shadow_comparison,
+        paper_observation_gate=paper_observation_gate,
+        strategy_version_gate=strategy_version_gate,
         next_action=next_action,
         next_action_label=next_action_label,
         strategy_version_task=strategy_version_task,
@@ -1717,6 +1972,8 @@ def _acceptance_gate_payload(
         blocks.append("valid_backtest_artifact_required")
     if mutates_active_params:
         blocks.append("active_param_mutation_forbidden")
+    shadow_paper_blockers = _shadow_paper_observation_blockers(hypothesis)
+    shadow_strategy_version_blockers = _shadow_strategy_version_blockers(hypothesis)
     return {
         "can_accept": hypothesis.status == "testing" and not blocks,
         "accepted_complete": hypothesis.status == "accepted" and not blocks,
@@ -1726,6 +1983,9 @@ def _acceptance_gate_payload(
         "backtest_artifacts_valid": artifacts_valid,
         "requires_replay_backtest": bool(hypothesis.proposed_change.get("requires_replay_backtest", True)),
         "blocks": blocks,
+        "shadow_candidate": _is_shadow_candidate(hypothesis),
+        "paper_observation_blockers": shadow_paper_blockers,
+        "strategy_version_proposal_blockers": shadow_strategy_version_blockers,
     }
 
 
@@ -1742,6 +2002,8 @@ def _hypothesis_safety_payload(
     review_wrote_strategy_versions = any(
         review.wrote_strategy_versions is True for review in proposal_review_artifacts
     )
+    paper_blockers = _shadow_paper_observation_blockers(hypothesis)
+    strategy_version_blockers = _shadow_strategy_version_blockers(hypothesis)
     return {
         "read_only_evaluation": True,
         "proposed_change_mutates_active_params": bool(hypothesis.proposed_change.get("mutates_active_params")),
@@ -1755,6 +2017,11 @@ def _hypothesis_safety_payload(
         "writes_paper_live_behavior": False,
         "accepted_creates_separate_strategy_version_task": hypothesis.status == "accepted",
         "proposal_review_artifacts_only": not review_wrote_strategy_versions,
+        "shadow_candidate": _is_shadow_candidate(hypothesis),
+        "paper_observation_blocked": bool(paper_blockers),
+        "strategy_version_proposal_blocked": bool(strategy_version_blockers),
+        "paper_observation_blockers": paper_blockers,
+        "strategy_version_proposal_blockers": strategy_version_blockers,
     }
 
 
@@ -1785,6 +2052,11 @@ def _evaluation_next_action(
             return "attach_validation_evidence", "Attach validation evidence ids before acceptance."
         return "continue_testing", "Continue validation before acceptance."
     if hypothesis.status == "accepted":
+        if safety.get("strategy_version_proposal_blocked"):
+            return (
+                "shadow_gate_blocked",
+                "Accepted is research-only; clear shadow paper/proposal blockers before observation or proposal.",
+            )
         if not proposal_reviews:
             return (
                 "create_strategy_version_proposal",
@@ -1837,6 +2109,11 @@ def _evaluation_summary(evaluations: list[StrategyHypothesisEvaluation]) -> dict
     proposal_required_count = 0
     proposal_review_required_count = 0
     proposal_ready_count = 0
+    shadow_candidate_count = 0
+    shadow_comparison_count = 0
+    shadow_gate_blocked_count = 0
+    paper_observation_blocked_count = 0
+    strategy_version_proposal_blocked_count = 0
     unsafe_count = 0
     for evaluation in evaluations:
         status = evaluation.hypothesis.status
@@ -1875,6 +2152,16 @@ def _evaluation_summary(evaluations: list[StrategyHypothesisEvaluation]) -> dict
             proposal_review_required_count += 1
         if evaluation.next_action in {"proposal_ready", "review_strategy_version_proposal"}:
             proposal_ready_count += 1
+        if evaluation.safety.get("shadow_candidate"):
+            shadow_candidate_count += 1
+        if evaluation.shadow_comparison:
+            shadow_comparison_count += 1
+        if evaluation.next_action == "shadow_gate_blocked":
+            shadow_gate_blocked_count += 1
+        if evaluation.safety.get("paper_observation_blocked"):
+            paper_observation_blocked_count += 1
+        if evaluation.safety.get("strategy_version_proposal_blocked"):
+            strategy_version_proposal_blocked_count += 1
         if (
             evaluation.safety.get("proposed_change_mutates_active_params")
             or evaluation.safety.get("artifact_reports_active_param_mutation")
@@ -1899,6 +2186,11 @@ def _evaluation_summary(evaluations: list[StrategyHypothesisEvaluation]) -> dict
         "proposal_review_approved_count": proposal_review_approved_count,
         "proposal_review_rejected_count": proposal_review_rejected_count,
         "promotion_request_count": promotion_request_count,
+        "shadow_candidate_count": shadow_candidate_count,
+        "shadow_comparison_count": shadow_comparison_count,
+        "shadow_gate_blocked_count": shadow_gate_blocked_count,
+        "paper_observation_blocked_count": paper_observation_blocked_count,
+        "strategy_version_proposal_blocked_count": strategy_version_proposal_blocked_count,
         "unsafe_count": unsafe_count,
     }
 
@@ -1989,6 +2281,499 @@ def _current_strategy_payload(current_strategy: sqlite3.Row | None, strategy_id:
         "current_strategy_version": current_strategy["strategy_version"],
         "current_params_hash": current_strategy["params_hash"],
         "current_status": current_strategy["status"],
+    }
+
+
+def _load_shadow_research_artifacts(
+    request: RegisterShadowStrategyCandidatesRequest,
+    reports_dir: Path,
+) -> _ShadowResearchArtifacts | list[ServiceError]:
+    paths = {
+        "shadow_review": _shadow_artifact_path(
+            reports_dir,
+            request.shadow_review_artifact_path,
+            SHADOW_RESEARCH_ARTIFACTS["shadow_review"],
+        ),
+        "shadow_backtest": _shadow_artifact_path(
+            reports_dir,
+            request.shadow_backtest_artifact_path,
+            SHADOW_RESEARCH_ARTIFACTS["shadow_backtest"],
+        ),
+        "preconfirm_watchlist": _shadow_artifact_path(
+            reports_dir,
+            request.preconfirm_watchlist_artifact_path,
+            SHADOW_RESEARCH_ARTIFACTS["preconfirm_watchlist"],
+        ),
+        "dip_buy": _shadow_artifact_path(
+            reports_dir,
+            request.dip_buy_artifact_path,
+            SHADOW_RESEARCH_ARTIFACTS["dip_buy"],
+        ),
+    }
+    loaded: dict[str, dict[str, Any]] = {}
+    errors: list[ServiceError] = []
+    for artifact_key, path in paths.items():
+        payload_or_error = _read_shadow_json_artifact(path, artifact_key)
+        if isinstance(payload_or_error, ServiceError):
+            errors.append(payload_or_error)
+        else:
+            loaded[artifact_key] = payload_or_error
+    if errors:
+        return errors
+    return _ShadowResearchArtifacts(
+        shadow_review_path=paths["shadow_review"],
+        shadow_review=loaded["shadow_review"],
+        shadow_backtest_path=paths["shadow_backtest"],
+        shadow_backtest=loaded["shadow_backtest"],
+        preconfirm_watchlist_path=paths["preconfirm_watchlist"],
+        preconfirm_watchlist=loaded["preconfirm_watchlist"],
+        dip_buy_path=paths["dip_buy"],
+        dip_buy=loaded["dip_buy"],
+    )
+
+
+def _shadow_artifact_path(reports_dir: Path, explicit_path: str | None, default_name: str) -> Path:
+    if explicit_path is not None:
+        return Path(explicit_path).expanduser()
+    return reports_dir / default_name
+
+
+def _read_shadow_json_artifact(path: Path, artifact_key: str) -> dict[str, Any] | ServiceError:
+    if not path.exists():
+        return ServiceError(
+            code="SHADOW_RESEARCH_ARTIFACT_NOT_FOUND",
+            message=f"shadow research artifact was not found: {path}",
+            entity_type=artifact_key,
+        )
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return ServiceError(
+            code="SHADOW_RESEARCH_ARTIFACT_INVALID",
+            message=f"shadow research artifact is not valid JSON: {path}: {exc}",
+            entity_type=artifact_key,
+        )
+    if not isinstance(loaded, dict):
+        return ServiceError(
+            code="SHADOW_RESEARCH_ARTIFACT_INVALID",
+            message=f"shadow research artifact must be a JSON object: {path}",
+            entity_type=artifact_key,
+        )
+    return loaded
+
+
+def _generate_shadow_candidates(
+    as_of_date: str,
+    artifacts: _ShadowResearchArtifacts,
+) -> list[StrategyHypothesis]:
+    candidates: list[StrategyHypothesis] = []
+    for candidate_key, title, rationale in [
+        (
+            "trend_extension_shadow",
+            "Shadow candidate: trend-extension continuation bucket.",
+            "M69 shadow research showed strong-trend continuation misses that are outside frozen CPB pullback rules.",
+        ),
+        (
+            "breakout_pressure_shadow",
+            "Shadow candidate: breakout-pressure bucket.",
+            "M69 shadow research found near-high pressure setups with intraday optionality but unstable close returns.",
+        ),
+        (
+            "low_price_momentum_shadow",
+            "Shadow candidate: low-price momentum micro-sleeve.",
+            "Low-price movers explain part of CPB misses, but risk, liquidity, and sizing must remain separate.",
+        ),
+    ]:
+        candidates.append(
+            _shadow_bucket_hypothesis(
+                as_of_date=as_of_date,
+                candidate_key=candidate_key,
+                title=title,
+                rationale=rationale,
+                artifacts=artifacts,
+            )
+        )
+    candidates.append(_preconfirm_watchlist_shadow_hypothesis(as_of_date, artifacts))
+    candidates.append(_dip_buy_shadow_hypothesis(as_of_date, artifacts))
+    return candidates
+
+
+def _shadow_bucket_hypothesis(
+    *,
+    as_of_date: str,
+    candidate_key: str,
+    title: str,
+    rationale: str,
+    artifacts: _ShadowResearchArtifacts,
+) -> StrategyHypothesis:
+    shadow_review = artifacts.shadow_review
+    shadow_backtest = artifacts.shadow_backtest
+    daily_metrics = _summary_row(shadow_backtest, f"daily_top1_{candidate_key}")
+    all_metrics = _summary_row(shadow_backtest, f"all_{candidate_key}")
+    active_metrics = _summary_row(shadow_backtest, "active_cpb_persisted_picks")
+    missed_counts = shadow_review.get("gainer5_shadow_bucket_counts")
+    shadow_rules = shadow_review.get("shadow_rule_v0")
+    comparison = {
+        "candidate_key": candidate_key,
+        "candidate_family": "shadow_bucket",
+        "review_window": {
+            "start_date": shadow_backtest.get("start_date"),
+            "end_date": shadow_backtest.get("end_date"),
+            "days": daily_metrics.get("days"),
+        },
+        "missed_gainer5_count": (
+            missed_counts.get(candidate_key)
+            if isinstance(missed_counts, dict)
+            else None
+        ),
+        "rule_summary": shadow_rules.get(candidate_key) if isinstance(shadow_rules, dict) else None,
+        "daily_top1_metrics": _compact_shadow_metrics(daily_metrics),
+        "all_candidate_metrics": _compact_shadow_metrics(all_metrics),
+        "frozen_cpb_baseline": _compact_shadow_metrics(active_metrics),
+        "source_artifacts": {
+            "shadow_review": str(artifacts.shadow_review_path),
+            "shadow_backtest": str(artifacts.shadow_backtest_path),
+        },
+        "limitations": [
+            "Research-only shadow labels; no active CPB behavior changed.",
+            "Frozen CPB baseline has a small persisted-pick sample in this window.",
+            "Requires forward monitoring before paper observation.",
+        ],
+    }
+    return _shadow_candidate_hypothesis(
+        as_of_date=as_of_date,
+        hypothesis_type=f"shadow_{candidate_key}",
+        title=title,
+        rationale=rationale,
+        candidate_key=candidate_key,
+        candidate_family="shadow_bucket",
+        comparison=comparison,
+        artifact_paths=[artifacts.shadow_review_path, artifacts.shadow_backtest_path],
+        extra_paper_blockers=_candidate_specific_paper_blockers(candidate_key),
+        extra_strategy_version_blockers=_candidate_specific_strategy_version_blockers(candidate_key),
+    )
+
+
+def _preconfirm_watchlist_shadow_hypothesis(
+    as_of_date: str,
+    artifacts: _ShadowResearchArtifacts,
+) -> StrategyHypothesis:
+    preconfirm = artifacts.preconfirm_watchlist
+    high_potential = _preconfirm_summary_row(preconfirm, "高潜伏预警")
+    all_watch = _preconfirm_summary_row(preconfirm, "全部")
+    active_metrics = _summary_row(artifacts.shadow_backtest, "active_cpb_persisted_picks")
+    comparison = {
+        "candidate_key": "preconfirm_watchlist",
+        "candidate_family": "preconfirm_watchlist",
+        "review_window": {
+            "start_date": preconfirm.get("meta", {}).get("start_date") if isinstance(preconfirm.get("meta"), dict) else None,
+            "end_date": preconfirm.get("meta", {}).get("end_date") if isinstance(preconfirm.get("meta"), dict) else None,
+            "review_days": high_potential.get("review_days"),
+        },
+        "high_potential_metrics": _compact_preconfirm_metrics(high_potential),
+        "all_watchlist_metrics": _compact_preconfirm_metrics(all_watch),
+        "frozen_cpb_baseline": _compact_shadow_metrics(active_metrics),
+        "source_artifacts": {"preconfirm_watchlist": str(artifacts.preconfirm_watchlist_path)},
+        "limitations": [
+            "Pre-confirm output is a watchlist, not an automatic buy list.",
+            "Next-day confirmation and operator review are required before paper observation.",
+        ],
+    }
+    return _shadow_candidate_hypothesis(
+        as_of_date=as_of_date,
+        hypothesis_type="shadow_preconfirm_watchlist",
+        title="Shadow candidate: pre-confirm watchlist observation lane.",
+        rationale=(
+            "M69 pre-confirm research can surface names before CPB confirmation, but its low confirmation rate "
+            "requires an explicit observation lane rather than trade-plan generation."
+        ),
+        candidate_key="preconfirm_watchlist",
+        candidate_family="preconfirm_watchlist",
+        comparison=comparison,
+        artifact_paths=[artifacts.preconfirm_watchlist_path],
+        extra_paper_blockers=_candidate_specific_paper_blockers("preconfirm_watchlist"),
+        extra_strategy_version_blockers=_candidate_specific_strategy_version_blockers("preconfirm_watchlist"),
+    )
+
+
+def _dip_buy_shadow_hypothesis(
+    as_of_date: str,
+    artifacts: _ShadowResearchArtifacts,
+) -> StrategyHypothesis:
+    dip_buy = artifacts.dip_buy
+    selected_groups = dip_buy.get("selected_groups")
+    score_groups = selected_groups.get("score") if isinstance(selected_groups, dict) else []
+    age_groups = selected_groups.get("age") if isinstance(selected_groups, dict) else []
+    all_score = _first_group_row(score_groups, "全部")
+    high_score = _first_group_row(score_groups, "潜力分>=75")
+    age_9_13 = _first_group_row(age_groups, "9-13天")
+    comparison = {
+        "candidate_key": "pullback_dip_buy",
+        "candidate_family": "dip_buy",
+        "selected_variant": dip_buy.get("selected_variant"),
+        "selected_params": dip_buy.get("selected_params"),
+        "all_score_metrics": _compact_dip_buy_metrics(all_score),
+        "high_score_metrics": _compact_dip_buy_metrics(high_score),
+        "age_9_13_metrics": _compact_dip_buy_metrics(age_9_13),
+        "source_artifacts": {"dip_buy": str(artifacts.dip_buy_path)},
+        "limitations": [
+            "Dip-buy entries are earlier than CPB confirmation and can buy into drawdown.",
+            "Requires sizing, stop, and observation rules before any paper use.",
+        ],
+    }
+    return _shadow_candidate_hypothesis(
+        as_of_date=as_of_date,
+        hypothesis_type="shadow_pullback_dip_buy",
+        title="Shadow candidate: pullback dip-buy observation lane.",
+        rationale=(
+            "M69 dip-buy research found a possible deep-retrace observation variant, but it must stay separate "
+            "from confirmed CPB entries until drawdown controls are validated."
+        ),
+        candidate_key="pullback_dip_buy",
+        candidate_family="dip_buy",
+        comparison=comparison,
+        artifact_paths=[artifacts.dip_buy_path],
+        extra_paper_blockers=_candidate_specific_paper_blockers("pullback_dip_buy"),
+        extra_strategy_version_blockers=_candidate_specific_strategy_version_blockers("pullback_dip_buy"),
+    )
+
+
+def _shadow_candidate_hypothesis(
+    *,
+    as_of_date: str,
+    hypothesis_type: str,
+    title: str,
+    rationale: str,
+    candidate_key: str,
+    candidate_family: str,
+    comparison: dict[str, Any],
+    artifact_paths: list[Path],
+    extra_paper_blockers: list[str],
+    extra_strategy_version_blockers: list[str],
+) -> StrategyHypothesis:
+    paper_blockers = _shadow_base_paper_blockers() + extra_paper_blockers
+    strategy_version_blockers = _shadow_base_strategy_version_blockers() + extra_strategy_version_blockers
+    evidence = {
+        "source": SHADOW_RESEARCH_SOURCE,
+        "as_of_date": as_of_date,
+        "artifact_only": True,
+        "candidate_key": candidate_key,
+        "candidate_family": candidate_family,
+        "artifact_paths": [str(path) for path in artifact_paths],
+        "shadow_comparison": comparison,
+        "paper_observation_gate": _blocked_gate_payload("paper_observation", paper_blockers),
+        "strategy_version_gate": _blocked_gate_payload("strategy_version_proposal", strategy_version_blockers),
+    }
+    proposed_change = {
+        "strategy_id": "cpb_6157",
+        "change_type": "shadow_candidate",
+        "candidate_key": candidate_key,
+        "candidate_family": candidate_family,
+        "artifact_only": True,
+        "requires_replay_backtest": True,
+        "requires_shadow_comparison": True,
+        "paper_observation_allowed": False,
+        "strategy_version_proposal_allowed": False,
+        "paper_observation_blockers": paper_blockers,
+        "strategy_version_proposal_blockers": strategy_version_blockers,
+        "mutates_active_params": False,
+    }
+    return StrategyHypothesis(
+        as_of_date=as_of_date,
+        hypothesis_type=hypothesis_type,
+        title=title,
+        rationale=rationale,
+        evidence=evidence,
+        proposed_change=proposed_change,
+    )
+
+
+def _blocked_gate_payload(gate_type: str, blockers: list[str]) -> dict[str, Any]:
+    return {
+        "gate_type": gate_type,
+        "status": "blocked",
+        "allowed": False,
+        "blockers": _merge_validation_values([], blockers),
+        "clearance_required": True,
+        "artifact_only": True,
+    }
+
+
+def _shadow_base_paper_blockers() -> list[str]:
+    return [
+        "paper_observation_not_authorized",
+        "walk_forward_shadow_monitor_20_trading_days_required",
+        "operator_review_required",
+    ]
+
+
+def _shadow_base_strategy_version_blockers() -> list[str]:
+    return [
+        "strategy_version_proposal_not_authorized",
+        "replay_backtest_result_artifact_required",
+        "proposal_review_required",
+        "operator_promotion_approval_required",
+    ]
+
+
+def _candidate_specific_paper_blockers(candidate_key: str) -> list[str]:
+    mapping = {
+        "trend_extension_shadow": ["sector_evidence_confirmation_required", "chase_gap_guard_required"],
+        "breakout_pressure_shadow": ["volume_overheat_guard_required", "close_return_stability_required"],
+        "low_price_momentum_shadow": ["micro_sleeve_risk_model_required", "liquidity_slippage_review_required"],
+        "preconfirm_watchlist": ["next_day_confirmation_rule_required", "watchlist_only_ui_lane_required"],
+        "pullback_dip_buy": ["dip_buy_stop_and_sizing_required", "falling_knife_guard_required"],
+    }
+    return mapping.get(candidate_key, [])
+
+
+def _candidate_specific_strategy_version_blockers(candidate_key: str) -> list[str]:
+    mapping = {
+        "trend_extension_shadow": ["separate_trend_extension_candidate_required"],
+        "breakout_pressure_shadow": ["separate_breakout_pressure_candidate_required"],
+        "low_price_momentum_shadow": ["separate_low_price_micro_sleeve_required"],
+        "preconfirm_watchlist": ["watchlist_to_signal_contract_required"],
+        "pullback_dip_buy": ["separate_dip_buy_candidate_required"],
+    }
+    return mapping.get(candidate_key, [])
+
+
+def _summary_row(payload: dict[str, Any], label: str) -> dict[str, Any]:
+    rows = payload.get("summary")
+    if not isinstance(rows, list):
+        return {}
+    for row in rows:
+        if isinstance(row, dict) and row.get("label") == label:
+            return dict(row)
+    return {}
+
+
+def _preconfirm_summary_row(payload: dict[str, Any], pre_action: str) -> dict[str, Any]:
+    rows = payload.get("summary")
+    if not isinstance(rows, list):
+        return {}
+    for row in rows:
+        if isinstance(row, dict) and row.get("pre_action") == pre_action:
+            return dict(row)
+    return {}
+
+
+def _first_group_row(rows: object, group: str) -> dict[str, Any]:
+    if not isinstance(rows, list):
+        return {}
+    for row in rows:
+        if isinstance(row, dict) and row.get("group") == group:
+            return dict(row)
+    return {}
+
+
+def _compact_shadow_metrics(row: dict[str, Any]) -> dict[str, Any]:
+    return _compact_metrics(
+        row,
+        [
+            "label",
+            "n",
+            "days",
+            "t1_close_mean_pct",
+            "t1_close_median_pct",
+            "t1_close_win_rate_pct",
+            "t1_high_mean_pct",
+            "t1_high_ge3_rate_pct",
+            "t3_high_mean_pct",
+            "t3_high_ge5_rate_pct",
+            "t5_close_mean_pct",
+            "t5_close_win_rate_pct",
+            "max_t1_loss_pct",
+            "max_t1_gain_pct",
+        ],
+    )
+
+
+def _compact_preconfirm_metrics(row: dict[str, Any]) -> dict[str, Any]:
+    compact = _compact_metrics(
+        row,
+        [
+            "pre_action",
+            "signals",
+            "review_days",
+            "stocks",
+            "confirm_next_day_n",
+            "avg_bigwin_score",
+            "next_open_ret_1d_n",
+            "next_open_ret_3d_n",
+            "next_open_ret_5d_n",
+        ],
+    )
+    for source_key, target_key in [
+        ("confirm_next_day_rate", "confirm_next_day_rate_pct"),
+        ("next_open_ret_1d_mean", "next_open_ret_1d_mean_pct"),
+        ("next_open_ret_3d_mean", "next_open_ret_3d_mean_pct"),
+        ("next_open_ret_5d_mean", "next_open_ret_5d_mean_pct"),
+        ("watch_mfe_5d_mean", "watch_mfe_5d_mean_pct"),
+    ]:
+        if source_key in row:
+            compact[target_key] = _ratio_to_pct(row.get(source_key))
+    return compact
+
+
+def _compact_dip_buy_metrics(row: dict[str, Any]) -> dict[str, Any]:
+    compact = _compact_metrics(
+        row,
+        [
+            "group",
+            "ret_3d_n",
+            "ret_5d_n",
+            "ret_10d_n",
+            "mfe_10d_n",
+            "mae_10d_n",
+        ],
+    )
+    for source_key, target_key in [
+        ("ret_5d_win_rate", "ret_5d_win_rate_pct"),
+        ("ret_5d_mean", "ret_5d_mean_pct"),
+        ("ret_5d_median", "ret_5d_median_pct"),
+        ("ret_5d_p25", "ret_5d_p25_pct"),
+        ("ret_10d_median", "ret_10d_median_pct"),
+        ("mfe_10d_median", "mfe_10d_median_pct"),
+        ("mae_10d_median", "mae_10d_median_pct"),
+    ]:
+        if source_key in row:
+            compact[target_key] = _ratio_to_pct(row.get(source_key))
+    return compact
+
+
+def _compact_metrics(row: dict[str, Any], keys: list[str]) -> dict[str, Any]:
+    return {key: row.get(key) for key in keys if key in row}
+
+
+def _ratio_to_pct(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return round(float(value) * 100, 4)
+    except (TypeError, ValueError):
+        return None
+
+
+def _shadow_register_summary(hypotheses: list[StrategyHypothesis]) -> dict[str, Any]:
+    by_family: dict[str, int] = {}
+    blockers: dict[str, int] = {}
+    for hypothesis in hypotheses:
+        family = str(hypothesis.proposed_change.get("candidate_family") or "unknown")
+        by_family[family] = by_family.get(family, 0) + 1
+        for blocker in _shadow_strategy_version_blockers(hypothesis):
+            blockers[blocker] = blockers.get(blocker, 0) + 1
+    return {
+        "shadow_candidate_count": len(hypotheses),
+        "by_candidate_family": by_family,
+        "strategy_version_blocked_count": len(
+            [hypothesis for hypothesis in hypotheses if _shadow_strategy_version_blockers(hypothesis)]
+        ),
+        "paper_observation_blocked_count": len(
+            [hypothesis for hypothesis in hypotheses if _shadow_paper_observation_blockers(hypothesis)]
+        ),
+        "top_strategy_version_blockers": blockers,
+        "artifact_only": True,
     }
 
 

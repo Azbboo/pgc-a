@@ -157,6 +157,7 @@ function cacheElements() {
     "marketApplyDateButton",
     "marketReviewDateLabel",
     "marketHistoryStrip",
+    "marketDiagnosticsPanel",
     "marketRegimeStrip",
     "marketSectorState",
     "marketSectorBody",
@@ -1999,7 +2000,9 @@ function renderDecisionActionLog(actionLog) {
         ["followed", integerText(actionLog?.followed_count)],
         ["deferred", integerText(actionLog?.deferred_count)],
         ["override", integerText(actionLog?.override_count)],
+        ["matched", integerText(actionLog?.matched_outcome_count)],
         ["pending outcome", integerText(actionLog?.pending_outcome_count)],
+        ["unexpected trade", integerText(actionLog?.unexpected_trade_count)],
       ])}
       <p class="muted">${escapeHtml(summary)}</p>
       ${unresolved.length ? `<div class="acceptance-code-row">${unresolved.map((code) => chipHtml(code, "chip-red")).join("")}</div>` : ""}
@@ -2010,13 +2013,16 @@ function renderDecisionActionLog(actionLog) {
   `;
 }
 
-function decisionActionLogRow(item) {
+function decisionActionLogRow(item, index) {
   const outcome = item.outcome || {};
+  const outcomeValue = outcome.outcome_bucket || outcome.outcome_status;
+  const detailKey = item.decision_action_log_id ?? `index:${index}`;
   return `
     <div class="list-row decision-action-log-row">
       ${chipHtml(decisionLogDecisionText(item.operator_decision), decisionLogDecisionClass(item.operator_decision))}
+      ${chipHtml(decisionOutcomeText(outcomeValue), decisionOutcomeClass(outcomeValue))}
       <span>${escapeHtml(openExecutionActionText(item.system_action))} / ${escapeHtml(decisionOutcomeText(outcome.outcome_status))} / 执行日 ${displayDate(item.execution_date)}</span>
-      <button type="button" data-decision-action="execution">查看执行</button>
+      <button type="button" data-decision-log-detail="${escapeHtml(String(detailKey))}">复核结果</button>
     </div>
   `;
 }
@@ -2059,6 +2065,11 @@ function onDecisionActionClick(event) {
     recordDecisionActionLog(logButton.dataset.decisionLog);
     return;
   }
+  const detailButton = event.target.closest("button[data-decision-log-detail]");
+  if (detailButton) {
+    openDecisionActionLogDetail(detailButton.dataset.decisionLogDetail);
+    return;
+  }
   const button = event.target.closest("button[data-decision-action]");
   if (!button) return;
   const action = button.dataset.decisionAction;
@@ -2068,6 +2079,25 @@ function onDecisionActionClick(event) {
   if (action === "market") setActivePage("market");
   if (action === "quality") setActivePage("quality");
   if (action === "hypotheses") setActivePage("hypotheses");
+}
+
+function openDecisionActionLogDetail(detailKey) {
+  const items = Array.isArray(decisionActionLogData()?.items) ? decisionActionLogData().items : [];
+  const item = String(detailKey || "").startsWith("index:")
+    ? items[Number(String(detailKey).slice(6))]
+    : items.find((entry) => String(entry.decision_action_log_id) === String(detailKey));
+  if (!item) return;
+  const outcome = item.outcome || {};
+  openDrawer("动作日志复核", decisionOutcomeText(outcome.outcome_bucket || outcome.outcome_status), [
+    ["复盘日", displayDate(item.review_date)],
+    ["执行日", displayDate(item.execution_date)],
+    ["系统动作", openExecutionActionText(item.system_action)],
+    ["人工记录", decisionLogDecisionText(item.operator_decision)],
+    ["outcome", `${decisionOutcomeText(outcome.outcome_bucket)} / ${decisionOutcomeText(outcome.outcome_status)}`],
+    ["匹配成交", outcome.matched_trade_id || "-"],
+    ["匹配退出", outcome.matched_exit_decision_id || "-"],
+    ["说明", outcome.outcome_summary || "-"],
+  ]);
 }
 
 async function recordDecisionActionLog(operatorDecision) {
@@ -2288,6 +2318,7 @@ function opsHistoryCountChips(counts) {
     ["release", "release"],
     ["health", "health"],
     ["paper_acceptance", "acceptance"],
+    ["decision_action_log", "action log"],
     ["timer_evidence", "timer evidence"],
     ["timer_action", "timer action"],
   ];
@@ -2309,6 +2340,8 @@ function opsHistoryCard(item) {
     ["duplicate", details.duplicate_apply_count ?? "-"],
     ["health", details.health_url || details.health_command || "-"],
     ["release", details.release_tag || "-"],
+    ["action", details.system_action || "-"],
+    ["outcome", details.outcome_bucket || details.outcome_status || "-"],
   ].filter(([, value]) => value !== "-" && value !== "" && value !== null && value !== undefined);
   return `
     <article class="ops-history-card ops-history-card--${escapeHtml(item.category || "operation")}">
@@ -2691,6 +2724,7 @@ function renderMarketReview() {
   renderMarketReviewNavigation();
   renderMarketHistoryStrip();
   renderMarketScopeMarkers();
+  renderMarketDiagnostics();
   renderMarketRegimeStrip();
   renderMarketSectors();
   renderMarketPlanContext();
@@ -2877,6 +2911,79 @@ function renderMarketHistoryStrip() {
       </div>
     `
     : emptyState(`暂无全市场历史；当前查看 ${displayDate(selectedDate)}。`);
+}
+
+function renderMarketDiagnostics() {
+  const diagnostics = state.marketReview?.diagnostics || {};
+  const selectedDate = diagnostics.selected_market_date || marketReviewDate();
+  const latestDate = diagnostics.latest_market_review_date || latestMarketReviewDate();
+  const sourceDb = diagnostics.source_db || {};
+  const missing = diagnostics.missing_downstream_tables || [];
+  const reasons = diagnostics.empty_state_reasons || [];
+  const apiBase = state.apiBase || "same-origin";
+  const pinnedText = marketPinnedDiagnosticText(selectedDate, latestDate);
+  const dbText = sourceDb.exists
+    ? `${sourceDbFreshnessText(sourceDb.freshness)} · ${displayTimestamp(sourceDb.modified_at)}`
+    : "API 数据库不可见";
+  els.marketDiagnosticsPanel.innerHTML = `
+    <div class="market-diagnostics__summary">
+      ${chipHtml(`API Base ${apiBase}`, apiBase === "same-origin" ? "chip-neutral" : "chip-blue")}
+      ${chipHtml(`选中 ${displayDate(selectedDate)}`, "chip-neutral")}
+      ${chipHtml(latestDate ? `最新 ${displayDate(latestDate)}` : "无全市场历史", latestDate ? "chip-blue" : "chip-amber")}
+      ${chipHtml(pinnedText, state.marketDatePinned ? "chip-amber" : "chip-green")}
+      ${chipHtml(`source DB ${dbText}`, sourceDbFreshnessClass(sourceDb.freshness))}
+    </div>
+    <div class="market-diagnostics__tables">
+      ${marketDiagnosticTableChips(diagnostics.downstream_tables || {})}
+    </div>
+    <p>${escapeHtml(marketDiagnosticReasonText(reasons, missing))}</p>
+  `;
+}
+
+function marketPinnedDiagnosticText(selectedDate, latestDate) {
+  if (!state.marketDatePinned) return "跟随复盘日";
+  if (latestDate && selectedDate !== latestDate) {
+    return `localStorage 固定 ${displayDate(selectedDate)}`;
+  }
+  return "localStorage 固定当前日";
+}
+
+function marketDiagnosticTableChips(tables) {
+  const entries = Object.entries(tables);
+  if (!entries.length) return chipHtml("下游表状态未知", "chip-amber");
+  return entries.map(([table, status]) => {
+    const count = status?.count == null ? "missing" : integerText(status.count);
+    const className = status?.exists === false
+      ? "chip-red"
+      : Number(status?.count || 0) > 0
+        ? "chip-green"
+        : "chip-amber";
+    return chipHtml(`${table} ${count}`, className);
+  }).join("");
+}
+
+function marketDiagnosticReasonText(reasons, missing) {
+  if (reasons.length) {
+    return reasons.map((reason) => `${reason.code}: ${reason.message}`).join("；");
+  }
+  if (missing.length) return `下游空表：${missing.join(", ")}`;
+  return "全市场复盘数据链路完整；空面板可能来自当前筛选没有匹配记录。";
+}
+
+function sourceDbFreshnessText(value) {
+  return {
+    fresh: "fresh",
+    stale: "stale",
+    old: "old",
+    missing: "missing",
+  }[value] || "unknown";
+}
+
+function sourceDbFreshnessClass(value) {
+  if (value === "fresh") return "chip-green";
+  if (value === "stale") return "chip-amber";
+  if (value === "old" || value === "missing") return "chip-red";
+  return "chip-neutral";
 }
 
 function onMarketHistoryClick(event) {
@@ -5405,14 +5512,34 @@ function decisionLogDecisionClass(value) {
 function decisionOutcomeText(value) {
   return {
     dry_run_preview: "dry run preview",
+    pending: "pending",
     deferred: "deferred",
     matched: "matched",
+    unexpected: "unexpected",
+    override: "override",
+    review_only: "review only",
     pending_outcome: "pending outcome",
     override_recorded: "override recorded",
     override_executed: "override executed",
+    override_reviewed: "override reviewed",
     unexpected_trade_recorded: "unexpected trade",
-    review_only: "review only",
   }[value] || dash(value);
+}
+
+function decisionOutcomeClass(value) {
+  return {
+    matched: "chip-green",
+    deferred: "chip-amber",
+    pending: "chip-amber",
+    pending_outcome: "chip-amber",
+    unexpected: "chip-red",
+    unexpected_trade_recorded: "chip-red",
+    override: "chip-red",
+    override_recorded: "chip-red",
+    override_executed: "chip-red",
+    override_reviewed: "chip-red",
+    review_only: "chip-neutral",
+  }[value] || "chip-neutral";
 }
 
 function decisionLogQuickChoices(operatorDecision, proposal) {
@@ -5455,6 +5582,7 @@ function opsHistoryCategoryClass(value) {
     release: "chip-green",
     health: "chip-agent",
     paper_acceptance: "chip-blue",
+    decision_action_log: "chip-agent",
     timer_evidence: "chip-amber",
     timer_action: "chip-indigo",
   }[value] || "chip-neutral";

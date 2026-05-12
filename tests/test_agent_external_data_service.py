@@ -373,6 +373,37 @@ class AgentExternalDataServiceTest(unittest.TestCase):
             self.assertEqual(result.data.coverage_summary["stale_count"], 2)
             self.assertEqual(result.data.coverage_summary["missing_item_types"], ["fundamental", "news", "sentiment"])
 
+    def test_coverage_uses_latest_cached_item_per_stock_and_type(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._migrated_db(tmp)
+            service = AgentExternalDataService(db_path)
+
+            old = service.import_external_data(
+                ImportAgentExternalDataRequest(
+                    records=[
+                        self._record(published_date="20260508", item_type="fundamental", title="旧估值缓存"),
+                        self._record(published_date="20260508", item_type="risk_note", title="旧风险缓存"),
+                    ]
+                ),
+                RequestContext(request_id="test-agent-old-cache", dry_run=False, operator="tester"),
+            )
+            refreshed = service.import_external_data(
+                ImportAgentExternalDataRequest(
+                    records=[
+                        self._record(published_date="20260511", item_type="fundamental", title="新估值缓存"),
+                        self._record(published_date="20260511", item_type="risk_note", title="新风险缓存"),
+                    ]
+                ),
+                RequestContext(request_id="test-agent-new-cache", dry_run=False, operator="tester"),
+            )
+
+            self.assertTrue(old.ok)
+            self.assertTrue(refreshed.ok)
+            coverage = service.summarize_coverage("20260511")
+            self.assertEqual(coverage["freshness"], "fresh")
+            self.assertEqual(coverage["fresh_count"], 2)
+            self.assertEqual(coverage["stale_count"], 0)
+
     def test_backfill_dry_run_reports_cross_date_coverage_qa_without_writes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = self._migrated_db(tmp)

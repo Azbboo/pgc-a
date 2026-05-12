@@ -1343,6 +1343,28 @@ pgc ops evidence-pack \
 - `--apply` 只会写 `manifest.json` 并复制 reviewed provider 文件到 `output_dir/market_external/` 和 `output_dir/agent_external/`；
 - 该命令只复用既有 market/Agent backfill 校验，不允许 live fetch，也不允许把 pack 流量带进 daily-close、open-execution、report 或 Dashboard 请求路径。
 
+## 24. M72 全市场复盘空状态诊断
+
+M72 要求全市场 Dashboard 的空面板必须解释原因，而不是只显示“暂无”。API 的 `GET /api/market-reviews/{YYYYMMDD}` 必须返回 `diagnostics`，至少覆盖 selected market date、latest market-review date、source DB freshness、missing downstream tables 和 empty-state reasons；Dashboard 同时显示当前 API Base，并标明是否由 `localStorage` 固定了旧的全市场日期。
+
+空状态排查顺序：
+
+1. 先看 Dashboard 全市场页的诊断带：确认 `API Base`、选中日期、最新全市场日期、source DB freshness 和各下游表计数。
+2. 如果选中日期早于最新日期，先点“最新全市场”或“跟随复盘日”，避免 localStorage 固定旧日期造成误判。
+3. 如果 source DB 为 `stale`、`old` 或 `missing`，先确认本地/远端 DB 同步，再看业务表。
+4. 如果 `market_review_runs` 存在但 `sector_daily_snapshots`、`market_external_items`、`market_plan_contexts` 或 `strategy_hypotheses` 为空，按对应 producer/import/link-plan/strategy-evolution 步骤补齐；不能把缺失证据渲染成无风险。
+
+本地/远端 market-review parity 检查使用只读 ops 命令。远端库需先按既有备份/下载流程复制到本地临时路径，再对比：
+
+```bash
+pgc ops market-review-parity \
+  --date YYYYMMDD \
+  --db-path data/pgc_trading.db \
+  --remote-db-path /tmp/remote-pgc-trading.db
+```
+
+检查范围固定为 `market_review_runs`、`sector_daily_snapshots`、`market_external_items`、`market_plan_contexts` 和 `strategy_hypotheses`。输出 `parity_status=match` 才表示全市场复盘核心链路本地/远端一致；任何 `mismatch` 都必须先定位是日期选择、API base、DB 同步还是下游 producer 缺口。
+
 ## 24. M46 收盘后定时流水线
 
 M46 把 M42 的全市场复盘流水线固化为远端 systemd timer。只在 M42 已验收、远端 API write token 由部署脚本保留、并且手工 dry-run 通过后启用 apply 定时任务。

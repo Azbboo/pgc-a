@@ -53,6 +53,7 @@ class ListDecisionActionLogsRequest:
 class DecisionActionOutcome:
     outcome_review_date: str | None
     outcome_status: str
+    outcome_bucket: str
     outcome_summary: str
     matched_trade_id: int | None = None
     matched_exit_decision_id: int | None = None
@@ -97,6 +98,12 @@ class DecisionActionLogList:
     override_count: int
     unresolved_blocker_codes: list[str] = field(default_factory=list)
     pending_outcome_count: int = 0
+    matched_outcome_count: int = 0
+    deferred_outcome_count: int = 0
+    unexpected_trade_count: int = 0
+    override_outcome_count: int = 0
+    review_only_outcome_count: int = 0
+    outcome_counts: dict[str, int] = field(default_factory=dict)
     advisory_note: str = (
         "Decision cockpit action logs are advisory audit records; they never execute trades, "
         "enable timers, or mutate strategy state."
@@ -386,6 +393,7 @@ def _preview_entry(
         outcome=DecisionActionOutcome(
             outcome_review_date=None,
             outcome_status="dry_run_preview" if ctx.dry_run else "not_written",
+            outcome_bucket="pending",
             outcome_summary="Preview only; no advisory action log was written.",
         ),
         would_write_action_log=would_write,
@@ -460,25 +468,40 @@ def _compute_outcome(conn: sqlite3.Connection, row: sqlite3.Row) -> DecisionActi
         return DecisionActionOutcome(
             outcome_review_date=outcome_review_date,
             outcome_status="deferred",
+            outcome_bucket="deferred",
             outcome_summary="Operator deferred the cockpit recommendation; no execution match is expected.",
         )
 
     if system_action in TRADE_ACTIONS:
-        trade = _matching_trade(conn, account_id, target_type, target_id, system_action)
+        trade = _matching_trade(conn, account_id, target_type, target_id, system_action, execution_date)
         if trade is not None:
             status = "matched" if operator_decision == "followed" else "override_executed"
             return DecisionActionOutcome(
                 outcome_review_date=outcome_review_date,
                 outcome_status=status,
+                outcome_bucket="matched" if status == "matched" else "override",
                 outcome_summary=(
                     f"Matched executed {trade['side']} trade {trade['id']} on {trade['executed_date']}; "
                     f"operator decision was {operator_decision}."
                 ),
                 matched_trade_id=int(trade["id"]),
             )
+        unexpected_trade = _trade_on_date(conn, account_id, execution_date)
+        if unexpected_trade is not None:
+            return DecisionActionOutcome(
+                outcome_review_date=outcome_review_date,
+                outcome_status="unexpected_trade_recorded",
+                outcome_bucket="unexpected",
+                outcome_summary=(
+                    f"No matching {system_action} target was found, but trade {unexpected_trade['id']} "
+                    f"was recorded on {unexpected_trade['executed_date']}."
+                ),
+                matched_trade_id=int(unexpected_trade["id"]),
+            )
         return DecisionActionOutcome(
             outcome_review_date=outcome_review_date,
             outcome_status="pending_outcome" if operator_decision == "followed" else "override_recorded",
+            outcome_bucket="pending" if operator_decision == "followed" else "override",
             outcome_summary="No matching executed trade has been recorded through guarded trade endpoints yet.",
         )
 
@@ -488,6 +511,7 @@ def _compute_outcome(conn: sqlite3.Connection, row: sqlite3.Row) -> DecisionActi
             return DecisionActionOutcome(
                 outcome_review_date=outcome_review_date,
                 outcome_status="matched" if operator_decision == "followed" else "override_reviewed",
+                outcome_bucket="matched" if operator_decision == "followed" else "override",
                 outcome_summary=(
                     f"Matched exit decision {exit_decision['id']} with decision={exit_decision['decision']}."
                 ),
@@ -496,6 +520,7 @@ def _compute_outcome(conn: sqlite3.Connection, row: sqlite3.Row) -> DecisionActi
         return DecisionActionOutcome(
             outcome_review_date=outcome_review_date,
             outcome_status="pending_outcome",
+            outcome_bucket="pending",
             outcome_summary="No matching exit decision has been recorded yet.",
         )
 
@@ -505,6 +530,7 @@ def _compute_outcome(conn: sqlite3.Connection, row: sqlite3.Row) -> DecisionActi
             return DecisionActionOutcome(
                 outcome_review_date=outcome_review_date,
                 outcome_status="unexpected_trade_recorded",
+                outcome_bucket="unexpected",
                 outcome_summary=(
                     f"System action was {system_action}, but trade {unexpected_trade['id']} "
                     f"was recorded on {unexpected_trade['executed_date']}."
@@ -514,12 +540,14 @@ def _compute_outcome(conn: sqlite3.Connection, row: sqlite3.Row) -> DecisionActi
         return DecisionActionOutcome(
             outcome_review_date=outcome_review_date,
             outcome_status="matched" if operator_decision == "followed" else "override_recorded",
+            outcome_bucket="matched" if operator_decision == "followed" else "override",
             outcome_summary=f"No guarded trade execution was recorded for system action {system_action}.",
         )
 
     return DecisionActionOutcome(
         outcome_review_date=outcome_review_date,
         outcome_status="review_only",
+        outcome_bucket="review_only",
         outcome_summary=f"Recorded advisory operator decision for system action {system_action}.",
     )
 
@@ -530,6 +558,7 @@ def _matching_trade(
     target_type: str,
     target_id: int | None,
     system_action: str,
+    execution_date: str | None,
 ) -> sqlite3.Row | None:
     side = "buy" if system_action == "record_buy" else "sell"
     if target_type == "trade_plan" and target_id is not None:
@@ -541,10 +570,11 @@ def _matching_trade(
               AND trade_plan_id = ?
               AND side = ?
               AND status = 'executed'
+              AND (? IS NULL OR executed_date = ?)
             ORDER BY executed_date DESC, id DESC
             LIMIT 1
             """,
-            (account_id, target_id, side),
+            (account_id, target_id, side, execution_date, execution_date),
         ).fetchone()
     if target_type == "position" and target_id is not None and side == "sell":
         return conn.execute(
@@ -556,10 +586,11 @@ def _matching_trade(
               AND p.id = ?
               AND t.side = 'sell'
               AND t.status = 'executed'
+              AND (? IS NULL OR t.executed_date = ?)
             ORDER BY t.executed_date DESC, t.id DESC
             LIMIT 1
             """,
-            (account_id, target_id),
+            (account_id, target_id, execution_date, execution_date),
         ).fetchone()
     return None
 
@@ -639,12 +670,27 @@ def _build_list(
     followed_count = sum(1 for item in items if item.operator_decision == "followed")
     deferred_count = sum(1 for item in items if item.operator_decision == "deferred")
     override_count = sum(1 for item in items if item.operator_decision == "overrode")
-    pending_outcome_count = sum(1 for item in items if item.outcome and item.outcome.outcome_status == "pending_outcome")
+    outcome_counts: dict[str, int] = {}
+    for item in items:
+        bucket = item.outcome.outcome_bucket if item.outcome else "pending"
+        outcome_counts[bucket] = outcome_counts.get(bucket, 0) + 1
+    pending_outcome_count = outcome_counts.get("pending", 0)
+    matched_outcome_count = outcome_counts.get("matched", 0)
+    deferred_outcome_count = outcome_counts.get("deferred", 0)
+    unexpected_trade_count = outcome_counts.get("unexpected", 0)
+    override_outcome_count = outcome_counts.get("override", 0)
+    review_only_outcome_count = outcome_counts.get("review_only", 0)
     unresolved_blocker_codes = sorted({code for item in items for code in item.unresolved_blocker_codes})
     summary = (
         f"Decision action log has {len(items)} entries: "
         f"followed={followed_count}, deferred={deferred_count}, overrode={override_count}."
     )
+    if items:
+        summary += (
+            " Outcomes: "
+            f"matched={matched_outcome_count}, deferred={deferred_outcome_count}, "
+            f"pending={pending_outcome_count}, unexpected={unexpected_trade_count}."
+        )
     if unresolved_blocker_codes:
         summary += f" Unresolved blockers recorded: {', '.join(unresolved_blocker_codes)}."
     if pending_outcome_count:
@@ -660,6 +706,12 @@ def _build_list(
         override_count=override_count,
         unresolved_blocker_codes=unresolved_blocker_codes,
         pending_outcome_count=pending_outcome_count,
+        matched_outcome_count=matched_outcome_count,
+        deferred_outcome_count=deferred_outcome_count,
+        unexpected_trade_count=unexpected_trade_count,
+        override_outcome_count=override_outcome_count,
+        review_only_outcome_count=review_only_outcome_count,
+        outcome_counts=outcome_counts,
     )
 
 

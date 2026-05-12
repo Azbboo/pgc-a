@@ -1,0 +1,122 @@
+{
+  "start_review_date": "20260401",
+  "end_review_date": "20260508",
+  "max_market_date": "20260512",
+  "methodology": {
+    "selection": "daily top1 by score within each shadow bucket",
+    "entry": "next trading day open after signal close",
+    "exit": "A-share T+1 compliant: earliest sell on the trading day after buy; summary uses that legal sell day close",
+    "buy_day_close_mark_pct": "mark-to-market only, not executable exit",
+    "excluded_latest_signal": "20260511 signal buys on 20260512 and needs 20260513 data to evaluate legally"
+  },
+  "summary": [
+    {
+      "label": "trend_extension_shadow",
+      "n": 24,
+      "days": 24,
+      "sell_close_mean_pct": 2.95,
+      "sell_close_median_pct": 2.71,
+      "sell_close_win_rate_pct": 79.17,
+      "sell_close_compounded_pct": 96.0,
+      "avg_win_pct": 4.5,
+      "avg_loss_pct": -2.92,
+      "max_gain_pct": 11.84,
+      "max_loss_pct": -5.69,
+      "sell_open_mean_pct": 1.3,
+      "sell_high_mean_pct": 5.93,
+      "sell_high_ge3_rate_pct": 70.83
+    },
+    {
+      "label": "breakout_pressure_shadow",
+      "n": 24,
+      "days": 24,
+      "sell_close_mean_pct": 3.11,
+      "sell_close_median_pct": 2.25,
+      "sell_close_win_rate_pct": 66.67,
+      "sell_close_compounded_pct": 100.85,
+      "avg_win_pct": 5.96,
+      "avg_loss_pct": -2.59,
+      "max_gain_pct": 14.93,
+      "max_loss_pct": -4.99,
+      "sell_open_mean_pct": 0.77,
+      "sell_high_mean_pct": 5.12,
+      "sell_high_ge3_rate_pct": 62.5
+    },
+    {
+      "label": "low_price_momentum_shadow",
+      "n": 24,
+      "days": 24,
+      "sell_close_mean_pct": 4.39,
+      "sell_close_median_pct": 3.85,
+      "sell_close_win_rate_pct": 70.83,
+      "sell_close_compounded_pct": 163.75,
+      "avg_win_pct": 8.04,
+      "avg_loss_pct": -4.47,
+      "max_gain_pct": 21.81,
+      "max_loss_pct": -6.55,
+      "sell_open_mean_pct": 3.49,
+      "sell_high_mean_pct": 7.91,
+      "sell_high_ge3_rate_pct": 79.17
+    }
+  ],
+  "excluded_count": 3,
+  "excluded": [
+    {
+      "review_date": "20260511",
+      "planned_buy_date": "20260512",
+      "bucket": "breakout_pressure_shadow",
+      "ts_code": "300085.SZ",
+      "name": "银之杰",
+      "score": "107.3468",
+      "review_close": "43.34",
+      "next_open_gap_pct": "-0.88",
+      "t1_close_ret_pct": "-1.26",
+      "t1_high_ret_pct": "2.47",
+      "t1_low_ret_pct": "-2.44",
+      "t3_high_ret_pct": "",
+      "t5_close_ret_pct": "",
+      "legal_sell_date": "20260513",
+      "reason": "sell_date_not_available"
+    },
+    {
+      "review_date": "20260511",
+      "planned_buy_date": "20260512",
+      "bucket": "low_price_momentum_shadow",
+      "ts_code": "002081.SZ",
+      "name": "金螳螂",
+      "score": "117.1679",
+      "review_close": "7.25",
+      "next_open_gap_pct": "2.48",
+      "t1_close_ret_pct": "7.4",
+      "t1_high_ret_pct": "7.4",
+      "t1_low_ret_pct": "-2.42",
+      "t3_high_ret_pct": "",
+      "t5_close_ret_pct": "",
+      "legal_sell_date": "20260513",
+      "reason": "sell_date_not_available"
+    },
+    {
+      "review_date": "20260511",
+      "planned_buy_date": "20260512",
+      "bucket": "trend_extension_shadow",
+      "ts_code": "002428.SZ",
+      "name": "云南锗业",
+      "score": "124.8259",
+      "review_close": "92.2",
+      "next_open_gap_pct": "-1.0",
+      "t1_close_ret_pct": "11.11",
+      "t1_high_ret_pct": "11.11",
+      "t1_low_ret_pct": "-2.51",
+      "t3_high_ret_pct": "",
+      "t5_close_ret_pct": "",
+      "legal_sell_date": "20260513",
+      "reason": "sell_date_not_available"
+    }
+  ],
+  "outputs": {
+    "csv": "/Users/azboo/Desktop/Person/pgc/data/strategy_shadow_bucket_top1_backtest_tplus1_compliant_20260401_20260508.csv",
+    "low_price_csv": "/Users/azboo/Desktop/Person/pgc/data/strategy_shadow_low_price_top1_tplus1_trades_20260401_20260508.csv",
+    "json": "/Users/azboo/Desktop/Person/pgc/reports/strategy_shadow_bucket_top1_backtest_tplus1_compliant_20260401_20260508.json",
+    "markdown": "/Users/azboo/Desktop/Person/pgc/reports/strategy_shadow_bucket_top1_backtest_tplus1_compliant_20260401_20260508.md"
+  }
+}

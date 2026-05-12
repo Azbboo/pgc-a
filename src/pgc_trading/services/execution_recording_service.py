@@ -866,7 +866,8 @@ def _record_position_sell_in_tx(
     trade_id = None
     equity_snapshot_id = None
     if write:
-        trade_id = _insert_position_sell_trade(conn, request, account.id, position, amount)
+        exit_plan = _active_exit_plan_for_position(conn, int(position["id"]))
+        trade_id = _insert_position_sell_trade(conn, request, account.id, position, amount, exit_plan)
         conn.execute(
             """
             UPDATE positions
@@ -878,6 +879,8 @@ def _record_position_sell_in_tx(
             (trade_id, int(position["id"])),
         )
         _mark_position_exit_decisions_executed(conn, int(position["id"]), trade_id)
+        if exit_plan is not None:
+            _mark_plan_executed(conn, int(exit_plan["id"]), ctx.operator)
         equity_snapshot_id = _upsert_equity_snapshot(conn, account, request.executed_date, cash_after)
 
     return ServiceResult(
@@ -1290,6 +1293,7 @@ def _insert_position_sell_trade(
     account_id: int,
     position: sqlite3.Row,
     amount: float,
+    exit_plan: sqlite3.Row | None = None,
 ) -> int:
     cursor = conn.execute(
         """
@@ -1314,13 +1318,15 @@ def _insert_position_sell_trade(
             source
           )
         VALUES
-          (?, NULL, ?, NULL, ?, ?, 'sell', NULL, ?, ?, ?, ?, ?, ?, ?, 'executed', ?)
+          (?, ?, ?, NULL, ?, ?, 'sell', ?, ?, ?, ?, ?, ?, ?, ?, 'executed', ?)
         """,
         (
             account_id,
+            int(exit_plan["id"]) if exit_plan is not None else None,
             position["signal_id"],
             position["ts_code"],
             position["name"],
+            exit_plan["planned_trade_date"] if exit_plan is not None else None,
             request.executed_date,
             request.executed_price,
             amount,
@@ -1332,6 +1338,22 @@ def _insert_position_sell_trade(
         ),
     )
     return int(cursor.lastrowid)
+
+
+def _active_exit_plan_for_position(conn: sqlite3.Connection, position_id: int) -> sqlite3.Row | None:
+    return conn.execute(
+        """
+        SELECT tp.*
+        FROM exit_decisions ed
+        JOIN trade_plans tp ON tp.id = ed.generated_trade_plan_id
+        WHERE ed.position_id = ?
+          AND tp.status = 'active'
+          AND tp.action IN ('sell_t2_take_profit', 'sell_t2_stop_loss', 'sell_t5_timeout')
+        ORDER BY ed.id DESC
+        LIMIT 1
+        """,
+        (position_id,),
+    ).fetchone()
 
 
 def _insert_position(

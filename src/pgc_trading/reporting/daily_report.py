@@ -339,6 +339,9 @@ class StrategyHypothesisSummaryReport:
     title: str
     status: str
     rationale: str
+    shadow_comparison: dict[str, Any] = field(default_factory=dict)
+    paper_observation_gate: dict[str, Any] = field(default_factory=dict)
+    strategy_version_gate: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -622,7 +625,7 @@ class ReportingQueryService:
             buy_plan = _load_buy_plan(conn, candidate, account)
             market_review = _load_market_review(conn, request.as_of_date)
             market_plan_context = _load_market_plan_context(conn, buy_plan, request.as_of_date)
-            agent_advice = _load_agent_advice(conn, candidate)
+            agent_advice = _load_agent_advice(conn, candidate, request.as_of_date)
             positions = _load_positions(conn, request.as_of_date, account.account_id)
             no_candidate_reason = _no_candidate_reason(conn, request, candidate)
             latest_market_date = _latest_market_date(conn, request.as_of_date)
@@ -2406,6 +2409,18 @@ def _load_ops_history_operations(conn: Any, request: OpsHistoryRequest) -> list[
         category = _ops_operation_category(operation_type, idempotency_key)
         request_payload = _loads_json_object(row["request_json"])
         response_payload = _loads_json_object(row["response_json"])
+        details = {
+            "account_id": row["account_id"],
+            "dry_run": _ops_request_dry_run(request_payload),
+            "started_at": row["started_at"],
+            "finished_at": row["finished_at"],
+            "error_code": row["error_code"],
+            "error_message": row["error_message"],
+            "response_keys": sorted(response_payload.keys()),
+            "read_only_history": True,
+        }
+        if operation_type == "decision_action_log":
+            details.update(_decision_action_log_operation_details(response_payload))
         items.append(
             OpsHistoryItem(
                 occurred_at=str(row["occurred_at"] or row["started_at"] or ""),
@@ -2420,16 +2435,7 @@ def _load_ops_history_operations(conn: Any, request: OpsHistoryRequest) -> list[
                 idempotency_key=idempotency_key,
                 request_id=row["request_id"],
                 operator=row["operator"],
-                details={
-                    "account_id": row["account_id"],
-                    "dry_run": _ops_request_dry_run(request_payload),
-                    "started_at": row["started_at"],
-                    "finished_at": row["finished_at"],
-                    "error_code": row["error_code"],
-                    "error_message": row["error_message"],
-                    "response_keys": sorted(response_payload.keys()),
-                    "read_only_history": True,
-                },
+                details=details,
             )
         )
     return items
@@ -2667,6 +2673,8 @@ def _ops_operation_title(operation_type: str, idempotency_key: str | None) -> st
     if idempotency_key and idempotency_key.startswith("daily-pipeline:"):
         step = idempotency_key.split(":")[-1]
         return f"Daily pipeline step: {step}"
+    if operation_type == "decision_action_log":
+        return "Decision action log outcome review"
     return operation_type.replace("_", " ")
 
 
@@ -2678,10 +2686,40 @@ def _ops_operation_summary(row: Any, request_payload: dict[str, Any], response_p
     error = row["error_code"] or row["error_message"]
     if error:
         return f"{row['operation_type']} {mode} for {as_of_date} ended {status}: {error}"
+    if row["operation_type"] == "decision_action_log":
+        request = request_payload.get("request") if isinstance(request_payload.get("request"), dict) else {}
+        outcome = response_payload.get("outcome") if isinstance(response_payload.get("outcome"), dict) else {}
+        decision = response_payload.get("operator_decision") or request.get("operator_decision") or "unknown"
+        action = response_payload.get("system_action") or request.get("system_action") or "unknown"
+        outcome_bucket = outcome.get("outcome_bucket") or "unknown"
+        outcome_status = outcome.get("outcome_status") or "unknown"
+        return (
+            f"decision_action_log {mode} for {as_of_date} ended {status}; "
+            f"decision={decision}; action={action}; outcome={outcome_bucket}/{outcome_status}."
+        )
     response_status = response_payload.get("status") or response_payload.get("pipeline_status")
     if response_status:
         return f"{row['operation_type']} {mode} for {as_of_date} ended {status}; response={response_status}."
     return f"{row['operation_type']} {mode} for {as_of_date} ended {status}."
+
+
+def _decision_action_log_operation_details(response_payload: dict[str, Any]) -> dict[str, Any]:
+    outcome = response_payload.get("outcome") if isinstance(response_payload.get("outcome"), dict) else {}
+    details = {
+        "decision_action_log_id": response_payload.get("decision_action_log_id"),
+        "system_action": response_payload.get("system_action"),
+        "operator_decision": response_payload.get("operator_decision"),
+        "outcome_status": outcome.get("outcome_status"),
+        "outcome_bucket": outcome.get("outcome_bucket"),
+        "outcome_review_date": outcome.get("outcome_review_date"),
+        "matched_trade_id": outcome.get("matched_trade_id"),
+        "matched_exit_decision_id": outcome.get("matched_exit_decision_id"),
+        "writes_trade_state": bool(response_payload.get("writes_trade_state")),
+        "writes_strategy_state": bool(response_payload.get("writes_strategy_state")),
+        "enables_timer": bool(response_payload.get("enables_timer")),
+        "advisory_only": True,
+    }
+    return {key: value for key, value in details.items() if value is not None}
 
 
 def _is_timer_evidence_log(payload: dict[str, str]) -> bool:
@@ -3267,7 +3305,7 @@ def _increment_count(target: dict[str, int], key: object, count: int) -> None:
 def _load_strategy_hypothesis_summaries(conn: Any, as_of_date: str) -> list[StrategyHypothesisSummaryReport]:
     rows = conn.execute(
         """
-        SELECT id, hypothesis_type, title, status, rationale
+        SELECT id, hypothesis_type, title, status, rationale, evidence_json
         FROM strategy_hypotheses
         WHERE as_of_date = ?
         ORDER BY id
@@ -3275,16 +3313,7 @@ def _load_strategy_hypothesis_summaries(conn: Any, as_of_date: str) -> list[Stra
         """,
         (as_of_date,),
     ).fetchall()
-    return [
-        StrategyHypothesisSummaryReport(
-            hypothesis_id=int(row["id"]),
-            hypothesis_type=row["hypothesis_type"],
-            title=row["title"],
-            status=row["status"],
-            rationale=row["rationale"],
-        )
-        for row in rows
-    ]
+    return [_strategy_hypothesis_summary_from_row(row) for row in rows]
 
 
 def _load_next_day_strategy_proposals(conn: Any, as_of_date: str) -> NextDayStrategyProposalSummary:
@@ -3305,7 +3334,7 @@ def _load_next_day_strategy_proposals(conn: Any, as_of_date: str) -> NextDayStra
 
     rows = conn.execute(
         """
-        SELECT id, hypothesis_type, title, status, rationale
+        SELECT id, hypothesis_type, title, status, rationale, evidence_json
         FROM strategy_hypotheses
         WHERE as_of_date = ?
         ORDER BY
@@ -3324,15 +3353,7 @@ def _load_next_day_strategy_proposals(conn: Any, as_of_date: str) -> NextDayStra
     items: list[StrategyHypothesisSummaryReport] = []
     for row in rows:
         status = str(row["status"])
-        items.append(
-            StrategyHypothesisSummaryReport(
-                hypothesis_id=int(row["id"]),
-                hypothesis_type=row["hypothesis_type"],
-                title=row["title"],
-                status=status,
-                rationale=row["rationale"],
-            )
-        )
+        items.append(_strategy_hypothesis_summary_from_row(row, status=status))
     review_required_count = counts["proposed"] + counts["testing"] + counts["accepted"]
     return NextDayStrategyProposalSummary(
         total_count=sum(counts.values()),
@@ -3343,6 +3364,24 @@ def _load_next_day_strategy_proposals(conn: Any, as_of_date: str) -> NextDayStra
         archived_count=counts["archived"],
         review_required_count=review_required_count,
         items=items,
+    )
+
+
+def _strategy_hypothesis_summary_from_row(
+    row: Any,
+    *,
+    status: str | None = None,
+) -> StrategyHypothesisSummaryReport:
+    evidence = _loads_json_object(row["evidence_json"])
+    return StrategyHypothesisSummaryReport(
+        hypothesis_id=int(row["id"]),
+        hypothesis_type=row["hypothesis_type"],
+        title=row["title"],
+        status=status or row["status"],
+        rationale=row["rationale"],
+        shadow_comparison=_dict_value(evidence.get("shadow_comparison")) or {},
+        paper_observation_gate=_dict_value(evidence.get("paper_observation_gate")) or {},
+        strategy_version_gate=_dict_value(evidence.get("strategy_version_gate")) or {},
     )
 
 
@@ -3385,7 +3424,12 @@ def _load_market_plan_context(
     )
 
 
-def _load_agent_advice(conn: Any, candidate: CandidateReport | None) -> AgentAdviceReport:
+def _load_agent_advice(
+    conn: Any,
+    candidate: CandidateReport | None,
+    as_of_date: str | None = None,
+) -> AgentAdviceReport:
+    cache_coverage = _load_agent_external_cache_coverage(conn, as_of_date)
     placeholder = AgentAdviceReport(
         agent_run_id=None,
         agent_decision_id=None,
@@ -3395,6 +3439,9 @@ def _load_agent_advice(conn: Any, candidate: CandidateReport | None) -> AgentAdv
         confidence=None,
         summary=None,
         note="Agent 复核尚未接入本次日报；确定性策略和人工检查优先。",
+        source_refs=_load_agent_external_cache_source_refs(conn, as_of_date),
+        external_data_coverage=cache_coverage,
+        missing_data_warnings=_agent_cache_missing_warnings(cache_coverage),
     )
     if candidate is None:
         return placeholder
@@ -3468,6 +3515,71 @@ def _load_agent_advice(conn: Any, candidate: CandidateReport | None) -> AgentAdv
         artifacts=artifacts,
         report_markdown=_load_agent_report_markdown(final_report_path),
     )
+
+
+def _load_agent_external_cache_coverage(conn: Any, as_of_date: str | None) -> dict[str, str]:
+    if not as_of_date:
+        return {}
+    rows = conn.execute(
+        """
+        SELECT item_type, sentiment, COUNT(*) AS count
+        FROM agent_external_items
+        WHERE published_date = ?
+        GROUP BY item_type, sentiment
+        """,
+        (as_of_date,),
+    ).fetchall()
+    if not rows:
+        return {}
+    by_item_type: dict[str, int] = {}
+    known_sentiment_count = 0
+    for row in rows:
+        count = int(row["count"] or 0)
+        _increment_count(by_item_type, row["item_type"], count)
+        if str(row["sentiment"] or "unknown") != "unknown":
+            known_sentiment_count += count
+    return {
+        "fundamental": "available" if by_item_type.get("fundamental", 0) else "missing",
+        "announcement": "available" if by_item_type.get("announcement", 0) else "missing",
+        "news": "available" if by_item_type.get("news", 0) else "missing",
+        "sentiment": "available" if by_item_type.get("sentiment", 0) or known_sentiment_count else "missing",
+        "risk_or_research": "available"
+        if by_item_type.get("risk_note", 0) or by_item_type.get("research_note", 0)
+        else "missing",
+    }
+
+
+def _load_agent_external_cache_source_refs(conn: Any, as_of_date: str | None) -> list[str]:
+    if not as_of_date:
+        return []
+    rows = conn.execute(
+        """
+        SELECT id
+        FROM agent_external_items
+        WHERE published_date = ?
+        ORDER BY id
+        LIMIT 24
+        """,
+        (as_of_date,),
+    ).fetchall()
+    return [f"agent_external_items:{int(row['id'])}" for row in rows]
+
+
+def _agent_cache_missing_warnings(coverage: dict[str, str]) -> list[str]:
+    if not coverage:
+        return []
+    missing = [
+        label
+        for key, label in (
+            ("announcement", "公告"),
+            ("news", "新闻"),
+            ("sentiment", "情绪"),
+        )
+        if coverage.get(key) == "missing"
+    ]
+    if not missing:
+        return []
+    return [f"Agent cached provider evidence 缺失：{'/'.join(missing)}。"]
 
 
 def _load_agent_external_data_coverage(payload: dict[str, Any], raw_decision: dict[str, Any]) -> dict[str, str]:
@@ -4080,9 +4192,10 @@ def _decision_action_log_lines(action_log: DecisionActionLogList | None) -> list
         outcome = item.outcome
         blockers = f"；blocker {', '.join(item.blocker_codes)}" if item.blocker_codes else ""
         outcome_text = outcome.outcome_status if outcome else "pending"
+        outcome_bucket = outcome.outcome_bucket if outcome else "pending"
         lines.append(
             f"- {item.operator_decision} {item.system_action}："
-            f"执行日 {_date_text(item.execution_date)}；outcome={outcome_text}{blockers}"
+            f"执行日 {_date_text(item.execution_date)}；outcome={outcome_bucket}/{outcome_text}{blockers}"
         )
     return lines
 
@@ -4293,9 +4406,25 @@ def _evidence_status_text(value: str) -> str:
 def _strategy_hypotheses_text(hypotheses: list[StrategyHypothesisSummaryReport]) -> str:
     if not hypotheses:
         return "未生成策略假设"
+    shadow_count = len([item for item in hypotheses if item.shadow_comparison])
+    blocked_count = len(
+        [
+            item
+            for item in hypotheses
+            if _gate_blockers(item.paper_observation_gate) or _gate_blockers(item.strategy_version_gate)
+        ]
+    )
     parts = [f"{item.title}（{_status_text(item.status)}）" for item in hypotheses[:3]]
     suffix = f"；另有 {len(hypotheses) - 3} 条" if len(hypotheses) > 3 else ""
-    return f"{len(hypotheses)} 条；" + "；".join(parts) + suffix
+    shadow_suffix = f"；shadow {shadow_count} 条（paper/proposal blocker {blocked_count} 条）" if shadow_count else ""
+    return f"{len(hypotheses)} 条{shadow_suffix}；" + "；".join(parts) + suffix
+
+
+def _gate_blockers(gate: dict[str, Any]) -> list[str]:
+    blockers = gate.get("blockers") if isinstance(gate, dict) else None
+    if not isinstance(blockers, list):
+        return []
+    return [str(blocker) for blocker in blockers if str(blocker)]
 
 
 def _count_dict_text(counts: dict[Any, Any]) -> str:

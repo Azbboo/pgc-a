@@ -1518,6 +1518,34 @@ code {
   grid-column: 1 / -1;
 }
 
+.market-diagnostics {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  box-shadow: var(--shadow-soft);
+}
+
+.market-diagnostics__summary,
+.market-diagnostics__tables {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.market-diagnostics p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .market-history-strip__label {
   color: var(--muted);
   font-size: 11px;

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from statistics import mean
 from typing import Any
@@ -172,6 +173,13 @@ class MarketReviewService:
             else:
                 regime = _load_market_regime_snapshot(conn, int(run["id"]))
                 data = _market_review_detail_payload(run, regime)
+            data["diagnostics"] = _market_review_diagnostics(
+                conn,
+                self.db_path,
+                request.as_of_date,
+                run_id=int(run["id"]) if run is not None else None,
+                missing_data=data["missing_data"],
+            )
 
         return ServiceResult(
             status="success",
@@ -633,6 +641,214 @@ def _empty_market_review_detail(as_of_date: str) -> dict[str, Any]:
             "market_plan_contexts",
         ],
     }
+
+
+def _market_review_diagnostics(
+    conn: sqlite3.Connection,
+    db_path: Path,
+    as_of_date: str,
+    *,
+    run_id: int | None,
+    missing_data: list[str],
+) -> dict[str, Any]:
+    latest = _latest_market_review_run(conn)
+    downstream = _market_review_downstream_status(conn, as_of_date, run_id)
+    missing_downstream = [
+        table
+        for table, status in downstream.items()
+        if table != "market_review_runs" and (not status["exists"] or int(status["count"] or 0) == 0)
+    ]
+    reasons = _market_review_empty_state_reasons(
+        as_of_date,
+        latest_date=latest["as_of_date"] if latest is not None else None,
+        run_id=run_id,
+        downstream=downstream,
+        missing_data=missing_data,
+    )
+    return {
+        "selected_market_date": as_of_date,
+        "latest_market_review_date": latest["as_of_date"] if latest is not None else None,
+        "latest_market_review_run_id": int(latest["id"]) if latest is not None else None,
+        "source_db": _source_db_status(db_path),
+        "downstream_tables": downstream,
+        "missing_downstream_tables": missing_downstream,
+        "empty_state_reasons": reasons,
+    }
+
+
+def _latest_market_review_run(conn: sqlite3.Connection) -> sqlite3.Row | None:
+    if not _table_exists(conn, "market_review_runs"):
+        return None
+    return conn.execute(
+        """
+        SELECT id, as_of_date, completed_at, created_at
+        FROM market_review_runs
+        ORDER BY as_of_date DESC, id DESC
+        LIMIT 1
+        """
+    ).fetchone()
+
+
+def _market_review_downstream_status(
+    conn: sqlite3.Connection,
+    as_of_date: str,
+    run_id: int | None,
+) -> dict[str, dict[str, Any]]:
+    return {
+        "market_review_runs": _table_status(
+            conn,
+            "market_review_runs",
+            "as_of_date = ?",
+            (as_of_date,),
+        ),
+        "market_regime_snapshots": _table_status(
+            conn,
+            "market_regime_snapshots",
+            "market_review_run_id = ?",
+            (run_id,),
+            require_run_id=run_id,
+        ),
+        "sector_daily_snapshots": _table_status(
+            conn,
+            "sector_daily_snapshots",
+            "market_review_run_id = ?",
+            (run_id,),
+            require_run_id=run_id,
+        ),
+        "sector_constituents": _table_status(
+            conn,
+            "sector_constituents",
+            "market_review_run_id = ?",
+            (run_id,),
+            require_run_id=run_id,
+        ),
+        "market_external_items": _table_status(
+            conn,
+            "market_external_items",
+            "as_of_date = ?",
+            (as_of_date,),
+        ),
+        "market_plan_contexts": _table_status(
+            conn,
+            "market_plan_contexts",
+            "market_review_run_id = ?",
+            (run_id,),
+            require_run_id=run_id,
+        ),
+        "strategy_hypotheses": _table_status(
+            conn,
+            "strategy_hypotheses",
+            "as_of_date = ?",
+            (as_of_date,),
+        ),
+    }
+
+
+def _table_status(
+    conn: sqlite3.Connection,
+    table: str,
+    where_clause: str,
+    params: tuple[Any, ...],
+    *,
+    require_run_id: int | None = None,
+) -> dict[str, Any]:
+    exists = _table_exists(conn, table)
+    if not exists:
+        return {"exists": False, "count": None, "status": "missing_table"}
+    if require_run_id is None and "market_review_run_id" in where_clause:
+        return {"exists": True, "count": 0, "status": "missing_review"}
+    row = conn.execute(f"SELECT COUNT(*) AS count FROM {table} WHERE {where_clause}", params).fetchone()
+    count = int(row["count"]) if row is not None else 0
+    return {"exists": True, "count": count, "status": "available" if count else "empty"}
+
+
+def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (table,),
+    ).fetchone()
+    return row is not None
+
+
+def _source_db_status(db_path: Path) -> dict[str, Any]:
+    path = Path(db_path)
+    exists = path.exists()
+    payload: dict[str, Any] = {
+        "configured": True,
+        "exists": exists,
+        "label": path.name,
+        "modified_at": None,
+        "size_bytes": None,
+    }
+    if not exists:
+        payload["freshness"] = "missing"
+        return payload
+    stat = path.stat()
+    modified_at = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
+    payload["modified_at"] = modified_at.isoformat().replace("+00:00", "Z")
+    payload["size_bytes"] = stat.st_size
+    payload["freshness"] = _source_db_freshness(stat.st_mtime)
+    return payload
+
+
+def _source_db_freshness(modified_at: float) -> str:
+    age_seconds = max(0.0, datetime.now(tz=timezone.utc).timestamp() - modified_at)
+    if age_seconds <= 36 * 60 * 60:
+        return "fresh"
+    if age_seconds <= 7 * 24 * 60 * 60:
+        return "stale"
+    return "old"
+
+
+def _market_review_empty_state_reasons(
+    as_of_date: str,
+    *,
+    latest_date: str | None,
+    run_id: int | None,
+    downstream: dict[str, dict[str, Any]],
+    missing_data: list[str],
+) -> list[dict[str, str]]:
+    reasons: list[dict[str, str]] = []
+    if run_id is None:
+        reason = {
+            "code": "MARKET_REVIEW_RUN_MISSING",
+            "message": f"{as_of_date} 没有 market_review_runs 记录。",
+        }
+        if latest_date and latest_date != as_of_date:
+            relation = "早于" if as_of_date < latest_date else "晚于"
+            reason["message"] = (
+                f"{as_of_date} 没有 market_review_runs 记录；最新全市场复盘是 {latest_date}，当前选择{relation}最新日期。"
+            )
+        reasons.append(reason)
+        return reasons
+
+    code_by_table = {
+        "market_regime_snapshots": "MARKET_REGIME_SNAPSHOT_MISSING",
+        "sector_daily_snapshots": "SECTOR_SNAPSHOTS_MISSING",
+        "sector_constituents": "SECTOR_CONSTITUENTS_MISSING",
+        "market_external_items": "MARKET_EXTERNAL_EVIDENCE_MISSING",
+        "market_plan_contexts": "MARKET_PLAN_CONTEXT_MISSING",
+        "strategy_hypotheses": "STRATEGY_HYPOTHESES_MISSING",
+    }
+    for table in missing_data:
+        if table == "provider_manifest_json" or table == "coverage_json":
+            reasons.append(
+                {
+                    "code": f"{table.upper()}_MISSING",
+                    "message": f"{table} 为空，说明该复盘缺少来源或覆盖率元数据。",
+                }
+            )
+            continue
+        status = downstream.get(table)
+        if status is None:
+            continue
+        reasons.append(
+            {
+                "code": code_by_table.get(table, f"{table.upper()}_MISSING"),
+                "message": f"{table} 当前计数为 {status['count']}; 面板会保持空状态。",
+            }
+        )
+    return reasons
 
 
 def _regime_payload(row: sqlite3.Row) -> dict[str, Any]:

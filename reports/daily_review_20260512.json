@@ -1,0 +1,2098 @@
+{
+  "account": {
+    "account_id": 1,
+    "account_key": "paper-main",
+    "account_type": "paper",
+    "cash": 135214.0,
+    "equity_as_of_date": "20260512",
+    "free_position_slots": 2,
+    "market_value": 63250.0,
+    "max_positions": 3,
+    "name": "Paper Main",
+    "open_positions": 1,
+    "total_equity": 198464.0
+  },
+  "agent_advice": {
+    "action": "no_opinion",
+    "agent_decision_id": null,
+    "agent_run_id": null,
+    "analyst_reports": [],
+    "artifacts": [],
+    "confidence": null,
+    "execution_mode": null,
+    "external_data_coverage": {},
+    "external_evidence": [],
+    "missing_data_warnings": [],
+    "note": "Agent 复核尚未接入本次日报；确定性策略和人工检查优先。",
+    "report_markdown": null,
+    "report_sections": [],
+    "risk_level": "unknown",
+    "risk_points": [],
+    "source_label": null,
+    "source_refs": [],
+    "status": "not_run",
+    "summary": null,
+    "supporting_points": []
+  },
+  "as_of_date": "20260512",
+  "buy_plan": null,
+  "candidate": null,
+  "data_quality": {
+    "account_ok": true,
+    "blocker_count": 0,
+    "can_trade": true,
+    "event_ids": [],
+    "market_coverage_ok": true,
+    "missing_market_bar_count": 0,
+    "readiness": "pass",
+    "strategy_version_ok": true,
+    "trade_calendar_ok": true,
+    "valid_raw_count": 256,
+    "warning_count": 0
+  },
+  "due_positions": [],
+  "generated_at": "2026-05-12T12:42:58.852425+00:00",
+  "latest_market_date": "20260512",
+  "lineage": {
+    "agent_decision_id": null,
+    "agent_run_id": null,
+    "daily_pick_id": null,
+    "data_quality_event_ids": [],
+    "feature_run_id": 5,
+    "market_fetch_run_id": null,
+    "market_review_run_id": 4,
+    "signal_id": null,
+    "strategy_run_id": 5,
+    "trade_plan_id": null
+  },
+  "market_plan_context": null,
+  "market_review": {
+    "breadth_score": 0.2915,
+    "external_evidence_coverage": {
+      "by_importance": {},
+      "by_item_type": {},
+      "by_provider": {},
+      "by_scope": {},
+      "by_sentiment": {},
+      "coverage": "missing",
+      "fresh_count": 0,
+      "market": "missing",
+      "missing_scopes": [
+        "market",
+        "sector",
+        "stock"
+      ],
+      "news": "missing",
+      "sector": "missing",
+      "sentiment": "missing",
+      "stale_count": 0,
+      "stock": "missing",
+      "total_count": 0
+    },
+    "market_review_run_id": 4,
+    "persistence_score": 0.1826,
+    "regime": "neutral",
+    "sector_persistence": [],
+    "sentiment_score": null,
+    "status": "completed",
+    "strategy_hypotheses": [
+      {
+        "hypothesis_id": 4,
+        "hypothesis_type": "shadow_trend_extension_shadow",
+        "paper_observation_gate": {
+          "allowed": false,
+          "artifact_only": true,
+          "blockers": [
+            "paper_observation_not_authorized",
+            "walk_forward_shadow_monitor_20_trading_days_required",
+            "operator_review_required",
+            "sector_evidence_confirmation_required",
+            "chase_gap_guard_required"
+          ],
+          "clearance_required": true,
+          "gate_type": "paper_observation",
+          "status": "blocked"
+        },
+        "rationale": "M69 shadow research showed strong-trend continuation misses that are outside frozen CPB pullback rules.",
+        "shadow_comparison": {
+          "all_candidate_metrics": {
+            "days": 24,
+            "label": "all_trend_extension_shadow",
+            "max_t1_gain_pct": 19.43,
+            "max_t1_loss_pct": -12.11,
+            "n": 467,
+            "t1_close_mean_pct": 1.18,
+            "t1_close_median_pct": 0.62,
+            "t1_close_win_rate_pct": 56.3,
+            "t1_high_ge3_rate_pct": 54.0,
+            "t1_high_mean_pct": 4.17,
+            "t3_high_ge5_rate_pct": 60.8,
+            "t3_high_mean_pct": 8.53,
+            "t5_close_mean_pct": 5.86,
+            "t5_close_win_rate_pct": 68.8
+          },
+          "candidate_family": "shadow_bucket",
+          "candidate_key": "trend_extension_shadow",
+          "daily_top1_metrics": {
+            "days": 24,
+            "label": "daily_top1_trend_extension_shadow",
+            "max_t1_gain_pct": 15.87,
+            "max_t1_loss_pct": -6.43,
+            "n": 24,
+            "t1_close_mean_pct": 1.11,
+            "t1_close_median_pct": 0.68,
+            "t1_close_win_rate_pct": 58.3,
+            "t1_high_ge3_rate_pct": 62.5,
+            "t1_high_mean_pct": 4.64,
+            "t3_high_ge5_rate_pct": 66.7,
+            "t3_high_mean_pct": 8.94,
+            "t5_close_mean_pct": 7.38,
+            "t5_close_win_rate_pct": 80.0
+          },
+          "frozen_cpb_baseline": {
+            "days": 2,
+            "label": "active_cpb_persisted_picks",
+            "max_t1_gain_pct": 20.0,
+            "max_t1_loss_pct": -0.86,
+            "n": 2,
+            "t1_close_mean_pct": 9.57,
+            "t1_close_median_pct": 9.57,
+            "t1_close_win_rate_pct": 50.0,
+            "t1_high_ge3_rate_pct": 50.0,
+            "t1_high_mean_pct": 10.29,
+            "t3_high_ge5_rate_pct": 50.0,
+            "t3_high_mean_pct": 10.29,
+            "t5_close_mean_pct": null,
+            "t5_close_win_rate_pct": null
+          },
+          "limitations": [
+            "Research-only shadow labels; no active CPB behavior changed.",
+            "Frozen CPB baseline has a small persisted-pick sample in this window.",
+            "Requires forward monitoring before paper observation."
+          ],
+          "missed_gainer5_count": 14,
+          "review_window": {
+            "days": 24,
+            "end_date": "20260508",
+            "start_date": "20260401"
+          },
+          "rule_summary": "Entry price >=10, prior runup >18%, near 20d high, constructive prior volume. Intended to study strong-trend continuation misses.",
+          "source_artifacts": {
+            "shadow_backtest": "reports/strategy_shadow_backtest_20260401_20260508.json",
+            "shadow_review": "reports/strategy_shadow_review_20260511.json"
+          }
+        },
+        "status": "proposed",
+        "strategy_version_gate": {
+          "allowed": false,
+          "artifact_only": true,
+          "blockers": [
+            "strategy_version_proposal_not_authorized",
+            "replay_backtest_result_artifact_required",
+            "proposal_review_required",
+            "operator_promotion_approval_required",
+            "separate_trend_extension_candidate_required"
+          ],
+          "clearance_required": true,
+          "gate_type": "strategy_version_proposal",
+          "status": "blocked"
+        },
+        "title": "Shadow candidate: trend-extension continuation bucket."
+      },
+      {
+        "hypothesis_id": 5,
+        "hypothesis_type": "shadow_breakout_pressure_shadow",
+        "paper_observation_gate": {
+          "allowed": false,
+          "artifact_only": true,
+          "blockers": [
+            "paper_observation_not_authorized",
+            "walk_forward_shadow_monitor_20_trading_days_required",
+            "operator_review_required",
+            "volume_overheat_guard_required",
+            "close_return_stability_required"
+          ],
+          "clearance_required": true,
+          "gate_type": "paper_observation",
+          "status": "blocked"
+        },
+        "rationale": "M69 shadow research found near-high pressure setups with intraday optionality but unstable close returns.",
+        "shadow_comparison": {
+          "all_candidate_metrics": {
+            "days": 24,
+            "label": "all_breakout_pressure_shadow",
+            "max_t1_gain_pct": 20.0,
+            "max_t1_loss_pct": -9.96,
+            "n": 1095,
+            "t1_close_mean_pct": 0.67,
+            "t1_close_median_pct": 0.37,
+            "t1_close_win_rate_pct": 54.9,
+            "t1_high_ge3_rate_pct": 36.9,
+            "t1_high_mean_pct": 2.96,
+            "t3_high_ge5_rate_pct": 45.1,
+            "t3_high_mean_pct": 5.99,
+            "t5_close_mean_pct": 3.18,
+            "t5_close_win_rate_pct": 61.0
+          },
+          "candidate_family": "shadow_bucket",
+          "candidate_key": "breakout_pressure_shadow",
+          "daily_top1_metrics": {
+            "days": 24,
+            "label": "daily_top1_breakout_pressure_shadow",
+            "max_t1_gain_pct": 8.88,
+            "max_t1_loss_pct": -5.12,
+            "n": 24,
+            "t1_close_mean_pct": 0.22,
+            "t1_close_median_pct": -0.48,
+            "t1_close_win_rate_pct": 45.8,
+            "t1_high_ge3_rate_pct": 58.3,
+            "t1_high_mean_pct": 3.45,
+            "t3_high_ge5_rate_pct": 62.5,
+            "t3_high_mean_pct": 8.57,
+            "t5_close_mean_pct": 4.77,
+            "t5_close_win_rate_pct": 50.0
+          },
+          "frozen_cpb_baseline": {
+            "days": 2,
+            "label": "active_cpb_persisted_picks",
+            "max_t1_gain_pct": 20.0,
+            "max_t1_loss_pct": -0.86,
+            "n": 2,
+            "t1_close_mean_pct": 9.57,
+            "t1_close_median_pct": 9.57,
+            "t1_close_win_rate_pct": 50.0,
+            "t1_high_ge3_rate_pct": 50.0,
+            "t1_high_mean_pct": 10.29,
+            "t3_high_ge5_rate_pct": 50.0,
+            "t3_high_mean_pct": 10.29,
+            "t5_close_mean_pct": null,
+            "t5_close_win_rate_pct": null
+          },
+          "limitations": [
+            "Research-only shadow labels; no active CPB behavior changed.",
+            "Frozen CPB baseline has a small persisted-pick sample in this window.",
+            "Requires forward monitoring before paper observation."
+          ],
+          "missed_gainer5_count": 10,
+          "review_window": {
+            "days": 24,
+            "end_date": "20260508",
+            "start_date": "20260401"
+          },
+          "rule_summary": "Near 20d high with constructive prior volume and no severe 5d weakness. Intended to study pressure-before-breakout misses.",
+          "source_artifacts": {
+            "shadow_backtest": "reports/strategy_shadow_backtest_20260401_20260508.json",
+            "shadow_review": "reports/strategy_shadow_review_20260511.json"
+          }
+        },
+        "status": "proposed",
+        "strategy_version_gate": {
+          "allowed": false,
+          "artifact_only": true,
+          "blockers": [
+            "strategy_version_proposal_not_authorized",
+            "replay_backtest_result_artifact_required",
+            "proposal_review_required",
+            "operator_promotion_approval_required",
+            "separate_breakout_pressure_candidate_required"
+          ],
+          "clearance_required": true,
+          "gate_type": "strategy_version_proposal",
+          "status": "blocked"
+        },
+        "title": "Shadow candidate: breakout-pressure bucket."
+      },
+      {
+        "hypothesis_id": 6,
+        "hypothesis_type": "shadow_low_price_momentum_shadow",
+        "paper_observation_gate": {
+          "allowed": false,
+          "artifact_only": true,
+          "blockers": [
+            "paper_observation_not_authorized",
+            "walk_forward_shadow_monitor_20_trading_days_required",
+            "operator_review_required",
+            "micro_sleeve_risk_model_required",
+            "liquidity_slippage_review_required"
+          ],
+          "clearance_required": true,
+          "gate_type": "paper_observation",
+          "status": "blocked"
+        },
+        "rationale": "Low-price movers explain part of CPB misses, but risk, liquidity, and sizing must remain separate.",
+        "shadow_comparison": {
+          "all_candidate_metrics": {
+            "days": 24,
+            "label": "all_low_price_momentum_shadow",
+            "max_t1_gain_pct": 14.12,
+            "max_t1_loss_pct": -11.33,
+            "n": 553,
+            "t1_close_mean_pct": 0.19,
+            "t1_close_median_pct": -0.16,
+            "t1_close_win_rate_pct": 46.7,
+            "t1_high_ge3_rate_pct": 28.8,
+            "t1_high_mean_pct": 2.54,
+            "t3_high_ge5_rate_pct": 35.1,
+            "t3_high_mean_pct": 4.89,
+            "t5_close_mean_pct": 0.94,
+            "t5_close_win_rate_pct": 49.5
+          },
+          "candidate_family": "shadow_bucket",
+          "candidate_key": "low_price_momentum_shadow",
+          "daily_top1_metrics": {
+            "days": 24,
+            "label": "daily_top1_low_price_momentum_shadow",
+            "max_t1_gain_pct": 11.47,
+            "max_t1_loss_pct": -5.21,
+            "n": 24,
+            "t1_close_mean_pct": 2.61,
+            "t1_close_median_pct": 2.75,
+            "t1_close_win_rate_pct": 58.3,
+            "t1_high_ge3_rate_pct": 70.8,
+            "t1_high_mean_pct": 5.49,
+            "t3_high_ge5_rate_pct": 75.0,
+            "t3_high_mean_pct": 11.89,
+            "t5_close_mean_pct": 9.97,
+            "t5_close_win_rate_pct": 65.0
+          },
+          "frozen_cpb_baseline": {
+            "days": 2,
+            "label": "active_cpb_persisted_picks",
+            "max_t1_gain_pct": 20.0,
+            "max_t1_loss_pct": -0.86,
+            "n": 2,
+            "t1_close_mean_pct": 9.57,
+            "t1_close_median_pct": 9.57,
+            "t1_close_win_rate_pct": 50.0,
+            "t1_high_ge3_rate_pct": 50.0,
+            "t1_high_mean_pct": 10.29,
+            "t3_high_ge5_rate_pct": 50.0,
+            "t3_high_mean_pct": 10.29,
+            "t5_close_mean_pct": null,
+            "t5_close_win_rate_pct": null
+          },
+          "limitations": [
+            "Research-only shadow labels; no active CPB behavior changed.",
+            "Frozen CPB baseline has a small persisted-pick sample in this window.",
+            "Requires forward monitoring before paper observation."
+          ],
+          "missed_gainer5_count": 7,
+          "review_window": {
+            "days": 24,
+            "end_date": "20260508",
+            "start_date": "20260401"
+          },
+          "rule_summary": "Entry price <10. Kept separate because active CPB filters these out for risk control.",
+          "source_artifacts": {
+            "shadow_backtest": "reports/strategy_shadow_backtest_20260401_20260508.json",
+            "shadow_review": "reports/strategy_shadow_review_20260511.json"
+          }
+        },
+        "status": "proposed",
+        "strategy_version_gate": {
+          "allowed": false,
+          "artifact_only": true,
+          "blockers": [
+            "strategy_version_proposal_not_authorized",
+            "replay_backtest_result_artifact_required",
+            "proposal_review_required",
+            "operator_promotion_approval_required",
+            "separate_low_price_micro_sleeve_required"
+          ],
+          "clearance_required": true,
+          "gate_type": "strategy_version_proposal",
+          "status": "blocked"
+        },
+        "title": "Shadow candidate: low-price momentum micro-sleeve."
+      },
+      {
+        "hypothesis_id": 7,
+        "hypothesis_type": "shadow_preconfirm_watchlist",
+        "paper_observation_gate": {
+          "allowed": false,
+          "artifact_only": true,
+          "blockers": [
+            "paper_observation_not_authorized",
+            "walk_forward_shadow_monitor_20_trading_days_required",
+            "operator_review_required",
+            "next_day_confirmation_rule_required",
+            "watchlist_only_ui_lane_required"
+          ],
+          "clearance_required": true,
+          "gate_type": "paper_observation",
+          "status": "blocked"
+        },
+        "rationale": "M69 pre-confirm research can surface names before CPB confirmation, but its low confirmation rate requires an explicit observation lane rather than trade-plan generation.",
+        "shadow_comparison": {
+          "all_watchlist_metrics": {
+            "avg_bigwin_score": 66.7676,
+            "confirm_next_day_n": 422,
+            "confirm_next_day_rate_pct": 17.54,
+            "next_open_ret_1d_mean_pct": 1.13,
+            "next_open_ret_1d_n": 421,
+            "next_open_ret_3d_mean_pct": 2.26,
+            "next_open_ret_3d_n": 414,
+            "next_open_ret_5d_mean_pct": 3.27,
+            "next_open_ret_5d_n": 393,
+            "pre_action": "全部",
+            "review_days": 64,
+            "signals": 426,
+            "stocks": 112,
+            "watch_mfe_5d_mean_pct": 8.25
+          },
+          "candidate_family": "preconfirm_watchlist",
+          "candidate_key": "preconfirm_watchlist",
+          "frozen_cpb_baseline": {
+            "days": 2,
+            "label": "active_cpb_persisted_picks",
+            "max_t1_gain_pct": 20.0,
+            "max_t1_loss_pct": -0.86,
+            "n": 2,
+            "t1_close_mean_pct": 9.57,
+            "t1_close_median_pct": 9.57,
+            "t1_close_win_rate_pct": 50.0,
+            "t1_high_ge3_rate_pct": 50.0,
+            "t1_high_mean_pct": 10.29,
+            "t3_high_ge5_rate_pct": 50.0,
+            "t3_high_mean_pct": 10.29,
+            "t5_close_mean_pct": null,
+            "t5_close_win_rate_pct": null
+          },
+          "high_potential_metrics": {
+            "avg_bigwin_score": 94.8684,
+            "confirm_next_day_n": 37,
+            "confirm_next_day_rate_pct": 24.32,
+            "next_open_ret_1d_mean_pct": 2.78,
+            "next_open_ret_1d_n": 37,
+            "next_open_ret_3d_mean_pct": 4.86,
+            "next_open_ret_3d_n": 36,
+            "next_open_ret_5d_mean_pct": 7.57,
+            "next_open_ret_5d_n": 35,
+            "pre_action": "高潜伏预警",
+            "review_days": 27,
+            "signals": 38,
+            "stocks": 16,
+            "watch_mfe_5d_mean_pct": 13.03
+          },
+          "limitations": [
+            "Pre-confirm output is a watchlist, not an automatic buy list.",
+            "Next-day confirmation and operator review are required before paper observation."
+          ],
+          "review_window": {
+            "end_date": "20260511",
+            "review_days": 27,
+            "start_date": "20251110"
+          },
+          "source_artifacts": {
+            "preconfirm_watchlist": "reports/preconfirm_watchlist_backtest.json"
+          }
+        },
+        "status": "proposed",
+        "strategy_version_gate": {
+          "allowed": false,
+          "artifact_only": true,
+          "blockers": [
+            "strategy_version_proposal_not_authorized",
+            "replay_backtest_result_artifact_required",
+            "proposal_review_required",
+            "operator_promotion_approval_required",
+            "watchlist_to_signal_contract_required"
+          ],
+          "clearance_required": true,
+          "gate_type": "strategy_version_proposal",
+          "status": "blocked"
+        },
+        "title": "Shadow candidate: pre-confirm watchlist observation lane."
+      },
+      {
+        "hypothesis_id": 8,
+        "hypothesis_type": "shadow_pullback_dip_buy",
+        "paper_observation_gate": {
+          "allowed": false,
+          "artifact_only": true,
+          "blockers": [
+            "paper_observation_not_authorized",
+            "walk_forward_shadow_monitor_20_trading_days_required",
+            "operator_review_required",
+            "dip_buy_stop_and_sizing_required",
+            "falling_knife_guard_required"
+          ],
+          "clearance_required": true,
+          "gate_type": "paper_observation",
+          "status": "blocked"
+        },
+        "rationale": "M69 dip-buy research found a possible deep-retrace observation variant, but it must stay separate from confirmed CPB entries until drawdown controls are validated.",
+        "shadow_comparison": {
+          "age_9_13_metrics": {
+            "group": "9-13天",
+            "mae_10d_median_pct": -4.51,
+            "mae_10d_n": 22,
+            "mfe_10d_median_pct": 8.09,
+            "mfe_10d_n": 22,
+            "ret_10d_median_pct": 2.89,
+            "ret_10d_n": 22,
+            "ret_3d_n": 24,
+            "ret_5d_mean_pct": 3.89,
+            "ret_5d_median_pct": 3.28,
+            "ret_5d_n": 24,
+            "ret_5d_p25_pct": -2.57,
+            "ret_5d_win_rate_pct": 62.5
+          },
+          "all_score_metrics": {
+            "group": "全部",
+            "mae_10d_median_pct": -7.86,
+            "mae_10d_n": 80,
+            "mfe_10d_median_pct": 8.39,
+            "mfe_10d_n": 80,
+            "ret_10d_median_pct": -0.37,
+            "ret_10d_n": 80,
+            "ret_3d_n": 102,
+            "ret_5d_mean_pct": 1.23,
+            "ret_5d_median_pct": 0.37,
+            "ret_5d_n": 99,
+            "ret_5d_p25_pct": -6.74,
+            "ret_5d_win_rate_pct": 53.54
+          },
+          "candidate_family": "dip_buy",
+          "candidate_key": "pullback_dip_buy",
+          "high_score_metrics": {
+            "group": "潜力分>=75",
+            "mae_10d_median_pct": -7.46,
+            "mae_10d_n": 21,
+            "mfe_10d_median_pct": 10.78,
+            "mfe_10d_n": 21,
+            "ret_10d_median_pct": -0.03,
+            "ret_10d_n": 21,
+            "ret_3d_n": 28,
+            "ret_5d_mean_pct": 5.27,
+            "ret_5d_median_pct": 0.83,
+            "ret_5d_n": 28,
+            "ret_5d_p25_pct": -2.97,
+            "ret_5d_win_rate_pct": 60.71
+          },
+          "limitations": [
+            "Dip-buy entries are earlier than CPB confirmation and can buy into drawdown.",
+            "Requires sizing, stop, and observation rules before any paper use."
+          ],
+          "selected_params": {
+            "max_age": 20,
+            "min_age": 6,
+            "min_peak_runup": 0.05,
+            "retrace_pct": 0.15,
+            "variant_id": "dip_r15_a6_run05"
+          },
+          "selected_variant": "dip_r15_a6_run05",
+          "source_artifacts": {
+            "dip_buy": "reports/pgc_pullback_dip_buy.json"
+          }
+        },
+        "status": "proposed",
+        "strategy_version_gate": {
+          "allowed": false,
+          "artifact_only": true,
+          "blockers": [
+            "strategy_version_proposal_not_authorized",
+            "replay_backtest_result_artifact_required",
+            "proposal_review_required",
+            "operator_promotion_approval_required",
+            "separate_dip_buy_candidate_required"
+          ],
+          "clearance_required": true,
+          "gate_type": "strategy_version_proposal",
+          "status": "blocked"
+        },
+        "title": "Shadow candidate: pullback dip-buy observation lane."
+      }
+    ],
+    "summary": "Market regime neutral: breadth=0.29 trend=0.47 volume=0.37 persistence=0.18 coverage=1.00.",
+    "top_sectors": [],
+    "trend_score": 0.4653,
+    "volume_score": 0.3702
+  },
+  "next_day_decision": {
+    "acceptance_status": "blocked",
+    "acceptance_summary": "纸盘每日运营验收阻断：1 项 blocker 需要先处理。",
+    "account_key": "paper-main",
+    "action_log": {
+      "account_id": 1,
+      "account_key": "paper-main",
+      "advisory_note": "Decision cockpit action logs are advisory audit records; they never execute trades, enable timers, or mutate strategy state.",
+      "deferred_count": 0,
+      "deferred_outcome_count": 0,
+      "followed_count": 0,
+      "items": [],
+      "matched_outcome_count": 0,
+      "outcome_counts": {},
+      "override_count": 0,
+      "override_outcome_count": 0,
+      "pending_outcome_count": 0,
+      "review_date": "20260512",
+      "review_only_outcome_count": 0,
+      "summary": "Decision action log has 0 entries: followed=0, deferred=0, overrode=0.",
+      "unexpected_trade_count": 0,
+      "unresolved_blocker_codes": []
+    },
+    "advisory_note": "Next-day decision cockpit is read-only; it explains blockers and next manual actions but never executes trades, enables timers, or mutates strategy parameters.",
+    "as_of_date": "20260512",
+    "blocker_count": 1,
+    "checklist": [
+      {
+        "blocker_codes": [
+          "MIN_PAPER_TRADES_NOT_MET"
+        ],
+        "detail": "汇总数据新鲜度、证据覆盖、Agent、open-execution 和 readiness gates。",
+        "key": "paper_acceptance",
+        "label": "paper acceptance",
+        "manual_action": "处理 paper acceptance 未处理 blocker。",
+        "source_refs": [
+          "market_review_runs:4",
+          "positions:2"
+        ],
+        "status": "blocked",
+        "summary": "纸盘每日运营验收阻断：1 项 blocker 需要先处理。",
+        "warning_codes": [
+          "MARKET_EVIDENCE_MISSING",
+          "AGENT_EXTERNAL_EVIDENCE_MISSING",
+          "AGENT_REVIEW_NOT_RUN",
+          "AGENT_EVIDENCE_MISSING"
+        ]
+      },
+      {
+        "blocker_codes": [],
+        "detail": "Missing evidence is explicit and remains advisory; no cached evidence mutates strategy or trades.",
+        "key": "evidence_blockers",
+        "label": "证据 freshness / coverage",
+        "manual_action": "补齐或确认 cached provider evidence，再重新运行只读验收。",
+        "source_refs": [
+          "market_review_runs:4"
+        ],
+        "status": "warning",
+        "summary": "全市场证据 0 条；Agent 覆盖 0 项",
+        "warning_codes": [
+          "MARKET_EVIDENCE_MISSING",
+          "AGENT_EXTERNAL_EVIDENCE_MISSING"
+        ]
+      },
+      {
+        "blocker_codes": [],
+        "detail": "市场复盘只提供 advisory，不会创建、取消或执行交易计划。",
+        "key": "market_review",
+        "label": "全市场复盘 / 计划关系",
+        "manual_action": "补齐全市场复盘与明日计划关系，或人工确认该计划无需市场上下文。",
+        "source_refs": [
+          "market_review_runs:4"
+        ],
+        "status": "warning",
+        "summary": "neutral；Market regime neutral: breadth=0.29 trend=0.47 volume=0.37 persistence=0.18 coverage=1.00.；计划建议 missing",
+        "warning_codes": [
+          "MARKET_PLAN_CONTEXT_MISSING"
+        ]
+      },
+      {
+        "blocker_codes": [],
+        "detail": "执行日 2026-05-13；预期 2026-05-13；计划 -；持仓 2",
+        "key": "open_execution",
+        "label": "open-execution 下一步",
+        "manual_action": "人工评估到期持仓并按显式流程生成退出动作。",
+        "source_refs": [
+          "positions:2"
+        ],
+        "status": "pass",
+        "summary": "ready / evaluate_exit",
+        "warning_codes": []
+      },
+      {
+        "blocker_codes": [],
+        "detail": "策略提案只生成研究/晋级任务线索，不会自动修改策略参数。",
+        "key": "strategy_proposals",
+        "label": "策略 proposal / hypothesis",
+        "manual_action": "审阅策略假设和 proposal artifact；不要直接改 active params 或 paper/live 行为。",
+        "source_refs": [
+          "strategy_hypotheses:4",
+          "strategy_hypotheses:5",
+          "strategy_hypotheses:6",
+          "strategy_hypotheses:7",
+          "strategy_hypotheses:8"
+        ],
+        "status": "warning",
+        "summary": "5 项策略假设或 proposal 需要人工审阅；accepted=0 testing=0 proposed=5",
+        "warning_codes": [
+          "STRATEGY_PROPOSAL_REVIEW_REQUIRED"
+        ]
+      }
+    ],
+    "execution_date": "20260513",
+    "headline": "下一交易日决策被 1 项 blocker 阻断。",
+    "market_plan_context": null,
+    "market_review": {
+      "breadth_score": 0.2915,
+      "external_evidence_coverage": {
+        "by_importance": {},
+        "by_item_type": {},
+        "by_provider": {},
+        "by_scope": {},
+        "by_sentiment": {},
+        "coverage": "missing",
+        "fresh_count": 0,
+        "market": "missing",
+        "missing_scopes": [
+          "market",
+          "sector",
+          "stock"
+        ],
+        "news": "missing",
+        "sector": "missing",
+        "sentiment": "missing",
+        "stale_count": 0,
+        "stock": "missing",
+        "total_count": 0
+      },
+      "market_review_run_id": 4,
+      "persistence_score": 0.1826,
+      "regime": "neutral",
+      "sector_persistence": [],
+      "sentiment_score": null,
+      "status": "completed",
+      "strategy_hypotheses": [
+        {
+          "hypothesis_id": 4,
+          "hypothesis_type": "shadow_trend_extension_shadow",
+          "paper_observation_gate": {
+            "allowed": false,
+            "artifact_only": true,
+            "blockers": [
+              "paper_observation_not_authorized",
+              "walk_forward_shadow_monitor_20_trading_days_required",
+              "operator_review_required",
+              "sector_evidence_confirmation_required",
+              "chase_gap_guard_required"
+            ],
+            "clearance_required": true,
+            "gate_type": "paper_observation",
+            "status": "blocked"
+          },
+          "rationale": "M69 shadow research showed strong-trend continuation misses that are outside frozen CPB pullback rules.",
+          "shadow_comparison": {
+            "all_candidate_metrics": {
+              "days": 24,
+              "label": "all_trend_extension_shadow",
+              "max_t1_gain_pct": 19.43,
+              "max_t1_loss_pct": -12.11,
+              "n": 467,
+              "t1_close_mean_pct": 1.18,
+              "t1_close_median_pct": 0.62,
+              "t1_close_win_rate_pct": 56.3,
+              "t1_high_ge3_rate_pct": 54.0,
+              "t1_high_mean_pct": 4.17,
+              "t3_high_ge5_rate_pct": 60.8,
+              "t3_high_mean_pct": 8.53,
+              "t5_close_mean_pct": 5.86,
+              "t5_close_win_rate_pct": 68.8
+            },
+            "candidate_family": "shadow_bucket",
+            "candidate_key": "trend_extension_shadow",
+            "daily_top1_metrics": {
+              "days": 24,
+              "label": "daily_top1_trend_extension_shadow",
+              "max_t1_gain_pct": 15.87,
+              "max_t1_loss_pct": -6.43,
+              "n": 24,
+              "t1_close_mean_pct": 1.11,
+              "t1_close_median_pct": 0.68,
+              "t1_close_win_rate_pct": 58.3,
+              "t1_high_ge3_rate_pct": 62.5,
+              "t1_high_mean_pct": 4.64,
+              "t3_high_ge5_rate_pct": 66.7,
+              "t3_high_mean_pct": 8.94,
+              "t5_close_mean_pct": 7.38,
+              "t5_close_win_rate_pct": 80.0
+            },
+            "frozen_cpb_baseline": {
+              "days": 2,
+              "label": "active_cpb_persisted_picks",
+              "max_t1_gain_pct": 20.0,
+              "max_t1_loss_pct": -0.86,
+              "n": 2,
+              "t1_close_mean_pct": 9.57,
+              "t1_close_median_pct": 9.57,
+              "t1_close_win_rate_pct": 50.0,
+              "t1_high_ge3_rate_pct": 50.0,
+              "t1_high_mean_pct": 10.29,
+              "t3_high_ge5_rate_pct": 50.0,
+              "t3_high_mean_pct": 10.29,
+              "t5_close_mean_pct": null,
+              "t5_close_win_rate_pct": null
+            },
+            "limitations": [
+              "Research-only shadow labels; no active CPB behavior changed.",
+              "Frozen CPB baseline has a small persisted-pick sample in this window.",
+              "Requires forward monitoring before paper observation."
+            ],
+            "missed_gainer5_count": 14,
+            "review_window": {
+              "days": 24,
+              "end_date": "20260508",
+              "start_date": "20260401"
+            },
+            "rule_summary": "Entry price >=10, prior runup >18%, near 20d high, constructive prior volume. Intended to study strong-trend continuation misses.",
+            "source_artifacts": {
+              "shadow_backtest": "reports/strategy_shadow_backtest_20260401_20260508.json",
+              "shadow_review": "reports/strategy_shadow_review_20260511.json"
+            }
+          },
+          "status": "proposed",
+          "strategy_version_gate": {
+            "allowed": false,
+            "artifact_only": true,
+            "blockers": [
+              "strategy_version_proposal_not_authorized",
+              "replay_backtest_result_artifact_required",
+              "proposal_review_required",
+              "operator_promotion_approval_required",
+              "separate_trend_extension_candidate_required"
+            ],
+            "clearance_required": true,
+            "gate_type": "strategy_version_proposal",
+            "status": "blocked"
+          },
+          "title": "Shadow candidate: trend-extension continuation bucket."
+        },
+        {
+          "hypothesis_id": 5,
+          "hypothesis_type": "shadow_breakout_pressure_shadow",
+          "paper_observation_gate": {
+            "allowed": false,
+            "artifact_only": true,
+            "blockers": [
+              "paper_observation_not_authorized",
+              "walk_forward_shadow_monitor_20_trading_days_required",
+              "operator_review_required",
+              "volume_overheat_guard_required",
+              "close_return_stability_required"
+            ],
+            "clearance_required": true,
+            "gate_type": "paper_observation",
+            "status": "blocked"
+          },
+          "rationale": "M69 shadow research found near-high pressure setups with intraday optionality but unstable close returns.",
+          "shadow_comparison": {
+            "all_candidate_metrics": {
+              "days": 24,
+              "label": "all_breakout_pressure_shadow",
+              "max_t1_gain_pct": 20.0,
+              "max_t1_loss_pct": -9.96,
+              "n": 1095,
+              "t1_close_mean_pct": 0.67,
+              "t1_close_median_pct": 0.37,
+              "t1_close_win_rate_pct": 54.9,
+              "t1_high_ge3_rate_pct": 36.9,
+              "t1_high_mean_pct": 2.96,
+              "t3_high_ge5_rate_pct": 45.1,
+              "t3_high_mean_pct": 5.99,
+              "t5_close_mean_pct": 3.18,
+              "t5_close_win_rate_pct": 61.0
+            },
+            "candidate_family": "shadow_bucket",
+            "candidate_key": "breakout_pressure_shadow",
+            "daily_top1_metrics": {
+              "days": 24,
+              "label": "daily_top1_breakout_pressure_shadow",
+              "max_t1_gain_pct": 8.88,
+              "max_t1_loss_pct": -5.12,
+              "n": 24,
+              "t1_close_mean_pct": 0.22,
+              "t1_close_median_pct": -0.48,
+              "t1_close_win_rate_pct": 45.8,
+              "t1_high_ge3_rate_pct": 58.3,
+              "t1_high_mean_pct": 3.45,
+              "t3_high_ge5_rate_pct": 62.5,
+              "t3_high_mean_pct": 8.57,
+              "t5_close_mean_pct": 4.77,
+              "t5_close_win_rate_pct": 50.0
+            },
+            "frozen_cpb_baseline": {
+              "days": 2,
+              "label": "active_cpb_persisted_picks",
+              "max_t1_gain_pct": 20.0,
+              "max_t1_loss_pct": -0.86,
+              "n": 2,
+              "t1_close_mean_pct": 9.57,
+              "t1_close_median_pct": 9.57,
+              "t1_close_win_rate_pct": 50.0,
+              "t1_high_ge3_rate_pct": 50.0,
+              "t1_high_mean_pct": 10.29,
+              "t3_high_ge5_rate_pct": 50.0,
+              "t3_high_mean_pct": 10.29,
+              "t5_close_mean_pct": null,
+              "t5_close_win_rate_pct": null
+            },
+            "limitations": [
+              "Research-only shadow labels; no active CPB behavior changed.",
+              "Frozen CPB baseline has a small persisted-pick sample in this window.",
+              "Requires forward monitoring before paper observation."
+            ],
+            "missed_gainer5_count": 10,
+            "review_window": {
+              "days": 24,
+              "end_date": "20260508",
+              "start_date": "20260401"
+            },
+            "rule_summary": "Near 20d high with constructive prior volume and no severe 5d weakness. Intended to study pressure-before-breakout misses.",
+            "source_artifacts": {
+              "shadow_backtest": "reports/strategy_shadow_backtest_20260401_20260508.json",
+              "shadow_review": "reports/strategy_shadow_review_20260511.json"
+            }
+          },
+          "status": "proposed",
+          "strategy_version_gate": {
+            "allowed": false,
+            "artifact_only": true,
+            "blockers": [
+              "strategy_version_proposal_not_authorized",
+              "replay_backtest_result_artifact_required",
+              "proposal_review_required",
+              "operator_promotion_approval_required",
+              "separate_breakout_pressure_candidate_required"
+            ],
+            "clearance_required": true,
+            "gate_type": "strategy_version_proposal",
+            "status": "blocked"
+          },
+          "title": "Shadow candidate: breakout-pressure bucket."
+        },
+        {
+          "hypothesis_id": 6,
+          "hypothesis_type": "shadow_low_price_momentum_shadow",
+          "paper_observation_gate": {
+            "allowed": false,
+            "artifact_only": true,
+            "blockers": [
+              "paper_observation_not_authorized",
+              "walk_forward_shadow_monitor_20_trading_days_required",
+              "operator_review_required",
+              "micro_sleeve_risk_model_required",
+              "liquidity_slippage_review_required"
+            ],
+            "clearance_required": true,
+            "gate_type": "paper_observation",
+            "status": "blocked"
+          },
+          "rationale": "Low-price movers explain part of CPB misses, but risk, liquidity, and sizing must remain separate.",
+          "shadow_comparison": {
+            "all_candidate_metrics": {
+              "days": 24,
+              "label": "all_low_price_momentum_shadow",
+              "max_t1_gain_pct": 14.12,
+              "max_t1_loss_pct": -11.33,
+              "n": 553,
+              "t1_close_mean_pct": 0.19,
+              "t1_close_median_pct": -0.16,
+              "t1_close_win_rate_pct": 46.7,
+              "t1_high_ge3_rate_pct": 28.8,
+              "t1_high_mean_pct": 2.54,
+              "t3_high_ge5_rate_pct": 35.1,
+              "t3_high_mean_pct": 4.89,
+              "t5_close_mean_pct": 0.94,
+              "t5_close_win_rate_pct": 49.5
+            },
+            "candidate_family": "shadow_bucket",
+            "candidate_key": "low_price_momentum_shadow",
+            "daily_top1_metrics": {
+              "days": 24,
+              "label": "daily_top1_low_price_momentum_shadow",
+              "max_t1_gain_pct": 11.47,
+              "max_t1_loss_pct": -5.21,
+              "n": 24,
+              "t1_close_mean_pct": 2.61,
+              "t1_close_median_pct": 2.75,
+              "t1_close_win_rate_pct": 58.3,
+              "t1_high_ge3_rate_pct": 70.8,
+              "t1_high_mean_pct": 5.49,
+              "t3_high_ge5_rate_pct": 75.0,
+              "t3_high_mean_pct": 11.89,
+              "t5_close_mean_pct": 9.97,
+              "t5_close_win_rate_pct": 65.0
+            },
+            "frozen_cpb_baseline": {
+              "days": 2,
+              "label": "active_cpb_persisted_picks",
+              "max_t1_gain_pct": 20.0,
+              "max_t1_loss_pct": -0.86,
+              "n": 2,
+              "t1_close_mean_pct": 9.57,
+              "t1_close_median_pct": 9.57,
+              "t1_close_win_rate_pct": 50.0,
+              "t1_high_ge3_rate_pct": 50.0,
+              "t1_high_mean_pct": 10.29,
+              "t3_high_ge5_rate_pct": 50.0,
+              "t3_high_mean_pct": 10.29,
+              "t5_close_mean_pct": null,
+              "t5_close_win_rate_pct": null
+            },
+            "limitations": [
+              "Research-only shadow labels; no active CPB behavior changed.",
+              "Frozen CPB baseline has a small persisted-pick sample in this window.",
+              "Requires forward monitoring before paper observation."
+            ],
+            "missed_gainer5_count": 7,
+            "review_window": {
+              "days": 24,
+              "end_date": "20260508",
+              "start_date": "20260401"
+            },
+            "rule_summary": "Entry price <10. Kept separate because active CPB filters these out for risk control.",
+            "source_artifacts": {
+              "shadow_backtest": "reports/strategy_shadow_backtest_20260401_20260508.json",
+              "shadow_review": "reports/strategy_shadow_review_20260511.json"
+            }
+          },
+          "status": "proposed",
+          "strategy_version_gate": {
+            "allowed": false,
+            "artifact_only": true,
+            "blockers": [
+              "strategy_version_proposal_not_authorized",
+              "replay_backtest_result_artifact_required",
+              "proposal_review_required",
+              "operator_promotion_approval_required",
+              "separate_low_price_micro_sleeve_required"
+            ],
+            "clearance_required": true,
+            "gate_type": "strategy_version_proposal",
+            "status": "blocked"
+          },
+          "title": "Shadow candidate: low-price momentum micro-sleeve."
+        },
+        {
+          "hypothesis_id": 7,
+          "hypothesis_type": "shadow_preconfirm_watchlist",
+          "paper_observation_gate": {
+            "allowed": false,
+            "artifact_only": true,
+            "blockers": [
+              "paper_observation_not_authorized",
+              "walk_forward_shadow_monitor_20_trading_days_required",
+              "operator_review_required",
+              "next_day_confirmation_rule_required",
+              "watchlist_only_ui_lane_required"
+            ],
+            "clearance_required": true,
+            "gate_type": "paper_observation",
+            "status": "blocked"
+          },
+          "rationale": "M69 pre-confirm research can surface names before CPB confirmation, but its low confirmation rate requires an explicit observation lane rather than trade-plan generation.",
+          "shadow_comparison": {
+            "all_watchlist_metrics": {
+              "avg_bigwin_score": 66.7676,
+              "confirm_next_day_n": 422,
+              "confirm_next_day_rate_pct": 17.54,
+              "next_open_ret_1d_mean_pct": 1.13,
+              "next_open_ret_1d_n": 421,
+              "next_open_ret_3d_mean_pct": 2.26,
+              "next_open_ret_3d_n": 414,
+              "next_open_ret_5d_mean_pct": 3.27,
+              "next_open_ret_5d_n": 393,
+              "pre_action": "全部",
+              "review_days": 64,
+              "signals": 426,
+              "stocks": 112,
+              "watch_mfe_5d_mean_pct": 8.25
+            },
+            "candidate_family": "preconfirm_watchlist",
+            "candidate_key": "preconfirm_watchlist",
+            "frozen_cpb_baseline": {
+              "days": 2,
+              "label": "active_cpb_persisted_picks",
+              "max_t1_gain_pct": 20.0,
+              "max_t1_loss_pct": -0.86,
+              "n": 2,
+              "t1_close_mean_pct": 9.57,
+              "t1_close_median_pct": 9.57,
+              "t1_close_win_rate_pct": 50.0,
+              "t1_high_ge3_rate_pct": 50.0,
+              "t1_high_mean_pct": 10.29,
+              "t3_high_ge5_rate_pct": 50.0,
+              "t3_high_mean_pct": 10.29,
+              "t5_close_mean_pct": null,
+              "t5_close_win_rate_pct": null
+            },
+            "high_potential_metrics": {
+              "avg_bigwin_score": 94.8684,
+              "confirm_next_day_n": 37,
+              "confirm_next_day_rate_pct": 24.32,
+              "next_open_ret_1d_mean_pct": 2.78,
+              "next_open_ret_1d_n": 37,
+              "next_open_ret_3d_mean_pct": 4.86,
+              "next_open_ret_3d_n": 36,
+              "next_open_ret_5d_mean_pct": 7.57,
+              "next_open_ret_5d_n": 35,
+              "pre_action": "高潜伏预警",
+              "review_days": 27,
+              "signals": 38,
+              "stocks": 16,
+              "watch_mfe_5d_mean_pct": 13.03
+            },
+            "limitations": [
+              "Pre-confirm output is a watchlist, not an automatic buy list.",
+              "Next-day confirmation and operator review are required before paper observation."
+            ],
+            "review_window": {
+              "end_date": "20260511",
+              "review_days": 27,
+              "start_date": "20251110"
+            },
+            "source_artifacts": {
+              "preconfirm_watchlist": "reports/preconfirm_watchlist_backtest.json"
+            }
+          },
+          "status": "proposed",
+          "strategy_version_gate": {
+            "allowed": false,
+            "artifact_only": true,
+            "blockers": [
+              "strategy_version_proposal_not_authorized",
+              "replay_backtest_result_artifact_required",
+              "proposal_review_required",
+              "operator_promotion_approval_required",
+              "watchlist_to_signal_contract_required"
+            ],
+            "clearance_required": true,
+            "gate_type": "strategy_version_proposal",
+            "status": "blocked"
+          },
+          "title": "Shadow candidate: pre-confirm watchlist observation lane."
+        },
+        {
+          "hypothesis_id": 8,
+          "hypothesis_type": "shadow_pullback_dip_buy",
+          "paper_observation_gate": {
+            "allowed": false,
+            "artifact_only": true,
+            "blockers": [
+              "paper_observation_not_authorized",
+              "walk_forward_shadow_monitor_20_trading_days_required",
+              "operator_review_required",
+              "dip_buy_stop_and_sizing_required",
+              "falling_knife_guard_required"
+            ],
+            "clearance_required": true,
+            "gate_type": "paper_observation",
+            "status": "blocked"
+          },
+          "rationale": "M69 dip-buy research found a possible deep-retrace observation variant, but it must stay separate from confirmed CPB entries until drawdown controls are validated.",
+          "shadow_comparison": {
+            "age_9_13_metrics": {
+              "group": "9-13天",
+              "mae_10d_median_pct": -4.51,
+              "mae_10d_n": 22,
+              "mfe_10d_median_pct": 8.09,
+              "mfe_10d_n": 22,
+              "ret_10d_median_pct": 2.89,
+              "ret_10d_n": 22,
+              "ret_3d_n": 24,
+              "ret_5d_mean_pct": 3.89,
+              "ret_5d_median_pct": 3.28,
+              "ret_5d_n": 24,
+              "ret_5d_p25_pct": -2.57,
+              "ret_5d_win_rate_pct": 62.5
+            },
+            "all_score_metrics": {
+              "group": "全部",
+              "mae_10d_median_pct": -7.86,
+              "mae_10d_n": 80,
+              "mfe_10d_median_pct": 8.39,
+              "mfe_10d_n": 80,
+              "ret_10d_median_pct": -0.37,
+              "ret_10d_n": 80,
+              "ret_3d_n": 102,
+              "ret_5d_mean_pct": 1.23,
+              "ret_5d_median_pct": 0.37,
+              "ret_5d_n": 99,
+              "ret_5d_p25_pct": -6.74,
+              "ret_5d_win_rate_pct": 53.54
+            },
+            "candidate_family": "dip_buy",
+            "candidate_key": "pullback_dip_buy",
+            "high_score_metrics": {
+              "group": "潜力分>=75",
+              "mae_10d_median_pct": -7.46,
+              "mae_10d_n": 21,
+              "mfe_10d_median_pct": 10.78,
+              "mfe_10d_n": 21,
+              "ret_10d_median_pct": -0.03,
+              "ret_10d_n": 21,
+              "ret_3d_n": 28,
+              "ret_5d_mean_pct": 5.27,
+              "ret_5d_median_pct": 0.83,
+              "ret_5d_n": 28,
+              "ret_5d_p25_pct": -2.97,
+              "ret_5d_win_rate_pct": 60.71
+            },
+            "limitations": [
+              "Dip-buy entries are earlier than CPB confirmation and can buy into drawdown.",
+              "Requires sizing, stop, and observation rules before any paper use."
+            ],
+            "selected_params": {
+              "max_age": 20,
+              "min_age": 6,
+              "min_peak_runup": 0.05,
+              "retrace_pct": 0.15,
+              "variant_id": "dip_r15_a6_run05"
+            },
+            "selected_variant": "dip_r15_a6_run05",
+            "source_artifacts": {
+              "dip_buy": "reports/pgc_pullback_dip_buy.json"
+            }
+          },
+          "status": "proposed",
+          "strategy_version_gate": {
+            "allowed": false,
+            "artifact_only": true,
+            "blockers": [
+              "strategy_version_proposal_not_authorized",
+              "replay_backtest_result_artifact_required",
+              "proposal_review_required",
+              "operator_promotion_approval_required",
+              "separate_dip_buy_candidate_required"
+            ],
+            "clearance_required": true,
+            "gate_type": "strategy_version_proposal",
+            "status": "blocked"
+          },
+          "title": "Shadow candidate: pullback dip-buy observation lane."
+        }
+      ],
+      "summary": "Market regime neutral: breadth=0.29 trend=0.47 volume=0.37 persistence=0.18 coverage=1.00.",
+      "top_sectors": [],
+      "trend_score": 0.4653,
+      "volume_score": 0.3702
+    },
+    "open_execution": {
+      "as_of_date": "20260513",
+      "blocked_reasons": [],
+      "next_action": "evaluate_exit",
+      "operator_required": true,
+      "planned_shares": 2300,
+      "planned_trade_date": "20260513",
+      "primary_plan_id": null,
+      "primary_position_id": 2,
+      "status": "ready",
+      "target_name": "力诺药包",
+      "target_stock": "301188.SZ"
+    },
+    "recommended_manual_action": "处理 paper acceptance 未处理 blocker。",
+    "status": "blocked",
+    "strategy_proposals": {
+      "accepted_count": 0,
+      "archived_count": 0,
+      "items": [
+        {
+          "hypothesis_id": 4,
+          "hypothesis_type": "shadow_trend_extension_shadow",
+          "paper_observation_gate": {
+            "allowed": false,
+            "artifact_only": true,
+            "blockers": [
+              "paper_observation_not_authorized",
+              "walk_forward_shadow_monitor_20_trading_days_required",
+              "operator_review_required",
+              "sector_evidence_confirmation_required",
+              "chase_gap_guard_required"
+            ],
+            "clearance_required": true,
+            "gate_type": "paper_observation",
+            "status": "blocked"
+          },
+          "rationale": "M69 shadow research showed strong-trend continuation misses that are outside frozen CPB pullback rules.",
+          "shadow_comparison": {
+            "all_candidate_metrics": {
+              "days": 24,
+              "label": "all_trend_extension_shadow",
+              "max_t1_gain_pct": 19.43,
+              "max_t1_loss_pct": -12.11,
+              "n": 467,
+              "t1_close_mean_pct": 1.18,
+              "t1_close_median_pct": 0.62,
+              "t1_close_win_rate_pct": 56.3,
+              "t1_high_ge3_rate_pct": 54.0,
+              "t1_high_mean_pct": 4.17,
+              "t3_high_ge5_rate_pct": 60.8,
+              "t3_high_mean_pct": 8.53,
+              "t5_close_mean_pct": 5.86,
+              "t5_close_win_rate_pct": 68.8
+            },
+            "candidate_family": "shadow_bucket",
+            "candidate_key": "trend_extension_shadow",
+            "daily_top1_metrics": {
+              "days": 24,
+              "label": "daily_top1_trend_extension_shadow",
+              "max_t1_gain_pct": 15.87,
+              "max_t1_loss_pct": -6.43,
+              "n": 24,
+              "t1_close_mean_pct": 1.11,
+              "t1_close_median_pct": 0.68,
+              "t1_close_win_rate_pct": 58.3,
+              "t1_high_ge3_rate_pct": 62.5,
+              "t1_high_mean_pct": 4.64,
+              "t3_high_ge5_rate_pct": 66.7,
+              "t3_high_mean_pct": 8.94,
+              "t5_close_mean_pct": 7.38,
+              "t5_close_win_rate_pct": 80.0
+            },
+            "frozen_cpb_baseline": {
+              "days": 2,
+              "label": "active_cpb_persisted_picks",
+              "max_t1_gain_pct": 20.0,
+              "max_t1_loss_pct": -0.86,
+              "n": 2,
+              "t1_close_mean_pct": 9.57,
+              "t1_close_median_pct": 9.57,
+              "t1_close_win_rate_pct": 50.0,
+              "t1_high_ge3_rate_pct": 50.0,
+              "t1_high_mean_pct": 10.29,
+              "t3_high_ge5_rate_pct": 50.0,
+              "t3_high_mean_pct": 10.29,
+              "t5_close_mean_pct": null,
+              "t5_close_win_rate_pct": null
+            },
+            "limitations": [
+              "Research-only shadow labels; no active CPB behavior changed.",
+              "Frozen CPB baseline has a small persisted-pick sample in this window.",
+              "Requires forward monitoring before paper observation."
+            ],
+            "missed_gainer5_count": 14,
+            "review_window": {
+              "days": 24,
+              "end_date": "20260508",
+              "start_date": "20260401"
+            },
+            "rule_summary": "Entry price >=10, prior runup >18%, near 20d high, constructive prior volume. Intended to study strong-trend continuation misses.",
+            "source_artifacts": {
+              "shadow_backtest": "reports/strategy_shadow_backtest_20260401_20260508.json",
+              "shadow_review": "reports/strategy_shadow_review_20260511.json"
+            }
+          },
+          "status": "proposed",
+          "strategy_version_gate": {
+            "allowed": false,
+            "artifact_only": true,
+            "blockers": [
+              "strategy_version_proposal_not_authorized",
+              "replay_backtest_result_artifact_required",
+              "proposal_review_required",
+              "operator_promotion_approval_required",
+              "separate_trend_extension_candidate_required"
+            ],
+            "clearance_required": true,
+            "gate_type": "strategy_version_proposal",
+            "status": "blocked"
+          },
+          "title": "Shadow candidate: trend-extension continuation bucket."
+        },
+        {
+          "hypothesis_id": 5,
+          "hypothesis_type": "shadow_breakout_pressure_shadow",
+          "paper_observation_gate": {
+            "allowed": false,
+            "artifact_only": true,
+            "blockers": [
+              "paper_observation_not_authorized",
+              "walk_forward_shadow_monitor_20_trading_days_required",
+              "operator_review_required",
+              "volume_overheat_guard_required",
+              "close_return_stability_required"
+            ],
+            "clearance_required": true,
+            "gate_type": "paper_observation",
+            "status": "blocked"
+          },
+          "rationale": "M69 shadow research found near-high pressure setups with intraday optionality but unstable close returns.",
+          "shadow_comparison": {
+            "all_candidate_metrics": {
+              "days": 24,
+              "label": "all_breakout_pressure_shadow",
+              "max_t1_gain_pct": 20.0,
+              "max_t1_loss_pct": -9.96,
+              "n": 1095,
+              "t1_close_mean_pct": 0.67,
+              "t1_close_median_pct": 0.37,
+              "t1_close_win_rate_pct": 54.9,
+              "t1_high_ge3_rate_pct": 36.9,
+              "t1_high_mean_pct": 2.96,
+              "t3_high_ge5_rate_pct": 45.1,
+              "t3_high_mean_pct": 5.99,
+              "t5_close_mean_pct": 3.18,
+              "t5_close_win_rate_pct": 61.0
+            },
+            "candidate_family": "shadow_bucket",
+            "candidate_key": "breakout_pressure_shadow",
+            "daily_top1_metrics": {
+              "days": 24,
+              "label": "daily_top1_breakout_pressure_shadow",
+              "max_t1_gain_pct": 8.88,
+              "max_t1_loss_pct": -5.12,
+              "n": 24,
+              "t1_close_mean_pct": 0.22,
+              "t1_close_median_pct": -0.48,
+              "t1_close_win_rate_pct": 45.8,
+              "t1_high_ge3_rate_pct": 58.3,
+              "t1_high_mean_pct": 3.45,
+              "t3_high_ge5_rate_pct": 62.5,
+              "t3_high_mean_pct": 8.57,
+              "t5_close_mean_pct": 4.77,
+              "t5_close_win_rate_pct": 50.0
+            },
+            "frozen_cpb_baseline": {
+              "days": 2,
+              "label": "active_cpb_persisted_picks",
+              "max_t1_gain_pct": 20.0,
+              "max_t1_loss_pct": -0.86,
+              "n": 2,
+              "t1_close_mean_pct": 9.57,
+              "t1_close_median_pct": 9.57,
+              "t1_close_win_rate_pct": 50.0,
+              "t1_high_ge3_rate_pct": 50.0,
+              "t1_high_mean_pct": 10.29,
+              "t3_high_ge5_rate_pct": 50.0,
+              "t3_high_mean_pct": 10.29,
+              "t5_close_mean_pct": null,
+              "t5_close_win_rate_pct": null
+            },
+            "limitations": [
+              "Research-only shadow labels; no active CPB behavior changed.",
+              "Frozen CPB baseline has a small persisted-pick sample in this window.",
+              "Requires forward monitoring before paper observation."
+            ],
+            "missed_gainer5_count": 10,
+            "review_window": {
+              "days": 24,
+              "end_date": "20260508",
+              "start_date": "20260401"
+            },
+            "rule_summary": "Near 20d high with constructive prior volume and no severe 5d weakness. Intended to study pressure-before-breakout misses.",
+            "source_artifacts": {
+              "shadow_backtest": "reports/strategy_shadow_backtest_20260401_20260508.json",
+              "shadow_review": "reports/strategy_shadow_review_20260511.json"
+            }
+          },
+          "status": "proposed",
+          "strategy_version_gate": {
+            "allowed": false,
+            "artifact_only": true,
+            "blockers": [
+              "strategy_version_proposal_not_authorized",
+              "replay_backtest_result_artifact_required",
+              "proposal_review_required",
+              "operator_promotion_approval_required",
+              "separate_breakout_pressure_candidate_required"
+            ],
+            "clearance_required": true,
+            "gate_type": "strategy_version_proposal",
+            "status": "blocked"
+          },
+          "title": "Shadow candidate: breakout-pressure bucket."
+        },
+        {
+          "hypothesis_id": 6,
+          "hypothesis_type": "shadow_low_price_momentum_shadow",
+          "paper_observation_gate": {
+            "allowed": false,
+            "artifact_only": true,
+            "blockers": [
+              "paper_observation_not_authorized",
+              "walk_forward_shadow_monitor_20_trading_days_required",
+              "operator_review_required",
+              "micro_sleeve_risk_model_required",
+              "liquidity_slippage_review_required"
+            ],
+            "clearance_required": true,
+            "gate_type": "paper_observation",
+            "status": "blocked"
+          },
+          "rationale": "Low-price movers explain part of CPB misses, but risk, liquidity, and sizing must remain separate.",
+          "shadow_comparison": {
+            "all_candidate_metrics": {
+              "days": 24,
+              "label": "all_low_price_momentum_shadow",
+              "max_t1_gain_pct": 14.12,
+              "max_t1_loss_pct": -11.33,
+              "n": 553,
+              "t1_close_mean_pct": 0.19,
+              "t1_close_median_pct": -0.16,
+              "t1_close_win_rate_pct": 46.7,
+              "t1_high_ge3_rate_pct": 28.8,
+              "t1_high_mean_pct": 2.54,
+              "t3_high_ge5_rate_pct": 35.1,
+              "t3_high_mean_pct": 4.89,
+              "t5_close_mean_pct": 0.94,
+              "t5_close_win_rate_pct": 49.5
+            },
+            "candidate_family": "shadow_bucket",
+            "candidate_key": "low_price_momentum_shadow",
+            "daily_top1_metrics": {
+              "days": 24,
+              "label": "daily_top1_low_price_momentum_shadow",
+              "max_t1_gain_pct": 11.47,
+              "max_t1_loss_pct": -5.21,
+              "n": 24,
+              "t1_close_mean_pct": 2.61,
+              "t1_close_median_pct": 2.75,
+              "t1_close_win_rate_pct": 58.3,
+              "t1_high_ge3_rate_pct": 70.8,
+              "t1_high_mean_pct": 5.49,
+              "t3_high_ge5_rate_pct": 75.0,
+              "t3_high_mean_pct": 11.89,
+              "t5_close_mean_pct": 9.97,
+              "t5_close_win_rate_pct": 65.0
+            },
+            "frozen_cpb_baseline": {
+              "days": 2,
+              "label": "active_cpb_persisted_picks",
+              "max_t1_gain_pct": 20.0,
+              "max_t1_loss_pct": -0.86,
+              "n": 2,
+              "t1_close_mean_pct": 9.57,
+              "t1_close_median_pct": 9.57,
+              "t1_close_win_rate_pct": 50.0,
+              "t1_high_ge3_rate_pct": 50.0,
+              "t1_high_mean_pct": 10.29,
+              "t3_high_ge5_rate_pct": 50.0,
+              "t3_high_mean_pct": 10.29,
+              "t5_close_mean_pct": null,
+              "t5_close_win_rate_pct": null
+            },
+            "limitations": [
+              "Research-only shadow labels; no active CPB behavior changed.",
+              "Frozen CPB baseline has a small persisted-pick sample in this window.",
+              "Requires forward monitoring before paper observation."
+            ],
+            "missed_gainer5_count": 7,
+            "review_window": {
+              "days": 24,
+              "end_date": "20260508",
+              "start_date": "20260401"
+            },
+            "rule_summary": "Entry price <10. Kept separate because active CPB filters these out for risk control.",
+            "source_artifacts": {
+              "shadow_backtest": "reports/strategy_shadow_backtest_20260401_20260508.json",
+              "shadow_review": "reports/strategy_shadow_review_20260511.json"
+            }
+          },
+          "status": "proposed",
+          "strategy_version_gate": {
+            "allowed": false,
+            "artifact_only": true,
+            "blockers": [
+              "strategy_version_proposal_not_authorized",
+              "replay_backtest_result_artifact_required",
+              "proposal_review_required",
+              "operator_promotion_approval_required",
+              "separate_low_price_micro_sleeve_required"
+            ],
+            "clearance_required": true,
+            "gate_type": "strategy_version_proposal",
+            "status": "blocked"
+          },
+          "title": "Shadow candidate: low-price momentum micro-sleeve."
+        },
+        {
+          "hypothesis_id": 7,
+          "hypothesis_type": "shadow_preconfirm_watchlist",
+          "paper_observation_gate": {
+            "allowed": false,
+            "artifact_only": true,
+            "blockers": [
+              "paper_observation_not_authorized",
+              "walk_forward_shadow_monitor_20_trading_days_required",
+              "operator_review_required",
+              "next_day_confirmation_rule_required",
+              "watchlist_only_ui_lane_required"
+            ],
+            "clearance_required": true,
+            "gate_type": "paper_observation",
+            "status": "blocked"
+          },
+          "rationale": "M69 pre-confirm research can surface names before CPB confirmation, but its low confirmation rate requires an explicit observation lane rather than trade-plan generation.",
+          "shadow_comparison": {
+            "all_watchlist_metrics": {
+              "avg_bigwin_score": 66.7676,
+              "confirm_next_day_n": 422,
+              "confirm_next_day_rate_pct": 17.54,
+              "next_open_ret_1d_mean_pct": 1.13,
+              "next_open_ret_1d_n": 421,
+              "next_open_ret_3d_mean_pct": 2.26,
+              "next_open_ret_3d_n": 414,
+              "next_open_ret_5d_mean_pct": 3.27,
+              "next_open_ret_5d_n": 393,
+              "pre_action": "全部",
+              "review_days": 64,
+              "signals": 426,
+              "stocks": 112,
+              "watch_mfe_5d_mean_pct": 8.25
+            },
+            "candidate_family": "preconfirm_watchlist",
+            "candidate_key": "preconfirm_watchlist",
+            "frozen_cpb_baseline": {
+              "days": 2,
+              "label": "active_cpb_persisted_picks",
+              "max_t1_gain_pct": 20.0,
+              "max_t1_loss_pct": -0.86,
+              "n": 2,
+              "t1_close_mean_pct": 9.57,
+              "t1_close_median_pct": 9.57,
+              "t1_close_win_rate_pct": 50.0,
+              "t1_high_ge3_rate_pct": 50.0,
+              "t1_high_mean_pct": 10.29,
+              "t3_high_ge5_rate_pct": 50.0,
+              "t3_high_mean_pct": 10.29,
+              "t5_close_mean_pct": null,
+              "t5_close_win_rate_pct": null
+            },
+            "high_potential_metrics": {
+              "avg_bigwin_score": 94.8684,
+              "confirm_next_day_n": 37,
+              "confirm_next_day_rate_pct": 24.32,
+              "next_open_ret_1d_mean_pct": 2.78,
+              "next_open_ret_1d_n": 37,
+              "next_open_ret_3d_mean_pct": 4.86,
+              "next_open_ret_3d_n": 36,
+              "next_open_ret_5d_mean_pct": 7.57,
+              "next_open_ret_5d_n": 35,
+              "pre_action": "高潜伏预警",
+              "review_days": 27,
+              "signals": 38,
+              "stocks": 16,
+              "watch_mfe_5d_mean_pct": 13.03
+            },
+            "limitations": [
+              "Pre-confirm output is a watchlist, not an automatic buy list.",
+              "Next-day confirmation and operator review are required before paper observation."
+            ],
+            "review_window": {
+              "end_date": "20260511",
+              "review_days": 27,
+              "start_date": "20251110"
+            },
+            "source_artifacts": {
+              "preconfirm_watchlist": "reports/preconfirm_watchlist_backtest.json"
+            }
+          },
+          "status": "proposed",
+          "strategy_version_gate": {
+            "allowed": false,
+            "artifact_only": true,
+            "blockers": [
+              "strategy_version_proposal_not_authorized",
+              "replay_backtest_result_artifact_required",
+              "proposal_review_required",
+              "operator_promotion_approval_required",
+              "watchlist_to_signal_contract_required"
+            ],
+            "clearance_required": true,
+            "gate_type": "strategy_version_proposal",
+            "status": "blocked"
+          },
+          "title": "Shadow candidate: pre-confirm watchlist observation lane."
+        },
+        {
+          "hypothesis_id": 8,
+          "hypothesis_type": "shadow_pullback_dip_buy",
+          "paper_observation_gate": {
+            "allowed": false,
+            "artifact_only": true,
+            "blockers": [
+              "paper_observation_not_authorized",
+              "walk_forward_shadow_monitor_20_trading_days_required",
+              "operator_review_required",
+              "dip_buy_stop_and_sizing_required",
+              "falling_knife_guard_required"
+            ],
+            "clearance_required": true,
+            "gate_type": "paper_observation",
+            "status": "blocked"
+          },
+          "rationale": "M69 dip-buy research found a possible deep-retrace observation variant, but it must stay separate from confirmed CPB entries until drawdown controls are validated.",
+          "shadow_comparison": {
+            "age_9_13_metrics": {
+              "group": "9-13天",
+              "mae_10d_median_pct": -4.51,
+              "mae_10d_n": 22,
+              "mfe_10d_median_pct": 8.09,
+              "mfe_10d_n": 22,
+              "ret_10d_median_pct": 2.89,
+              "ret_10d_n": 22,
+              "ret_3d_n": 24,
+              "ret_5d_mean_pct": 3.89,
+              "ret_5d_median_pct": 3.28,
+              "ret_5d_n": 24,
+              "ret_5d_p25_pct": -2.57,
+              "ret_5d_win_rate_pct": 62.5
+            },
+            "all_score_metrics": {
+              "group": "全部",
+              "mae_10d_median_pct": -7.86,
+              "mae_10d_n": 80,
+              "mfe_10d_median_pct": 8.39,
+              "mfe_10d_n": 80,
+              "ret_10d_median_pct": -0.37,
+              "ret_10d_n": 80,
+              "ret_3d_n": 102,
+              "ret_5d_mean_pct": 1.23,
+              "ret_5d_median_pct": 0.37,
+              "ret_5d_n": 99,
+              "ret_5d_p25_pct": -6.74,
+              "ret_5d_win_rate_pct": 53.54
+            },
+            "candidate_family": "dip_buy",
+            "candidate_key": "pullback_dip_buy",
+            "high_score_metrics": {
+              "group": "潜力分>=75",
+              "mae_10d_median_pct": -7.46,
+              "mae_10d_n": 21,
+              "mfe_10d_median_pct": 10.78,
+              "mfe_10d_n": 21,
+              "ret_10d_median_pct": -0.03,
+              "ret_10d_n": 21,
+              "ret_3d_n": 28,
+              "ret_5d_mean_pct": 5.27,
+              "ret_5d_median_pct": 0.83,
+              "ret_5d_n": 28,
+              "ret_5d_p25_pct": -2.97,
+              "ret_5d_win_rate_pct": 60.71
+            },
+            "limitations": [
+              "Dip-buy entries are earlier than CPB confirmation and can buy into drawdown.",
+              "Requires sizing, stop, and observation rules before any paper use."
+            ],
+            "selected_params": {
+              "max_age": 20,
+              "min_age": 6,
+              "min_peak_runup": 0.05,
+              "retrace_pct": 0.15,
+              "variant_id": "dip_r15_a6_run05"
+            },
+            "selected_variant": "dip_r15_a6_run05",
+            "source_artifacts": {
+              "dip_buy": "reports/pgc_pullback_dip_buy.json"
+            }
+          },
+          "status": "proposed",
+          "strategy_version_gate": {
+            "allowed": false,
+            "artifact_only": true,
+            "blockers": [
+              "strategy_version_proposal_not_authorized",
+              "replay_backtest_result_artifact_required",
+              "proposal_review_required",
+              "operator_promotion_approval_required",
+              "separate_dip_buy_candidate_required"
+            ],
+            "clearance_required": true,
+            "gate_type": "strategy_version_proposal",
+            "status": "blocked"
+          },
+          "title": "Shadow candidate: pullback dip-buy observation lane."
+        }
+      ],
+      "proposed_count": 5,
+      "rejected_count": 0,
+      "review_required_count": 5,
+      "testing_count": 0,
+      "total_count": 5
+    },
+    "system_proposal": {
+      "action": "evaluate_exit",
+      "planned_shares": 2300,
+      "planned_trade_date": "20260513",
+      "position_id": 2,
+      "rationale": "人工评估到期持仓并按显式流程生成退出动作。",
+      "target": "301188.SZ 力诺药包",
+      "trade_plan_id": null
+    },
+    "warning_count": 3
+  },
+  "next_trade_date": "20260513",
+  "no_candidate_reason": "no_strategy_signals",
+  "paper_acceptance": {
+    "account_key": "paper-main",
+    "advisory_note": "Acceptance is read-only; it does not execute trades, cancel plans, or mutate strategy parameters.",
+    "agent_status": {
+      "blocker_codes": [],
+      "detail": "Agent 复核尚未接入本次日报；确定性策略和人工检查优先。",
+      "key": "agent_status",
+      "label": "Agent 状态",
+      "source_refs": [],
+      "status": "warning",
+      "summary": "not_run / no_opinion / risk unknown",
+      "warning_codes": [
+        "AGENT_REVIEW_NOT_RUN"
+      ]
+    },
+    "alerts": [
+      {
+        "action": "quality",
+        "as_of_date": "20260512",
+        "code": "UNRESOLVED_ACCEPTANCE_BLOCKERS",
+        "gate_key": "unresolved_blockers",
+        "severity": "blocker",
+        "summary": "1 项 blocker 仍未处理，paper acceptance 不能视为通过。",
+        "title": "未处理 blocker"
+      },
+      {
+        "action": "market",
+        "as_of_date": "20260512",
+        "code": "STALE_OR_MISSING_EVIDENCE",
+        "gate_key": "evidence_coverage",
+        "severity": "warning",
+        "summary": "2026-05-12 存在 MARKET_EVIDENCE_MISSING, AGENT_EXTERNAL_EVIDENCE_MISSING，需人工复核证据覆盖。",
+        "title": "证据或行情不新鲜"
+      },
+      {
+        "action": "agent",
+        "as_of_date": "20260512",
+        "code": "AGENT_REVIEW_MISSING",
+        "gate_key": "agent_status",
+        "severity": "warning",
+        "summary": "2026-05-12 的 Agent 状态为 not_run / no_opinion / risk unknown。",
+        "title": "Agent 复核缺失"
+      }
+    ],
+    "as_of_date": "20260512",
+    "data_freshness": {
+      "blocker_codes": [],
+      "detail": "有效入池 256；缺失行情 0；blocker/warning 0/0",
+      "key": "data_freshness",
+      "label": "数据新鲜度",
+      "source_refs": [],
+      "status": "pass",
+      "summary": "最新行情日 2026-05-12 / 复盘日 2026-05-12",
+      "warning_codes": []
+    },
+    "evidence_coverage": {
+      "blocker_codes": [],
+      "detail": "Missing evidence is explicit and remains advisory; no cached evidence mutates strategy or trades.",
+      "key": "evidence_coverage",
+      "label": "证据覆盖",
+      "source_refs": [
+        "market_review_runs:4"
+      ],
+      "status": "warning",
+      "summary": "全市场证据 0 条；Agent 覆盖 0 项",
+      "warning_codes": [
+        "MARKET_EVIDENCE_MISSING",
+        "AGENT_EXTERNAL_EVIDENCE_MISSING"
+      ]
+    },
+    "execution_date": "20260513",
+    "open_execution": {
+      "as_of_date": "20260513",
+      "blocked_reasons": [],
+      "next_action": "evaluate_exit",
+      "operator_required": true,
+      "planned_shares": 2300,
+      "planned_trade_date": "20260513",
+      "primary_plan_id": null,
+      "primary_position_id": 2,
+      "status": "ready",
+      "target_name": "力诺药包",
+      "target_stock": "301188.SZ"
+    },
+    "open_execution_gate": {
+      "blocker_codes": [],
+      "detail": "执行日 2026-05-13；预期 2026-05-13；计划 -；持仓 2",
+      "key": "open_execution",
+      "label": "open-execution 状态",
+      "source_refs": [
+        "positions:2"
+      ],
+      "status": "pass",
+      "summary": "ready / evaluate_exit",
+      "warning_codes": []
+    },
+    "readiness_gates": [
+      {
+        "blocker_codes": [],
+        "detail": "可交易 是；质量事件 0 个",
+        "key": "daily_review_readiness",
+        "label": "daily review readiness gate",
+        "source_refs": [],
+        "status": "pass",
+        "summary": "readiness=pass",
+        "warning_codes": []
+      },
+      {
+        "blocker_codes": [],
+        "detail": "当前持仓 1；T+2/T+5 待处理 0",
+        "key": "account_capacity",
+        "label": "账户容量 gate",
+        "source_refs": [],
+        "status": "pass",
+        "summary": "持仓 1/3；空闲 2",
+        "warning_codes": []
+      },
+      {
+        "blocker_codes": [
+          "MIN_PAPER_TRADES_NOT_MET"
+        ],
+        "detail": "来自 paper-readiness；用于暴露晋级和账本 gate，不会自动执行任何交易动作。",
+        "key": "paper_paper_trade_sample",
+        "label": "Paper 样本交易",
+        "source_refs": [],
+        "status": "blocked",
+        "summary": "3/10 笔 executed paper trades",
+        "warning_codes": []
+      },
+      {
+        "blocker_codes": [],
+        "detail": "来自 paper-readiness；用于暴露晋级和账本 gate，不会自动执行任何交易动作。",
+        "key": "paper_ledger_invariants",
+        "label": "账本 invariant",
+        "source_refs": [],
+        "status": "pass",
+        "summary": "账本 invariant 通过",
+        "warning_codes": []
+      },
+      {
+        "blocker_codes": [],
+        "detail": "来自 paper-readiness；用于暴露晋级和账本 gate，不会自动执行任何交易动作。",
+        "key": "paper_data_quality_blockers",
+        "label": "数据质量 blocker",
+        "source_refs": [],
+        "status": "pass",
+        "summary": "0 个 open blocker",
+        "warning_codes": []
+      },
+      {
+        "blocker_codes": [],
+        "detail": "来自 paper-readiness；用于暴露晋级和账本 gate，不会自动执行任何交易动作。",
+        "key": "paper_exit_decisions",
+        "label": "T+2 / T+5 待处理",
+        "source_refs": [],
+        "status": "pass",
+        "summary": "0 个到期退出判断",
+        "warning_codes": []
+      },
+      {
+        "blocker_codes": [],
+        "detail": "来自 paper-readiness；用于暴露晋级和账本 gate，不会自动执行任何交易动作。",
+        "key": "paper_cash_equity_reconciliation",
+        "label": "现金 / 权益核对",
+        "source_refs": [],
+        "status": "pass",
+        "summary": "现金/权益核对未发现警告",
+        "warning_codes": []
+      },
+      {
+        "blocker_codes": [],
+        "detail": "来自 paper-readiness；用于暴露晋级和账本 gate，不会自动执行任何交易动作。",
+        "key": "paper_agent_evidence_linkage",
+        "label": "Agent 证据链路",
+        "source_refs": [],
+        "status": "warning",
+        "summary": "缺少账户级 Agent 证据链路",
+        "warning_codes": [
+          "AGENT_EVIDENCE_MISSING"
+        ]
+      }
+    ],
+    "status": "blocked",
+    "summary": "纸盘每日运营验收阻断：1 项 blocker 需要先处理。",
+    "unresolved_blockers": [
+      "Paper 样本交易: MIN_PAPER_TRADES_NOT_MET"
+    ]
+  },
+  "paper_promotion": {
+    "account_key": "paper-main",
+    "as_of_date": "20260512",
+    "avg_slippage": 0.0061818181818182,
+    "closed_trades_count": 1,
+    "due_exit_positions_count": 0,
+    "invariant_ok": true,
+    "invariant_violation_codes": [],
+    "last_pipeline_status": "success",
+    "ledger_blockers_count": 0,
+    "open_blockers_count": 0,
+    "open_positions_count": 1,
+    "promotion_blockers": [
+      "MIN_PAPER_TRADES_NOT_MET"
+    ],
+    "promotion_warnings": [
+      "AGENT_EVIDENCE_MISSING"
+    ],
+    "readiness": "blocked",
+    "readiness_gates": [
+      {
+        "blocker_codes": [
+          "MIN_PAPER_TRADES_NOT_MET"
+        ],
+        "gate": "paper_trade_sample",
+        "label": "Paper 样本交易",
+        "status": "blocked",
+        "summary": "3/10 笔 executed paper trades",
+        "warning_codes": []
+      },
+      {
+        "blocker_codes": [],
+        "gate": "ledger_invariants",
+        "label": "账本 invariant",
+        "status": "pass",
+        "summary": "账本 invariant 通过",
+        "warning_codes": []
+      },
+      {
+        "blocker_codes": [],
+        "gate": "data_quality_blockers",
+        "label": "数据质量 blocker",
+        "status": "pass",
+        "summary": "0 个 open blocker",
+        "warning_codes": []
+      },
+      {
+        "blocker_codes": [],
+        "gate": "exit_decisions",
+        "label": "T+2 / T+5 待处理",
+        "status": "pass",
+        "summary": "0 个到期退出判断",
+        "warning_codes": []
+      },
+      {
+        "blocker_codes": [],
+        "gate": "cash_equity_reconciliation",
+        "label": "现金 / 权益核对",
+        "status": "pass",
+        "summary": "现金/权益核对未发现警告",
+        "warning_codes": []
+      },
+      {
+        "blocker_codes": [],
+        "gate": "agent_evidence_linkage",
+        "label": "Agent 证据链路",
+        "status": "warning",
+        "summary": "缺少账户级 Agent 证据链路",
+        "warning_codes": [
+          "AGENT_EVIDENCE_MISSING"
+        ]
+      }
+    ],
+    "realized_pnl": -1536.0,
+    "trades_count": 3,
+    "win_rate": 0.0
+  },
+  "positions": [
+    {
+      "action_due": "none",
+      "buy_date": "20260511",
+      "buy_price": 27.5,
+      "latest_close": 33.03,
+      "latest_trade_date": "20260512",
+      "name": "力诺药包",
+      "planned_t2_date": "20260513",
+      "planned_t5_date": "20260518",
+      "position_id": 2,
+      "shares": 2300,
+      "status": "waiting_t2",
+      "ts_code": "301188.SZ"
+    }
+  ],
+  "strategy_version": "cpb_6157@2026-05-03"
+}

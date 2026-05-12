@@ -9,6 +9,7 @@ from pathlib import Path
 from pgc_trading.services.common import RequestContext
 from pgc_trading.services.execution_recording_service import (
     ExecutionRecordingService,
+    RecordPositionSellRequest,
     RecordTradeRequest,
 )
 from pgc_trading.services.portfolio_planning_service import (
@@ -322,6 +323,42 @@ class PortfolioLifecycleServiceTest(unittest.TestCase):
                 self.assertEqual(position_status, "closed")
                 trade_sides = conn.execute("SELECT side FROM trades ORDER BY id").fetchall()
                 self.assertEqual(trade_sides, [("buy",), ("sell",)])
+
+    def test_direct_position_sell_executes_generated_exit_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._migrated_seeded_db(tmp)
+            buy_plan_id = self._ready_buy_plan(db_path)
+            buy = self._record_buy(db_path, buy_plan_id)
+            with sqlite3.connect(db_path) as conn:
+                self._insert_market_bar(conn, "000001.SZ", T2_DATE, close=9.5)
+
+            exits = PositionLifecycleService(db_path).evaluate_exits(
+                EvaluateExitsRequest(account_key=ACCOUNT_KEY, as_of_date=T2_DATE),
+                RequestContext(request_id="req-direct-exit", idempotency_key="exit:direct:1", operator="tester"),
+            )
+            self.assertEqual(exits.status, "success")
+            self.assertEqual(len(exits.data.generated_trade_plan_ids), 1)
+            sell_plan_id = exits.data.generated_trade_plan_ids[0]
+
+            sell = ExecutionRecordingService(db_path).record_position_sell(
+                RecordPositionSellRequest(
+                    account_key=ACCOUNT_KEY,
+                    position_id=buy.data.position_id,
+                    executed_date=T2_DATE,
+                    executed_price=9.6,
+                    shares=1000,
+                    source="paper_model",
+                ),
+                RequestContext(request_id="req-direct-sell", idempotency_key="trade:direct-sell:1", operator="tester"),
+            )
+
+            self.assertEqual(sell.status, "success")
+            self.assertEqual(sell.data.position_status, "closed")
+            with sqlite3.connect(db_path) as conn:
+                trade_plan = conn.execute("SELECT trade_plan_id FROM trades WHERE side = 'sell'").fetchone()
+                plan_status = conn.execute("SELECT status FROM trade_plans WHERE id = ?", (sell_plan_id,)).fetchone()
+                self.assertEqual(trade_plan[0], sell_plan_id)
+                self.assertEqual(plan_status[0], "executed")
 
     def test_exit_evaluation_uses_unadjusted_close_for_position_returns(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

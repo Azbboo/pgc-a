@@ -235,6 +235,31 @@ class OperationalRunbookStaticTest(unittest.TestCase):
         ]:
             self.assertIn(text, source)
 
+    def test_m72_runbook_documents_market_review_empty_state_diagnostics(self) -> None:
+        source = RUNBOOK.read_text(encoding="utf-8")
+
+        for text in [
+            "M72 全市场复盘空状态诊断",
+            "GET /api/market-reviews/{YYYYMMDD}",
+            "diagnostics",
+            "selected market date",
+            "latest market-review date",
+            "source DB freshness",
+            "missing downstream tables",
+            "empty-state reasons",
+            "API Base",
+            "localStorage",
+            "pgc ops market-review-parity",
+            "--remote-db-path",
+            "market_review_runs",
+            "sector_daily_snapshots",
+            "market_external_items",
+            "market_plan_contexts",
+            "strategy_hypotheses",
+            "parity_status=match",
+        ]:
+            self.assertIn(text, source)
+
     def test_m20_deploy_script_is_guarded_and_parseable(self) -> None:
         self.assertTrue(DEPLOY_SCRIPT.exists(), f"missing {DEPLOY_SCRIPT}")
         source = DEPLOY_SCRIPT.read_text(encoding="utf-8")

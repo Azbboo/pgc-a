@@ -13,7 +13,12 @@ from typing import Callable, TextIO
 
 from pgc_trading import __version__
 from pgc_trading.config import Paths
-from pgc_trading.ops import build_release_tag, run_ops_health_check, run_ops_migration_step
+from pgc_trading.ops import (
+    build_release_tag,
+    run_market_review_parity_check,
+    run_ops_health_check,
+    run_ops_migration_step,
+)
 from pgc_trading.reporting.daily_report import (
     DailyReportRequest,
     ReportingQueryService,
@@ -79,6 +84,7 @@ from pgc_trading.services.strategy_evolution_service import (
     ListStrategyHypothesesRequest,
     MarkStrategyHypothesisRequest,
     ProposeStrategyHypothesesRequest,
+    RegisterShadowStrategyCandidatesRequest,
     StrategyEvolutionService,
     VALID_HYPOTHESIS_STATUSES,
 )
@@ -642,6 +648,42 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
     _add_db_path_argument(strategy_evolution_propose)
     strategy_evolution_propose.set_defaults(handler=_run_strategy_evolution_propose)
 
+    strategy_evolution_register_shadow = strategy_evolution_subparsers.add_parser(
+        "register-shadow",
+        help="register M69 shadow research artifacts as artifact-only hypothesis candidates",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    _add_report_date_argument(strategy_evolution_register_shadow)
+    strategy_evolution_register_shadow.add_argument(
+        "--shadow-review-artifact",
+        type=Path,
+        help="path to strategy_shadow_review_YYYYMMDD.json",
+    )
+    strategy_evolution_register_shadow.add_argument(
+        "--shadow-backtest-artifact",
+        type=Path,
+        help="path to strategy_shadow_backtest_*.json",
+    )
+    strategy_evolution_register_shadow.add_argument(
+        "--preconfirm-watchlist-artifact",
+        type=Path,
+        help="path to preconfirm_watchlist_backtest.json",
+    )
+    strategy_evolution_register_shadow.add_argument(
+        "--dip-buy-artifact",
+        type=Path,
+        help="path to pgc_pullback_dip_buy.json",
+    )
+    strategy_evolution_register_shadow.add_argument(
+        "--apply",
+        action="store_true",
+        help="persist shadow hypotheses instead of previewing them",
+    )
+    _add_lifecycle_context_arguments(strategy_evolution_register_shadow)
+    _add_db_path_argument(strategy_evolution_register_shadow)
+    strategy_evolution_register_shadow.set_defaults(handler=_run_strategy_evolution_register_shadow)
+
     strategy_evolution_list = strategy_evolution_subparsers.add_parser(
         "list",
         help="list strategy-evolution hypotheses",
@@ -805,6 +847,22 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
         help="return non-zero when storage migrations are pending",
     )
     ops_health.set_defaults(handler=_run_ops_health)
+
+    ops_market_review_parity = ops_subparsers.add_parser(
+        "market-review-parity",
+        help="compare local and remote market-review rows without writing",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    _add_report_date_argument(ops_market_review_parity)
+    _add_db_path_argument(ops_market_review_parity)
+    ops_market_review_parity.add_argument(
+        "--remote-db-path",
+        type=Path,
+        required=True,
+        help="remote SQLite database copy to compare against local --db-path",
+    )
+    ops_market_review_parity.set_defaults(handler=_run_ops_market_review_parity)
 
     ops_ledger_audit = ops_subparsers.add_parser(
         "ledger-audit",
@@ -1678,6 +1736,60 @@ def _run_strategy_evolution_propose(
     return 0 if result.ok else 1
 
 
+def _run_strategy_evolution_register_shadow(
+    args: argparse.Namespace,
+    stdout: TextIO,
+    services: CommandServices,
+) -> int:
+    db_path = _normalized_db_path(args.db_path)
+    command = "strategy-evolution register-shadow"
+
+    if not db_path.exists():
+        _write_routed_message(
+            stdout,
+            command,
+            args.date,
+            db_path,
+            "database not found; strategy evolution service was not run and no writes were performed",
+        )
+        return 1
+
+    service = services.strategy_evolution_service_factory(db_path)
+    request = RegisterShadowStrategyCandidatesRequest(
+        as_of_date=args.date,
+        shadow_review_artifact_path=(
+            str(args.shadow_review_artifact) if args.shadow_review_artifact is not None else None
+        ),
+        shadow_backtest_artifact_path=(
+            str(args.shadow_backtest_artifact) if args.shadow_backtest_artifact is not None else None
+        ),
+        preconfirm_watchlist_artifact_path=(
+            str(args.preconfirm_watchlist_artifact)
+            if args.preconfirm_watchlist_artifact is not None
+            else None
+        ),
+        dip_buy_artifact_path=str(args.dip_buy_artifact) if args.dip_buy_artifact is not None else None,
+    )
+    ctx = RequestContext(
+        request_id="cli-strategy-evolution-register-shadow",
+        idempotency_key=args.idempotency_key,
+        dry_run=not args.apply,
+        operator=args.operator,
+        source="cli",
+    )
+    try:
+        result = service.register_shadow_candidates(request, ctx)
+    except sqlite3.OperationalError as exc:
+        stdout.write(
+            f"strategy-evolution register-shadow failed for {args.date}: "
+            f"database is not initialized or is incompatible: {exc}\n"
+        )
+        return 1
+
+    _write_strategy_evolution_register_shadow_result(stdout, command, args.date, db_path, result)
+    return 0 if result.ok else 1
+
+
 def _run_strategy_evolution_list(
     args: argparse.Namespace,
     stdout: TextIO,
@@ -1971,6 +2083,32 @@ def _run_ops_health(args: argparse.Namespace, stdout: TextIO, services: CommandS
     if args.require_current_migrations and result.pending_migrations:
         return 1
     return 0
+
+
+def _run_ops_market_review_parity(args: argparse.Namespace, stdout: TextIO, services: CommandServices) -> int:
+    db_path = _normalized_db_path(args.db_path)
+    remote_db_path = _normalized_db_path(args.remote_db_path)
+    result = run_market_review_parity_check(db_path, remote_db_path, as_of_date=args.date)
+
+    stdout.write("ops market-review-parity command routed.\n")
+    stdout.write(f"as_of_date={result.as_of_date}\n")
+    stdout.write(f"local_database={result.local_db_path}\n")
+    stdout.write(f"remote_database={result.remote_db_path}\n")
+    stdout.write(f"parity_status={result.status}\n")
+    stdout.write(f"latest_local_market_review={result.latest_local_date or 'none'}\n")
+    stdout.write(f"latest_remote_market_review={result.latest_remote_date or 'none'}\n")
+    if result.local_error:
+        stdout.write(f"local_error={result.local_error}\n")
+    if result.remote_error:
+        stdout.write(f"remote_error={result.remote_error}\n")
+    for table in result.tables:
+        stdout.write(
+            f"table={table.table} "
+            f"local_count={_display_optional_int(table.local_count)} "
+            f"remote_count={_display_optional_int(table.remote_count)} "
+            f"status={table.status}\n"
+        )
+    return 0 if result.ok else 1
 
 
 def _run_ops_ledger_audit(args: argparse.Namespace, stdout: TextIO, services: CommandServices) -> int:
@@ -3112,6 +3250,43 @@ def _write_strategy_evolution_propose_result(
     hypotheses = getattr(data, "hypotheses", [])
     if hypotheses:
         stdout.write("hypotheses:\n")
+        for item in hypotheses:
+            stdout.write(
+                "- "
+                f"id={_display_optional_int(getattr(item, 'hypothesis_id', None))} "
+                f"date={getattr(item, 'as_of_date', 'n/a')} "
+                f"status={getattr(item, 'status', 'n/a')} "
+                f"type={getattr(item, 'hypothesis_type', 'n/a')} "
+                f"title={getattr(item, 'title', 'n/a')}\n"
+            )
+
+
+def _write_strategy_evolution_register_shadow_result(
+    stdout: TextIO,
+    command: str,
+    date: str,
+    db_path: Path,
+    result: ServiceResult[object],
+) -> None:
+    _write_routed_message(stdout, command, date, db_path, f"service returned {result.status}")
+    _write_warnings_and_errors(stdout, result)
+    data = result.data
+    if data is None:
+        return
+
+    summary = getattr(data, "comparison_summary", {}) or {}
+    stdout.write(
+        "strategy_shadow_register="
+        f"generated={getattr(data, 'generated_count', 0)} "
+        f"would_insert={getattr(data, 'would_insert_count', 0)} "
+        f"inserted={getattr(data, 'inserted_count', 0)} "
+        f"skipped_existing={getattr(data, 'skipped_existing_count', 0)} "
+        f"paper_blocked={summary.get('paper_observation_blocked_count', 0)} "
+        f"strategy_version_blocked={summary.get('strategy_version_blocked_count', 0)}\n"
+    )
+    hypotheses = getattr(data, "hypotheses", [])
+    if hypotheses:
+        stdout.write("shadow_hypotheses:\n")
         for item in hypotheses:
             stdout.write(
                 "- "

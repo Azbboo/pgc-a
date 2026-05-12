@@ -164,6 +164,34 @@ class DailyReportTest(unittest.TestCase):
             self.assertEqual(payload["market_plan_context"]["evidence"]["top_sectors"][0]["sector_name"], "人工智能")
             self.assertEqual(payload["next_day_decision"]["strategy_proposals"]["proposed_count"], 1)
 
+    def test_report_surfaces_shadow_hypothesis_blockers_as_research_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._plan_ready_db(tmp)
+            with sqlite3.connect(db_path) as conn:
+                self._insert_market_plan_context(conn)
+                self._insert_shadow_hypothesis(conn)
+
+            result = ReportingQueryService(db_path).get_daily_report(
+                DailyReportRequest(as_of_date=AS_OF_DATE, account_key=ACCOUNT_KEY),
+                RequestContext(request_id="req-report-shadow"),
+            )
+
+            self.assertEqual(result.status, "success")
+            self.assertIsNotNone(result.data)
+            markdown = render_daily_report_markdown(result.data)
+            self.assertIn("shadow 1 条", markdown)
+            self.assertIn("paper/proposal blocker 1 条", markdown)
+
+            payload = json.loads(render_daily_report_json(result.data))
+            shadow = [
+                item
+                for item in payload["market_review"]["strategy_hypotheses"]
+                if item["hypothesis_type"] == "shadow_trend_extension_shadow"
+            ][0]
+            self.assertEqual(shadow["shadow_comparison"]["candidate_key"], "trend_extension_shadow")
+            self.assertEqual(shadow["paper_observation_gate"]["status"], "blocked")
+            self.assertIn("strategy_version_proposal_not_authorized", shadow["strategy_version_gate"]["blockers"])
+
     def test_report_includes_decision_action_log_review_loop(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = self._plan_ready_db(tmp)
@@ -215,10 +243,16 @@ class DailyReportTest(unittest.TestCase):
             markdown = render_daily_report_markdown(result.data)
             self.assertIn("动作日志 / 次日复核", markdown)
             self.assertIn("deferred record_buy", markdown)
+            self.assertIn("outcome=deferred/deferred", markdown)
             payload = json.loads(render_daily_report_json(result.data))
             self.assertEqual(payload["next_day_decision"]["action_log"]["deferred_count"], 1)
+            self.assertEqual(payload["next_day_decision"]["action_log"]["deferred_outcome_count"], 1)
             self.assertEqual(
                 payload["next_day_decision"]["action_log"]["items"][0]["outcome"]["outcome_status"],
+                "deferred",
+            )
+            self.assertEqual(
+                payload["next_day_decision"]["action_log"]["items"][0]["outcome"]["outcome_bucket"],
                 "deferred",
             )
 
@@ -301,6 +335,56 @@ class DailyReportTest(unittest.TestCase):
                         '{"status": "success"}',
                     ),
                 )
+                conn.execute(
+                    """
+                    INSERT INTO operation_requests
+                      (
+                        idempotency_key,
+                        request_id,
+                        operation_type,
+                        account_id,
+                        as_of_date,
+                        status,
+                        request_json,
+                        response_json,
+                        operator,
+                        started_at,
+                        finished_at
+                      )
+                    VALUES
+                      (?, 'req-action-log', 'decision_action_log', 1, ?, 'success', ?, ?, 'tester',
+                       '2026-05-10 16:25:00', '2026-05-10 16:25:01')
+                    """,
+                    (
+                        f"decision-action-log:{ACCOUNT_KEY}:{AS_OF_DATE}:followed:record_buy",
+                        AS_OF_DATE,
+                        json.dumps(
+                            {
+                                "dry_run": False,
+                                "request": {
+                                    "operator_decision": "followed",
+                                    "system_action": "record_buy",
+                                },
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "decision_action_log_id": 7,
+                                "system_action": "record_buy",
+                                "operator_decision": "followed",
+                                "writes_trade_state": False,
+                                "writes_strategy_state": False,
+                                "enables_timer": False,
+                                "outcome": {
+                                    "outcome_bucket": "matched",
+                                    "outcome_status": "matched",
+                                    "outcome_review_date": "20260506",
+                                    "matched_trade_id": 12,
+                                },
+                            }
+                        ),
+                    ),
+                )
 
             result = ReportingQueryService(db_path).list_ops_history(
                 OpsHistoryRequest(account_key=ACCOUNT_KEY, limit=20),
@@ -312,9 +396,16 @@ class DailyReportTest(unittest.TestCase):
             categories = {item.category for item in result.data.items}
             self.assertIn("pipeline_step", categories)
             self.assertIn("paper_acceptance", categories)
+            self.assertIn("decision_action_log", categories)
             pipeline_item = next(item for item in result.data.items if item.category == "pipeline_step")
             self.assertEqual(pipeline_item.source, "operation_requests")
             self.assertFalse(pipeline_item.details["dry_run"])
+            action_log_item = next(item for item in result.data.items if item.category == "decision_action_log")
+            self.assertIn("outcome=matched/matched", action_log_item.summary)
+            self.assertEqual(action_log_item.details["outcome_bucket"], "matched")
+            self.assertEqual(action_log_item.details["matched_trade_id"], 12)
+            self.assertFalse(action_log_item.details["writes_trade_state"])
+            self.assertTrue(action_log_item.details["advisory_only"])
             acceptance_item = next(item for item in result.data.items if item.category == "paper_acceptance")
             self.assertEqual(acceptance_item.as_of_date, AS_OF_DATE)
             self.assertTrue(acceptance_item.details["read_only_history"])
@@ -893,6 +984,46 @@ class DailyReportTest(unittest.TestCase):
             (run_id, trade_plan_id, json.dumps(evidence, ensure_ascii=False)),
         )
         return run_id
+
+    def _insert_shadow_hypothesis(self, conn: sqlite3.Connection) -> None:
+        evidence = {
+            "source": "m69_shadow_research",
+            "as_of_date": AS_OF_DATE,
+            "artifact_only": True,
+            "shadow_comparison": {
+                "candidate_key": "trend_extension_shadow",
+                "daily_top1_metrics": {"n": 24, "t1_close_mean_pct": 1.11},
+            },
+            "paper_observation_gate": {
+                "status": "blocked",
+                "blockers": ["paper_observation_not_authorized"],
+            },
+            "strategy_version_gate": {
+                "status": "blocked",
+                "blockers": ["strategy_version_proposal_not_authorized"],
+            },
+        }
+        proposed_change = {
+            "strategy_id": "cpb_6157",
+            "change_type": "shadow_candidate",
+            "candidate_key": "trend_extension_shadow",
+            "artifact_only": True,
+            "requires_replay_backtest": True,
+            "mutates_active_params": False,
+        }
+        conn.execute(
+            """
+            INSERT INTO strategy_hypotheses
+              (as_of_date, hypothesis_type, title, rationale, evidence_json, proposed_change_json, status)
+            VALUES
+              (?, 'shadow_trend_extension_shadow', 'Shadow trend extension', 'Research only.', ?, ?, 'proposed')
+            """,
+            (
+                AS_OF_DATE,
+                json.dumps(evidence, ensure_ascii=False, sort_keys=True),
+                json.dumps(proposed_change, ensure_ascii=False, sort_keys=True),
+            ),
+        )
 
     def _insert_no_candidate_review_run(self, conn: sqlite3.Connection, review_date: str) -> None:
         strategy = conn.execute(
