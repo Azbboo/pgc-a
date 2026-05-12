@@ -53,6 +53,10 @@ from pgc_trading.services.market_external_data_service import (
     ImportMarketExternalDataRequest,
     MarketExternalDataService,
 )
+from pgc_trading.services.evidence_provider_pack_service import (
+    BuildEvidenceProviderPackRequest,
+    EvidenceProviderPackService,
+)
 from pgc_trading.services.market_plan_context_service import (
     LinkMarketPlanContextRequest,
     MarketPlanContextService,
@@ -64,6 +68,7 @@ from pgc_trading.services.position_lifecycle_service import (
     ListPositionsRequest,
     PositionLifecycleService,
 )
+from pgc_trading.services.pool_intake_service import PoolIntakeRequest, PoolIntakeService
 from pgc_trading.services.portfolio_planning_service import (
     CancelTradePlanRequest,
     GenerateBuyPlanRequest,
@@ -99,7 +104,9 @@ DailyPipelineServiceFactory = Callable[[Path], DailyPipelineService]
 MarketExternalDataServiceFactory = Callable[[Path], MarketExternalDataService]
 MarketPlanContextServiceFactory = Callable[[Path], MarketPlanContextService]
 MarketReviewServiceFactory = Callable[[Path], MarketReviewService]
+EvidenceProviderPackServiceFactory = Callable[[Path], EvidenceProviderPackService]
 OpenExecutionServiceFactory = Callable[[Path], OpenExecutionService]
+PoolIntakeServiceFactory = Callable[[], PoolIntakeService]
 StrategyEvolutionServiceFactory = Callable[[Path], StrategyEvolutionService]
 StrategyHypothesisBacktestServiceFactory = Callable[[Path], StrategyHypothesisBacktestService]
 
@@ -119,7 +126,9 @@ class CommandServices:
     market_external_data_service_factory: MarketExternalDataServiceFactory = MarketExternalDataService
     market_plan_context_service_factory: MarketPlanContextServiceFactory = MarketPlanContextService
     market_review_service_factory: MarketReviewServiceFactory = MarketReviewService
+    evidence_provider_pack_service_factory: EvidenceProviderPackServiceFactory = EvidenceProviderPackService
     open_execution_service_factory: OpenExecutionServiceFactory = OpenExecutionService
+    pool_intake_service_factory: PoolIntakeServiceFactory = PoolIntakeService
     strategy_evolution_service_factory: StrategyEvolutionServiceFactory = StrategyEvolutionService
     strategy_hypothesis_backtest_service_factory: StrategyHypothesisBacktestServiceFactory = (
         StrategyHypothesisBacktestService
@@ -808,6 +817,43 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
     _add_db_path_argument(ops_ledger_audit)
     ops_ledger_audit.set_defaults(handler=_run_ops_ledger_audit)
 
+    ops_pool_intake = ops_subparsers.add_parser(
+        "pool-intake",
+        help="validate or apply reviewed stock-pool intake rows",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    ops_pool_intake.add_argument("--file", "--input", dest="source_file", type=Path, required=True)
+    ops_pool_intake.add_argument(
+        "--pool-file",
+        type=Path,
+        default=Paths().data_dir / "pgc_pool.json",
+        help="existing pgc_pool.json path",
+    )
+    ops_pool_intake.add_argument(
+        "--raw-events-file",
+        type=Path,
+        default=Paths().data_dir / "pgc_raw_events.json",
+        help="existing pgc_raw_events.json path",
+    )
+    ops_pool_intake.add_argument("--output", type=Path, help="optional JSON summary/audit output path")
+    pool_intake_mode = ops_pool_intake.add_mutually_exclusive_group()
+    pool_intake_mode.add_argument(
+        "--dry-run",
+        dest="dry_run",
+        action="store_true",
+        default=True,
+        help="validate and summarize without mutating pool files; this is the default",
+    )
+    pool_intake_mode.add_argument(
+        "--apply",
+        dest="dry_run",
+        action="store_false",
+        help="append non-duplicate rows to pool/raw-event JSON files",
+    )
+    _add_lifecycle_context_arguments(ops_pool_intake)
+    ops_pool_intake.set_defaults(handler=_run_ops_pool_intake)
+
     ops_ledger_repair = ops_subparsers.add_parser(
         "ledger-repair",
         help="preview or apply known ledger consistency repairs for an account",
@@ -876,6 +922,51 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
     _add_live_write_guard_argument(ops_daily_pipeline)
     _add_db_path_argument(ops_daily_pipeline)
     ops_daily_pipeline.set_defaults(handler=_run_ops_daily_pipeline)
+
+    ops_evidence_pack = ops_subparsers.add_parser(
+        "evidence-pack",
+        help="build reviewed provider packs with auditable manifests",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    ops_evidence_pack.add_argument(
+        "--market-input",
+        dest="market_source_files",
+        type=Path,
+        nargs="+",
+        default=[],
+        help="one or more market-review provider files",
+    )
+    ops_evidence_pack.add_argument(
+        "--agent-input",
+        dest="agent_source_files",
+        type=Path,
+        nargs="+",
+        default=[],
+        help="one or more Agent provider files",
+    )
+    ops_evidence_pack.add_argument(
+        "--output-dir",
+        type=Path,
+        help="directory for the pack manifest and copied reviewed provider files",
+    )
+    evidence_pack_mode = ops_evidence_pack.add_mutually_exclusive_group()
+    evidence_pack_mode.add_argument(
+        "--dry-run",
+        dest="apply",
+        action="store_false",
+        default=False,
+        help="preview the pack manifest without writing files; this is the default",
+    )
+    evidence_pack_mode.add_argument(
+        "--apply",
+        dest="apply",
+        action="store_true",
+        help="write the manifest and copy reviewed provider files into the output directory",
+    )
+    _add_lifecycle_context_arguments(ops_evidence_pack)
+    _add_db_path_argument(ops_evidence_pack)
+    ops_evidence_pack.set_defaults(handler=_run_ops_evidence_pack)
 
     return parser
 
@@ -1905,6 +1996,27 @@ def _run_ops_ledger_audit(args: argparse.Namespace, stdout: TextIO, services: Co
     return 0 if result.data is not None and result.data.ok else 1
 
 
+def _run_ops_pool_intake(args: argparse.Namespace, stdout: TextIO, services: CommandServices) -> int:
+    service = services.pool_intake_service_factory()
+    result = service.validate_and_apply(
+        PoolIntakeRequest(
+            source_file=_normalized_db_path(args.source_file),
+            pool_file=_normalized_db_path(args.pool_file),
+            raw_events_file=_normalized_db_path(args.raw_events_file),
+            output_file=_normalized_db_path(args.output) if args.output is not None else None,
+        ),
+        RequestContext(
+            request_id="cli-ops-pool-intake",
+            idempotency_key=args.idempotency_key,
+            dry_run=args.dry_run,
+            operator=args.operator,
+            source="cli",
+        ),
+    )
+    _write_pool_intake_result(stdout, result)
+    return 0 if result.ok else 1
+
+
 def _run_ops_ledger_repair(args: argparse.Namespace, stdout: TextIO, services: CommandServices) -> int:
     db_path = _normalized_db_path(args.db_path)
     if not db_path.exists():
@@ -1998,6 +2110,51 @@ def _run_ops_daily_pipeline(args: argparse.Namespace, stdout: TextIO, services: 
         return 1
 
     _write_daily_pipeline_result(stdout, result)
+    return 0 if result.ok else 1
+
+
+def _run_ops_evidence_pack(args: argparse.Namespace, stdout: TextIO, services: CommandServices) -> int:
+    db_path = _normalized_db_path(args.db_path)
+    market_source_files = [_normalized_db_path(path) for path in args.market_source_files]
+    agent_source_files = [_normalized_db_path(path) for path in args.agent_source_files]
+    output_dir = _normalized_db_path(args.output_dir) if args.output_dir is not None else None
+    command = "ops evidence-pack"
+
+    if not db_path.exists():
+        _write_routed_message(
+            stdout,
+            command,
+            f"market_files={len(market_source_files)} agent_files={len(agent_source_files)}",
+            db_path,
+            "database not found; evidence provider pack service was not run and no writes were performed",
+        )
+        return 1
+
+    service = services.evidence_provider_pack_service_factory(db_path)
+    request = BuildEvidenceProviderPackRequest(
+        market_source_files=market_source_files,
+        agent_source_files=agent_source_files,
+        output_dir=output_dir,
+    )
+    ctx = RequestContext(
+        request_id="cli-ops-evidence-pack",
+        idempotency_key=args.idempotency_key,
+        dry_run=not args.apply,
+        operator=args.operator,
+        source="cli",
+    )
+    try:
+        result = service.build_provider_pack(request, ctx)
+    except sqlite3.OperationalError as exc:
+        stdout.write(
+            "evidence_pack_status=failed\n"
+        )
+        stdout.write(
+            f"database_error={exc}\n"
+        )
+        return 1
+
+    _write_evidence_provider_pack_result(stdout, command, db_path, result)
     return 0 if result.ok else 1
 
 
@@ -2524,6 +2681,44 @@ def _write_market_external_data_backfill_result(
                 f"code={getattr(issue, 'code', 'n/a')} "
                 f"message={getattr(issue, 'message', 'n/a')}\n"
             )
+
+
+def _write_evidence_provider_pack_result(
+    stdout: TextIO,
+    command: str,
+    db_path: Path,
+    result: ServiceResult[object],
+) -> None:
+    data = result.data
+    source_file_count = getattr(data, "source_file_count", 0) if data is not None else 0
+    _write_routed_message(
+        stdout,
+        command,
+        f"files={source_file_count}",
+        db_path,
+        f"service returned {result.status}",
+    )
+    _write_warnings_and_errors(stdout, result)
+    if data is None:
+        return
+
+    manifest = getattr(data, "manifest", {})
+    stdout.write(f"evidence_pack_status={result.status}\n")
+    stdout.write(f"pack_contract={getattr(data, 'pack_contract', 'evidence_provider_pack_v1')}\n")
+    stdout.write(f"apply={str(bool(getattr(data, 'apply', False))).lower()}\n")
+    stdout.write(f"output_dir={getattr(data, 'output_dir', None) or 'none'}\n")
+    stdout.write(f"source_file_count={getattr(data, 'source_file_count', 0)}\n")
+    stdout.write(f"date_count={getattr(data, 'date_count', 0)}\n")
+    stdout.write(f"ready_date_count={getattr(data, 'ready_date_count', 0)}\n")
+    stdout.write(f"blocking_date_count={getattr(data, 'blocking_date_count', 0)}\n")
+    stdout.write(f"provider_file_contracts={_json_compact(manifest.get('provider_file_contracts', []))}\n")
+    stdout.write(f"manifest_json={_json_compact(manifest)}\n")
+    manifest_path = getattr(data, "manifest_path", None)
+    if manifest_path:
+        stdout.write(f"manifest_path={manifest_path}\n")
+    copied_files = getattr(data, "copied_files", [])
+    if copied_files:
+        stdout.write(f"copied_files={_json_compact(copied_files)}\n")
 
 
 def _json_compact(payload: object) -> str:
@@ -3120,6 +3315,46 @@ def _write_daily_pipeline_result(stdout: TextIO, result: ServiceResult[object]) 
         "market_plan_context_would_write="
         f"{str(bool(getattr(data, 'market_plan_context_would_write', False))).lower()}\n"
     )
+    _write_warnings_and_errors(stdout, result)
+
+
+def _write_pool_intake_result(stdout: TextIO, result: ServiceResult[object]) -> None:
+    data = result.data
+    stdout.write(f"pool_intake_status={result.status}\n")
+    if data is None:
+        _write_warnings_and_errors(stdout, result)
+        return
+
+    stdout.write(f"mode={getattr(data, 'mode', 'n/a')}\n")
+    stdout.write(f"source_file={getattr(data, 'source_file', 'n/a')}\n")
+    stdout.write(f"pool_file={getattr(data, 'pool_file', 'n/a')}\n")
+    stdout.write(f"raw_events_file={getattr(data, 'raw_events_file', 'n/a')}\n")
+    stdout.write(f"output_file={getattr(data, 'output_file', None) or 'none'}\n")
+    stdout.write(f"input_count={getattr(data, 'input_count', 0)}\n")
+    stdout.write(f"added_count={getattr(data, 'added_count', 0)}\n")
+    stdout.write(f"duplicate_count={getattr(data, 'duplicate_count', 0)}\n")
+    stdout.write(f"invalid_count={getattr(data, 'invalid_count', 0)}\n")
+    stdout.write(
+        "pool_rows="
+        f"before={getattr(data, 'pool_rows_before', 0)} "
+        f"after_preview={getattr(data, 'pool_rows_after_preview', 0)}\n"
+    )
+    stdout.write(
+        "raw_rows="
+        f"before={getattr(data, 'raw_rows_before', 0)} "
+        f"after_preview={getattr(data, 'raw_rows_after_preview', 0)}\n"
+    )
+    invalid_entries = getattr(data, "invalid_entries", [])
+    if invalid_entries:
+        stdout.write("invalid_entries:\n")
+        for item in invalid_entries:
+            stdout.write(
+                "- "
+                f"row={getattr(item, 'row_number', 'n/a')} "
+                f"ts_code={getattr(item, 'ts_code', None) or 'none'} "
+                f"code={getattr(item, 'code', None) or 'none'} "
+                f"reasons={_shell_value(','.join(getattr(item, 'reasons', [])))}\n"
+            )
     _write_warnings_and_errors(stdout, result)
 
 

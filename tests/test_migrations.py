@@ -31,6 +31,7 @@ class MigrationRunnerTest(unittest.TestCase):
                 self.assertIn("schema_migrations", tables)
                 self.assertIn("data_quality_events", tables)
                 self.assertIn("market_review_runs", tables)
+                self.assertIn("decision_action_logs", tables)
 
     def test_dry_run_does_not_create_database(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

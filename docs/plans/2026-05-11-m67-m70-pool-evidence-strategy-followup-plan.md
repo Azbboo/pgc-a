@@ -4,7 +4,7 @@
 
 **Architecture:** Keep trading actions explicit and manual. These tasks may validate data, create artifacts, and improve read-only observability, but they must not enable timers, place broker orders, mutate active strategy parameters, or silently treat missing evidence as safe.
 
-**Tech Stack:** Python services and CLI, SQLite through `012_market_review`, FastAPI read APIs, static Dashboard JavaScript/CSS, Bash ops scripts, Markdown/JSON reports, pytest/unittest, remote deployment on port `8020`.
+**Tech Stack:** Python services and CLI, SQLite through `013_decision_action_log`, FastAPI read APIs, static Dashboard JavaScript/CSS, Bash ops scripts, Markdown/JSON reports, pytest/unittest, remote deployment on port `8020`.
 
 ---
 
@@ -20,10 +20,10 @@
 
 | Track | Task | Status | Can Run In Parallel? | Depends On | Suggested Session |
 | --- | --- | --- | --- | --- | --- |
-| M67 | Stock pool intake validator and audit trail | Next | Yes | OPS-20260511 plan, pool/raw-event file formats | Session A |
-| M68 | Evidence provider pack automation | Next | Yes | M63 unavailable-source states, M54 provider contracts | Session B |
-| M69 | Strategy promotion shadow evaluation | Next | Yes | M64 promotion-request artifacts, M50 validation gates | Session C |
-| M70 | Decision cockpit action log and review loop | Next | After M67-M69 data shapes are known | M66 cockpit, M65 ops history | Integration session |
+| M67 | Stock pool intake validator and audit trail | Done | Yes | OPS-20260511 plan, pool/raw-event file formats | Session A |
+| M68 | Evidence provider pack automation | Done | Yes | M63 unavailable-source states, M54 provider contracts | Session B |
+| M69 | Strategy promotion shadow evaluation | Done | Yes | M64 promotion-request artifacts, M50 validation gates | Session C |
+| M70 | Decision cockpit action log and review loop | Done | After M67-M69 data shapes are known | M66 cockpit, M65 ops history | Integration session |
 
 ## M67: Stock Pool Intake Validator And Audit Trail
 
@@ -45,6 +45,8 @@ git diff --check
 
 **Review focus:** no duplicate pool entries, no malformed stock codes, and no direct trading writes.
 
+**M67 completion note:** Implemented `ops pool-intake` with structured JSON/CSV intake validation, duplicate detection against `pgc_pool.json` and `pgc_raw_events.json`, source/reason/event-date requirements, dry-run summary output, operator-gated apply, and shape-preserving JSON appends. Verified with targeted service/CLI coverage, the full suite, and `git diff --check`.
+
 ## M68: Evidence Provider Pack Automation
 
 **Goal:** Generate/import reviewed cached provider packs for sector/news/sentiment/announcement evidence so M63 unavailable gaps can close cleanly.
@@ -65,6 +67,8 @@ git diff --check
 
 **Review focus:** provider packs are auditable cached inputs, not hidden live data dependencies.
 
+**M68 completion note:** Implemented ops-only `ops evidence-pack` packaging with `evidence_provider_pack_v1` manifests, reusable market/Agent backfill validation, source-file SHA hashes, ready/blocking QA, and apply-mode copying of reviewed provider files into `output_dir/market_external/` and `output_dir/agent_external/` plus `manifest.json`. Verified with targeted evidence/CLI tests, the full suite, and `git diff --check`.
+
 ## M69: Strategy Promotion Shadow Evaluation
 
 **Goal:** Evaluate promotion-request artifacts against frozen strategy behavior before any future activation discussion.
@@ -84,6 +88,8 @@ git diff --check
 ```
 
 **Review focus:** shadow evaluation only; activation remains out of scope.
+
+**M69 completion note:** Added research-only shadow evaluation artifacts for 2026-05-11 missed movers, trend-extension / breakout-pressure / low-price momentum buckets, pre-confirm watchlist backtest, and pullback dip-buy parameter search. Outputs live in `reports/strategy_shadow_review_20260511.md`, `reports/strategy_shadow_backtest_20260401_20260508.md`, `reports/preconfirm_watchlist_backtest.md`, and `reports/pgc_pullback_dip_buy.md`, with helper scripts under `scripts/`. No active strategy params, trade plans, trades, positions, paper behavior, live behavior, or timer state are changed.
 
 ## M70: Decision Cockpit Action Log And Review Loop
 
@@ -106,8 +112,10 @@ git diff --check
 
 **Review focus:** action log is advisory and auditable. It must not execute trades, enable timers, or mutate strategy state.
 
+**M70 completion note:** Added advisory `decision_action_logs` storage, service/API read and dry-run/apply write surfaces, next-day outcome review links in the cockpit report JSON/Markdown, and Dashboard follow/defer/override controls. The log records operator decisions and blocker context only; trade execution remains confined to the existing guarded trade endpoints, and the action-log response exposes safety flags for no trade/state/timer mutation. Verified with `node --check web/dashboard/app.js`, targeted M70 pytest, full `PYTHONPATH=src:. pytest -q`, and `git diff --check`.
+
 ## Parallelization Notes
 
-- M67, M68, and M69 can run independently.
-- M70 should start after M66 response shapes are stable and can integrate M67/M68/M69 outputs when available.
+- M67, M68, and M69 completed independently.
+- M70 completed after the cockpit response shapes stabilized and now records advisory decisions without trading writes.
 - OPS-20260511 can run as an operational session in parallel with M67-M70, but it should not invent new task IDs or change strategy contracts.

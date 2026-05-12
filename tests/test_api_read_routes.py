@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from pgc_trading.api.routes import (
+    create_decision_action_log,
     create_strategy_version_proposal_review,
     get_daily_review,
     get_next_day_decision_cockpit,
@@ -16,6 +17,7 @@ from pgc_trading.api.routes import (
     list_paper_acceptance_history,
     list_account_positions,
     list_data_quality_events,
+    list_decision_action_log,
     list_daily_reviews,
     list_review_timeline,
     list_market_review_external_items,
@@ -259,6 +261,56 @@ class _FakeStrategyEvolutionService:
         )
 
 
+class _FakeDecisionActionLogService:
+    calls: list[tuple[Path, object, object, str]] = []
+
+    def __init__(self, db_path: Path):
+        self.db_path = db_path
+
+    def list_action_logs(self, request, ctx):
+        self.calls.append((self.db_path, request, ctx, "list"))
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data={
+                "review_date": request.review_date,
+                "account_id": request.account_id,
+                "limit": request.limit,
+                "items": [
+                    {
+                        "decision_action_log_id": 5,
+                        "operator_decision": "followed",
+                        "system_action": "record_buy",
+                        "outcome": {"outcome_status": "pending_outcome"},
+                    }
+                ],
+                "advisory_note": "advisory only",
+            },
+            lineage={"account_id": request.account_id, "read_only": True},
+        )
+
+    def create_action_log(self, request, ctx):
+        self.calls.append((self.db_path, request, ctx, "create"))
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data={
+                "review_date": request.review_date,
+                "execution_date": request.execution_date,
+                "system_action": request.system_action,
+                "operator_decision": request.operator_decision,
+                "target_type": request.target_type,
+                "target_id": request.target_id,
+                "blocker_codes": request.blocker_codes,
+                "wrote_action_log": not ctx.dry_run,
+                "writes_trade_state": False,
+                "writes_strategy_state": False,
+                "enables_timer": False,
+            },
+            lineage={"account_id": request.account_id, "advisory_only": "true"},
+        )
+
+
 class _FakePositionService:
     calls: list[tuple[Path, object, object]] = []
 
@@ -329,6 +381,7 @@ class ApiReadRoutesTest(unittest.TestCase):
         _FakeDataQualityService.calls = []
         _FakeMarketReviewReadService.calls = []
         _FakeStrategyEvolutionService.calls = []
+        _FakeDecisionActionLogService.calls = []
         _FakeOpenExecutionService.calls = []
         _FakePositionService.calls = []
         _FakePortfolioService.calls = []
@@ -338,6 +391,7 @@ class ApiReadRoutesTest(unittest.TestCase):
             data_quality_service_factory=_FakeDataQualityService,
             market_review_service_factory=_FakeMarketReviewReadService,
             strategy_evolution_service_factory=_FakeStrategyEvolutionService,
+            decision_action_log_service_factory=_FakeDecisionActionLogService,
             open_execution_service_factory=_FakeOpenExecutionService,
             portfolio_planning_service_factory=_FakePortfolioService,
             position_lifecycle_service_factory=_FakePositionService,
@@ -416,6 +470,77 @@ class ApiReadRoutesTest(unittest.TestCase):
         self.assertTrue(ctx.dry_run)
         self.assertEqual(ctx.source, "api")
         self.assertEqual(ctx.request_id, "req-api-next-day-decision")
+
+    def test_decision_action_log_list_route_is_read_only_and_filterable(self) -> None:
+        response = _Response()
+
+        payload = list_decision_action_log(
+            self.settings,
+            self.services,
+            response,
+            review_date="2026-05-04",
+            account_key=None,
+            account_id=3,
+            limit=7,
+            request_id="req-api-action-log",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["data"]["review_date"], "20260504")
+        self.assertEqual(payload["data"]["items"][0]["operator_decision"], "followed")
+        db_path, request, ctx, method = _FakeDecisionActionLogService.calls[0]
+        self.assertEqual(method, "list")
+        self.assertEqual(db_path, self.settings.db_path)
+        self.assertEqual(request.review_date, "20260504")
+        self.assertEqual(request.account_id, 3)
+        self.assertEqual(request.account_key, None)
+        self.assertEqual(request.limit, 7)
+        self.assertTrue(ctx.dry_run)
+        self.assertEqual(ctx.source, "api")
+        self.assertEqual(ctx.request_id, "req-api-action-log")
+
+    def test_decision_action_log_create_route_is_advisory_and_dry_run_capable(self) -> None:
+        response = _Response()
+
+        payload = create_decision_action_log(
+            self.settings,
+            self.services,
+            response,
+            payload={
+                "review_date": "2026-05-04",
+                "execution_date": "2026-05-05",
+                "account_id": 3,
+                "system_action": "record_buy",
+                "operator_decision": "followed",
+                "operator_note": "Followed cockpit recommendation.",
+                "target_type": "trade_plan",
+                "target_id": 12,
+                "blocker_codes": ["MARKET_EVIDENCE_MISSING"],
+                "dry_run": True,
+                "request_id": "req-create-action-log",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["data"]["system_action"], "record_buy")
+        self.assertEqual(payload["data"]["operator_decision"], "followed")
+        self.assertFalse(payload["data"]["wrote_action_log"])
+        self.assertFalse(payload["data"]["writes_trade_state"])
+        self.assertFalse(payload["data"]["writes_strategy_state"])
+        self.assertFalse(payload["data"]["enables_timer"])
+        db_path, request, ctx, method = _FakeDecisionActionLogService.calls[0]
+        self.assertEqual(method, "create")
+        self.assertEqual(db_path, self.settings.db_path)
+        self.assertEqual(request.review_date, "20260504")
+        self.assertEqual(request.execution_date, "20260505")
+        self.assertEqual(request.target_type, "trade_plan")
+        self.assertEqual(request.target_id, 12)
+        self.assertEqual(request.blocker_codes, ["MARKET_EVIDENCE_MISSING"])
+        self.assertTrue(ctx.dry_run)
+        self.assertEqual(ctx.source, "api")
+        self.assertEqual(ctx.request_id, "req-create-action-log")
 
     def test_paper_acceptance_history_route_passes_filters_to_reporting_service(self) -> None:
         response = _Response()

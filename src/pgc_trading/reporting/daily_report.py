@@ -18,6 +18,11 @@ from pgc_trading.services.data_quality_service import (
     DailyReviewReadinessRequest,
     DataQualityService,
 )
+from pgc_trading.services.decision_action_log_service import (
+    DecisionActionLogList,
+    DecisionActionLogService,
+    ListDecisionActionLogsRequest,
+)
 from pgc_trading.services.operational_readiness_service import (
     NextDayDecisionChecklistItem,
     NextDayDecisionSummary,
@@ -517,6 +522,7 @@ class NextDayDecisionCockpit:
     open_execution: DailyAcceptanceOpenExecution | None = None
     market_review: MarketReviewReport | None = None
     market_plan_context: MarketPlanContextReport | None = None
+    action_log: DecisionActionLogList | None = None
     advisory_note: str = (
         "Next-day decision cockpit is read-only; it explains blockers and next manual actions "
         "but never executes trades, enables timers, or mutates strategy parameters."
@@ -671,6 +677,7 @@ class ReportingQueryService:
             market_review=market_review,
             market_plan_context=market_plan_context,
             strategy_proposals=strategy_proposals,
+            action_log=_decision_action_log(self.db_path, request, account, context),
         )
         report = DailyReport(
             generated_at=datetime.now(UTC).isoformat(),
@@ -1441,6 +1448,7 @@ def _next_day_decision_cockpit(
     market_review: MarketReviewReport | None,
     market_plan_context: MarketPlanContextReport | None,
     strategy_proposals: NextDayStrategyProposalSummary,
+    action_log: DecisionActionLogList | None,
 ) -> NextDayDecisionCockpit:
     system_proposal = _next_day_system_proposal(paper_acceptance.open_execution)
     checklist = [
@@ -1471,7 +1479,26 @@ def _next_day_decision_cockpit(
         open_execution=paper_acceptance.open_execution,
         market_review=market_review,
         market_plan_context=market_plan_context,
+        action_log=action_log,
     )
+
+
+def _decision_action_log(
+    db_path: Path,
+    request: DailyReportRequest,
+    account: AccountReport,
+    context: RequestContext,
+) -> DecisionActionLogList | None:
+    result = DecisionActionLogService(db_path).list_action_logs(
+        ListDecisionActionLogsRequest(
+            review_date=request.as_of_date,
+            account_key=account.account_key or request.account_key,
+            account_id=account.account_id,
+            limit=10,
+        ),
+        RequestContext(request_id=context.request_id, dry_run=True, operator=context.operator, source=context.source),
+    )
+    return result.data if result.ok else None
 
 
 def _next_day_system_proposal(open_execution: DailyAcceptanceOpenExecution) -> NextDaySystemProposal:
@@ -2629,6 +2656,8 @@ def _ops_operation_category(operation_type: str, idempotency_key: str | None) ->
         return "health"
     if operation_type == "ops_release":
         return "release"
+    if operation_type == "decision_action_log":
+        return "decision_action_log"
     if idempotency_key and idempotency_key.startswith("daily-pipeline:"):
         return "pipeline_step"
     return "operation"
@@ -2710,6 +2739,7 @@ def _ops_history_summary(items: list[OpsHistoryItem], counts: dict[str, int]) ->
             ("health", "health"),
             ("release", "release"),
             ("paper_acceptance", "paper acceptance"),
+            ("decision_action_log", "decision action log"),
             ("timer_evidence", "timer evidence"),
             ("timer_action", "timer action"),
         ]
@@ -4031,6 +4061,29 @@ def _next_day_decision_lines(cockpit: NextDayDecisionCockpit | None) -> list[str
         )
         if proposals.items:
             lines.extend(f"- {item.title}（{_status_text(item.status)}）" for item in proposals.items[:5])
+    lines.extend(_decision_action_log_lines(cockpit.action_log))
+    return lines
+
+
+def _decision_action_log_lines(action_log: DecisionActionLogList | None) -> list[str]:
+    lines = [
+        "",
+        "动作日志 / 次日复核：",
+    ]
+    if action_log is None or not action_log.items:
+        return [
+            *lines,
+            "- 暂无驾驶舱动作日志；该日志只记录人工 follow/defer/override，不会执行交易或修改策略。",
+        ]
+    lines.append(f"- 摘要：{action_log.summary}")
+    for item in action_log.items[:5]:
+        outcome = item.outcome
+        blockers = f"；blocker {', '.join(item.blocker_codes)}" if item.blocker_codes else ""
+        outcome_text = outcome.outcome_status if outcome else "pending"
+        lines.append(
+            f"- {item.operator_decision} {item.system_action}："
+            f"执行日 {_date_text(item.execution_date)}；outcome={outcome_text}{blockers}"
+        )
     return lines
 
 

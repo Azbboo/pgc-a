@@ -291,6 +291,70 @@ class _FakeExternalDataBackfillData:
     invalid_records: list[object] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class _FakeEvidenceProviderPackData:
+    pack_contract: str = "evidence_provider_pack_v1"
+    generated_at: str = "2026-05-11T12:00:00+08:00"
+    db_path: str = ""
+    output_dir: str | None = None
+    apply: bool = False
+    source_file_count: int = 3
+    date_count: int = 2
+    ready_date_count: int = 1
+    blocking_date_count: int = 1
+    manifest: dict[str, object] = field(
+        default_factory=lambda: {
+            "pack_contract": "evidence_provider_pack_v1",
+            "provider_file_contracts": ["market_external_v1", "agent_external_v1"],
+            "groups": [
+                {"kind": "market_external"},
+                {"kind": "agent_external"},
+            ],
+        }
+    )
+    manifest_path: str | None = None
+    copied_files: list[str] = field(default_factory=list)
+
+
+class _FakeEvidenceProviderPackService:
+    calls: list[tuple[Path, object, RequestContext]] = []
+
+    def __init__(self, db_path: Path):
+        self.db_path = db_path
+
+    def build_provider_pack(self, request, ctx: RequestContext) -> ServiceResult[_FakeEvidenceProviderPackData]:
+        self.calls.append((self.db_path, request, ctx))
+        output_dir = str(request.output_dir) if request.output_dir is not None else None
+        copied_files: list[str] = []
+        manifest_path: str | None = None
+        if not ctx.dry_run and request.output_dir is not None:
+            manifest_path = str(request.output_dir / "manifest.json")
+            copied_files = [
+                str(request.output_dir / "market_external" / f"20260508__01__{Path(path).name}")
+                for path in request.market_source_files
+            ] + [
+                str(request.output_dir / "agent_external" / f"20260508__01__{Path(path).name}")
+                for path in request.agent_source_files
+            ]
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data=_FakeEvidenceProviderPackData(
+                db_path=str(self.db_path),
+                output_dir=output_dir,
+                apply=not ctx.dry_run,
+                source_file_count=len(request.market_source_files) + len(request.agent_source_files),
+                manifest_path=manifest_path,
+                copied_files=copied_files,
+            ),
+        )
+
+
+class _UnexpectedEvidenceProviderPackService:
+    def __init__(self, db_path: Path):
+        raise AssertionError(f"evidence provider pack service should not be built for missing db: {db_path}")
+
+
 class _FakeAgentExternalDataService:
     calls: list[tuple[Path, object, RequestContext]] = []
 
@@ -370,6 +434,7 @@ class CliMainTest(unittest.TestCase):
         _FakeReadinessService.calls = []
         _FakeAgentReviewService.calls = []
         _FakeAgentExternalDataService.calls = []
+        _FakeEvidenceProviderPackService.calls = []
         _FakeOpenExecutionService.calls = []
 
     def test_help_lists_command_surface(self) -> None:
@@ -1007,6 +1072,128 @@ class CliMainTest(unittest.TestCase):
             self.assertFalse(db_path.exists())
             self.assertIn("database not found", stdout.getvalue())
             self.assertIn("external_items.json", stdout.getvalue())
+
+    def test_ops_evidence_pack_routes_to_service_with_dry_run_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc_evidence_pack.db"
+            db_path.touch()
+            market_source_one = Path(tmp) / "market_a.json"
+            market_source_two = Path(tmp) / "market_b.json"
+            agent_source = Path(tmp) / "agent.json"
+            market_source_one.write_text("{}", encoding="utf-8")
+            market_source_two.write_text("{}", encoding="utf-8")
+            agent_source.write_text("{}", encoding="utf-8")
+            stdout = io.StringIO()
+            code = main(
+                [
+                    "ops",
+                    "evidence-pack",
+                    "--market-input",
+                    str(market_source_one),
+                    str(market_source_two),
+                    "--agent-input",
+                    str(agent_source),
+                    "--db-path",
+                    str(db_path),
+                ],
+                stdout=stdout,
+                services=CommandServices(
+                    evidence_provider_pack_service_factory=_FakeEvidenceProviderPackService,
+                ),
+            )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(len(_FakeEvidenceProviderPackService.calls), 1)
+        called_db_path, request, ctx = _FakeEvidenceProviderPackService.calls[0]
+        self.assertEqual(called_db_path, db_path)
+        self.assertEqual(request.market_source_files, [market_source_one, market_source_two])
+        self.assertEqual(request.agent_source_files, [agent_source])
+        self.assertIsNone(request.output_dir)
+        self.assertTrue(ctx.dry_run)
+        self.assertEqual(ctx.request_id, "cli-ops-evidence-pack")
+        self.assertEqual(ctx.operator, "cli")
+        self.assertEqual(ctx.source, "cli")
+        output = stdout.getvalue()
+        self.assertIn("ops evidence-pack command routed", output)
+        self.assertIn("evidence_pack_status=success", output)
+        self.assertIn("pack_contract=evidence_provider_pack_v1", output)
+        self.assertIn("apply=false", output)
+        self.assertIn("output_dir=none", output)
+        self.assertIn("source_file_count=3", output)
+        self.assertIn('provider_file_contracts=["market_external_v1","agent_external_v1"]', output)
+        self.assertIn("manifest_json=", output)
+
+    def test_ops_evidence_pack_apply_mode_uses_write_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc_evidence_pack_apply.db"
+            db_path.touch()
+            output_dir = Path(tmp) / "evidence-pack"
+            market_source = Path(tmp) / "market.json"
+            agent_source = Path(tmp) / "agent.json"
+            market_source.write_text("{}", encoding="utf-8")
+            agent_source.write_text("{}", encoding="utf-8")
+            stdout = io.StringIO()
+            code = main(
+                [
+                    "ops",
+                    "evidence-pack",
+                    "--market-input",
+                    str(market_source),
+                    "--agent-input",
+                    str(agent_source),
+                    "--output-dir",
+                    str(output_dir),
+                    "--db-path",
+                    str(db_path),
+                    "--apply",
+                    "--operator",
+                    "azboo",
+                    "--idempotency-key",
+                    "evidence-pack:test",
+                ],
+                stdout=stdout,
+                services=CommandServices(
+                    evidence_provider_pack_service_factory=_FakeEvidenceProviderPackService,
+                ),
+            )
+
+        self.assertEqual(code, 0)
+        _, request, ctx = _FakeEvidenceProviderPackService.calls[0]
+        self.assertEqual(request.output_dir, output_dir)
+        self.assertFalse(ctx.dry_run)
+        self.assertEqual(ctx.operator, "azboo")
+        self.assertEqual(ctx.idempotency_key, "evidence-pack:test")
+        output = stdout.getvalue()
+        self.assertIn("apply=true", output)
+        self.assertIn(f"output_dir={output_dir}", output)
+        self.assertIn(f"manifest_path={output_dir / 'manifest.json'}", output)
+        self.assertIn("copied_files=", output)
+
+    def test_ops_evidence_pack_missing_db_fails_without_creating_database(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "missing.db"
+            market_source = Path(tmp) / "market.json"
+            market_source.write_text("{}", encoding="utf-8")
+            stdout = io.StringIO()
+            code = main(
+                [
+                    "ops",
+                    "evidence-pack",
+                    "--market-input",
+                    str(market_source),
+                    "--db-path",
+                    str(db_path),
+                ],
+                stdout=stdout,
+                services=CommandServices(
+                    evidence_provider_pack_service_factory=_UnexpectedEvidenceProviderPackService,
+                ),
+            )
+
+            self.assertEqual(code, 1)
+            self.assertFalse(db_path.exists())
+            self.assertIn("database not found", stdout.getvalue())
+            self.assertIn("evidence provider pack service was not run", stdout.getvalue())
 
     def test_ops_open_execution_routes_to_service_and_prints_market_context(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

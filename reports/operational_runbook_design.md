@@ -1324,6 +1324,25 @@ agent external-data backfill --input AGENT_FILE_YYYYMMDD.json AGENT_FILE_YYYYMMD
 
 `coverage_qa_json.ready_dates` 只表示缓存证据对人工复核足够完整；`blocking_dates` 表示需要补文件或接受缺失风险。缺失、陈旧或重复证据不能渲染成“无风险”，也不能触发自动策略调参。
 
+### M68 证据包自动化
+
+当需要把已审核的 market/Agent provider 文件重新打包成可复算的缓存输入时，使用 ops-only 命令：
+
+```bash
+pgc ops evidence-pack \
+  --market-input MARKET_FILE.json [MARKET_FILE_2.json ...] \
+  --agent-input AGENT_FILE.json [AGENT_FILE_2.json ...] \
+  --output-dir /tmp/evidence-pack \
+  --dry-run
+```
+
+成功标准：
+
+- `dry-run` 是默认值，先确认 `evidence_pack_status`、`provider_file_contracts`、`ready_date_count`、`blocking_date_count` 和 `manifest_json`；
+- manifest contract 是 `evidence_provider_pack_v1`，每个 group 都要保留 `source_file_sha256`、`ready_dates`、`blocking_dates` 和 `unavailable_sources`；
+- `--apply` 只会写 `manifest.json` 并复制 reviewed provider 文件到 `output_dir/market_external/` 和 `output_dir/agent_external/`；
+- 该命令只复用既有 market/Agent backfill 校验，不允许 live fetch，也不允许把 pack 流量带进 daily-close、open-execution、report 或 Dashboard 请求路径。
+
 ## 24. M46 收盘后定时流水线
 
 M46 把 M42 的全市场复盘流水线固化为远端 systemd timer。只在 M42 已验收、远端 API write token 由部署脚本保留、并且手工 dry-run 通过后启用 apply 定时任务。

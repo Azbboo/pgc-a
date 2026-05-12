@@ -67,6 +67,8 @@ class DailyReportTest(unittest.TestCase):
             self.assertIsNotNone(result.data.next_day_decision)
             self.assertEqual(result.data.next_day_decision.status, "blocked")
             self.assertEqual(result.data.next_day_decision.system_proposal.action, "record_buy")
+            self.assertIsNotNone(result.data.next_day_decision.action_log)
+            self.assertEqual(result.data.next_day_decision.action_log.items, [])
             self.assertTrue(
                 any(item.key == "paper_acceptance" for item in result.data.next_day_decision.checklist)
             )
@@ -86,6 +88,7 @@ class DailyReportTest(unittest.TestCase):
             self.assertIn("## 下一交易日决策驾驶舱", markdown)
             self.assertIn("推荐人工动作", markdown)
             self.assertIn("决策清单", markdown)
+            self.assertIn("动作日志 / 次日复核", markdown)
             self.assertIn("不会执行交易、开启 timer 或修改策略参数", markdown)
             self.assertIn("样本交易", markdown)
             self.assertIn("晋级 live 前还差什么", markdown)
@@ -103,6 +106,8 @@ class DailyReportTest(unittest.TestCase):
             self.assertEqual(payload["paper_acceptance"]["open_execution"]["next_action"], "record_buy")
             self.assertEqual(payload["next_day_decision"]["system_proposal"]["action"], "record_buy")
             self.assertEqual(payload["next_day_decision"]["checklist"][0]["key"], "paper_acceptance")
+            self.assertIn("action_log", payload["next_day_decision"])
+            self.assertEqual(payload["next_day_decision"]["action_log"]["items"], [])
             self.assertIn("readiness_gates", payload["paper_acceptance"])
             self.assertIn("alerts", payload["paper_acceptance"])
             self.assertIn("MIN_PAPER_TRADES_NOT_MET", payload["paper_promotion"]["promotion_blockers"])
@@ -158,6 +163,64 @@ class DailyReportTest(unittest.TestCase):
             self.assertEqual(payload["lineage"]["market_review_run_id"], market_review_run_id)
             self.assertEqual(payload["market_plan_context"]["evidence"]["top_sectors"][0]["sector_name"], "人工智能")
             self.assertEqual(payload["next_day_decision"]["strategy_proposals"]["proposed_count"], 1)
+
+    def test_report_includes_decision_action_log_review_loop(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._plan_ready_db(tmp)
+            with sqlite3.connect(db_path) as conn:
+                trade_plan_id = int(conn.execute("SELECT id FROM trade_plans ORDER BY id DESC LIMIT 1").fetchone()[0])
+                conn.execute(
+                    """
+                    INSERT INTO decision_action_logs
+                      (
+                        account_id,
+                        review_date,
+                        execution_date,
+                        cockpit_status,
+                        system_action,
+                        operator_decision,
+                        operator_note,
+                        target_type,
+                        target_id,
+                        blocker_codes_json,
+                        warning_codes_json,
+                        source_refs_json,
+                        operator
+                      )
+                    VALUES
+                      (1, ?, ?, 'blocked', 'record_buy', 'deferred', 'Wait for evidence.', 'trade_plan', ?, ?, '[]', ?, 'tester')
+                    """,
+                    (
+                        AS_OF_DATE,
+                        BUY_DATE,
+                        trade_plan_id,
+                        json.dumps(["MARKET_EVIDENCE_MISSING"]),
+                        json.dumps([f"trade_plans:{trade_plan_id}"]),
+                    ),
+                )
+
+            result = ReportingQueryService(db_path).get_daily_report(
+                DailyReportRequest(as_of_date=AS_OF_DATE, account_key=ACCOUNT_KEY),
+                RequestContext(request_id="req-report-action-log"),
+            )
+
+            self.assertEqual(result.status, "success")
+            action_log = result.data.next_day_decision.action_log
+            self.assertIsNotNone(action_log)
+            self.assertEqual(action_log.deferred_count, 1)
+            self.assertEqual(action_log.items[0].operator_decision, "deferred")
+            self.assertEqual(action_log.items[0].outcome.outcome_status, "deferred")
+            self.assertIn("MARKET_EVIDENCE_MISSING", action_log.unresolved_blocker_codes)
+
+            markdown = render_daily_report_markdown(result.data)
+            self.assertIn("动作日志 / 次日复核", markdown)
+            self.assertIn("deferred record_buy", markdown)
+            payload = json.loads(render_daily_report_json(result.data))
+            self.assertEqual(payload["next_day_decision"]["action_log"]["deferred_count"], 1)
+            self.assertEqual(
+                payload["next_day_decision"]["action_log"]["items"][0]["outcome"]["outcome_status"],
+                "deferred",
+            )
 
     def test_review_history_lists_latest_runs_with_pick_plan_and_no_candidate_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

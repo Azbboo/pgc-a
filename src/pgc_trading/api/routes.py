@@ -21,6 +21,10 @@ from pgc_trading.services.daily_close_workflow_service import (
     DEFAULT_ACCOUNT_KEY,
     RunDailyCloseWorkflowRequest,
 )
+from pgc_trading.services.decision_action_log_service import (
+    CreateDecisionActionLogRequest,
+    ListDecisionActionLogsRequest,
+)
 from pgc_trading.services.execution_recording_service import (
     RecordPositionSellRequest,
     RecordTradeRequest,
@@ -181,6 +185,40 @@ def register_routes(app: Any) -> None:
             account_id=account_id,
             strategy_version=strategy_version,
             request_id=request_id,
+        )
+
+    @app.get("/api/decision-action-log", tags=["reports"])
+    def decision_action_log(
+        response: Response,
+        review_date: str,
+        account_key: str | None = DEFAULT_ACCOUNT_KEY,
+        account_id: int | None = None,
+        limit: int = 20,
+        request_id: str | None = None,
+    ) -> dict[str, object]:
+        return list_decision_action_log(
+            app.state.settings,
+            app.state.services,
+            response,
+            review_date=review_date,
+            account_key=_blank_to_none(account_key),
+            account_id=account_id,
+            limit=limit,
+            request_id=request_id,
+        )
+
+    @app.post("/api/decision-action-log", tags=["reports"])
+    def create_decision_action_log_route(
+        request: Request,
+        response: Response,
+        payload: dict[str, Any] | None = Body(default=None),
+    ) -> dict[str, object]:
+        return create_decision_action_log(
+            app.state.settings,
+            app.state.services,
+            response,
+            payload=payload or {},
+            write_token_header=_request_write_token(request),
         )
 
     @app.get("/api/ops-history", tags=["system"])
@@ -668,6 +706,84 @@ def get_next_day_decision_cockpit(
             strategy_version=strategy_version,
         ),
         RequestContext(request_id=request_id, dry_run=True, source="api"),
+    )
+    return _service_response(result, response)
+
+
+def list_decision_action_log(
+    settings: ApiSettings,
+    services: ApiServices,
+    response: Any,
+    *,
+    review_date: str,
+    account_key: str | None = DEFAULT_ACCOUNT_KEY,
+    account_id: int | None = None,
+    limit: int = 20,
+    request_id: str | None = None,
+) -> dict[str, object]:
+    service = services.decision_action_log_service_factory(settings.db_path)
+    result = service.list_action_logs(
+        ListDecisionActionLogsRequest(
+            review_date=_normalize_date(review_date),
+            account_key=account_key,
+            account_id=account_id,
+            limit=limit,
+        ),
+        RequestContext(request_id=request_id, dry_run=True, source="api"),
+    )
+    return _service_response(result, response)
+
+
+def create_decision_action_log(
+    settings: ApiSettings,
+    services: ApiServices,
+    response: Any,
+    *,
+    payload: dict[str, Any],
+    write_token_header: str | None = None,
+) -> dict[str, object]:
+    ctx_or_response = _write_context_or_response(
+        settings,
+        response,
+        payload,
+        allow_dry_run=True,
+        write_token_header=write_token_header,
+    )
+    if isinstance(ctx_or_response, dict):
+        return ctx_or_response
+    ctx = ctx_or_response
+
+    errors: list[ServiceError] = []
+    review_date = _required_date(payload, "review_date", errors)
+    execution_date = _normalize_optional_date(_optional_text(payload.get("execution_date")))
+    account_id = _optional_int_field(payload, "account_id", errors)
+    target_id = _optional_int_field(payload, "target_id", errors)
+    system_action = _required_text(payload, "system_action", errors)
+    operator_decision = _required_text(payload, "operator_decision", errors)
+    blocker_codes = _text_list_field(payload, "blocker_codes", errors)
+    warning_codes = _text_list_field(payload, "warning_codes", errors)
+    source_refs = _text_list_field(payload, "source_refs", errors)
+    if errors:
+        return _api_error_response(response, "validation_failed", ctx.request_id, errors)
+
+    service = services.decision_action_log_service_factory(settings.db_path)
+    result = service.create_action_log(
+        CreateDecisionActionLogRequest(
+            review_date=review_date,
+            account_key=_optional_text(payload.get("account_key"), default=DEFAULT_ACCOUNT_KEY),
+            account_id=account_id,
+            execution_date=execution_date,
+            cockpit_status=_text_field(payload, "cockpit_status", "unknown"),
+            system_action=system_action,
+            operator_decision=operator_decision,
+            operator_note=_optional_text(payload.get("operator_note"), default="") or "",
+            target_type=_text_field(payload, "target_type", "none"),
+            target_id=target_id,
+            blocker_codes=blocker_codes,
+            warning_codes=warning_codes,
+            source_refs=source_refs,
+        ),
+        ctx,
     )
     return _service_response(result, response)
 
@@ -1414,6 +1530,21 @@ def _optional_int_field(payload: dict[str, Any], key: str, errors: list[ServiceE
     if payload.get(key) is None:
         return None
     return _int_field(payload, key, errors)
+
+
+def _text_list_field(payload: dict[str, Any], key: str, errors: list[ServiceError]) -> list[str]:
+    value = payload.get(key)
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        errors.append(ServiceError(code="VALIDATION_ERROR", message=f"{key} must be a list."))
+        return []
+    cleaned: list[str] = []
+    for item in value:
+        text = str(item).strip()
+        if text and text not in cleaned:
+            cleaned.append(text)
+    return cleaned
 
 
 def _float_field(

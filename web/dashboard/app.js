@@ -40,6 +40,8 @@ const state = {
   reportEnvelope: null,
   nextDayDecision: null,
   nextDayDecisionEnvelope: null,
+  decisionActionLog: null,
+  decisionActionLogEnvelope: null,
   paperAcceptance: null,
   paperAcceptanceEnvelope: null,
   paperAcceptanceHistory: null,
@@ -109,6 +111,7 @@ function cacheElements() {
     "decisionSystemProposal",
     "decisionStrategyProposal",
     "decisionChecklist",
+    "decisionActionLog",
     "reloadExecutionButton",
     "executionEvaluateExitsButton",
     "openingWorkflowGuide",
@@ -292,6 +295,7 @@ function bindEvents() {
   els.decisionSystemProposal.addEventListener("click", onDecisionActionClick);
   els.decisionStrategyProposal.addEventListener("click", onDecisionActionClick);
   els.decisionChecklist.addEventListener("click", onDecisionActionClick);
+  els.decisionActionLog.addEventListener("click", onDecisionActionClick);
   els.reloadOpsHistoryButton.addEventListener("click", loadOpsHistoryAndRender);
   els.reloadMarketButton.addEventListener("click", loadMarketReviewAndRender);
   els.marketApplyDateButton.addEventListener("click", applyMarketReviewDateInput);
@@ -541,6 +545,7 @@ async function refreshAll(options = {}) {
       loadMarketReview(),
       loadOpenExecution(),
       loadNextDayDecision(),
+      loadDecisionActionLog(),
       loadPaperAcceptance(),
       loadPaperAcceptanceHistory(),
       loadOpsHistory(),
@@ -586,6 +591,26 @@ async function loadNextDayDecision() {
   const envelope = await apiRequest(`/api/next-day-decision-cockpit/${state.asOfDate}?${params.toString()}`);
   state.nextDayDecisionEnvelope = envelope;
   state.nextDayDecision = envelope.data || state.report?.next_day_decision || null;
+}
+
+async function loadDecisionActionLog() {
+  const params = new URLSearchParams();
+  params.set("review_date", state.asOfDate);
+  params.set("limit", "10");
+  params.set("request_id", requestId("decision-action-log"));
+  const accountId = resolvedAccountId();
+  if (accountId) {
+    params.set("account_id", accountId);
+  } else if (state.accountKey) {
+    params.set("account_key", state.accountKey);
+  } else {
+    state.decisionActionLog = state.nextDayDecision?.action_log || state.report?.next_day_decision?.action_log || null;
+    state.decisionActionLogEnvelope = null;
+    return;
+  }
+  const envelope = await apiRequest(`/api/decision-action-log?${params.toString()}`);
+  state.decisionActionLogEnvelope = envelope;
+  state.decisionActionLog = envelope.data || state.nextDayDecision?.action_log || state.report?.next_day_decision?.action_log || null;
 }
 
 async function loadPaperAcceptance() {
@@ -862,7 +887,7 @@ async function loadPaperAcceptanceAndRender() {
 
 async function loadNextDayDecisionAndRender() {
   await runWithNotice(async () => {
-    await loadNextDayDecision();
+    await Promise.all([loadNextDayDecision(), loadDecisionActionLog()]);
     renderNextDayDecision();
     renderBadges();
   });
@@ -1874,6 +1899,7 @@ function renderNextDayDecision() {
     els.decisionSystemProposal.innerHTML = emptyState("暂无系统建议。");
     els.decisionStrategyProposal.innerHTML = emptyState("暂无策略 proposal 摘要。");
     els.decisionChecklist.innerHTML = emptyState("暂无决策清单。");
+    renderDecisionActionLog(decisionActionLogData());
     return;
   }
 
@@ -1894,6 +1920,9 @@ function renderNextDayDecision() {
       ["人工下一步", cockpit.recommended_manual_action || "-"],
     ])}
     <div class="acceptance-actions">
+      <button type="button" data-decision-log="followed">记录 follow</button>
+      <button type="button" data-decision-log="deferred">记录 defer</button>
+      <button type="button" data-decision-log="overrode">记录 override</button>
       <button type="button" data-decision-action="execution">开盘执行</button>
       <button type="button" data-decision-action="acceptance">运营验收</button>
       <button type="button" data-decision-action="refresh">刷新驾驶舱</button>
@@ -1920,10 +1949,15 @@ function renderNextDayDecision() {
   els.decisionChecklist.innerHTML = items.length
     ? items.map(decisionChecklistCard).join("")
     : emptyState("暂无决策清单。");
+  renderDecisionActionLog(decisionActionLogData());
 }
 
 function nextDayDecisionData() {
   return state.nextDayDecision || state.report?.next_day_decision || null;
+}
+
+function decisionActionLogData() {
+  return state.decisionActionLog || state.nextDayDecision?.action_log || state.report?.next_day_decision?.action_log || null;
 }
 
 function renderDecisionStrategyProposal(proposals) {
@@ -1951,6 +1985,38 @@ function renderDecisionStrategyProposal(proposals) {
           </div>
         `).join("") : emptyState("没有待审阅策略假设或 proposal。")}
       </div>
+    </div>
+  `;
+}
+
+function renderDecisionActionLog(actionLog) {
+  const items = Array.isArray(actionLog?.items) ? actionLog.items : [];
+  const summary = actionLog?.summary || "暂无驾驶舱动作日志。";
+  const unresolved = listValue(actionLog?.unresolved_blocker_codes);
+  els.decisionActionLog.innerHTML = `
+    <div class="decision-action-summary">
+      ${actionMetrics([
+        ["followed", integerText(actionLog?.followed_count)],
+        ["deferred", integerText(actionLog?.deferred_count)],
+        ["override", integerText(actionLog?.override_count)],
+        ["pending outcome", integerText(actionLog?.pending_outcome_count)],
+      ])}
+      <p class="muted">${escapeHtml(summary)}</p>
+      ${unresolved.length ? `<div class="acceptance-code-row">${unresolved.map((code) => chipHtml(code, "chip-red")).join("")}</div>` : ""}
+    </div>
+    <div class="compact-list">
+      ${items.length ? items.map(decisionActionLogRow).join("") : emptyState("还没有记录人工 follow / defer / override。")}
+    </div>
+  `;
+}
+
+function decisionActionLogRow(item) {
+  const outcome = item.outcome || {};
+  return `
+    <div class="list-row decision-action-log-row">
+      ${chipHtml(decisionLogDecisionText(item.operator_decision), decisionLogDecisionClass(item.operator_decision))}
+      <span>${escapeHtml(openExecutionActionText(item.system_action))} / ${escapeHtml(decisionOutcomeText(outcome.outcome_status))} / 执行日 ${displayDate(item.execution_date)}</span>
+      <button type="button" data-decision-action="execution">查看执行</button>
     </div>
   `;
 }
@@ -1988,6 +2054,11 @@ function decisionActionForItem(item) {
 }
 
 function onDecisionActionClick(event) {
+  const logButton = event.target.closest("button[data-decision-log]");
+  if (logButton) {
+    recordDecisionActionLog(logButton.dataset.decisionLog);
+    return;
+  }
   const button = event.target.closest("button[data-decision-action]");
   if (!button) return;
   const action = button.dataset.decisionAction;
@@ -1997,6 +2068,82 @@ function onDecisionActionClick(event) {
   if (action === "market") setActivePage("market");
   if (action === "quality") setActivePage("quality");
   if (action === "hypotheses") setActivePage("hypotheses");
+}
+
+async function recordDecisionActionLog(operatorDecision) {
+  const cockpit = nextDayDecisionData();
+  if (!cockpit) return;
+  try {
+    const proposal = cockpit.system_proposal || {};
+    const target = decisionActionLogTarget(proposal);
+    const ok = await confirmAction({
+      title: `记录 ${decisionLogDecisionText(operatorDecision)}`,
+      body: "只记录人工对驾驶舱建议的处理方式；不会执行交易、开启 timer 或修改策略参数。",
+      inputLabel: "记录说明",
+      quickChoices: decisionLogQuickChoices(operatorDecision, proposal),
+      submitLabel: confirmationSubmitLabel(),
+      details: [
+        ["复盘日", displayDate(cockpit.as_of_date)],
+        ["执行日", displayDate(cockpit.execution_date)],
+        ["系统建议", openExecutionActionText(proposal.action)],
+        ["目标", proposal.target || "-"],
+        ["target", `${target.target_type}${target.target_id ? `:${target.target_id}` : ""}`],
+        ["Dry-run / Apply", state.dryRun ? "Dry run：预演不落库" : "Apply：写入 advisory action log"],
+      ],
+    });
+    if (!ok.confirmed) return;
+    const note = ok.value.trim();
+    if (["deferred", "overrode"].includes(operatorDecision) && !note) {
+      showNotice("defer / override 需要填写记录说明。");
+      return;
+    }
+    const payload = supportedWritePayload(`decision-action-log:${cockpit.as_of_date}:${operatorDecision}:${proposal.action || "none"}`, {
+      ...selectedAccountPayload(),
+      review_date: cockpit.as_of_date || state.asOfDate,
+      execution_date: cockpit.execution_date || null,
+      cockpit_status: cockpit.status || "unknown",
+      system_action: proposal.action || "none",
+      operator_decision: operatorDecision,
+      operator_note: note || decisionLogDefaultNote(operatorDecision, proposal),
+      ...target,
+      blocker_codes: decisionChecklistCodes(cockpit, "blocker_codes"),
+      warning_codes: decisionChecklistCodes(cockpit, "warning_codes"),
+      source_refs: decisionChecklistCodes(cockpit, "source_refs"),
+    });
+    const envelope = await apiRequest("/api/decision-action-log", { method: "POST", body: payload });
+    if (envelope.status !== "success") throw new Error(errorMessages(envelope).join("；") || "动作日志记录失败。");
+    const safety = envelope.data || {};
+    if (safety.writes_trade_state || safety.writes_strategy_state || safety.enables_timer) {
+      throw new Error("动作日志服务返回了越界写入标记，已停止刷新。");
+    }
+    showNotice(
+      state.dryRun ? "动作日志 dry run 成功，未写入数据库。" : "动作日志已记录；成交仍需走成交录入端点。",
+      "ok",
+    );
+    await Promise.all([loadDecisionActionLog(), loadOpsHistory()]);
+    renderNextDayDecision();
+    renderOpsHistory();
+    renderBadges();
+  } catch (error) {
+    showNotice(error.message || String(error));
+  }
+}
+
+function decisionActionLogTarget(proposal) {
+  if (proposal?.trade_plan_id) return { target_type: "trade_plan", target_id: Number(proposal.trade_plan_id) };
+  if (proposal?.position_id) return { target_type: "position", target_id: Number(proposal.position_id) };
+  return { target_type: "none", target_id: null };
+}
+
+function decisionChecklistCodes(cockpit, key) {
+  const items = Array.isArray(cockpit?.checklist) ? cockpit.checklist : [];
+  const values = [];
+  for (const item of items) {
+    for (const value of listValue(item?.[key])) {
+      if (!values.includes(value)) values.push(value);
+    }
+  }
+  return values;
 }
 
 function renderPaperAcceptance() {
@@ -5239,6 +5386,52 @@ function decisionActionText(value) {
   }[value] || "查看";
 }
 
+function decisionLogDecisionText(value) {
+  return {
+    followed: "follow",
+    deferred: "defer",
+    overrode: "override",
+  }[value] || dash(value);
+}
+
+function decisionLogDecisionClass(value) {
+  return {
+    followed: "chip-green",
+    deferred: "chip-amber",
+    overrode: "chip-red",
+  }[value] || "chip-neutral";
+}
+
+function decisionOutcomeText(value) {
+  return {
+    dry_run_preview: "dry run preview",
+    deferred: "deferred",
+    matched: "matched",
+    pending_outcome: "pending outcome",
+    override_recorded: "override recorded",
+    override_executed: "override executed",
+    unexpected_trade_recorded: "unexpected trade",
+    review_only: "review only",
+  }[value] || dash(value);
+}
+
+function decisionLogQuickChoices(operatorDecision, proposal) {
+  const action = openExecutionActionText(proposal?.action);
+  return {
+    followed: [`已按 ${action} 进入人工流程`, "已确认无 blocker 后 follow", "仅记录，成交另走成交录入"],
+    deferred: ["证据 blocker 未关闭，暂缓", "等待开盘条件确认", "等待人工补充复核"],
+    overrode: ["人工风险判断 override", "计划与市场状态不匹配", "实际盘面不满足执行条件"],
+  }[operatorDecision] || ["人工记录"];
+}
+
+function decisionLogDefaultNote(operatorDecision, proposal) {
+  return {
+    followed: `Followed cockpit recommendation: ${openExecutionActionText(proposal?.action)}.`,
+    deferred: "Deferred cockpit recommendation.",
+    overrode: "Overrode cockpit recommendation.",
+  }[operatorDecision] || "Recorded cockpit action.";
+}
+
 function opsHistoryCategoryText(value) {
   return {
     daily_pipeline: "pipeline",
@@ -5247,6 +5440,7 @@ function opsHistoryCategoryText(value) {
     release: "release",
     health: "health",
     paper_acceptance: "acceptance",
+    decision_action_log: "action log",
     timer_evidence: "timer evidence",
     timer_action: "timer action",
     operation: "operation",

@@ -44,6 +44,7 @@ class DashboardStaticTest(unittest.TestCase):
             "/api/paper-acceptance/",
             "/api/paper-acceptance-history",
             "/api/next-day-decision-cockpit/",
+            "/api/decision-action-log",
             "/api/ops-history",
             "/api/review-timeline",
             "/api/trade-plans",
@@ -579,6 +580,43 @@ class DashboardStaticTest(unittest.TestCase):
         self.assertIn('data-page-button="decision"', source)
         self.assertNotIn("nextDayDecisionExecute", script)
         self.assertNotIn('apiRequest("/api/next-day-decision-cockpit", { method: "POST"', script)
+
+    def test_dashboard_m70_decision_action_log_is_advisory(self) -> None:
+        source = "\n".join(
+            [
+                (DASHBOARD_DIR / "index.html").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "styles.css").read_text(encoding="utf-8"),
+            ]
+        )
+        script = (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8")
+
+        for label in [
+            "动作日志 / 次日复核",
+            "只记录人工 follow / defer / override",
+            "记录 follow",
+            "记录 defer",
+            "记录 override",
+            "不会执行交易、开启 timer 或修改策略参数",
+            "/api/decision-action-log",
+        ]:
+            self.assertIn(label, source)
+        for html_id in [
+            'id="decisionActionLog"',
+        ]:
+            self.assertIn(html_id, source)
+        for fn_name in [
+            "function loadDecisionActionLog",
+            "function renderDecisionActionLog",
+            "function recordDecisionActionLog",
+            "function decisionActionLogTarget",
+            "function decisionChecklistCodes",
+        ]:
+            self.assertIn(fn_name, source)
+        self.assertIn('apiRequest("/api/decision-action-log"', script)
+        self.assertIn("writes_trade_state", script)
+        self.assertNotIn("recordDecisionActionLogExecute", script)
+        self.assertNotIn("trade_record_from_decision_action_log", script)
 
     def test_dashboard_m48_market_interactions_are_read_only_and_cross_day(self) -> None:
         source = "\n".join(

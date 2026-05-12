@@ -1163,6 +1163,26 @@ code {
   color: var(--ink);
 }
 
+.decision-action-log-panel {
+  margin-bottom: 14px;
+}
+
+.decision-action-log,
+.decision-action-summary {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.decision-action-summary p {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.decision-action-log-row span {
+  overflow-wrap: anywhere;
+}
+
 .ops-history-panel {
   display: grid;
   gap: 12px;

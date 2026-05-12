@@ -9,6 +9,7 @@ from typing import Callable
 from pgc_trading.reporting.daily_report import ReportingQueryService
 from pgc_trading.services.data_quality_service import DataQualityService
 from pgc_trading.services.daily_close_workflow_service import DailyCloseWorkflowService
+from pgc_trading.services.decision_action_log_service import DecisionActionLogService
 from pgc_trading.services.execution_recording_service import ExecutionRecordingService
 from pgc_trading.services.market_review_service import MarketReviewService
 from pgc_trading.services.open_execution_service import OpenExecutionService
@@ -20,6 +21,7 @@ from pgc_trading.services.strategy_evolution_service import StrategyEvolutionSer
 ReportServiceFactory = Callable[[Path], ReportingQueryService]
 DataQualityServiceFactory = Callable[[Path], DataQualityService]
 DailyCloseWorkflowServiceFactory = Callable[[Path], DailyCloseWorkflowService]
+DecisionActionLogServiceFactory = Callable[[Path], DecisionActionLogService]
 ExecutionRecordingServiceFactory = Callable[[Path], ExecutionRecordingService]
 MarketReviewServiceFactory = Callable[[Path], MarketReviewService]
 OpenExecutionServiceFactory = Callable[[Path], OpenExecutionService]
@@ -33,6 +35,7 @@ class ApiServices:
     report_service_factory: ReportServiceFactory = ReportingQueryService
     data_quality_service_factory: DataQualityServiceFactory = DataQualityService
     daily_close_workflow_service_factory: DailyCloseWorkflowServiceFactory = DailyCloseWorkflowService
+    decision_action_log_service_factory: DecisionActionLogServiceFactory = DecisionActionLogService
     execution_recording_service_factory: ExecutionRecordingServiceFactory = ExecutionRecordingService
     market_review_service_factory: MarketReviewServiceFactory = MarketReviewService
     open_execution_service_factory: OpenExecutionServiceFactory = OpenExecutionService

@@ -1,0 +1,561 @@
+{
+  "account": {
+    "account_id": 1,
+    "account_key": "paper-main",
+    "account_type": "paper",
+    "cash": 69934.0,
+    "equity_as_of_date": "20260511",
+    "free_position_slots": 1,
+    "market_value": 130066.0,
+    "max_positions": 3,
+    "name": "Paper Main",
+    "open_positions": 2,
+    "total_equity": 200000.0
+  },
+  "agent_advice": {
+    "action": "no_opinion",
+    "agent_decision_id": null,
+    "agent_run_id": null,
+    "analyst_reports": [],
+    "artifacts": [],
+    "confidence": null,
+    "execution_mode": null,
+    "external_data_coverage": {},
+    "external_evidence": [],
+    "missing_data_warnings": [],
+    "note": "Agent 复核尚未接入本次日报；确定性策略和人工检查优先。",
+    "report_markdown": null,
+    "report_sections": [],
+    "risk_level": "unknown",
+    "risk_points": [],
+    "source_label": null,
+    "source_refs": [],
+    "status": "not_run",
+    "summary": null,
+    "supporting_points": []
+  },
+  "as_of_date": "20260511",
+  "buy_plan": null,
+  "candidate": null,
+  "data_quality": {
+    "account_ok": true,
+    "blocker_count": 0,
+    "can_trade": true,
+    "event_ids": [],
+    "market_coverage_ok": true,
+    "missing_market_bar_count": 0,
+    "readiness": "pass",
+    "strategy_version_ok": true,
+    "trade_calendar_ok": true,
+    "valid_raw_count": 250,
+    "warning_count": 0
+  },
+  "due_positions": [],
+  "generated_at": "2026-05-11T09:15:29.225895+00:00",
+  "latest_market_date": "20260511",
+  "lineage": {
+    "agent_decision_id": null,
+    "agent_run_id": null,
+    "daily_pick_id": null,
+    "data_quality_event_ids": [],
+    "feature_run_id": 3,
+    "market_fetch_run_id": null,
+    "market_review_run_id": 3,
+    "signal_id": null,
+    "strategy_run_id": 3,
+    "trade_plan_id": null
+  },
+  "market_plan_context": null,
+  "market_review": {
+    "breadth_score": 0.5726,
+    "external_evidence_coverage": {
+      "by_importance": {},
+      "by_item_type": {},
+      "by_provider": {},
+      "by_scope": {},
+      "by_sentiment": {},
+      "coverage": "missing",
+      "fresh_count": 0,
+      "market": "missing",
+      "missing_scopes": [
+        "market",
+        "sector",
+        "stock"
+      ],
+      "news": "missing",
+      "sector": "missing",
+      "sentiment": "missing",
+      "stale_count": 0,
+      "stock": "missing",
+      "total_count": 0
+    },
+    "market_review_run_id": 3,
+    "persistence_score": 0.4085,
+    "regime": "neutral",
+    "sector_persistence": [],
+    "sentiment_score": null,
+    "status": "completed",
+    "strategy_hypotheses": [],
+    "summary": "Market regime neutral: breadth=0.57 trend=0.72 volume=0.54 persistence=0.41 coverage=1.00.",
+    "top_sectors": [],
+    "trend_score": 0.7177,
+    "volume_score": 0.5447
+  },
+  "next_day_decision": {
+    "acceptance_status": "blocked",
+    "acceptance_summary": "纸盘每日运营验收阻断：1 项 blocker 需要先处理。",
+    "account_key": "paper-main",
+    "advisory_note": "Next-day decision cockpit is read-only; it explains blockers and next manual actions but never executes trades, enables timers, or mutates strategy parameters.",
+    "as_of_date": "20260511",
+    "blocker_count": 1,
+    "checklist": [
+      {
+        "blocker_codes": [
+          "MIN_PAPER_TRADES_NOT_MET"
+        ],
+        "detail": "汇总数据新鲜度、证据覆盖、Agent、open-execution 和 readiness gates。",
+        "key": "paper_acceptance",
+        "label": "paper acceptance",
+        "manual_action": "处理 paper acceptance 未处理 blocker。",
+        "source_refs": [
+          "market_review_runs:3",
+          "positions:1"
+        ],
+        "status": "blocked",
+        "summary": "纸盘每日运营验收阻断：1 项 blocker 需要先处理。",
+        "warning_codes": [
+          "MARKET_EVIDENCE_MISSING",
+          "AGENT_EXTERNAL_EVIDENCE_MISSING",
+          "AGENT_REVIEW_NOT_RUN",
+          "AGENT_EVIDENCE_MISSING"
+        ]
+      },
+      {
+        "blocker_codes": [],
+        "detail": "Missing evidence is explicit and remains advisory; no cached evidence mutates strategy or trades.",
+        "key": "evidence_blockers",
+        "label": "证据 freshness / coverage",
+        "manual_action": "补齐或确认 cached provider evidence，再重新运行只读验收。",
+        "source_refs": [
+          "market_review_runs:3"
+        ],
+        "status": "warning",
+        "summary": "全市场证据 0 条；Agent 覆盖 0 项",
+        "warning_codes": [
+          "MARKET_EVIDENCE_MISSING",
+          "AGENT_EXTERNAL_EVIDENCE_MISSING"
+        ]
+      },
+      {
+        "blocker_codes": [],
+        "detail": "市场复盘只提供 advisory，不会创建、取消或执行交易计划。",
+        "key": "market_review",
+        "label": "全市场复盘 / 计划关系",
+        "manual_action": "补齐全市场复盘与明日计划关系，或人工确认该计划无需市场上下文。",
+        "source_refs": [
+          "market_review_runs:3"
+        ],
+        "status": "warning",
+        "summary": "neutral；Market regime neutral: breadth=0.57 trend=0.72 volume=0.54 persistence=0.41 coverage=1.00.；计划建议 missing",
+        "warning_codes": [
+          "MARKET_PLAN_CONTEXT_MISSING"
+        ]
+      },
+      {
+        "blocker_codes": [],
+        "detail": "执行日 2026-05-12；预期 2026-05-12；计划 -；持仓 1",
+        "key": "open_execution",
+        "label": "open-execution 下一步",
+        "manual_action": "人工评估到期持仓并按显式流程生成退出动作。",
+        "source_refs": [
+          "positions:1"
+        ],
+        "status": "pass",
+        "summary": "ready / evaluate_exit",
+        "warning_codes": []
+      },
+      {
+        "blocker_codes": [],
+        "detail": "没有 active strategy 参数、trade plan、position 或 live 行为被修改。",
+        "key": "strategy_proposals",
+        "label": "策略 proposal / hypothesis",
+        "manual_action": "无需策略参数动作；继续保持策略 evolution 只读边界。",
+        "source_refs": [],
+        "status": "pass",
+        "summary": "没有待审阅策略假设或 proposal。",
+        "warning_codes": []
+      }
+    ],
+    "execution_date": "20260512",
+    "headline": "下一交易日决策被 1 项 blocker 阻断。",
+    "market_plan_context": null,
+    "market_review": {
+      "breadth_score": 0.5726,
+      "external_evidence_coverage": {
+        "by_importance": {},
+        "by_item_type": {},
+        "by_provider": {},
+        "by_scope": {},
+        "by_sentiment": {},
+        "coverage": "missing",
+        "fresh_count": 0,
+        "market": "missing",
+        "missing_scopes": [
+          "market",
+          "sector",
+          "stock"
+        ],
+        "news": "missing",
+        "sector": "missing",
+        "sentiment": "missing",
+        "stale_count": 0,
+        "stock": "missing",
+        "total_count": 0
+      },
+      "market_review_run_id": 3,
+      "persistence_score": 0.4085,
+      "regime": "neutral",
+      "sector_persistence": [],
+      "sentiment_score": null,
+      "status": "completed",
+      "strategy_hypotheses": [],
+      "summary": "Market regime neutral: breadth=0.57 trend=0.72 volume=0.54 persistence=0.41 coverage=1.00.",
+      "top_sectors": [],
+      "trend_score": 0.7177,
+      "volume_score": 0.5447
+    },
+    "open_execution": {
+      "as_of_date": "20260512",
+      "blocked_reasons": [],
+      "next_action": "evaluate_exit",
+      "operator_required": true,
+      "planned_shares": 4800,
+      "planned_trade_date": "20260512",
+      "primary_plan_id": null,
+      "primary_position_id": 1,
+      "status": "ready",
+      "target_name": "仁东控股",
+      "target_stock": "002647.SZ"
+    },
+    "recommended_manual_action": "处理 paper acceptance 未处理 blocker。",
+    "status": "blocked",
+    "strategy_proposals": {
+      "accepted_count": 0,
+      "archived_count": 0,
+      "items": [],
+      "proposed_count": 0,
+      "rejected_count": 0,
+      "review_required_count": 0,
+      "testing_count": 0,
+      "total_count": 0
+    },
+    "system_proposal": {
+      "action": "evaluate_exit",
+      "planned_shares": 4800,
+      "planned_trade_date": "20260512",
+      "position_id": 1,
+      "rationale": "人工评估到期持仓并按显式流程生成退出动作。",
+      "target": "002647.SZ 仁东控股",
+      "trade_plan_id": null
+    },
+    "warning_count": 2
+  },
+  "next_trade_date": "20260512",
+  "no_candidate_reason": "no_strategy_signals",
+  "paper_acceptance": {
+    "account_key": "paper-main",
+    "advisory_note": "Acceptance is read-only; it does not execute trades, cancel plans, or mutate strategy parameters.",
+    "agent_status": {
+      "blocker_codes": [],
+      "detail": "Agent 复核尚未接入本次日报；确定性策略和人工检查优先。",
+      "key": "agent_status",
+      "label": "Agent 状态",
+      "source_refs": [],
+      "status": "warning",
+      "summary": "not_run / no_opinion / risk unknown",
+      "warning_codes": [
+        "AGENT_REVIEW_NOT_RUN"
+      ]
+    },
+    "alerts": [
+      {
+        "action": "quality",
+        "as_of_date": "20260511",
+        "code": "UNRESOLVED_ACCEPTANCE_BLOCKERS",
+        "gate_key": "unresolved_blockers",
+        "severity": "blocker",
+        "summary": "1 项 blocker 仍未处理，paper acceptance 不能视为通过。",
+        "title": "未处理 blocker"
+      },
+      {
+        "action": "market",
+        "as_of_date": "20260511",
+        "code": "STALE_OR_MISSING_EVIDENCE",
+        "gate_key": "evidence_coverage",
+        "severity": "warning",
+        "summary": "2026-05-11 存在 MARKET_EVIDENCE_MISSING, AGENT_EXTERNAL_EVIDENCE_MISSING，需人工复核证据覆盖。",
+        "title": "证据或行情不新鲜"
+      },
+      {
+        "action": "agent",
+        "as_of_date": "20260511",
+        "code": "AGENT_REVIEW_MISSING",
+        "gate_key": "agent_status",
+        "severity": "warning",
+        "summary": "2026-05-11 的 Agent 状态为 not_run / no_opinion / risk unknown。",
+        "title": "Agent 复核缺失"
+      }
+    ],
+    "as_of_date": "20260511",
+    "data_freshness": {
+      "blocker_codes": [],
+      "detail": "有效入池 250；缺失行情 0；blocker/warning 0/0",
+      "key": "data_freshness",
+      "label": "数据新鲜度",
+      "source_refs": [],
+      "status": "pass",
+      "summary": "最新行情日 2026-05-11 / 复盘日 2026-05-11",
+      "warning_codes": []
+    },
+    "evidence_coverage": {
+      "blocker_codes": [],
+      "detail": "Missing evidence is explicit and remains advisory; no cached evidence mutates strategy or trades.",
+      "key": "evidence_coverage",
+      "label": "证据覆盖",
+      "source_refs": [
+        "market_review_runs:3"
+      ],
+      "status": "warning",
+      "summary": "全市场证据 0 条；Agent 覆盖 0 项",
+      "warning_codes": [
+        "MARKET_EVIDENCE_MISSING",
+        "AGENT_EXTERNAL_EVIDENCE_MISSING"
+      ]
+    },
+    "execution_date": "20260512",
+    "open_execution": {
+      "as_of_date": "20260512",
+      "blocked_reasons": [],
+      "next_action": "evaluate_exit",
+      "operator_required": true,
+      "planned_shares": 4800,
+      "planned_trade_date": "20260512",
+      "primary_plan_id": null,
+      "primary_position_id": 1,
+      "status": "ready",
+      "target_name": "仁东控股",
+      "target_stock": "002647.SZ"
+    },
+    "open_execution_gate": {
+      "blocker_codes": [],
+      "detail": "执行日 2026-05-12；预期 2026-05-12；计划 -；持仓 1",
+      "key": "open_execution",
+      "label": "open-execution 状态",
+      "source_refs": [
+        "positions:1"
+      ],
+      "status": "pass",
+      "summary": "ready / evaluate_exit",
+      "warning_codes": []
+    },
+    "readiness_gates": [
+      {
+        "blocker_codes": [],
+        "detail": "可交易 是；质量事件 0 个",
+        "key": "daily_review_readiness",
+        "label": "daily review readiness gate",
+        "source_refs": [],
+        "status": "pass",
+        "summary": "readiness=pass",
+        "warning_codes": []
+      },
+      {
+        "blocker_codes": [],
+        "detail": "当前持仓 2；T+2/T+5 待处理 0",
+        "key": "account_capacity",
+        "label": "账户容量 gate",
+        "source_refs": [],
+        "status": "pass",
+        "summary": "持仓 2/3；空闲 1",
+        "warning_codes": []
+      },
+      {
+        "blocker_codes": [
+          "MIN_PAPER_TRADES_NOT_MET"
+        ],
+        "detail": "来自 paper-readiness；用于暴露晋级和账本 gate，不会自动执行任何交易动作。",
+        "key": "paper_paper_trade_sample",
+        "label": "Paper 样本交易",
+        "source_refs": [],
+        "status": "blocked",
+        "summary": "2/10 笔 executed paper trades",
+        "warning_codes": []
+      },
+      {
+        "blocker_codes": [],
+        "detail": "来自 paper-readiness；用于暴露晋级和账本 gate，不会自动执行任何交易动作。",
+        "key": "paper_ledger_invariants",
+        "label": "账本 invariant",
+        "source_refs": [],
+        "status": "pass",
+        "summary": "账本 invariant 通过",
+        "warning_codes": []
+      },
+      {
+        "blocker_codes": [],
+        "detail": "来自 paper-readiness；用于暴露晋级和账本 gate，不会自动执行任何交易动作。",
+        "key": "paper_data_quality_blockers",
+        "label": "数据质量 blocker",
+        "source_refs": [],
+        "status": "pass",
+        "summary": "0 个 open blocker",
+        "warning_codes": []
+      },
+      {
+        "blocker_codes": [],
+        "detail": "来自 paper-readiness；用于暴露晋级和账本 gate，不会自动执行任何交易动作。",
+        "key": "paper_exit_decisions",
+        "label": "T+2 / T+5 待处理",
+        "source_refs": [],
+        "status": "pass",
+        "summary": "0 个到期退出判断",
+        "warning_codes": []
+      },
+      {
+        "blocker_codes": [],
+        "detail": "来自 paper-readiness；用于暴露晋级和账本 gate，不会自动执行任何交易动作。",
+        "key": "paper_cash_equity_reconciliation",
+        "label": "现金 / 权益核对",
+        "source_refs": [],
+        "status": "pass",
+        "summary": "现金/权益核对未发现警告",
+        "warning_codes": []
+      },
+      {
+        "blocker_codes": [],
+        "detail": "来自 paper-readiness；用于暴露晋级和账本 gate，不会自动执行任何交易动作。",
+        "key": "paper_agent_evidence_linkage",
+        "label": "Agent 证据链路",
+        "source_refs": [],
+        "status": "warning",
+        "summary": "缺少账户级 Agent 证据链路",
+        "warning_codes": [
+          "AGENT_EVIDENCE_MISSING"
+        ]
+      }
+    ],
+    "status": "blocked",
+    "summary": "纸盘每日运营验收阻断：1 项 blocker 需要先处理。",
+    "unresolved_blockers": [
+      "Paper 样本交易: MIN_PAPER_TRADES_NOT_MET"
+    ]
+  },
+  "paper_promotion": {
+    "account_key": "paper-main",
+    "as_of_date": "20260511",
+    "avg_slippage": 0.0061818181818182,
+    "closed_trades_count": 0,
+    "due_exit_positions_count": 0,
+    "invariant_ok": true,
+    "invariant_violation_codes": [],
+    "last_pipeline_status": "success",
+    "ledger_blockers_count": 0,
+    "open_blockers_count": 0,
+    "open_positions_count": 2,
+    "promotion_blockers": [
+      "MIN_PAPER_TRADES_NOT_MET"
+    ],
+    "promotion_warnings": [
+      "AGENT_EVIDENCE_MISSING"
+    ],
+    "readiness": "blocked",
+    "readiness_gates": [
+      {
+        "blocker_codes": [
+          "MIN_PAPER_TRADES_NOT_MET"
+        ],
+        "gate": "paper_trade_sample",
+        "label": "Paper 样本交易",
+        "status": "blocked",
+        "summary": "2/10 笔 executed paper trades",
+        "warning_codes": []
+      },
+      {
+        "blocker_codes": [],
+        "gate": "ledger_invariants",
+        "label": "账本 invariant",
+        "status": "pass",
+        "summary": "账本 invariant 通过",
+        "warning_codes": []
+      },
+      {
+        "blocker_codes": [],
+        "gate": "data_quality_blockers",
+        "label": "数据质量 blocker",
+        "status": "pass",
+        "summary": "0 个 open blocker",
+        "warning_codes": []
+      },
+      {
+        "blocker_codes": [],
+        "gate": "exit_decisions",
+        "label": "T+2 / T+5 待处理",
+        "status": "pass",
+        "summary": "0 个到期退出判断",
+        "warning_codes": []
+      },
+      {
+        "blocker_codes": [],
+        "gate": "cash_equity_reconciliation",
+        "label": "现金 / 权益核对",
+        "status": "pass",
+        "summary": "现金/权益核对未发现警告",
+        "warning_codes": []
+      },
+      {
+        "blocker_codes": [],
+        "gate": "agent_evidence_linkage",
+        "label": "Agent 证据链路",
+        "status": "warning",
+        "summary": "缺少账户级 Agent 证据链路",
+        "warning_codes": [
+          "AGENT_EVIDENCE_MISSING"
+        ]
+      }
+    ],
+    "realized_pnl": 0.0,
+    "trades_count": 2,
+    "win_rate": null
+  },
+  "positions": [
+    {
+      "action_due": "none",
+      "buy_date": "20260508",
+      "buy_price": 13.92,
+      "latest_close": 13.45,
+      "latest_trade_date": "20260511",
+      "name": "仁东控股",
+      "planned_t2_date": "20260512",
+      "planned_t5_date": "20260515",
+      "position_id": 1,
+      "shares": 4800,
+      "status": "waiting_t2",
+      "ts_code": "002647.SZ"
+    },
+    {
+      "action_due": "none",
+      "buy_date": "20260511",
+      "buy_price": 27.5,
+      "latest_close": 33.0,
+      "latest_trade_date": "20260511",
+      "name": "力诺药包",
+      "planned_t2_date": "20260513",
+      "planned_t5_date": "20260518",
+      "position_id": 2,
+      "shares": 2300,
+      "status": "waiting_t2",
+      "ts_code": "301188.SZ"
+    }
+  ],
+  "strategy_version": "cpb_6157@2026-05-03"
+}

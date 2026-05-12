@@ -4,8 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>PGC 操作台</title>
-    <link rel="stylesheet" href="/dashboard/assets/styles.css?v=20260511-m66-decision-cockpit-1" />
-    <script defer src="/dashboard/assets/app.js?v=20260511-m66-decision-cockpit-1"></script>
+    <link rel="stylesheet" href="/dashboard/assets/styles.css?v=20260512-m70-action-log-1" />
+    <script defer src="/dashboard/assets/app.js?v=20260512-m70-action-log-1"></script>
   </head>
   <body>
     <div class="app-shell">
@@ -307,6 +307,14 @@
               <span class="muted">显示 allowed / blocked / manual review</span>
             </div>
             <div id="decisionChecklist" class="acceptance-overview-grid decision-checklist"></div>
+          </section>
+
+          <section class="panel decision-action-log-panel">
+            <div class="panel-heading">
+              <h2>动作日志 / 次日复核</h2>
+              <span class="muted">只记录人工 follow / defer / override，不执行交易</span>
+            </div>
+            <div id="decisionActionLog" class="decision-action-log"></div>
           </section>
         </section>
 
