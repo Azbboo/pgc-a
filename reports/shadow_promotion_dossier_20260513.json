@@ -420,7 +420,7 @@
     }
   ],
   "dossier_contract": "shadow_promotion_dossier_v1",
-  "generated_at": "2026-05-13T12:05:54+00:00",
+  "generated_at": "2026-05-13T12:11:53+00:00",
   "next_trade_date": "20260514",
   "release_gate": {
     "active_params_mutated": false,
