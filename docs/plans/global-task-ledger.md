@@ -14,7 +14,7 @@ This ledger is the single index for historical and active project work. Detailed
 | Remote API | `http://150.158.121.150:8020` |
 | Remote migration state | `013_decision_action_log`, `pending_migrations=none` |
 | Latest release health | `api_health_ok=true`, HTTP `200` |
-| Latest full verification | `453 passed, 3 skipped, 10 subtests passed` locally on 2026-05-13 after M87-M90 Codex review; focused M87-M90 checks passed (`173 passed, 3 skipped, 1 subtests passed`), `node --check web/dashboard/app.js`, `python3 -m py_compile src/pgc_trading/services/shadow_observation_service.py src/pgc_trading/services/strategy_evolution_service.py scripts/monitor_shadow_strategies.py src/pgc_trading/cli/main.py src/pgc_trading/ops.py`, and `git diff --check` passed before release. |
+| Latest full verification | `453 passed, 3 skipped, 10 subtests passed` locally on 2026-05-13 after M87-M90 Codex review; focused M87-M90 checks passed (`173 passed, 3 skipped, 1 subtests passed`), `node --check web/dashboard/app.js`, `python3 -m py_compile src/pgc_trading/services/shadow_observation_service.py src/pgc_trading/services/strategy_evolution_service.py scripts/monitor_shadow_strategies.py src/pgc_trading/cli/main.py src/pgc_trading/ops.py`, and `git diff --check` passed before release. Deploy script unittest ran `456 tests OK`; remote `ops health --require-current-migrations` returned `status=ok`, `latest_migration=013_decision_action_log`, `pending_migrations=none`, and remote `/api/shadow-observation-history?as_of_date=20260513&window=2` returned `shadow_observation_history_v1` with 5 candidates. |
 
 ## Status Legend
 
