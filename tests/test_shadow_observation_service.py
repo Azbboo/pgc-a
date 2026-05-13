@@ -57,6 +57,8 @@ class ShadowObservationServiceTest(unittest.TestCase):
             source_artifacts_json = json.dumps(result.data.source_artifacts, ensure_ascii=False)
             self.assertNotIn(str(root), source_artifacts_json)
             self.assertIn("reports/strategy_shadow_monitor_20260512.json", source_artifacts_json)
+            row_artifacts_json = json.dumps(result.data.rows[0].get("source_artifacts", []), ensure_ascii=False)
+            self.assertNotIn("dict_values(", row_artifacts_json)
 
     def test_missing_market_bar_is_explicit_data_gap(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -653,7 +653,7 @@ def _candidate_scorecard_row(
     source_artifacts = _unique_texts(
         [
             *_list_text(candidate.get("source_artifacts")),
-            *_list_text(_mapping(getattr(snapshot, "source_artifacts", {})).values()),
+            *_list_text(list(_mapping(getattr(snapshot, "source_artifacts", {})).values())),
         ]
     )
 
