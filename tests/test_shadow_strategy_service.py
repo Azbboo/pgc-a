@@ -58,6 +58,17 @@ class ShadowStrategyServiceTest(unittest.TestCase):
             self.assertEqual(snapshot.active_cpb_integrity["status"], "unchanged")
             self.assertEqual(snapshot.release_gate["status"], "blocked")
             self.assertFalse(snapshot.release_gate["timer_mutated"])
+            embedded_payload = json.dumps(
+                {
+                    "walk_forward": snapshot.walk_forward,
+                    "frozen_cpb_comparison": snapshot.frozen_cpb_comparison,
+                    "active_cpb_integrity": snapshot.active_cpb_integrity,
+                    "candidates": snapshot.candidates,
+                },
+                ensure_ascii=False,
+            )
+            self.assertNotIn("/Users/azboo/Desktop/Person/pgc", embedded_payload)
+            self.assertIn(str(root / "reports/preconfirm_watchlist_backtest.json"), embedded_payload)
 
             trend = snapshot.candidates[0]
             self.assertEqual(trend["candidate_key"], "trend_extension_shadow")
@@ -184,6 +195,7 @@ def _insert_hypothesis(conn, candidate_key: str, status: str) -> None:
 
 
 def _write_shadow_artifacts(reports_dir: Path) -> None:
+    local_root = Path("/Users/azboo/Desktop/Person/pgc")
     candidate_gates = [
         {
             "candidate_key": "trend_extension_shadow",
@@ -250,10 +262,12 @@ def _write_shadow_artifacts(reports_dir: Path) -> None:
         },
         "frozen_cpb_baseline": {
             "status": "available",
+            "source_artifact": str(local_root / "reports/strategy_shadow_backtest_20260401_20260508.json"),
             "metrics": {"label": "active_cpb_persisted_picks", "n": 2},
         },
         "active_cpb_integrity": {
             "blockers": [],
+            "params_file": {"path": str(local_root / "src/pgc_trading/strategies/params/cpb_6157_2026_05_03.json")},
             "safety": {
                 "active_params_mutated": False,
                 "writes_trade_state": False,
@@ -277,8 +291,17 @@ def _write_shadow_artifacts(reports_dir: Path) -> None:
                 "candidate_key": "preconfirm_watchlist",
                 "candidate_family": "preconfirm_watchlist",
                 "today_candidate_count": 5,
-                "walk_forward_progress": candidate_gates[1]["walk_forward_progress"],
+                "walk_forward_progress": {
+                    **candidate_gates[1]["walk_forward_progress"],
+                    "source_artifact": str(local_root / "reports/preconfirm_watchlist_backtest.json"),
+                },
                 "comparison_vs_frozen_cpb": candidate_gates[1]["comparison_vs_frozen_cpb"],
+                "source": {
+                    "outputs": {
+                        "summary": str(local_root / "data/preconfirm_watchlist_backtest_summary.csv"),
+                        "json": str(local_root / "reports/preconfirm_watchlist_backtest.json"),
+                    }
+                },
                 "promotion_gates": {
                     "paper_observation_gate": candidate_gates[1]["paper_observation_gate"],
                     "strategy_version_gate": candidate_gates[1]["strategy_version_gate"],

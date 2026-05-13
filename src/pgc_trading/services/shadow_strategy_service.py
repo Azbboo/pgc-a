@@ -114,6 +114,9 @@ class ShadowStrategyService:
         else:
             preflight, preflight_errors = _read_json_object(preflight_path, "shadow promotion preflight")
             errors.extend(preflight_errors)
+        artifact_root = self.reports_dir.parent
+        monitor = _normalize_embedded_artifact_paths(monitor, artifact_root)
+        preflight = _normalize_embedded_artifact_paths(preflight, artifact_root)
         errors.extend(_mutation_guard_errors(monitor, preflight))
 
         if errors:
@@ -587,6 +590,29 @@ def _read_json_object(path: Path, label: str) -> tuple[dict[str, Any], list[Serv
     if not isinstance(payload, Mapping):
         return {}, [ServiceError("INVALID_SHADOW_ARTIFACT", f"{label} artifact must be a JSON object: {path}")]
     return dict(payload), []
+
+
+def _normalize_embedded_artifact_paths(value: Any, artifact_root: Path) -> Any:
+    if isinstance(value, Mapping):
+        return {str(key): _normalize_embedded_artifact_paths(item, artifact_root) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_normalize_embedded_artifact_paths(item, artifact_root) for item in value]
+    if isinstance(value, str):
+        return _normalize_embedded_artifact_path(value, artifact_root)
+    return value
+
+
+def _normalize_embedded_artifact_path(value: str, artifact_root: Path) -> str:
+    text = value.strip()
+    if not text.startswith("/"):
+        return value
+    marker = "/pgc/"
+    if marker not in text:
+        return value
+    relative = text.split(marker, 1)[1].strip("/")
+    if not relative or relative.startswith("../"):
+        return value
+    return str(artifact_root / relative)
 
 
 def _empty_result(db_path: Path, reports_dir: Path, as_of_date: str | None) -> ShadowStrategySnapshotResult:
