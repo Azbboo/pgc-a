@@ -1549,6 +1549,50 @@ PYTHONPATH=src:. pytest -q
 git diff --check
 ```
 
+## 30. M94 影子策略 threshold calibration sandbox
+
+M94 生成 `shadow_threshold_calibration_YYYYMMDD.json` 和对应 Markdown 报告，使用
+`shadow_threshold_calibration_v1` 合同。该 sandbox 只比较现有 shadow buckets、replay/backtest
+evidence、M87/M90 观察上下文和 frozen CPB baseline；输出 `recommended_next_experiments`
+和 `rejected_variants`，不得把任何 threshold variant 写回 active CPB params、strategy versions、paper/live
+lane、trade state 或 timer。
+
+provider artifact 必须包含：
+
+- `artifact_type=shadow_threshold_calibration`
+- `calibration_contract=shadow_threshold_calibration_v1`
+- `threshold_variants`，至少包含 `current_shadow_review_gate`、`quality_tighten_candidate`、
+  `exploratory_relaxed_sample`
+- 每个 candidate/family 的 sample size、win rate、mean/median returns、drawdown proxy、
+  frozen-CPB comparison 和 evidence coverage
+- `recommended_next_experiments`
+- `rejected_variants` 及 rejection reasons
+- safety flags：`artifact_only=true`、`promotion_allowed=false`、`active_params_mutated=false`、
+  `writes_trade_state=false`、`writes_paper_live_behavior=false`、`timer_mutated=false`
+
+标准命令：
+
+```bash
+scripts/calibrate_shadow_thresholds.py --date YYYYMMDD --reports-dir reports --apply
+```
+
+发布门禁：
+
+1. calibration artifact 只能作为后续研究输入，不得解除 `manual_promotion_approval_required`。
+2. `promotion_allowed=false` 必须保持；任何 `passed` variant 也只是 next experiment，不是 approval。
+3. active CPB params/hash must remain unchanged。
+4. `strategy_versions, trade_plans, trades, positions` 不得因 calibration 生成而新增、删除或改状态。
+5. `paper/live behavior` 和 `pgc-daily-pipeline.timer` 不得变化。
+6. missing/rejected replay evidence 必须在 `rejected_variants` 中保留原因，不得静默视为通过。
+
+最小验证：
+
+```bash
+PYTHONPATH=src:. pytest -q tests/test_strategy_evolution_service.py tests/test_shadow_threshold_calibration_script.py tests/test_operational_runbook_static.py
+PYTHONPATH=src:. pytest -q
+git diff --check
+```
+
 ## 24. M46 收盘后定时流水线
 
 M46 把 M42 的全市场复盘流水线固化为远端 systemd timer。只在 M42 已验收、远端 API write token 由部署脚本保留、并且手工 dry-run 通过后启用 apply 定时任务。

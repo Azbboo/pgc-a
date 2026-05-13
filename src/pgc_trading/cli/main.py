@@ -103,6 +103,7 @@ from pgc_trading.services.strategy_hypothesis_backtest_service import (
 )
 from pgc_trading.services.shadow_observation_service import (
     BuildShadowPromotionReviewRequest,
+    BuildShadowReplayBacktestEvidenceRequest,
     ShadowObservationService,
 )
 from pgc_trading.services.sector_rotation_service import ImportSectorMembershipRequest
@@ -737,6 +738,58 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
     _add_db_path_argument(strategy_evolution_shadow_review_request)
     strategy_evolution_shadow_review_request.set_defaults(
         handler=_run_strategy_evolution_shadow_promotion_review_request
+    )
+
+    strategy_evolution_shadow_replay_evidence = strategy_evolution_subparsers.add_parser(
+        "shadow-replay-backtest-evidence",
+        help="generate M90-compatible replay/backtest evidence for shadow candidates",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    strategy_evolution_shadow_replay_evidence.add_argument(
+        "--date",
+        "--as-of-date",
+        dest="date",
+        type=_parse_report_date,
+        help="optional shadow monitor date in ISO or YYYYMMDD format; defaults to latest artifact",
+    )
+    strategy_evolution_shadow_replay_evidence.add_argument(
+        "--reports-dir",
+        type=Path,
+        default=Paths().reports_dir,
+        help="reports directory containing shadow monitor artifacts",
+    )
+    strategy_evolution_shadow_replay_evidence.add_argument(
+        "--output-dir",
+        type=Path,
+        help="directory for generated shadow replay/backtest evidence JSON files",
+    )
+    strategy_evolution_shadow_replay_evidence.add_argument(
+        "--candidate-key",
+        action="append",
+        default=[],
+        help="candidate key to generate; repeat to limit generation",
+    )
+    strategy_evolution_shadow_replay_evidence.add_argument(
+        "--required-sample-size",
+        type=_positive_int,
+        default=20,
+        help="minimum sample size for M90 evidence validation",
+    )
+    strategy_evolution_shadow_replay_evidence.add_argument(
+        "--compact",
+        action="store_true",
+        help="print only the compact evidence summary and omit full JSON payloads",
+    )
+    strategy_evolution_shadow_replay_evidence.add_argument(
+        "--apply",
+        action="store_true",
+        help="write evidence artifacts instead of running a dry-run preview",
+    )
+    _add_lifecycle_context_arguments(strategy_evolution_shadow_replay_evidence)
+    _add_db_path_argument(strategy_evolution_shadow_replay_evidence)
+    strategy_evolution_shadow_replay_evidence.set_defaults(
+        handler=_run_strategy_evolution_shadow_replay_backtest_evidence
     )
 
     strategy_evolution_list = strategy_evolution_subparsers.add_parser(
@@ -2050,6 +2103,48 @@ def _run_strategy_evolution_shadow_promotion_review_request(
             return 1
 
     return 0
+
+
+def _run_strategy_evolution_shadow_replay_backtest_evidence(
+    args: argparse.Namespace,
+    stdout: TextIO,
+    services: CommandServices,
+) -> int:
+    db_path = _normalized_db_path(args.db_path)
+    reports_dir = _normalized_db_path(args.reports_dir)
+    output_dir = _normalized_db_path(args.output_dir) if args.output_dir is not None else None
+    command = "strategy-evolution shadow-replay-backtest-evidence"
+
+    service = ShadowObservationService(db_path, reports_dir=reports_dir)
+    request = BuildShadowReplayBacktestEvidenceRequest(
+        as_of_date=args.date,
+        output_dir=str(output_dir) if output_dir is not None else None,
+        candidate_keys=tuple(args.candidate_key or ()),
+        required_sample_size=args.required_sample_size,
+    )
+    ctx = RequestContext(
+        request_id="cli-strategy-evolution-shadow-replay-backtest-evidence",
+        idempotency_key=args.idempotency_key,
+        dry_run=not args.apply,
+        operator=args.operator,
+        source="cli",
+    )
+    try:
+        result = service.build_replay_backtest_evidence(request, ctx)
+    except sqlite3.OperationalError as exc:
+        stdout.write("shadow_replay_backtest_evidence_status=failed\n")
+        stdout.write(f"database_error={exc}\n")
+        return 1
+
+    _write_strategy_evolution_shadow_replay_backtest_evidence_result(
+        stdout,
+        command,
+        db_path,
+        reports_dir,
+        result,
+        compact=args.compact,
+    )
+    return 0 if result.ok else 1
 
 
 def _run_strategy_evolution_list(
@@ -4092,6 +4187,67 @@ def _write_strategy_evolution_shadow_promotion_review_request_result(
     stdout.write(f"safety_json={_json_compact(artifact.get('safety', {}))}\n")
 
 
+def _write_strategy_evolution_shadow_replay_backtest_evidence_result(
+    stdout: TextIO,
+    command: str,
+    db_path: Path,
+    reports_dir: Path,
+    result: ServiceResult[object],
+    *,
+    compact: bool = False,
+) -> None:
+    data = result.data
+    as_of_date = getattr(data, "as_of_date", None) if data is not None else None
+    _write_routed_message(
+        stdout,
+        command,
+        as_of_date or "latest",
+        db_path,
+        f"service returned {result.status}",
+    )
+    _write_warnings_and_errors(stdout, result)
+    if data is None:
+        return
+
+    summary = getattr(data, "summary", {}) or {}
+    artifacts = getattr(data, "artifacts", []) or []
+    safety = getattr(data, "safety", {}) or {}
+    stdout.write(f"shadow_replay_backtest_evidence_status={result.status}\n")
+    stdout.write(
+        f"evidence_contract={getattr(data, 'evidence_contract', 'shadow_replay_backtest_evidence_v1')}\n"
+    )
+    stdout.write(f"as_of_date={as_of_date or 'latest'}\n")
+    stdout.write(f"reports_dir={reports_dir}\n")
+    stdout.write(f"output_dir={getattr(data, 'output_dir', '') or reports_dir}\n")
+    stdout.write(f"source_monitor_path={getattr(data, 'source_monitor_path', None) or 'none'}\n")
+    stdout.write(
+        "shadow_replay_backtest_evidence_summary="
+        f"status={summary.get('status', 'unknown')} "
+        f"candidates={summary.get('candidate_count', 0)} "
+        f"accepted={summary.get('accepted_count', 0)} "
+        f"rejected={summary.get('rejected_count', 0)} "
+        f"missing={summary.get('missing_count', 0)} "
+        f"wrote_artifacts={_display_bool(bool(summary.get('wrote_artifacts', False)))} "
+        f"promotion_allowed={_display_bool(bool(summary.get('promotion_allowed', False)))}\n"
+    )
+    candidate_statuses = [
+        f"{item.get('candidate_key')}:{item.get('status')}"
+        for item in artifacts
+        if isinstance(item, dict)
+    ]
+    stdout.write(
+        "shadow_replay_backtest_evidence_candidates="
+        f"{_display_list(candidate_statuses)}\n"
+    )
+    stdout.write(
+        "shadow_replay_backtest_evidence_notice=validated artifact-only evidence; no promote/trade/plan/timer mutation\n"
+    )
+    if compact:
+        return
+    stdout.write(f"shadow_replay_backtest_evidence_artifacts_json={_json_compact(artifacts)}\n")
+    stdout.write(f"shadow_replay_backtest_evidence_safety_json={_json_compact(safety)}\n")
+
+
 def _write_strategy_evolution_list_result(
     stdout: TextIO,
     command: str,
@@ -4287,6 +4443,20 @@ def _write_daily_pipeline_result(stdout: TextIO, result: ServiceResult[object]) 
     stdout.write(
         "shadow_observation_blockers="
         f"{getattr(data, 'shadow_observation_blockers', None) or 'none'}\n"
+    )
+    stdout.write(f"shadow_evidence_status={getattr(data, 'shadow_evidence_status', None) or 'none'}\n")
+    stdout.write(f"shadow_evidence_artifacts={getattr(data, 'shadow_evidence_artifacts', None) or 'none'}\n")
+    stdout.write(f"shadow_evidence_blockers={getattr(data, 'shadow_evidence_blockers', None) or 'none'}\n")
+    stdout.write(
+        "shadow_evidence_dashboard_history="
+        f"{getattr(data, 'shadow_evidence_dashboard_history', None) or 'none'}\n"
+    )
+    stdout.write(
+        "shadow_evidence_replay_backtest="
+        f"{getattr(data, 'shadow_evidence_replay_backtest', None) or 'none'}\n"
+    )
+    stdout.write(
+        "shadow_evidence_notice=review package only; no promote/trade/plan/timer mutation\n"
     )
     stdout.write(f"market_review_would_write={str(bool(getattr(data, 'market_review_would_write', False))).lower()}\n")
     stdout.write(

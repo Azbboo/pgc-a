@@ -1802,6 +1802,94 @@ code {
   margin-top: 10px;
 }
 
+.shadow-review-workbench-panel {
+  margin-bottom: 14px;
+}
+
+.shadow-review-workbench,
+.shadow-review-stack,
+.shadow-review-candidate-list {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.shadow-review-workbench .action-meta {
+  margin-top: 10px;
+}
+
+.shadow-review-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.8fr);
+  gap: 12px;
+  min-width: 0;
+}
+
+.shadow-review-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.shadow-review-section-head span:first-child {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.shadow-review-decision-card,
+.shadow-review-candidate-card {
+  display: grid;
+  gap: 9px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-soft);
+}
+
+.shadow-review-card__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.shadow-review-card__head > div:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.shadow-review-card__head strong,
+.shadow-review-decision-card p,
+.shadow-review-candidate-card p {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.shadow-review-decision-card p,
+.shadow-review-candidate-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.shadow-review-note-list {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .shadow-history-control {
   display: flex;
   align-items: end;
@@ -3686,6 +3774,7 @@ td > .empty-state {
   .decision-grid,
   .market-layout,
   .hypothesis-workbench-grid,
+  .shadow-review-grid,
   .shadow-lab-grid,
   .market-plan-context-pair,
   .split-panels,
@@ -3883,6 +3972,7 @@ td > .empty-state {
   }
 
   .shadow-history-card__head,
+  .shadow-review-card__head,
   .shadow-candidate-card__head {
     flex-direction: column;
   }

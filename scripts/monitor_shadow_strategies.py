@@ -7,6 +7,7 @@ import argparse
 import csv
 import json
 import sqlite3
+import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -14,16 +15,19 @@ from pathlib import Path
 from statistics import mean, median
 from typing import Any
 
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
 from pgc_trading.services.common import RequestContext
 from pgc_trading.services.shadow_observation_service import (
     BuildShadowPromotionDossierRequest,
+    BuildShadowPromotionReviewRequest,
     ShadowObservationService,
     apply_shadow_replay_backtest_evidence_to_blockers,
     load_shadow_replay_backtest_evidence_index,
 )
 
 
-ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DB_PATH = ROOT / "data" / "pgc_trading.db"
 DEFAULT_REPORTS_DIR = ROOT / "reports"
 DEFAULT_DATA_DIR = ROOT / "data"
@@ -299,6 +303,14 @@ def generate_shadow_monitor(
         BuildShadowPromotionDossierRequest(as_of_date=review_date),
         RequestContext(request_id=f"shadow-promotion-dossier-{review_date}", dry_run=False, source="monitor-script"),
     )
+    review_request_result = ShadowObservationService(db_path, reports_dir=reports_dir).build_promotion_review_request(
+        BuildShadowPromotionReviewRequest(as_of_date=review_date),
+        RequestContext(
+            request_id=f"shadow-promotion-review-request-{review_date}",
+            dry_run=False,
+            source="monitor-script",
+        ),
+    )
     summary["promotion_dossier"] = (
         dossier_result.data.artifact
         if dossier_result.ok and dossier_result.data is not None
@@ -310,6 +322,18 @@ def generate_shadow_monitor(
             "promotion_allowed": False,
         }
     )
+    summary["promotion_review_request"] = (
+        review_request_result.data.artifact
+        if review_request_result.ok and review_request_result.data is not None
+        else {
+            "artifact_type": "shadow_promotion_review_request",
+            "review_request_contract": "shadow_promotion_review_request_v1",
+            "as_of_date": review_date,
+            "status": review_request_result.status,
+            "errors": [error.code for error in review_request_result.errors],
+            "promotion_allowed": False,
+        }
+    )
 
     summary["outputs"] = {
         "report": str(md_path),
@@ -318,6 +342,12 @@ def generate_shadow_monitor(
         "promotion_preflight_json": str(preflight_json_path),
         "promotion_dossier_report": dossier_result.data.markdown_path if dossier_result.data else None,
         "promotion_dossier_json": dossier_result.data.artifact_path if dossier_result.data else None,
+        "promotion_review_request_report": (
+            review_request_result.data.markdown_path if review_request_result.data else None
+        ),
+        "promotion_review_request_json": (
+            review_request_result.data.artifact_path if review_request_result.data else None
+        ),
         "shadow_observation_scorecard_report": str(scorecard_md_path),
         "shadow_observation_scorecard_json": str(scorecard_json_path),
         "prior_outcome_csv": str(prior_csv_path),

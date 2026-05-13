@@ -569,6 +569,48 @@ class CliMainTest(unittest.TestCase):
             self.assertTrue((reports_dir / "shadow_promotion_review_request_20260512.json").exists())
             self.assertTrue((reports_dir / "shadow_promotion_review_request_20260512.md").exists())
 
+    def test_strategy_evolution_shadow_replay_backtest_evidence_writes_validated_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "pgc.db"
+            reports_dir = root / "reports"
+            reports_dir.mkdir()
+            run_migrations(db_path)
+            _seed_cli_shadow_replay_market(db_path)
+            _seed_cli_shadow_replay_monitor_artifacts(reports_dir)
+            before_counts = _cli_state_counts(db_path)
+            stdout = io.StringIO()
+
+            code = main(
+                [
+                    "strategy-evolution",
+                    "shadow-replay-backtest-evidence",
+                    "--date",
+                    "20260512",
+                    "--db-path",
+                    str(db_path),
+                    "--reports-dir",
+                    str(reports_dir),
+                    "--required-sample-size",
+                    "3",
+                    "--apply",
+                    "--compact",
+                ],
+                stdout=stdout,
+            )
+
+            self.assertEqual(code, 0, stdout.getvalue())
+            self.assertEqual(_cli_state_counts(db_path), before_counts)
+            output = stdout.getvalue()
+            self.assertIn("shadow_replay_backtest_evidence_status=success", output)
+            self.assertIn("evidence_contract=shadow_replay_backtest_evidence_v1", output)
+            self.assertIn("shadow_replay_backtest_evidence_summary=status=generated candidates=1 accepted=1", output)
+            self.assertIn("shadow_replay_backtest_evidence_candidates=trend_extension_shadow:accepted", output)
+            self.assertIn("no promote/trade/plan/timer mutation", output)
+            self.assertTrue(
+                (reports_dir / "shadow_replay_backtest_evidence_20260512_trend_extension_shadow.json").exists()
+            )
+
     def test_review_routes_to_service_with_normalized_date_and_db_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "pgc_cli.db"
@@ -1990,6 +2032,105 @@ def _write_cli_shadow_promotion_dossier_artifact(path: Path) -> None:
         },
     }
     path.write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+
+
+def _seed_cli_shadow_replay_monitor_artifacts(reports_dir: Path) -> None:
+    rows = [
+        {
+            "ts_code": f"300{day:03d}.SZ",
+            "review_date": f"202605{day:02d}",
+            "signal_date": f"202605{day:02d}",
+            "planned_buy_date": f"202605{day:02d}",
+            "bucket": "trend_extension_shadow",
+        }
+        for day in range(1, 4)
+    ]
+    monitor = {
+        "review_date": "20260512",
+        "next_trade_date": "20260513",
+        "walk_forward_progress": {"status": "complete", "required_days": 3, "rows": rows},
+        "candidate_monitors": [
+            {
+                "candidate_key": "trend_extension_shadow",
+                "candidate_family": "shadow_bucket",
+                "walk_forward_progress": {
+                    "status": "complete",
+                    "required_days": 3,
+                    "days": 3,
+                    "start_signal_date": "20260501",
+                    "latest_signal_date": "20260503",
+                    "latest_outcome_date": "20260512",
+                },
+                "comparison_vs_frozen_cpb": {"status": "compared", "candidate_days": 3},
+                "promotion_gates": {
+                    "paper_observation_gate": {"allowed": False, "artifact_only": True, "blockers": []},
+                    "strategy_version_gate": {
+                        "allowed": False,
+                        "artifact_only": True,
+                        "blockers": ["replay_backtest_result_artifact_required"],
+                    },
+                },
+            }
+        ],
+        "safety": {
+            "artifact_only": True,
+            "active_params_mutated": False,
+            "writes_trade_state": False,
+            "writes_paper_live_behavior": False,
+            "timer_mutated": False,
+            "promotion_allowed": False,
+            "paper_observation_allowed": False,
+        },
+    }
+    preflight = {
+        "review_date": "20260512",
+        "next_trade_date": "20260513",
+        "status": "blocked",
+        "candidate_count": 1,
+        "candidate_gates": [
+            {
+                "candidate_key": "trend_extension_shadow",
+                "candidate_family": "shadow_bucket",
+                "status": "blocked",
+                "walk_forward_progress": monitor["candidate_monitors"][0]["walk_forward_progress"],
+                "paper_observation_gate": {"allowed": False, "artifact_only": True, "blockers": []},
+                "strategy_version_gate": {
+                    "allowed": False,
+                    "artifact_only": True,
+                    "blockers": ["replay_backtest_result_artifact_required"],
+                },
+            }
+        ],
+        "safety": monitor["safety"],
+    }
+    (reports_dir / "strategy_shadow_monitor_20260512.json").write_text(json.dumps(monitor), encoding="utf-8")
+    (reports_dir / "strategy_shadow_promotion_preflight_20260512.json").write_text(
+        json.dumps(preflight),
+        encoding="utf-8",
+    )
+
+
+def _seed_cli_shadow_replay_market(db_path: Path) -> None:
+    with connect(db_path) as conn:
+        for day in range(1, 4):
+            ts_code = f"300{day:03d}.SZ"
+            for offset in range(5):
+                open_price = 10.0 + day
+                conn.execute(
+                    """
+                    INSERT INTO market_bars
+                      (ts_code, trade_date, open, high, low, close, vol, amount)
+                    VALUES (?, ?, ?, ?, ?, ?, 100000.0, 1000.0)
+                    """,
+                    (
+                        ts_code,
+                        f"202605{day + offset:02d}",
+                        open_price,
+                        open_price * 1.04,
+                        open_price * 0.97,
+                        open_price * 1.02,
+                    ),
+                )
 
 
 def _cli_state_counts(db_path: Path) -> dict[str, int]:

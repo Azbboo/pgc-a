@@ -39,7 +39,13 @@ from pgc_trading.services.operational_readiness_service import (
     summarize_next_day_decision,
 )
 from pgc_trading.services.open_execution_service import OpenExecutionRequest, OpenExecutionService
-from pgc_trading.services.shadow_observation_service import load_shadow_replay_backtest_evidence_index
+from pgc_trading.services.shadow_observation_service import (
+    DEFAULT_REQUIRED_SAMPLE_SIZE,
+    SHADOW_OBSERVATION_SCORECARD_CONTRACT,
+    SHADOW_PROMOTION_DOSSIER_CONTRACT,
+    SHADOW_PROMOTION_REVIEW_REQUEST_CONTRACT,
+    load_shadow_replay_backtest_evidence_index,
+)
 from pgc_trading.services.shadow_strategy_service import GetShadowStrategySnapshotRequest, ShadowStrategyService
 from pgc_trading.portfolio.state_machines import BUY_PLAN_ACTION, OPEN_POSITION_STATUSES, SELL_PLAN_ACTIONS
 from pgc_trading.storage.database import connect
@@ -642,6 +648,7 @@ class DailyReport:
     positions: list[PositionReport]
     due_positions: list[PositionReport]
     lineage: ReportLineage
+    shadow_evidence: dict[str, Any] = field(default_factory=dict)
 
 
 class ReportingQueryService:
@@ -743,6 +750,11 @@ class ReportingQueryService:
         )
         evidence_coverage_ledger = _evidence_coverage_ledger_payload(self.db_path, request, context)
         shadow_observation = _shadow_strategy_report(self.db_path, self.reports_dir, request.as_of_date, context)
+        shadow_evidence = _shadow_evidence_report(
+            reports_dir=self.reports_dir,
+            as_of_date=request.as_of_date,
+            shadow=shadow_observation,
+        )
         report = DailyReport(
             generated_at=datetime.now(UTC).isoformat(),
             as_of_date=request.as_of_date,
@@ -762,6 +774,7 @@ class ReportingQueryService:
             evidence_coverage_ledger=evidence_coverage_ledger,
             shadow_observation=shadow_observation,
             shadow_strategy=shadow_observation,
+            shadow_evidence=shadow_evidence,
             agent_advice=agent_advice,
             positions=positions,
             due_positions=[position for position in positions if position.action_due != "none"],
@@ -1150,6 +1163,7 @@ def render_daily_report_markdown(report: DailyReport) -> str:
     lines.extend(_market_plan_context_lines(report.market_plan_context))
     lines.extend(_evidence_coverage_ledger_lines(report.evidence_coverage_ledger))
     lines.extend(_shadow_strategy_lines(report.shadow_observation))
+    lines.extend(_shadow_evidence_lines(report.shadow_evidence))
 
     lines.extend(["", "## Agent 复核", ""])
     lines.extend(
@@ -1707,6 +1721,322 @@ def _shadow_candidate_required_samples(
         walk = _dict_value(candidate.get("walk_forward")) or {}
         required[candidate_key] = _optional_int_from_any(walk.get("required_days")) or fallback
     return required
+
+
+_SHADOW_EVIDENCE_FORBIDDEN_TRUE_FLAGS = (
+    "active_strategy_mutated",
+    "active_params_mutated",
+    "wrote_strategy_version",
+    "wrote_strategy_versions",
+    "writes_trade_state",
+    "writes_paper_live_behavior",
+    "paper_live_deployment_changed",
+    "timer_mutated",
+    "promotion_allowed",
+    "paper_observation_allowed",
+)
+
+
+def _shadow_evidence_report(
+    *,
+    reports_dir: Path,
+    as_of_date: str,
+    shadow: ShadowStrategyReport,
+) -> dict[str, Any]:
+    """Verify the shadow promotion evidence package without changing strategy/trading state."""
+
+    specs = [
+        {
+            "key": "scorecard",
+            "json_name": f"shadow_observation_scorecard_{as_of_date}.json",
+            "markdown_name": f"shadow_observation_scorecard_{as_of_date}.md",
+            "artifact_type": "shadow_observation_scorecard",
+            "contract_key": "scorecard_contract",
+            "contract": SHADOW_OBSERVATION_SCORECARD_CONTRACT,
+            "date_keys": ("review_date", "as_of_date"),
+        },
+        {
+            "key": "dossier",
+            "json_name": f"shadow_promotion_dossier_{as_of_date}.json",
+            "markdown_name": f"shadow_promotion_dossier_{as_of_date}.md",
+            "artifact_type": "shadow_promotion_dossier",
+            "contract_key": "dossier_contract",
+            "contract": SHADOW_PROMOTION_DOSSIER_CONTRACT,
+            "date_keys": ("as_of_date", "review_date"),
+        },
+        {
+            "key": "review_request",
+            "json_name": f"shadow_promotion_review_request_{as_of_date}.json",
+            "markdown_name": f"shadow_promotion_review_request_{as_of_date}.md",
+            "artifact_type": "shadow_promotion_review_request",
+            "contract_key": "review_request_contract",
+            "contract": SHADOW_PROMOTION_REVIEW_REQUEST_CONTRACT,
+            "date_keys": ("as_of_date", "review_date"),
+        },
+    ]
+    artifacts = {
+        str(spec["key"]): _shadow_evidence_artifact_check(reports_dir=reports_dir, as_of_date=as_of_date, spec=spec)
+        for spec in specs
+    }
+    replay = _shadow_evidence_replay_check(reports_dir=reports_dir, as_of_date=as_of_date, shadow=shadow)
+    artifacts["replay_backtest_evidence"] = replay
+    history_parity = _shadow_evidence_history_parity(as_of_date=as_of_date, artifacts=artifacts)
+    source_parity = _shadow_evidence_source_parity(as_of_date=as_of_date, shadow=shadow, artifacts=artifacts)
+    missing_blockers = _unique_shadow_blockers(
+        [
+            blocker
+            for artifact in artifacts.values()
+            for blocker in _shadow_text_list(artifact.get("blockers"))
+        ]
+        + _shadow_text_list(history_parity.get("blockers"))
+        + _shadow_text_list(source_parity.get("blockers"))
+    )
+    status = _shadow_evidence_overall_status(
+        [str(artifact.get("status") or "unknown") for artifact in artifacts.values()]
+        + [str(history_parity.get("status") or "unknown"), str(source_parity.get("status") or "unknown")]
+    )
+    return {
+        "status": status,
+        "as_of_date": as_of_date,
+        "artifact_contract": "shadow_daily_evidence_closure_v1",
+        "artifacts": artifacts,
+        "missing_blockers": missing_blockers,
+        "missing_blocker_count": len(missing_blockers),
+        "artifact_summary": _shadow_evidence_artifact_summary(artifacts),
+        "replay_backtest_evidence": replay.get("summary", {}),
+        "dashboard_history_parity": history_parity,
+        "local_remote_parity": source_parity,
+        "safety": {
+            "read_only": True,
+            "artifact_only": True,
+            "review_ready_is_not_approval": True,
+            "promotion_allowed": False,
+            "paper_observation_allowed": False,
+            "writes_trade_state": False,
+            "writes_paper_live_behavior": False,
+            "timer_mutated": False,
+        },
+        "notice": (
+            "Shadow evidence is review context only; review_ready is not approval and this section "
+            "does not promote candidates, create trade plans, write trades, change positions, or touch timers."
+        ),
+    }
+
+
+def _shadow_evidence_artifact_check(
+    *,
+    reports_dir: Path,
+    as_of_date: str,
+    spec: dict[str, Any],
+) -> dict[str, Any]:
+    key = str(spec["key"])
+    json_path = reports_dir / str(spec["json_name"])
+    markdown_path = reports_dir / str(spec["markdown_name"])
+    blockers: list[str] = []
+    artifact: dict[str, Any] = {}
+    json_valid = False
+    contract_valid = False
+    date_valid = False
+    safety_valid = False
+
+    if not json_path.exists():
+        blockers.append(f"shadow_{key}_json_missing")
+    else:
+        try:
+            decoded = json.loads(json_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            blockers.append(f"shadow_{key}_json_invalid")
+            artifact = {"error": str(exc)}
+        else:
+            if isinstance(decoded, dict):
+                artifact = decoded
+                json_valid = True
+            else:
+                blockers.append(f"shadow_{key}_json_invalid")
+                artifact = {"error": "artifact JSON root must be an object"}
+
+    if not markdown_path.exists():
+        blockers.append(f"shadow_{key}_markdown_missing")
+
+    if json_valid:
+        artifact_type = str(artifact.get("artifact_type") or "")
+        contract_key = str(spec["contract_key"])
+        contract = artifact.get(contract_key)
+        expected_type = str(spec["artifact_type"])
+        expected_contract = str(spec["contract"])
+        contract_valid = artifact_type == expected_type and (contract is None or str(contract) == expected_contract)
+        if not contract_valid:
+            blockers.append(f"shadow_{key}_contract_mismatch")
+        date_value = _first_shadow_artifact_date(artifact, tuple(spec["date_keys"]))
+        date_valid = date_value == as_of_date
+        if not date_valid:
+            blockers.append(f"shadow_{key}_date_mismatch")
+        safety_blockers = _shadow_artifact_safety_blockers(key, artifact)
+        safety_valid = not safety_blockers
+        blockers.extend(safety_blockers)
+
+    status = "pass" if json_valid and markdown_path.exists() and contract_valid and date_valid and safety_valid else "blocked"
+    return {
+        "status": status,
+        "artifact_key": key,
+        "json_path": str(json_path),
+        "markdown_path": str(markdown_path),
+        "json_exists": json_path.exists(),
+        "markdown_exists": markdown_path.exists(),
+        "json_valid": json_valid,
+        "contract_valid": contract_valid,
+        "date_valid": date_valid,
+        "safety_valid": safety_valid,
+        "blockers": _unique_shadow_blockers(blockers),
+    }
+
+
+def _shadow_evidence_replay_check(
+    *,
+    reports_dir: Path,
+    as_of_date: str,
+    shadow: ShadowStrategyReport,
+) -> dict[str, Any]:
+    required_samples = {
+        candidate.candidate_key: DEFAULT_REQUIRED_SAMPLE_SIZE
+        for candidate in shadow.top_candidates
+        if candidate.candidate_key and candidate.candidate_key != "unknown"
+    }
+    replay_index = load_shadow_replay_backtest_evidence_index(
+        reports_dir,
+        as_of_date=as_of_date,
+        candidate_required_samples=required_samples,
+    )
+    summary = _dict_value(replay_index.get("summary")) or {}
+    by_candidate = _dict_value(replay_index.get("by_candidate")) or {}
+    blockers: list[str] = []
+    if not required_samples:
+        blockers.append("shadow_replay_candidate_scope_unavailable")
+    for candidate_key, payload in sorted(by_candidate.items()):
+        candidate_payload = _dict_value(payload) or {}
+        if candidate_payload.get("status") != "accepted":
+            candidate_blockers = _shadow_text_list(candidate_payload.get("blockers")) or [
+                "replay_backtest_result_artifact_required"
+            ]
+            blockers.extend(f"{candidate_key}:{blocker}" for blocker in candidate_blockers)
+    if _optional_int_from_any(summary.get("rejected_count")):
+        blockers.append("shadow_replay_backtest_evidence_rejected")
+    if _optional_int_from_any(summary.get("missing_count")):
+        blockers.append("shadow_replay_backtest_evidence_missing")
+    status = "pass" if required_samples and not blockers else "blocked"
+    return {
+        "status": status,
+        "artifact_key": "replay_backtest_evidence",
+        "expected_candidate_count": len(required_samples),
+        "source_file_count": _optional_int_from_any(replay_index.get("source_file_count")) or 0,
+        "summary": summary,
+        "by_candidate": by_candidate,
+        "orphaned": replay_index.get("orphaned", []),
+        "blockers": _unique_shadow_blockers(blockers),
+    }
+
+
+def _shadow_evidence_history_parity(*, as_of_date: str, artifacts: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    scorecard = artifacts.get("scorecard", {})
+    dossier = artifacts.get("dossier", {})
+    blockers: list[str] = []
+    if scorecard.get("status") != "pass":
+        blockers.append("dashboard_history_scorecard_not_ready")
+    if dossier.get("status") != "pass":
+        blockers.append("dashboard_history_dossier_not_ready")
+    status = "pass" if not blockers else "blocked"
+    return {
+        "status": status,
+        "as_of_date": as_of_date,
+        "history_index_ready": status == "pass",
+        "dashboard_empty_history_risk": status != "pass",
+        "expected_scorecard_json": scorecard.get("json_path"),
+        "expected_dossier_json": dossier.get("json_path"),
+        "blockers": blockers,
+        "operator_note": (
+            "Dashboard history has both scorecard and dossier for this date."
+            if status == "pass"
+            else "Dashboard history may be empty until scorecard and dossier artifacts exist for this date."
+        ),
+    }
+
+
+def _shadow_evidence_source_parity(
+    *,
+    as_of_date: str,
+    shadow: ShadowStrategyReport,
+    artifacts: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    blockers: list[str] = []
+    source_artifacts = dict(shadow.source_artifacts or {})
+    if shadow.status == "unavailable":
+        blockers.append("shadow_snapshot_unavailable")
+    if not (source_artifacts.get("monitor_json") or source_artifacts.get("strategy_shadow_monitor_json")):
+        blockers.append("monitor_json_missing")
+    if not source_artifacts.get("promotion_preflight_json"):
+        blockers.append("promotion_preflight_json_missing")
+    for key in ("scorecard", "dossier", "review_request"):
+        if artifacts.get(key, {}).get("status") != "pass":
+            blockers.append(f"{key}_local_artifact_not_ready")
+    status = "pass" if not blockers else "blocked"
+    return {
+        "status": status,
+        "as_of_date": as_of_date,
+        "local_artifact_status": _shadow_evidence_artifact_summary(artifacts),
+        "remote_sync_required": True,
+        "dashboard_empty_history_risk": status != "pass",
+        "source_artifacts": source_artifacts,
+        "blockers": _unique_shadow_blockers(blockers),
+        "operator_note": (
+            "Local report artifacts are ready for Dashboard history; remote parity still requires syncing this reports directory."
+            if status == "pass"
+            else "Local/remote Dashboard parity is not ready; sync or regenerate the listed artifacts before relying on history."
+        ),
+    }
+
+
+def _shadow_evidence_artifact_summary(artifacts: dict[str, dict[str, Any]]) -> dict[str, str]:
+    return {key: str(value.get("status") or "unknown") for key, value in sorted(artifacts.items())}
+
+
+def _shadow_evidence_overall_status(statuses: list[str]) -> str:
+    if any(status in {"blocked", "missing", "invalid", "unavailable", "failed"} for status in statuses):
+        return "blocked"
+    if any(status in {"warning", "unknown", "skipped"} for status in statuses):
+        return "warning"
+    return "pass"
+
+
+def _first_shadow_artifact_date(artifact: dict[str, Any], keys: tuple[str, ...]) -> str | None:
+    for key in keys:
+        value = artifact.get(key)
+        if value:
+            return str(value).replace("-", "")
+    return None
+
+
+def _shadow_artifact_safety_blockers(key: str, artifact: dict[str, Any]) -> list[str]:
+    blockers: list[str] = []
+    safety = _dict_value(artifact.get("safety")) or {}
+    values = {**safety, **artifact}
+    summary = _dict_value(artifact.get("summary")) or {}
+    values.update(summary)
+    for flag in _SHADOW_EVIDENCE_FORBIDDEN_TRUE_FLAGS:
+        if values.get(flag) is True:
+            blockers.append(f"shadow_{key}_{flag}_true")
+    return blockers
+
+
+def _unique_shadow_blockers(blockers: list[str]) -> list[str]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for blocker in blockers:
+        text = str(blocker).strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        unique.append(text)
+    return unique
 
 
 def _shadow_text_list(value: Any) -> list[str]:
@@ -4923,6 +5253,52 @@ def _shadow_source_artifact_lines(source_artifacts: dict[str, str | None]) -> li
     if not refs:
         return []
     return ["", f"source_refs：{'; '.join(refs)}"]
+
+
+def _shadow_evidence_lines(evidence: dict[str, Any]) -> list[str]:
+    if not evidence:
+        return []
+    artifacts = _dict_value(evidence.get("artifact_summary")) or {}
+    replay = _dict_value(evidence.get("replay_backtest_evidence")) or {}
+    history = _dict_value(evidence.get("dashboard_history_parity")) or {}
+    parity = _dict_value(evidence.get("local_remote_parity")) or {}
+    blockers = _shadow_text_list(evidence.get("missing_blockers"))
+    lines = [
+        "",
+        "## Shadow Evidence Closure",
+        "",
+        (
+            "- 状态："
+            f"{evidence.get('status', 'unknown')}；"
+            f"missing blockers {evidence.get('missing_blocker_count', len(blockers))}"
+        ),
+        f"- artifact parity：{_shadow_evidence_summary_text(artifacts)}",
+        (
+            "- replay/backtest evidence："
+            f"accepted {replay.get('accepted_count', 0)} / "
+            f"rejected {replay.get('rejected_count', 0)} / "
+            f"missing {replay.get('missing_count', 0)}"
+        ),
+        (
+            "- Dashboard history parity："
+            f"{history.get('status', 'unknown')}；"
+            f"empty_history_risk={str(bool(history.get('dashboard_empty_history_risk'))).lower()}"
+        ),
+        (
+            "- local/remote parity："
+            f"{parity.get('status', 'unknown')}；"
+            f"remote_sync_required={str(bool(parity.get('remote_sync_required'))).lower()}"
+        ),
+        f"- missing blockers：{';'.join(blockers) if blockers else 'none'}",
+        "- 边界：review package only；review_ready 不是批准；不会 promote、写交易计划、成交、持仓或 timer。",
+    ]
+    return lines
+
+
+def _shadow_evidence_summary_text(summary: dict[str, Any]) -> str:
+    if not summary:
+        return "无"
+    return " / ".join(f"{key}={summary[key]}" for key in sorted(summary))
 
 
 def _shadow_today_top_text(today_top: dict[str, Any]) -> str:

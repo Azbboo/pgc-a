@@ -75,6 +75,8 @@ const state = {
   shadowObservationScorecardEnvelope: null,
   shadowObservationHistory: null,
   shadowObservationHistoryEnvelope: null,
+  shadowPromotionReviewRequest: null,
+  shadowPromotionReviewRequestEnvelope: null,
   shadowHistoryAsOfDate: localStorage.getItem("pgc.dashboard.shadowHistoryAsOfDate") || "",
   shadowHistoryWindow: localStorage.getItem("pgc.dashboard.shadowHistoryWindow") || "20",
   tradePlans: [],
@@ -193,6 +195,8 @@ function cacheElements() {
     "shadowHistoryApplyButton",
     "shadowSnapshotDateLabel",
     "shadowSummaryPanel",
+    "shadowPromotionReviewState",
+    "shadowPromotionReviewWorkbench",
     "shadowObservationHistoryState",
     "shadowObservationHistoryStrip",
     "shadowObservationHistoryList",
@@ -350,6 +354,7 @@ function bindEvents() {
   els.shadowHistoryWindowSelect.addEventListener("change", applyShadowHistoryControls);
   els.shadowObservationHistoryStrip.addEventListener("click", onShadowObservationHistoryClick);
   els.shadowObservationHistoryList.addEventListener("click", onShadowObservationHistoryClick);
+  els.shadowPromotionReviewWorkbench.addEventListener("click", onShadowPromotionReviewClick);
   els.shadowObservationQueue.addEventListener("click", onShadowObservationClick);
   els.shadowCandidateList.addEventListener("click", onShadowCandidateClick);
   els.reloadExecutionButton.addEventListener("click", refreshAll);
@@ -615,6 +620,7 @@ async function refreshAll(options = {}) {
       loadShadowStrategySnapshot(),
       loadShadowObservationScorecard(),
       loadShadowObservationHistory(),
+      loadShadowPromotionReviewRequest(),
     ]);
     renderAll();
   } catch (error) {
@@ -873,6 +879,16 @@ async function loadShadowObservationHistory() {
   state.shadowObservationHistory = envelope.data || null;
 }
 
+async function loadShadowPromotionReviewRequest() {
+  const params = new URLSearchParams();
+  params.set("request_id", requestId("shadow-promotion-review"));
+  const asOfDate = shadowHistoryDate();
+  if (/^\d{8}$/.test(asOfDate)) params.set("as_of_date", asOfDate);
+  const envelope = await apiRequest(`/api/shadow-promotion-review-request?${params.toString()}`);
+  state.shadowPromotionReviewRequestEnvelope = envelope;
+  state.shadowPromotionReviewRequest = envelope.data || null;
+}
+
 function latestReviewHistoryDate() {
   const dates = reviewHistoryDates();
   return dates.length ? dates[dates.length - 1] : "";
@@ -1015,7 +1031,12 @@ async function loadStrategyHypothesisWorkbenchAndRender() {
 
 async function loadShadowStrategySnapshotAndRender() {
   await runWithNotice(async () => {
-    await Promise.all([loadShadowStrategySnapshot(), loadShadowObservationScorecard(), loadShadowObservationHistory()]);
+    await Promise.all([
+      loadShadowStrategySnapshot(),
+      loadShadowObservationScorecard(),
+      loadShadowObservationHistory(),
+      loadShadowPromotionReviewRequest(),
+    ]);
     renderShadowStrategyLab();
     renderBadges();
   });
@@ -2978,6 +2999,7 @@ function renderShadowStrategyLab() {
   els.shadowSnapshotDateLabel.textContent = `${snapshot.as_of_date ? `Shadow snapshot ${displayDate(snapshot.as_of_date)}` : "Shadow snapshot -"} · history ${integerText(history.window || state.shadowHistoryWindow)} 日 · ${monitorDate} · ${preflightDate}`;
   renderShadowHistoryControls();
   renderShadowSummaryPanel(snapshot, candidates);
+  renderShadowPromotionReviewWorkbench(shadowPromotionReviewData());
   renderShadowObservationHistory(history);
   renderShadowObservationQueue(shadowObservationData());
   renderShadowFamilies(snapshot.candidate_families || {});
@@ -3009,6 +3031,140 @@ function renderShadowSummaryPanel(snapshot, candidates) {
       ["API", "/api/shadow-strategy-snapshot"],
     ])}
   `;
+}
+
+function renderShadowPromotionReviewWorkbench(data) {
+  const summary = shadowPromotionReviewSummary(data);
+  const reviewRequest = shadowPromotionReviewRequestPayload(data);
+  const evidenceSummary = shadowPromotionEvidenceSummary(data);
+  const candidates = shadowPromotionReviewCandidates(data);
+  const decisions = shadowPromotionRequiredDecisions(data);
+  const rollbackNotes = listValue(reviewRequest.rollback_notes);
+  const safetyNotes = listValue(reviewRequest.safety_notes);
+  const errors = errorMessages(state.shadowPromotionReviewRequestEnvelope || {});
+  const status = data.status || summary.status || reviewRequest.request_status || "missing";
+  els.shadowPromotionReviewState.textContent = candidates.length
+    ? `${candidates.length} 个候选 · ${integerText(summary.review_ready_count || 0)} ready`
+    : shadowPromotionReviewStatusText(status);
+  const alert = errors.length || data.artifact_error
+    ? `<p class="market-readonly-note">晋升评审包读取到异常：${escapeHtml([...errors, data.artifact_error].filter(Boolean).join("；"))}。该工作台仍只读，不 approve、不 promote、不交易、不改 timer。</p>`
+    : `<p class="market-readonly-note">晋升评审工作台读取 shadow_promotion_review_request_v1；review_ready 不是 approval，只展示人工决策、replay/backtest evidence 和 rollback 边界。</p>`;
+  els.shadowPromotionReviewWorkbench.innerHTML = `
+    ${alert}
+    ${actionMetrics([
+      ["API", "/api/shadow-promotion-review-request"],
+      ["contract", data.review_request_contract || "shadow_promotion_review_request_v1"],
+      ["状态", shadowPromotionReviewStatusText(status)],
+      ["artifact valid", data.artifact_valid ? "是" : "否"],
+      ["候选", integerText(summary.candidate_count ?? candidates.length)],
+      ["review ready", integerText(summary.review_ready_count || 0)],
+      ["blocked", integerText(summary.blocked_count || 0)],
+      ["evidence accepted", integerText(evidenceSummary.accepted_count || 0)],
+      ["evidence rejected", integerText(evidenceSummary.rejected_count || 0)],
+      ["evidence missing", integerText(evidenceSummary.missing_count || 0)],
+      ["blocking reason", reviewRequest.blocking_reason || "none"],
+      ["promotion_allowed", data.safety?.promotion_allowed ? "是" : "否"],
+    ])}
+    <div class="shadow-review-grid">
+      <section class="shadow-review-stack" aria-label="必需人工决策">
+        <div class="shadow-review-section-head">
+          <span>required human decisions</span>
+          ${chipHtml(`${decisions.length} 项`, decisions.length ? "chip-blue" : "chip-neutral")}
+        </div>
+        ${decisions.length ? decisions.map(shadowPromotionDecisionCard).join("") : emptyState("暂无 required_human_decisions。")}
+      </section>
+      <section class="shadow-review-stack" aria-label="回滚与发布阻断">
+        <div class="shadow-review-section-head">
+          <span>rollback / release gate</span>
+          ${chipHtml("manual gate", "chip-amber")}
+        </div>
+        ${shadowPromotionNoteList([...rollbackNotes, ...safetyNotes])}
+      </section>
+    </div>
+    <div class="shadow-review-section-head">
+      <span>candidate readiness / replay evidence</span>
+      ${chipHtml("no approve/promote/trade/plan/timer controls", "chip-agent")}
+    </div>
+    <div class="shadow-review-candidate-list">
+      ${candidates.length ? candidates.map(shadowPromotionReviewCandidateCard).join("") : emptyState("暂无 candidate readiness；晋升保持阻断。")}
+    </div>
+  `;
+}
+
+function shadowPromotionDecisionCard(decision) {
+  return `
+    <article class="shadow-review-decision-card">
+      <div class="shadow-review-card__head">
+        <strong>${escapeHtml(decision.decision_key || "decision")}</strong>
+        <div class="hypothesis-chip-stack">
+          ${chipHtml(shadowPromotionDecisionStatusText(decision.status), shadowPromotionDecisionStatusClass(decision.status))}
+          ${chipHtml(decision.required ? "required" : "optional", decision.required ? "chip-amber" : "chip-neutral")}
+        </div>
+      </div>
+      <p>${escapeHtml(decision.note || "暂无说明。")}</p>
+      ${listValue(decision.candidate_keys).length ? `<div class="hypothesis-gate-strip">${listValue(decision.candidate_keys).map((key) => chipHtml(key, "chip-blue")).join("")}</div>` : ""}
+      ${listValue(decision.blocked_mutation_targets).length ? `<div class="hypothesis-gate-strip">${listValue(decision.blocked_mutation_targets).map((target) => chipHtml(target, "chip-red")).join("")}</div>` : ""}
+    </article>
+  `;
+}
+
+function shadowPromotionReviewCandidateCard(candidate) {
+  const candidateKey = String(candidate.candidate_key || "-");
+  const evidence = shadowPromotionEvidenceForCandidate(candidateKey);
+  const readiness = candidate.readiness_checks || {};
+  const minimumSample = readiness.minimum_sample || {};
+  const blockerClearance = readiness.blocker_clearance || {};
+  const reviewStatus = candidate.review_status || candidate.promotion_readiness || "missing";
+  const evidenceStatus = evidence.status || candidate.replay_backtest_evidence?.status || "missing";
+  const blockers = uniqueTextList([
+    ...listValue(candidate.blocked_reasons),
+    ...listValue(candidate.blockers),
+    ...listValue(blockerClearance.blockers),
+    ...listValue(evidence.blockers),
+  ]);
+  return `
+    <article class="shadow-review-candidate-card">
+      <div class="shadow-review-card__head">
+        <div>
+          <span class="market-regime-kicker">${escapeHtml(candidate.candidate_family || "shadow_candidate")}</span>
+          <strong>${escapeHtml(candidateKey)}</strong>
+        </div>
+        <div class="hypothesis-chip-stack">
+          ${chipHtml(shadowReviewStatusText(reviewStatus), shadowReviewStatusClass(reviewStatus))}
+          ${chipHtml(shadowReplayEvidenceStatusText(evidenceStatus), shadowReplayEvidenceStatusClass(evidenceStatus))}
+        </div>
+      </div>
+      <p>sample ${integerText(minimumSample.actual ?? evidence.sample_size)}/${integerText(minimumSample.threshold ?? evidence.required_sample_size)}；source_hash ${escapeHtml(dash(evidence.source_hash || evidence.expected_source_hash))}；review package remains manual-only.</p>
+      <div class="hypothesis-gate-strip">
+        ${chipHtml(`${blockers.length} blockers`, blockers.length ? "chip-red" : "chip-green")}
+        ${chipHtml(`artifact ${evidence.artifact_path ? "linked" : "missing"}`, evidence.artifact_path ? "chip-blue" : "chip-amber")}
+        ${chipHtml(`promotion_allowed ${evidence.promotion_allowed ? "true" : "false"}`, evidence.promotion_allowed ? "chip-red" : "chip-neutral")}
+        ${chipHtml("review_request_is_not_approval", "chip-neutral")}
+      </div>
+      <div class="row-actions">
+        <button type="button" data-shadow-review-key="${escapeHtml(candidateKey)}">打开评审包详情</button>
+      </div>
+    </article>
+  `;
+}
+
+function shadowPromotionNoteList(notes) {
+  const rows = uniqueTextList(notes);
+  if (!rows.length) return emptyState("暂无 rollback_notes / safety_notes。");
+  return `
+    <ul class="shadow-review-note-list">
+      ${rows.map((note) => `<li>${escapeHtml(note)}</li>`).join("")}
+    </ul>
+  `;
+}
+
+function shadowPromotionDecisionRows(decisions) {
+  const rows = Array.isArray(decisions) ? decisions : [];
+  if (!rows.length) return emptyState("暂无 required_human_decisions。");
+  return detailRows(rows.map((decision) => [
+    decision.decision_key || "decision",
+    `${shadowPromotionDecisionStatusText(decision.status)} / required=${decision.required ? "true" : "false"} / ${decision.note || "no note"}`,
+  ]));
 }
 
 function renderShadowHistoryControls() {
@@ -3387,6 +3543,72 @@ function openShadowCandidateDrawer(candidate) {
       detailSection("Paper observation gate", marketObjectRows(candidate.paper_observation_gate || {})),
       detailSection("Strategy-version gate", marketObjectRows(candidate.strategy_version_gate || {})),
       detailSection("Source artifacts", shadowArtifactRows(artifacts)),
+    ],
+  });
+}
+
+function openShadowPromotionReviewDrawer(candidate) {
+  const candidateKey = String(candidate.candidate_key || "-");
+  const evidence = shadowPromotionEvidenceForCandidate(candidateKey);
+  const reviewRequest = shadowPromotionReviewRequestPayload();
+  const readiness = candidate.readiness_checks || {};
+  const minimumSample = readiness.minimum_sample || {};
+  const blockerClearance = readiness.blocker_clearance || {};
+  const blockers = uniqueTextList([
+    ...listValue(candidate.blocked_reasons),
+    ...listValue(candidate.blockers),
+    ...listValue(blockerClearance.blockers),
+    ...listValue(evidence.blockers),
+  ]);
+  openDetailDrawer({
+    kicker: "晋升评审包",
+    title: candidateKey,
+    subtitle: "评审包来自 shadow_promotion_review_request_v1；该抽屉只展示 evidence、人工决策和 rollback notes，不 approve、不 promote、不创建计划、不交易、不改 timer。",
+    meta: [
+      [shadowReviewStatusText(candidate.review_status || candidate.promotion_readiness), shadowReviewStatusClass(candidate.review_status || candidate.promotion_readiness)],
+      [shadowReplayEvidenceStatusText(evidence.status), shadowReplayEvidenceStatusClass(evidence.status)],
+      [`复盘日 ${displayDate(shadowPromotionReviewData().as_of_date)}`, "chip-neutral"],
+    ],
+    actions: [
+      { label: "影子实验室", action: "page", page: "shadow" },
+    ],
+    sections: [
+      detailSection("Candidate readiness", detailMetrics([
+        ["candidate_key", candidateKey],
+        ["candidate_family", candidate.candidate_family || "-"],
+        ["review_status", shadowReviewStatusText(candidate.review_status || candidate.promotion_readiness)],
+        ["sample", `${integerText(minimumSample.actual ?? evidence.sample_size)}/${integerText(minimumSample.threshold ?? evidence.required_sample_size)}`],
+        ["blockers", integerText(blockers.length)],
+        ["promotion_allowed", candidate.promotion_allowed || evidence.promotion_allowed ? "true" : "false"],
+      ])),
+      detailSection("Replay/backtest evidence", detailRows([
+        ["status", shadowReplayEvidenceStatusText(evidence.status)],
+        ["contract", evidence.evidence_contract || "shadow_replay_backtest_evidence_v1"],
+        ["artifact_path", evidence.artifact_path || "-"],
+        ["provider", evidence.provider || "-"],
+        ["sample_size", integerText(evidence.sample_size)],
+        ["required_sample_size", integerText(evidence.required_sample_size)],
+        ["source_hash", evidence.source_hash || "-"],
+        ["expected_source_hash", evidence.expected_source_hash || "-"],
+        ["error", evidence.error || "-"],
+      ])),
+      detailSection("Evidence metrics", marketObjectRows(evidence.metrics || {})),
+      detailSection("No-future boundary", marketObjectRows(evidence.no_future_boundary || {})),
+      detailSection("Blockers", blockers.length ? shadowBlockerListHtml(blockers) : emptyState("暂无 blocker。")),
+      detailSection("Required human decisions", shadowPromotionDecisionRows(reviewRequest.required_human_decisions || [])),
+      detailSection("Rollback / safety notes", shadowPromotionNoteList([
+        ...listValue(reviewRequest.rollback_notes),
+        ...listValue(reviewRequest.safety_notes),
+      ])),
+      detailSection("Safety", detailRows([
+        ["review_request_is_not_approval", "是"],
+        ["manual_review_required", "是"],
+        ["promotion_allowed", "否"],
+        ["active_params_mutated", "否"],
+        ["wrote_strategy_version", "否"],
+        ["writes_trade_state", "否"],
+        ["timer_mutated", "否"],
+      ])),
     ],
   });
 }
@@ -4645,6 +4867,13 @@ function onShadowObservationClick(event) {
   if (row) openShadowObservationDrawer(row);
 }
 
+function onShadowPromotionReviewClick(event) {
+  const button = event.target.closest("button[data-shadow-review-key]");
+  if (!button) return;
+  const candidate = findShadowPromotionReviewCandidate(button.dataset.shadowReviewKey);
+  if (candidate) openShadowPromotionReviewDrawer(candidate);
+}
+
 async function onShadowObservationHistoryClick(event) {
   const dateButton = event.target.closest("button[data-shadow-history-date]");
   if (dateButton) {
@@ -5794,6 +6023,63 @@ function shadowObservationHistoryData() {
     : {};
 }
 
+function shadowPromotionReviewData() {
+  return state.shadowPromotionReviewRequest && typeof state.shadowPromotionReviewRequest === "object"
+    ? state.shadowPromotionReviewRequest
+    : {};
+}
+
+function shadowPromotionReviewSummary(data = shadowPromotionReviewData()) {
+  return data.summary && typeof data.summary === "object" ? data.summary : {};
+}
+
+function shadowPromotionReviewRequestPayload(data = shadowPromotionReviewData()) {
+  return data.review_request && typeof data.review_request === "object" ? data.review_request : {};
+}
+
+function shadowPromotionEvidenceSummary(data = shadowPromotionReviewData()) {
+  const summary = shadowPromotionReviewSummary(data);
+  const replayFromSummary = summary.replay_backtest_evidence;
+  if (replayFromSummary && typeof replayFromSummary === "object") return replayFromSummary;
+  const replay = data.replay_backtest_evidence && typeof data.replay_backtest_evidence === "object"
+    ? data.replay_backtest_evidence
+    : {};
+  return replay.summary && typeof replay.summary === "object" ? replay.summary : {};
+}
+
+function shadowPromotionReviewCandidates(data = shadowPromotionReviewData()) {
+  if (Array.isArray(data.candidate_readiness)) return data.candidate_readiness;
+  const artifactCandidates = data.artifact?.source_dossier?.candidates;
+  if (Array.isArray(artifactCandidates)) return artifactCandidates;
+  const sourceCandidates = data.source_dossier?.candidates;
+  return Array.isArray(sourceCandidates) ? sourceCandidates : [];
+}
+
+function shadowPromotionRequiredDecisions(data = shadowPromotionReviewData()) {
+  const decisions = shadowPromotionReviewRequestPayload(data).required_human_decisions;
+  return Array.isArray(decisions) ? decisions : [];
+}
+
+function shadowPromotionEvidenceByCandidate(data = shadowPromotionReviewData()) {
+  const replay = data.replay_backtest_evidence && typeof data.replay_backtest_evidence === "object"
+    ? data.replay_backtest_evidence
+    : {};
+  const byCandidate = replay.by_candidate && typeof replay.by_candidate === "object" ? replay.by_candidate : {};
+  const required = shadowPromotionReviewRequestPayload(data).required_replay_backtest_evidence;
+  const fromRequired = {};
+  if (Array.isArray(required)) {
+    for (const item of required) {
+      if (item && item.candidate_key != null) fromRequired[String(item.candidate_key)] = item;
+    }
+  }
+  return { ...fromRequired, ...byCandidate };
+}
+
+function shadowPromotionEvidenceForCandidate(candidateKey) {
+  const byCandidate = shadowPromotionEvidenceByCandidate();
+  return byCandidate[String(candidateKey)] || {};
+}
+
 function shadowObservationRows() {
   const rows = shadowObservationData().rows;
   return Array.isArray(rows) ? rows : [];
@@ -5815,6 +6101,10 @@ function findShadowObservationRow(candidateKey) {
 
 function findShadowObservationHistoryCandidate(candidateKey) {
   return shadowObservationHistoryCandidates().find((item) => String(item.candidate_key) === String(candidateKey));
+}
+
+function findShadowPromotionReviewCandidate(candidateKey) {
+  return shadowPromotionReviewCandidates().find((item) => String(item.candidate_key) === String(candidateKey));
 }
 
 function findShadowCandidate(candidateKey) {
@@ -6460,6 +6750,8 @@ function acceptanceStatusClass(value) {
 
 function shadowStatusText(value) {
   return {
+    accepted: "已接受",
+    rejected: "已拒绝",
     blocked: "阻断",
     observing: "观察中",
     insufficient_sample: "样本不足",
@@ -6476,6 +6768,8 @@ function shadowStatusText(value) {
 
 function shadowStatusClass(value) {
   return {
+    accepted: "chip-green",
+    rejected: "chip-red",
     blocked: "chip-red",
     observing: "chip-blue",
     insufficient_sample: "chip-amber",
@@ -6525,6 +6819,51 @@ function shadowReviewStatusClass(value) {
     blocked: "chip-red",
     missing: "chip-amber",
     unknown: "chip-neutral",
+  }[value] || shadowStatusClass(value);
+}
+
+function shadowPromotionReviewStatusText(value) {
+  return {
+    review_ready: "可人工复核",
+    blocked: "评审阻断",
+    missing: "缺评审包",
+    invalid: "评审包无效",
+  }[value] || shadowStatusText(value);
+}
+
+function shadowPromotionDecisionStatusText(value) {
+  return {
+    required: "必须确认",
+    pending: "待确认",
+    blocked: "阻断",
+    acknowledged: "已确认",
+  }[value] || shadowStatusText(value);
+}
+
+function shadowPromotionDecisionStatusClass(value) {
+  return {
+    required: "chip-amber",
+    pending: "chip-blue",
+    blocked: "chip-red",
+    acknowledged: "chip-green",
+  }[value] || shadowStatusClass(value);
+}
+
+function shadowReplayEvidenceStatusText(value) {
+  return {
+    accepted: "evidence accepted",
+    rejected: "evidence rejected",
+    missing: "evidence missing",
+    unavailable: "evidence unavailable",
+  }[value] || shadowStatusText(value);
+}
+
+function shadowReplayEvidenceStatusClass(value) {
+  return {
+    accepted: "chip-green",
+    rejected: "chip-red",
+    missing: "chip-amber",
+    unavailable: "chip-neutral",
   }[value] || shadowStatusClass(value);
 }
 
@@ -7451,6 +7790,18 @@ function dash(value) {
 
 function listValue(value) {
   return Array.isArray(value) ? value.filter((item) => item != null && String(item).trim() !== "").map(String) : [];
+}
+
+function uniqueTextList(values) {
+  const seen = new Set();
+  const result = [];
+  for (const value of values || []) {
+    const text = String(value || "").trim();
+    if (!text || seen.has(text)) continue;
+    seen.add(text);
+    result.push(text);
+  }
+  return result;
 }
 
 function parseOptionalInt(value) {

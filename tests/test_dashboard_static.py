@@ -49,6 +49,7 @@ class DashboardStaticTest(unittest.TestCase):
             "/api/shadow-strategy-snapshot",
             "/api/shadow-observation-scorecard",
             "/api/shadow-observation-history",
+            "/api/shadow-promotion-review-request",
             "/api/review-timeline",
             "/api/trade-plans",
             "/api/open-execution",
@@ -967,6 +968,54 @@ class DashboardStaticTest(unittest.TestCase):
         self.assertNotIn("data-shadow-promote", source)
         self.assertNotIn("data-shadow-trade", source)
         self.assertNotIn("data-shadow-timer", source)
+
+    def test_dashboard_m92_shadow_promotion_review_workbench_is_visible_and_read_only(self) -> None:
+        source = "\n".join(
+            [
+                (DASHBOARD_DIR / "index.html").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "styles.css").read_text(encoding="utf-8"),
+            ]
+        )
+        script = (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8")
+
+        for label in [
+            "晋升评审工作台",
+            "shadow_promotion_review_request_v1",
+            "review_ready 不是 approval",
+            "required human decisions",
+            "candidate readiness / replay evidence",
+            "rollback / release gate",
+            "no approve/promote/trade/plan/timer controls",
+            "review_request_is_not_approval",
+            "/api/shadow-promotion-review-request",
+        ]:
+            self.assertIn(label, source)
+        for html_id in [
+            'id="shadowPromotionReviewState"',
+            'id="shadowPromotionReviewWorkbench"',
+        ]:
+            self.assertIn(html_id, source)
+        for fn_name in [
+            "function loadShadowPromotionReviewRequest",
+            "function renderShadowPromotionReviewWorkbench",
+            "function shadowPromotionReviewCandidateCard",
+            "function openShadowPromotionReviewDrawer",
+            "function onShadowPromotionReviewClick",
+            "function findShadowPromotionReviewCandidate",
+            "function shadowPromotionEvidenceForCandidate",
+        ]:
+            self.assertIn(fn_name, source)
+        self.assertIn("data-shadow-review-key", source)
+        self.assertIn("required_replay_backtest_evidence", source)
+        self.assertIn("rollback_notes", source)
+        self.assertIn("safety_notes", source)
+        self.assertNotIn('apiRequest("/api/shadow-promotion-review-request", { method: "POST"', script)
+        self.assertNotIn("data-shadow-review-approve", source)
+        self.assertNotIn("data-shadow-review-promote", source)
+        self.assertNotIn("data-shadow-review-trade", source)
+        self.assertNotIn("data-shadow-review-plan", source)
+        self.assertNotIn("data-shadow-review-timer", source)
 
     def test_dashboard_p1_cancel_and_execution_guardrails_are_visible(self) -> None:
         source = "\n".join(

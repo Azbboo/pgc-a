@@ -16,7 +16,10 @@ from pgc_trading.services.shadow_strategy_service import (
     GetShadowStrategySnapshotRequest,
     ShadowStrategyService,
 )
-from pgc_trading.services.strategy_evolution_service import review_shadow_promotion_dossier_artifact
+from pgc_trading.services.strategy_evolution_service import (
+    review_shadow_promotion_dossier_artifact,
+    review_shadow_promotion_review_request_artifact,
+)
 
 
 SHADOW_OBSERVATION_SCORECARD_CONTRACT = "shadow_observation_scorecard_v1"
@@ -25,12 +28,14 @@ SHADOW_PROMOTION_DOSSIER_CONTRACT = "shadow_promotion_dossier_v1"
 SHADOW_PROMOTION_REVIEW_REQUEST_CONTRACT = "shadow_promotion_review_request_v1"
 SHADOW_REPLAY_BACKTEST_EVIDENCE_CONTRACT = "shadow_replay_backtest_evidence_v1"
 SHADOW_REPLAY_BACKTEST_EVIDENCE_PATTERN = "shadow_replay_backtest_evidence*.json"
+SHADOW_REPLAY_BACKTEST_EVIDENCE_PROVIDER = "pgc_shadow_replay_backtest_evidence_producer_v1"
 DEFAULT_REQUIRED_SAMPLE_SIZE = 20
 DEFAULT_MIN_FROZEN_CPB_DELTA_PCT = 0.0
 DEFAULT_MAX_DRAWDOWN_PCT = -8.0
 DEFAULT_HISTORY_WINDOW = 20
 SCORECARD_ARTIFACT_PATTERN = "shadow_observation_scorecard_*.json"
 DOSSIER_ARTIFACT_PATTERN = "shadow_promotion_dossier_*.json"
+REVIEW_REQUEST_ARTIFACT_PATTERN = "shadow_promotion_review_request_*.json"
 REPLAY_BACKTEST_REQUIRED_BLOCKER = "replay_backtest_result_artifact_required"
 REPLAY_BACKTEST_BLOCKERS = {REPLAY_BACKTEST_REQUIRED_BLOCKER}
 REQUIRED_REPLAY_BACKTEST_METRICS = (
@@ -73,6 +78,19 @@ class BuildShadowPromotionDossierRequest:
 class BuildShadowPromotionReviewRequest:
     as_of_date: str | None = None
     output_path: str | None = None
+
+
+@dataclass(frozen=True)
+class BuildShadowReplayBacktestEvidenceRequest:
+    as_of_date: str | None = None
+    output_dir: str | None = None
+    candidate_keys: tuple[str, ...] = ()
+    required_sample_size: int = DEFAULT_REQUIRED_SAMPLE_SIZE
+
+
+@dataclass(frozen=True)
+class GetShadowPromotionReviewRequest:
+    as_of_date: str | None = None
 
 
 @dataclass(frozen=True)
@@ -151,6 +169,57 @@ class ShadowPromotionReviewRequestResult:
     artifact_path: str | None = None
     markdown_path: str | None = None
     artifact: dict[str, Any] = field(default_factory=dict)
+    active_params_mutated: bool = False
+    wrote_strategy_version: bool = False
+    wrote_strategy_versions: bool = False
+    writes_trade_state: bool = False
+    writes_paper_live_behavior: bool = False
+    timer_mutated: bool = False
+
+
+@dataclass(frozen=True)
+class ShadowPromotionReviewWorkbenchResult:
+    review_request_contract: str = SHADOW_PROMOTION_REVIEW_REQUEST_CONTRACT
+    generated_at: str = ""
+    db_path: str = ""
+    reports_dir: str = ""
+    as_of_date: str | None = None
+    status: str = "missing"
+    read_only: bool = True
+    artifact_only: bool = True
+    artifact_path: str | None = None
+    markdown_path: str | None = None
+    artifact_exists: bool = False
+    artifact_valid: bool = False
+    artifact_error: str | None = None
+    summary: dict[str, Any] = field(default_factory=dict)
+    review_request: dict[str, Any] = field(default_factory=dict)
+    candidate_readiness: list[dict[str, Any]] = field(default_factory=list)
+    replay_backtest_evidence: dict[str, Any] = field(default_factory=dict)
+    source_dossier_review: dict[str, Any] = field(default_factory=dict)
+    source_artifacts: dict[str, str | None] = field(default_factory=dict)
+    safety: dict[str, Any] = field(default_factory=dict)
+    artifact: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ShadowReplayBacktestEvidenceGenerationResult:
+    evidence_contract: str = SHADOW_REPLAY_BACKTEST_EVIDENCE_CONTRACT
+    generated_at: str = ""
+    db_path: str = ""
+    reports_dir: str = ""
+    output_dir: str = ""
+    as_of_date: str | None = None
+    provider: str = SHADOW_REPLAY_BACKTEST_EVIDENCE_PROVIDER
+    source_monitor_path: str | None = None
+    candidate_count: int = 0
+    accepted_count: int = 0
+    rejected_count: int = 0
+    missing_count: int = 0
+    wrote_artifacts: bool = False
+    artifacts: list[dict[str, Any]] = field(default_factory=list)
+    summary: dict[str, Any] = field(default_factory=dict)
+    safety: dict[str, Any] = field(default_factory=dict)
     active_params_mutated: bool = False
     wrote_strategy_version: bool = False
     wrote_strategy_versions: bool = False
@@ -608,6 +677,1007 @@ class ShadowObservationService:
             },
         )
 
+    def build_replay_backtest_evidence(
+        self,
+        request: BuildShadowReplayBacktestEvidenceRequest,
+        ctx: RequestContext,
+    ) -> ServiceResult[ShadowReplayBacktestEvidenceGenerationResult]:
+        """Build validated replay/backtest evidence artifacts from shadow monitor inputs."""
+
+        as_of_date = _compact_history_date(request.as_of_date)
+        if request.as_of_date is not None and as_of_date is None:
+            return ServiceResult(
+                status="validation_failed",
+                request_id=ctx.request_id,
+                data=_empty_replay_backtest_generation_result(
+                    self.db_path,
+                    self.reports_dir,
+                    request.output_dir,
+                    request.as_of_date,
+                    status="invalid_date",
+                ),
+                errors=[ServiceError("INVALID_AS_OF_DATE", "as_of_date must be YYYYMMDD or YYYY-MM-DD.")],
+            )
+
+        before_counts = _trade_state_counts(self.db_path)
+        snapshot_result = self._snapshot_service.get_snapshot(
+            GetShadowStrategySnapshotRequest(as_of_date=as_of_date),
+            RequestContext(
+                request_id=ctx.request_id,
+                dry_run=True,
+                operator=ctx.operator,
+                source=ctx.source,
+            ),
+        )
+        if not snapshot_result.ok or snapshot_result.data is None:
+            return ServiceResult(
+                status=snapshot_result.status,
+                request_id=ctx.request_id,
+                data=_empty_replay_backtest_generation_result(
+                    self.db_path,
+                    self.reports_dir,
+                    request.output_dir,
+                    as_of_date,
+                    status="source_unavailable",
+                ),
+                warnings=snapshot_result.warnings,
+                errors=snapshot_result.errors,
+                lineage={
+                    "read_only": "true",
+                    "artifact_only": "true",
+                    "wrote_artifacts": "false",
+                },
+            )
+
+        snapshot = snapshot_result.data
+        generation_date = str(getattr(snapshot, "as_of_date", None) or as_of_date or "")
+        monitor_path = _resolve_shadow_artifact_path(
+            _mapping(getattr(snapshot, "source_artifacts", {})).get("monitor_json"),
+            self.reports_dir.parent,
+        )
+        if monitor_path is None:
+            return ServiceResult(
+                status="validation_failed",
+                request_id=ctx.request_id,
+                data=_empty_replay_backtest_generation_result(
+                    self.db_path,
+                    self.reports_dir,
+                    request.output_dir,
+                    generation_date,
+                    status="source_unavailable",
+                ),
+                errors=[
+                    ServiceError(
+                        "SHADOW_MONITOR_ARTIFACT_NOT_FOUND",
+                        "shadow monitor artifact path was not available from the snapshot.",
+                    )
+                ],
+            )
+        monitor, monitor_error = _load_json_object(monitor_path)
+        if monitor_error is not None:
+            return ServiceResult(
+                status="validation_failed",
+                request_id=ctx.request_id,
+                data=_empty_replay_backtest_generation_result(
+                    self.db_path,
+                    self.reports_dir,
+                    request.output_dir,
+                    generation_date,
+                    status="source_invalid",
+                    source_monitor_path=str(monitor_path),
+                ),
+                errors=[ServiceError("SHADOW_MONITOR_ARTIFACT_INVALID", monitor_error)],
+            )
+
+        output_dir = Path(request.output_dir).expanduser() if request.output_dir else self.reports_dir
+        requested_keys = {str(key).strip() for key in request.candidate_keys if str(key).strip()}
+        candidate_monitors = [
+            item
+            for item in _list_mapping(monitor.get("candidate_monitors"))
+            if not requested_keys or str(item.get("candidate_key") or "").strip() in requested_keys
+        ]
+        artifacts: list[dict[str, Any]] = []
+        warnings: list[ServiceWarning] = []
+        if not ctx.dry_run:
+            output_dir.mkdir(parents=True, exist_ok=True)
+        for candidate in candidate_monitors:
+            candidate_key = str(candidate.get("candidate_key") or "").strip()
+            if not candidate_key:
+                continue
+            artifact_path = output_dir / f"shadow_replay_backtest_evidence_{generation_date}_{candidate_key}.json"
+            artifact = _shadow_replay_backtest_evidence_artifact(
+                db_path=self.db_path,
+                reports_dir=self.reports_dir,
+                monitor=monitor,
+                candidate=candidate,
+                as_of_date=generation_date,
+                required_sample_size=max(1, int(request.required_sample_size or DEFAULT_REQUIRED_SAMPLE_SIZE)),
+                source_monitor_path=monitor_path,
+            )
+            if not ctx.dry_run:
+                artifact_path.write_text(
+                    json.dumps(artifact, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+                review = review_shadow_replay_backtest_evidence_artifact(
+                    artifact_path,
+                    expected_candidate_key=candidate_key,
+                    expected_as_of_date=generation_date,
+                    required_sample_size=max(1, int(request.required_sample_size or DEFAULT_REQUIRED_SAMPLE_SIZE)),
+                )
+            else:
+                review = _best_replay_evidence_review(
+                    _review_shadow_replay_backtest_evidence_file(
+                        artifact_path,
+                        artifact,
+                        expected_as_of_date=generation_date,
+                        candidate_required_samples={
+                            candidate_key: max(1, int(request.required_sample_size or DEFAULT_REQUIRED_SAMPLE_SIZE))
+                        },
+                    )
+                )
+            review_payload = review.to_payload()
+            generation = _mapping(_list_mapping(artifact.get("results"))[0].get("generation") if _list_mapping(artifact.get("results")) else {})
+            if review.status != "accepted":
+                warnings.append(
+                    ServiceWarning(
+                        code="SHADOW_REPLAY_BACKTEST_EVIDENCE_REJECTED",
+                        message=f"{candidate_key} replay/backtest evidence is {review.status}: {review.error or 'blocked'}",
+                    )
+                )
+            artifacts.append(
+                {
+                    "candidate_key": candidate_key,
+                    "candidate_family": candidate.get("candidate_family"),
+                    "artifact_path": str(artifact_path),
+                    "wrote_artifact": not ctx.dry_run,
+                    "status": review.status,
+                    "valid": review.valid,
+                    "sample_size": review.sample_size,
+                    "required_sample_size": review.required_sample_size,
+                    "source_hash": review.source_hash,
+                    "blockers": review.blockers,
+                    "generation": generation,
+                    "review": review_payload,
+                }
+            )
+
+        after_counts = _trade_state_counts(self.db_path)
+        safety = _replay_generation_safety(before_counts, after_counts)
+        if safety["changed_tables"]:
+            return ServiceResult(
+                status="validation_failed",
+                request_id=ctx.request_id,
+                data=_replay_generation_result(
+                    self.db_path,
+                    self.reports_dir,
+                    output_dir,
+                    generation_date,
+                    monitor_path,
+                    artifacts,
+                    wrote_artifacts=not ctx.dry_run,
+                    safety=safety,
+                ),
+                warnings=warnings,
+                errors=[
+                    ServiceError(
+                        "SHADOW_REPLAY_BACKTEST_MUTATION_RISK",
+                        "shadow replay/backtest evidence generation changed protected trade state tables.",
+                    )
+                ],
+            )
+
+        result = _replay_generation_result(
+            self.db_path,
+            self.reports_dir,
+            output_dir,
+            generation_date,
+            monitor_path,
+            artifacts,
+            wrote_artifacts=not ctx.dry_run,
+            safety=safety,
+        )
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data=result,
+            warnings=warnings,
+            lineage={
+                "as_of_date": generation_date,
+                "candidate_count": str(result.candidate_count),
+                "accepted_count": str(result.accepted_count),
+                "rejected_count": str(result.rejected_count),
+                "missing_count": str(result.missing_count),
+                "wrote_artifacts": str(result.wrote_artifacts).lower(),
+                "read_only": "true",
+                "artifact_only": "true",
+            },
+        )
+
+    def get_promotion_review_request(
+        self,
+        request: GetShadowPromotionReviewRequest,
+        ctx: RequestContext,
+    ) -> ServiceResult[ShadowPromotionReviewWorkbenchResult]:
+        """Read the latest manual shadow promotion review request artifact."""
+
+        as_of_date = _compact_history_date(request.as_of_date)
+        if request.as_of_date is not None and as_of_date is None:
+            return ServiceResult(
+                status="validation_failed",
+                request_id=ctx.request_id,
+                data=_empty_promotion_review_workbench(
+                    self.db_path,
+                    self.reports_dir,
+                    request.as_of_date,
+                    artifact_error="as_of_date must be YYYYMMDD or YYYY-MM-DD.",
+                ),
+                errors=[ServiceError("INVALID_AS_OF_DATE", "as_of_date must be YYYYMMDD or YYYY-MM-DD.")],
+            )
+
+        artifact_root = self.reports_dir.parent
+        artifact_path = _latest_shadow_promotion_review_request_path(self.reports_dir, as_of_date)
+        if artifact_path is None:
+            missing_date = as_of_date or datetime.now(timezone.utc).strftime("%Y%m%d")
+            return ServiceResult(
+                status="success",
+                request_id=ctx.request_id,
+                data=_empty_promotion_review_workbench(
+                    self.db_path,
+                    self.reports_dir,
+                    missing_date,
+                    artifact_error="shadow promotion review request artifact was not found.",
+                ),
+                warnings=[
+                    ServiceWarning(
+                        code="SHADOW_PROMOTION_REVIEW_REQUEST_MISSING",
+                        message="shadow promotion review request artifact was not found.",
+                    )
+                ],
+                lineage={
+                    "as_of_date": missing_date,
+                    "review_request_contract": SHADOW_PROMOTION_REVIEW_REQUEST_CONTRACT,
+                    "read_only": "true",
+                    "artifact_only": "true",
+                    "status": "missing",
+                },
+            )
+
+        review = review_shadow_promotion_review_request_artifact(artifact_path)
+        artifact, read_error = _load_json_object(
+            artifact_path,
+            artifact_label="shadow promotion review request artifact",
+        )
+        if read_error is not None:
+            result = _empty_promotion_review_workbench(
+                self.db_path,
+                self.reports_dir,
+                as_of_date or _review_request_date_from_name(artifact_path.name),
+                artifact_path=artifact_path,
+                artifact_error=read_error,
+            )
+            return ServiceResult(
+                status="success",
+                request_id=ctx.request_id,
+                data=result,
+                warnings=[ServiceWarning(code="SHADOW_PROMOTION_REVIEW_REQUEST_INVALID", message=read_error)],
+                lineage={
+                    "as_of_date": result.as_of_date,
+                    "review_request_contract": SHADOW_PROMOTION_REVIEW_REQUEST_CONTRACT,
+                    "read_only": "true",
+                    "artifact_only": "true",
+                    "status": "invalid",
+                },
+            )
+
+        artifact = _portable_artifact_paths(artifact, artifact_root)
+        summary = _mapping(artifact.get("summary"))
+        review_request = _mapping(artifact.get("review_request"))
+        replay_backtest_evidence = _mapping(artifact.get("replay_backtest_evidence"))
+        source_dossier = _mapping(artifact.get("source_dossier"))
+        source_dossier_review = _mapping(artifact.get("source_dossier_review"))
+        safety = _mapping(artifact.get("safety")) or _promotion_review_request_safety()
+        result_as_of_date = str(
+            artifact.get("as_of_date")
+            or as_of_date
+            or _review_request_date_from_name(artifact_path.name)
+            or ""
+        ) or None
+        status = str(
+            summary.get("status")
+            or review_request.get("request_status")
+            or ("review_ready" if getattr(review, "review_ready_count", 0) else "blocked")
+        )
+        markdown_path = artifact_path.with_suffix(".md")
+        result = ShadowPromotionReviewWorkbenchResult(
+            generated_at=str(artifact.get("generated_at") or datetime.now(timezone.utc).isoformat(timespec="seconds")),
+            db_path=str(self.db_path),
+            reports_dir=str(self.reports_dir),
+            as_of_date=result_as_of_date,
+            status=status,
+            artifact_path=_portable_artifact_path(str(artifact_path), artifact_root),
+            markdown_path=_portable_optional_path(markdown_path if markdown_path.exists() else None, artifact_root),
+            artifact_exists=True,
+            artifact_valid=bool(getattr(review, "valid", False)),
+            artifact_error=getattr(review, "error", None),
+            summary=summary,
+            review_request=review_request,
+            candidate_readiness=_list_mapping(source_dossier.get("candidates")),
+            replay_backtest_evidence=replay_backtest_evidence,
+            source_dossier_review=source_dossier_review,
+            source_artifacts={
+                "review_request_json": _portable_artifact_path(str(artifact_path), artifact_root),
+                "review_request_markdown": _portable_optional_path(markdown_path if markdown_path.exists() else None, artifact_root),
+                "source_dossier_json": _mapping(artifact.get("source_dossier_review")).get("path")
+                or _optional_text(artifact.get("source_dossier_path")),
+            },
+            safety={
+                **safety,
+                "read_only": True,
+                "artifact_only": True,
+                "review_request_is_not_approval": True,
+                "manual_review_required": True,
+                "promotion_allowed": False,
+                "active_params_mutated": False,
+                "wrote_strategy_version": False,
+                "wrote_strategy_versions": False,
+                "writes_trade_state": False,
+                "writes_paper_live_behavior": False,
+                "timer_mutated": False,
+            },
+            artifact=artifact,
+        )
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data=result,
+            lineage={
+                "as_of_date": result.as_of_date,
+                "review_request_contract": SHADOW_PROMOTION_REVIEW_REQUEST_CONTRACT,
+                "artifact_valid": str(result.artifact_valid).lower(),
+                "candidate_count": str(_int_value(summary.get("candidate_count"), len(result.candidate_readiness))),
+                "review_ready_count": str(_int_value(summary.get("review_ready_count"), 0)),
+                "blocked_count": str(_int_value(summary.get("blocked_count"), 0)),
+                "read_only": "true",
+                "artifact_only": "true",
+            },
+        )
+
+
+def _empty_replay_backtest_generation_result(
+    db_path: Path,
+    reports_dir: Path,
+    output_dir: str | None,
+    as_of_date: str | None,
+    *,
+    status: str,
+    source_monitor_path: str | None = None,
+) -> ShadowReplayBacktestEvidenceGenerationResult:
+    output = Path(output_dir).expanduser() if output_dir else reports_dir
+    safety = _replay_generation_safety({}, {})
+    return ShadowReplayBacktestEvidenceGenerationResult(
+        generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        db_path=str(db_path),
+        reports_dir=str(reports_dir),
+        output_dir=str(output),
+        as_of_date=as_of_date,
+        source_monitor_path=source_monitor_path,
+        summary={
+            "status": status,
+            "candidate_count": 0,
+            "accepted_count": 0,
+            "rejected_count": 0,
+            "missing_count": 0,
+            "operator_note": "Replay/backtest evidence was not generated; promotion remains blocked.",
+            "promotion_allowed": False,
+        },
+        safety=safety,
+    )
+
+
+def _replay_generation_result(
+    db_path: Path,
+    reports_dir: Path,
+    output_dir: Path,
+    as_of_date: str,
+    source_monitor_path: Path,
+    artifacts: list[dict[str, Any]],
+    *,
+    wrote_artifacts: bool,
+    safety: Mapping[str, Any],
+) -> ShadowReplayBacktestEvidenceGenerationResult:
+    status_counts: dict[str, int] = {}
+    for artifact in artifacts:
+        status = str(artifact.get("status") or "missing")
+        status_counts[status] = status_counts.get(status, 0) + 1
+    summary = {
+        "status": "generated",
+        "candidate_count": len(artifacts),
+        "accepted_count": status_counts.get("accepted", 0),
+        "rejected_count": status_counts.get("rejected", 0),
+        "missing_count": status_counts.get("missing", 0),
+        "state_counts": dict(sorted(status_counts.items())),
+        "wrote_artifacts": wrote_artifacts,
+        "evidence_contract": SHADOW_REPLAY_BACKTEST_EVIDENCE_CONTRACT,
+        "provider": SHADOW_REPLAY_BACKTEST_EVIDENCE_PROVIDER,
+        "advisory_only": True,
+        "promotion_allowed": False,
+        "operator_note": (
+            "Replay/backtest evidence is advisory only and clears only the replay/backtest "
+            "artifact blocker when accepted by the M90 validator."
+        ),
+    }
+    return ShadowReplayBacktestEvidenceGenerationResult(
+        generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        db_path=str(db_path),
+        reports_dir=str(reports_dir),
+        output_dir=str(output_dir),
+        as_of_date=as_of_date,
+        source_monitor_path=str(source_monitor_path),
+        candidate_count=len(artifacts),
+        accepted_count=status_counts.get("accepted", 0),
+        rejected_count=status_counts.get("rejected", 0),
+        missing_count=status_counts.get("missing", 0),
+        wrote_artifacts=wrote_artifacts,
+        artifacts=artifacts,
+        summary=summary,
+        safety=dict(safety),
+        active_params_mutated=False,
+        wrote_strategy_version=False,
+        wrote_strategy_versions=False,
+        writes_trade_state=False,
+        writes_paper_live_behavior=False,
+        timer_mutated=False,
+    )
+
+
+def _shadow_replay_backtest_evidence_artifact(
+    *,
+    db_path: Path,
+    reports_dir: Path,
+    monitor: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+    as_of_date: str,
+    required_sample_size: int,
+    source_monitor_path: Path,
+) -> dict[str, Any]:
+    candidate_key = str(candidate.get("candidate_key") or "").strip()
+    candidate_family = str(candidate.get("candidate_family") or "unknown")
+    evidence = _shadow_replay_candidate_evidence_source(
+        db_path=db_path,
+        reports_dir=reports_dir,
+        monitor=monitor,
+        candidate=candidate,
+        as_of_date=as_of_date,
+        required_sample_size=required_sample_size,
+    )
+    metrics = dict(evidence["metrics"])
+    start_date = str(evidence.get("start_date") or as_of_date)
+    end_date = str(evidence.get("end_date") or as_of_date)
+    sample_size = _int_value(evidence.get("sample_size"), 0)
+    source_hash = build_shadow_replay_backtest_source_hash(
+        provider=SHADOW_REPLAY_BACKTEST_EVIDENCE_PROVIDER,
+        candidate_key=candidate_key,
+        start_date=start_date,
+        end_date=end_date,
+        sample_size=sample_size,
+        metrics=metrics,
+    )
+    generation_blockers = _unique_texts(_list_text(evidence.get("blockers")))
+    result = {
+        "provider": SHADOW_REPLAY_BACKTEST_EVIDENCE_PROVIDER,
+        "candidate_key": candidate_key,
+        "candidate_family": candidate_family,
+        "as_of_date": as_of_date,
+        "date_range": {"start_date": start_date, "end_date": end_date},
+        "sample_size": sample_size,
+        "required_sample_size": required_sample_size,
+        "metrics": metrics,
+        "source_hash": source_hash,
+        "no_future_boundary": evidence["no_future_boundary"],
+        "generation": {
+            "status": "generated_with_blockers" if generation_blockers else "generated",
+            "blockers": generation_blockers,
+            "source_row_count": evidence.get("source_row_count", 0),
+            "t1_sample_size": metrics.get("t1_sample_size"),
+            "t5_sample_size": metrics.get("t5_sample_size"),
+            "missing_market_bar_count": evidence.get("missing_market_bar_count", 0),
+            "partial_horizon_count": evidence.get("partial_horizon_count", 0),
+            "source_kind": evidence.get("source_kind"),
+            "advisory_only": True,
+            "promotion_allowed": False,
+        },
+        "source_artifacts": evidence.get("source_artifacts", []),
+        "safety": _shadow_replay_evidence_safety(),
+    }
+    return {
+        "artifact_type": "shadow_replay_backtest_evidence",
+        "evidence_contract": SHADOW_REPLAY_BACKTEST_EVIDENCE_CONTRACT,
+        "provider": SHADOW_REPLAY_BACKTEST_EVIDENCE_PROVIDER,
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "as_of_date": as_of_date,
+        "source_monitor_path": _portable_artifact_path(str(source_monitor_path), reports_dir.parent),
+        "results": [result],
+        "summary": {
+            "candidate_count": 1,
+            "candidate_key": candidate_key,
+            "required_sample_size": required_sample_size,
+            "generation_blockers": generation_blockers,
+            "advisory_only": True,
+            "promotion_allowed": False,
+        },
+        "safety": _shadow_replay_evidence_safety(),
+    }
+
+
+def _shadow_replay_candidate_evidence_source(
+    *,
+    db_path: Path,
+    reports_dir: Path,
+    monitor: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+    as_of_date: str,
+    required_sample_size: int,
+) -> dict[str, Any]:
+    candidate_key = str(candidate.get("candidate_key") or "").strip()
+    if candidate_key in {"trend_extension_shadow", "breakout_pressure_shadow", "low_price_momentum_shadow"}:
+        return _shadow_bucket_replay_evidence_source(
+            db_path=db_path,
+            monitor=monitor,
+            candidate=candidate,
+            as_of_date=as_of_date,
+            required_sample_size=required_sample_size,
+        )
+    if candidate_key == "preconfirm_watchlist":
+        return _preconfirm_replay_evidence_source(
+            reports_dir=reports_dir,
+            candidate=candidate,
+            as_of_date=as_of_date,
+            required_sample_size=required_sample_size,
+        )
+    if candidate_key == "pullback_dip_buy":
+        return _dip_buy_replay_evidence_source(
+            reports_dir=reports_dir,
+            candidate=candidate,
+            as_of_date=as_of_date,
+            required_sample_size=required_sample_size,
+        )
+    return _summary_only_replay_evidence_source(
+        candidate=candidate,
+        as_of_date=as_of_date,
+        required_sample_size=required_sample_size,
+        blockers=["shadow_replay_backtest_candidate_source_unknown"],
+    )
+
+
+def _shadow_bucket_replay_evidence_source(
+    *,
+    db_path: Path,
+    monitor: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+    as_of_date: str,
+    required_sample_size: int,
+) -> dict[str, Any]:
+    candidate_key = str(candidate.get("candidate_key") or "").strip()
+    source_rows = _monitor_walk_forward_rows_for_candidate(monitor, candidate_key)
+    progress = _mapping(candidate.get("walk_forward_progress"))
+    outcomes: list[dict[str, Any]] = []
+    if db_path.exists():
+        try:
+            with sqlite3.connect(db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                if _table_exists(conn, "market_bars"):
+                    outcomes = [_market_replay_outcome(conn, row, as_of_date) for row in source_rows]
+                else:
+                    outcomes = [_missing_replay_outcome("market_bars_table_missing", row) for row in source_rows]
+        except sqlite3.Error as exc:
+            outcomes = [_missing_replay_outcome(f"market_bars_query_failed:{exc}", row) for row in source_rows]
+    else:
+        outcomes = [_missing_replay_outcome("market_bars_db_missing", row) for row in source_rows]
+
+    t1_close = [value for value in (_float_or_none(item.get("t1_close_pct")) for item in outcomes) if value is not None]
+    t1_high = [value for value in (_float_or_none(item.get("t1_high_pct")) for item in outcomes) if value is not None]
+    t5_close = [value for value in (_float_or_none(item.get("t5_close_pct")) for item in outcomes) if value is not None]
+    drawdowns = [value for value in (_float_or_none(item.get("drawdown_pct")) for item in outcomes) if value is not None]
+    missing_count = sum(1 for item in outcomes if item.get("missing"))
+    partial_count = sum(1 for item in outcomes if item.get("partial_horizon"))
+    max_input_date = max((str(item.get("max_input_date") or "") for item in outcomes), default="")
+    signal_dates = [
+        str(row.get("signal_date") or row.get("review_date") or "")
+        for row in source_rows
+        if _is_compact_date(row.get("signal_date") or row.get("review_date"))
+    ]
+    metrics = {
+        "t1_close_mean_pct": _mean(t1_close) if t1_close else _float_or_none(progress.get("t1_close_mean_pct")),
+        "t1_close_win_rate_pct": _hit_rate(t1_close) if t1_close else _float_or_none(progress.get("t1_close_win_rate_pct")),
+        "t1_high_mean_pct": _mean(t1_high) if t1_high else _float_or_none(progress.get("t1_high_mean_pct")),
+        "t5_close_mean_pct": _mean(t5_close) if t5_close else _float_or_none(progress.get("t5_close_mean_pct")),
+        "t5_close_win_rate_pct": _hit_rate(t5_close) if t5_close else _float_or_none(progress.get("t5_close_win_rate_pct")),
+        "max_drawdown_pct": min(drawdowns) if drawdowns else _first_float(progress, "max_drawdown_pct", "mae_10d_median_pct", "t1_low_mean_pct"),
+        "t1_sample_size": len(t1_close),
+        "t5_sample_size": len(t5_close),
+        "source_row_count": len(source_rows),
+    }
+    blockers: list[str] = []
+    if not source_rows:
+        blockers.append("shadow_replay_backtest_source_rows_missing")
+    if missing_count:
+        blockers.append("shadow_replay_backtest_missing_bars")
+    if len(t1_close) < required_sample_size:
+        blockers.append("shadow_replay_backtest_sample_size_insufficient")
+    if any(metrics.get(key) in (None, "") for key in REQUIRED_REPLAY_BACKTEST_METRICS):
+        blockers.append("shadow_replay_backtest_metric_gap")
+    return {
+        "source_kind": "shadow_monitor_walk_forward_market_bars",
+        "start_date": min(signal_dates) if signal_dates else _optional_text(progress.get("start_signal_date")) or as_of_date,
+        "end_date": as_of_date,
+        "sample_size": len(t1_close),
+        "source_row_count": len(source_rows),
+        "missing_market_bar_count": missing_count,
+        "partial_horizon_count": partial_count,
+        "metrics": metrics,
+        "no_future_boundary": {
+            "passed": True,
+            "max_input_date": max_input_date or as_of_date,
+            "data_cutoff_date": as_of_date,
+            "latest_market_date": max_input_date or as_of_date,
+        },
+        "source_artifacts": [],
+        "blockers": blockers,
+    }
+
+
+def _preconfirm_replay_evidence_source(
+    *,
+    reports_dir: Path,
+    candidate: Mapping[str, Any],
+    as_of_date: str,
+    required_sample_size: int,
+) -> dict[str, Any]:
+    source_path = _candidate_progress_source_artifact(candidate, reports_dir)
+    blockers: list[str] = []
+    if source_path is None:
+        return _summary_only_replay_evidence_source(
+            candidate=candidate,
+            as_of_date=as_of_date,
+            required_sample_size=required_sample_size,
+            blockers=["shadow_replay_backtest_preconfirm_source_missing"],
+        )
+    payload, error = _load_json_object(source_path, artifact_label="preconfirm watchlist source artifact")
+    if error is not None:
+        return _summary_only_replay_evidence_source(
+            candidate=candidate,
+            as_of_date=as_of_date,
+            required_sample_size=required_sample_size,
+            blockers=["shadow_replay_backtest_preconfirm_source_invalid"],
+            source_artifacts=[str(source_path)],
+        )
+    row = _summary_row_by_key(payload.get("summary"), "pre_action", "高潜伏预警") or _summary_row_by_key(
+        payload.get("summary"),
+        "pre_action",
+        "全部",
+    )
+    meta = _mapping(payload.get("meta"))
+    sample_size = _int_value(row.get("next_close_ret_from_watch_n"), _int_value(row.get("signals"), 0))
+    metrics = {
+        "t1_close_mean_pct": _ratio_to_pct(row.get("next_close_ret_from_watch_mean")),
+        "t1_close_win_rate_pct": _ratio_to_pct(row.get("next_close_ret_from_watch_win_rate")),
+        "t1_high_mean_pct": _ratio_to_pct(row.get("next_high_ret_from_watch_mean")),
+        "t5_close_mean_pct": _ratio_to_pct(row.get("watch_ret_5d_mean")),
+        "t5_close_win_rate_pct": _ratio_to_pct(row.get("watch_ret_5d_win_rate")),
+        "max_drawdown_pct": _ratio_to_pct(row.get("watch_ret_5d_min") if row.get("watch_ret_5d_min") is not None else row.get("next_close_ret_from_watch_min")),
+        "t1_sample_size": sample_size,
+        "t5_sample_size": _int_value(row.get("watch_ret_5d_n"), 0),
+        "source_row_count": _int_value(row.get("signals"), sample_size),
+    }
+    if sample_size < required_sample_size:
+        blockers.append("shadow_replay_backtest_sample_size_insufficient")
+    if any(metrics.get(key) in (None, "") for key in REQUIRED_REPLAY_BACKTEST_METRICS):
+        blockers.append("shadow_replay_backtest_metric_gap")
+    end_date = _compact_history_date(_optional_text(meta.get("end_date"))) or as_of_date
+    return {
+        "source_kind": "preconfirm_watchlist_backtest_artifact",
+        "start_date": _compact_history_date(_optional_text(meta.get("start_date"))) or end_date,
+        "end_date": end_date,
+        "sample_size": sample_size,
+        "source_row_count": metrics["source_row_count"],
+        "missing_market_bar_count": 0,
+        "partial_horizon_count": 0,
+        "metrics": metrics,
+        "no_future_boundary": {
+            "passed": end_date <= as_of_date,
+            "max_input_date": end_date,
+            "data_cutoff_date": end_date,
+            "latest_market_date": end_date,
+        },
+        "source_artifacts": [_portable_artifact_path(str(source_path), reports_dir.parent)],
+        "blockers": blockers,
+    }
+
+
+def _dip_buy_replay_evidence_source(
+    *,
+    reports_dir: Path,
+    candidate: Mapping[str, Any],
+    as_of_date: str,
+    required_sample_size: int,
+) -> dict[str, Any]:
+    source_path = _candidate_progress_source_artifact(candidate, reports_dir)
+    if source_path is None:
+        return _summary_only_replay_evidence_source(
+            candidate=candidate,
+            as_of_date=as_of_date,
+            required_sample_size=required_sample_size,
+            blockers=["shadow_replay_backtest_dip_buy_source_missing"],
+        )
+    payload, error = _load_json_object(source_path, artifact_label="pullback dip-buy source artifact")
+    if error is not None:
+        return _summary_only_replay_evidence_source(
+            candidate=candidate,
+            as_of_date=as_of_date,
+            required_sample_size=required_sample_size,
+            blockers=["shadow_replay_backtest_dip_buy_source_invalid"],
+            source_artifacts=[str(source_path)],
+        )
+    selected_variant = payload.get("selected_variant")
+    row = _summary_row_by_key(payload.get("variants"), "variant_id", str(selected_variant or ""))
+    if not row and _list_mapping(payload.get("variants")):
+        row = _list_mapping(payload.get("variants"))[0]
+    current_dates = [
+        str(item.get("review_date"))
+        for item in _list_mapping(payload.get("current_levels"))
+        if _is_compact_date(item.get("review_date"))
+    ]
+    sample_size = _int_value(row.get("ret_5d_n"), _int_value(row.get("fill_n"), 0))
+    metrics = {
+        "t1_close_mean_pct": None,
+        "t1_close_win_rate_pct": None,
+        "t5_close_mean_pct": _ratio_to_pct(row.get("ret_5d_mean")),
+        "t5_close_win_rate_pct": _ratio_to_pct(row.get("ret_5d_win_rate")),
+        "max_drawdown_pct": _ratio_to_pct(row.get("mae_10d_median")),
+        "t1_sample_size": 0,
+        "t5_sample_size": sample_size,
+        "source_row_count": _int_value(row.get("fill_n"), sample_size),
+    }
+    blockers = ["shadow_replay_backtest_metric_gap"]
+    if sample_size < required_sample_size:
+        blockers.append("shadow_replay_backtest_sample_size_insufficient")
+    end_date = max(current_dates) if current_dates else as_of_date
+    return {
+        "source_kind": "pullback_dip_buy_artifact_summary",
+        "start_date": min(current_dates) if current_dates else end_date,
+        "end_date": end_date,
+        "sample_size": sample_size,
+        "source_row_count": metrics["source_row_count"],
+        "missing_market_bar_count": 0,
+        "partial_horizon_count": 0,
+        "metrics": metrics,
+        "no_future_boundary": {
+            "passed": end_date <= as_of_date,
+            "max_input_date": end_date,
+            "data_cutoff_date": end_date,
+            "latest_market_date": end_date,
+        },
+        "source_artifacts": [_portable_artifact_path(str(source_path), reports_dir.parent)],
+        "blockers": blockers,
+    }
+
+
+def _summary_only_replay_evidence_source(
+    *,
+    candidate: Mapping[str, Any],
+    as_of_date: str,
+    required_sample_size: int,
+    blockers: list[str],
+    source_artifacts: list[str] | None = None,
+) -> dict[str, Any]:
+    progress = _mapping(candidate.get("walk_forward_progress"))
+    comparison = _mapping(candidate.get("comparison_vs_frozen_cpb"))
+    sample_size = _sample_size(progress, comparison)
+    metrics = {
+        "t1_close_mean_pct": _first_float(progress, "t1_close_mean_pct", "next_open_ret_1d_mean_pct"),
+        "t1_close_win_rate_pct": _first_float(progress, "t1_close_win_rate_pct", "ret_5d_win_rate_pct"),
+        "t5_close_mean_pct": _first_float(progress, "t5_close_mean_pct", "next_open_ret_5d_mean_pct", "ret_5d_mean_pct"),
+        "max_drawdown_pct": _first_float(progress, "max_drawdown_pct", "mae_10d_median_pct"),
+        "t1_sample_size": sample_size,
+        "t5_sample_size": sample_size,
+        "source_row_count": sample_size,
+    }
+    generation_blockers = list(blockers)
+    if sample_size < required_sample_size:
+        generation_blockers.append("shadow_replay_backtest_sample_size_insufficient")
+    if any(metrics.get(key) in (None, "") for key in REQUIRED_REPLAY_BACKTEST_METRICS):
+        generation_blockers.append("shadow_replay_backtest_metric_gap")
+    return {
+        "source_kind": "summary_only",
+        "start_date": _compact_history_date(_optional_text(progress.get("start_signal_date"))) or as_of_date,
+        "end_date": _compact_history_date(_optional_text(progress.get("latest_outcome_date"))) or as_of_date,
+        "sample_size": sample_size,
+        "source_row_count": sample_size,
+        "missing_market_bar_count": 0,
+        "partial_horizon_count": 0,
+        "metrics": metrics,
+        "no_future_boundary": {
+            "passed": True,
+            "max_input_date": as_of_date,
+            "data_cutoff_date": as_of_date,
+            "latest_market_date": as_of_date,
+        },
+        "source_artifacts": source_artifacts or [],
+        "blockers": generation_blockers,
+    }
+
+
+def _monitor_walk_forward_rows_for_candidate(
+    monitor: Mapping[str, Any],
+    candidate_key: str,
+) -> list[dict[str, Any]]:
+    rows = _list_mapping(_mapping(monitor.get("walk_forward_progress")).get("rows"))
+    return [
+        row
+        for row in rows
+        if str(row.get("candidate_key") or row.get("bucket") or "").strip() == candidate_key
+    ]
+
+
+def _market_replay_outcome(
+    conn: sqlite3.Connection,
+    source_row: Mapping[str, Any],
+    as_of_date: str,
+) -> dict[str, Any]:
+    ts_code = str(source_row.get("ts_code") or "").strip()
+    planned_buy_date = str(source_row.get("planned_buy_date") or source_row.get("outcome_date") or "").strip()
+    if not ts_code or not planned_buy_date:
+        return _missing_replay_outcome("shadow_replay_backtest_signal_row_incomplete", source_row)
+    bars = list(
+        conn.execute(
+            """
+            SELECT trade_date, open, high, low, close
+            FROM market_bars
+            WHERE ts_code = ?
+              AND trade_date >= ?
+              AND trade_date <= ?
+            ORDER BY trade_date
+            LIMIT 5
+            """,
+            (ts_code, planned_buy_date, as_of_date),
+        )
+    )
+    if not bars:
+        return _missing_replay_outcome("market_bars_missing", source_row)
+    entry_price = _float_or_none(bars[0]["open"]) or _float_or_none(bars[0]["close"])
+    if entry_price is None or entry_price <= 0:
+        return _missing_replay_outcome("market_bars_entry_price_missing", source_row)
+    lows = [_float_or_none(bar["low"]) for bar in bars]
+    max_input_date = max(str(bar["trade_date"]) for bar in bars)
+    return {
+        "missing": False,
+        "partial_horizon": len(bars) < 5,
+        "max_input_date": max_input_date,
+        "t1_close_pct": _bar_close_pct(bars, 0, entry_price),
+        "t1_high_pct": _bar_high_pct(bars, 0, entry_price),
+        "t5_close_pct": _bar_close_pct(bars, 4, entry_price),
+        "drawdown_pct": min((_pct_change(low, entry_price) for low in lows if low is not None), default=None),
+    }
+
+
+def _missing_replay_outcome(reason: str, source_row: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "missing": True,
+        "partial_horizon": False,
+        "missing_reason": reason,
+        "max_input_date": source_row.get("planned_buy_date") or source_row.get("outcome_date"),
+        "t1_close_pct": None,
+        "t1_high_pct": None,
+        "t5_close_pct": None,
+        "drawdown_pct": None,
+    }
+
+
+def _bar_high_pct(bars: list[sqlite3.Row], index: int, entry_price: float) -> float | None:
+    if len(bars) <= index:
+        return None
+    high = _float_or_none(bars[index]["high"])
+    if high is None:
+        return None
+    return _pct_change(high, entry_price)
+
+
+def _candidate_progress_source_artifact(candidate: Mapping[str, Any], reports_dir: Path) -> Path | None:
+    progress = _mapping(candidate.get("walk_forward_progress"))
+    return _resolve_shadow_artifact_path(progress.get("source_artifact"), reports_dir.parent)
+
+
+def _resolve_shadow_artifact_path(value: object, artifact_root: Path) -> Path | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    path = Path(text).expanduser()
+    if path.is_absolute():
+        return path
+    candidates = [artifact_root / path, artifact_root / "reports" / path]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return artifact_root / path
+
+
+def _summary_row_by_key(rows: object, key: str, expected: str) -> dict[str, Any]:
+    for row in _list_mapping(rows):
+        if str(row.get(key) or "") == expected:
+            return row
+    return {}
+
+
+def _ratio_to_pct(value: object) -> float | None:
+    parsed = _float_or_none(value)
+    if parsed is None:
+        return None
+    return round(parsed * 100.0, 2) if abs(parsed) <= 1.0 else round(parsed, 2)
+
+
+def _shadow_replay_evidence_safety() -> dict[str, Any]:
+    return {
+        "read_only": True,
+        "artifact_only": True,
+        "advisory_only": True,
+        "active_params_mutated": False,
+        "wrote_strategy_version": False,
+        "wrote_strategy_versions": False,
+        "writes_trade_state": False,
+        "writes_paper_live_behavior": False,
+        "paper_live_deployment_changed": False,
+        "timer_mutated": False,
+        "promotion_allowed": False,
+        "paper_observation_allowed": False,
+    }
+
+
+def _replay_generation_safety(
+    before_counts: Mapping[str, int],
+    after_counts: Mapping[str, int],
+) -> dict[str, Any]:
+    changed_tables = [
+        table
+        for table in ("strategy_versions", "trade_plans", "trades", "positions")
+        if before_counts.get(table, 0) != after_counts.get(table, before_counts.get(table, 0))
+    ]
+    return {
+        "read_only": True,
+        "artifact_only": True,
+        "advisory_only": True,
+        "trade_state_counts_before": dict(before_counts),
+        "trade_state_counts_after": dict(after_counts),
+        "trade_state_counts_unchanged": not changed_tables,
+        "changed_tables": changed_tables,
+        "active_params_mutated": False,
+        "wrote_strategy_version": False,
+        "wrote_strategy_versions": False,
+        "writes_trade_state": False,
+        "writes_paper_live_behavior": False,
+        "timer_mutated": False,
+        "promotion_allowed": False,
+        "paper_observation_allowed": False,
+    }
+
+
+def _trade_state_counts(db_path: Path) -> dict[str, int]:
+    tables = ("strategy_versions", "trade_plans", "trades", "positions")
+    if not db_path.exists():
+        return {table: 0 for table in tables}
+    try:
+        with sqlite3.connect(db_path) as conn:
+            return {table: _table_count(conn, table) for table in tables}
+    except sqlite3.Error:
+        return {table: 0 for table in tables}
+
+
+def _table_count(conn: sqlite3.Connection, table_name: str) -> int:
+    if not _table_exists(conn, table_name):
+        return 0
+    row = conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()
+    return int(row[0] or 0)
+
 
 def _empty_result(
     db_path: Path,
@@ -994,6 +2064,95 @@ def _empty_dossier(as_of_date: str | None) -> ShadowPromotionDossierResult:
                 "promotion_allowed": False,
             },
             "safety": _dossier_safety({}),
+        },
+    )
+
+
+def _empty_promotion_review_workbench(
+    db_path: Path,
+    reports_dir: Path,
+    as_of_date: str | None,
+    *,
+    artifact_path: Path | None = None,
+    artifact_error: str | None = None,
+) -> ShadowPromotionReviewWorkbenchResult:
+    artifact_root = reports_dir.parent
+    compact_date = _compact_history_date(as_of_date) or as_of_date
+    safety = _promotion_review_request_safety()
+    status = "missing" if artifact_path is None else "invalid"
+    return ShadowPromotionReviewWorkbenchResult(
+        generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        db_path=str(db_path),
+        reports_dir=str(reports_dir),
+        as_of_date=compact_date,
+        status=status,
+        artifact_path=_portable_optional_path(artifact_path, artifact_root),
+        artifact_exists=artifact_path is not None,
+        artifact_valid=False,
+        artifact_error=artifact_error,
+        summary={
+            "status": status,
+            "candidate_count": 0,
+            "review_ready_count": 0,
+            "blocked_count": 0,
+            "review_ready_is_not_approval": True,
+            "manual_review_required": True,
+            "promotion_allowed": False,
+            "replay_backtest_evidence": _replay_evidence_summary_from_payloads([]),
+            "operator_note": "Shadow promotion review request is unavailable; promotion remains blocked.",
+        },
+        review_request={
+            "request_key": f"shadow-promotion-review-request:{compact_date or 'latest'}",
+            "request_status": status,
+            "blocking_reason": (
+                "shadow_promotion_review_request_missing"
+                if artifact_path is None
+                else "shadow_promotion_review_request_invalid"
+            ),
+            "required_human_decisions": [
+                {
+                    "decision_key": "manual_promotion_approval_required",
+                    "required": True,
+                    "status": "blocked",
+                    "note": "A valid review request artifact is required before any human review.",
+                }
+            ],
+            "required_replay_backtest_evidence": [
+                {
+                    "candidate_key": None,
+                    "status": "missing",
+                    "evidence_contract": SHADOW_REPLAY_BACKTEST_EVIDENCE_CONTRACT,
+                    "blockers": [REPLAY_BACKTEST_REQUIRED_BLOCKER],
+                    "promotion_allowed": False,
+                    "paper_observation_allowed": False,
+                    "advisory_only": True,
+                }
+            ],
+            "rollback_notes": _promotion_review_request_rollback_notes({}),
+            "safety_notes": _promotion_review_request_safety_notes(),
+            "review_ready_candidates": [],
+            "blocked_candidate_keys": [],
+        },
+        replay_backtest_evidence={
+            "summary": _replay_evidence_summary_from_payloads([]),
+            "by_candidate": {},
+            "orphaned": [],
+        },
+        source_artifacts={
+            "review_request_json": _portable_optional_path(artifact_path, artifact_root),
+            "review_request_markdown": None,
+            "source_dossier_json": None,
+        },
+        safety=safety,
+        artifact={
+            "artifact_type": "shadow_promotion_review_request",
+            "review_request_contract": SHADOW_PROMOTION_REVIEW_REQUEST_CONTRACT,
+            "as_of_date": compact_date,
+            "summary": {
+                "status": status,
+                "promotion_allowed": False,
+            },
+            "safety": safety,
         },
     )
 
@@ -1681,8 +2840,30 @@ def _latest_shadow_promotion_dossier_path(reports_dir: Path, as_of_date: str | N
     )[-1]
 
 
+def _latest_shadow_promotion_review_request_path(reports_dir: Path, as_of_date: str | None) -> Path | None:
+    candidates = [path for path in reports_dir.glob(REVIEW_REQUEST_ARTIFACT_PATTERN) if path.is_file()]
+    if as_of_date is not None:
+        exact = [path for path in candidates if _review_request_date_from_name(path.name) == as_of_date]
+        return sorted(exact, key=lambda path: (path.stat().st_mtime, path.name))[-1] if exact else None
+    if not candidates:
+        return None
+    return sorted(
+        candidates,
+        key=lambda path: (_review_request_date_from_name(path.name) or "", path.stat().st_mtime, path.name),
+    )[-1]
+
+
 def _artifact_date_from_name(name: str) -> str | None:
     prefix = "shadow_promotion_dossier_"
+    suffix = ".json"
+    if not name.startswith(prefix) or not name.endswith(suffix):
+        return None
+    candidate = name[len(prefix) : -len(suffix)]
+    return candidate if len(candidate) == 8 and candidate.isdigit() else None
+
+
+def _review_request_date_from_name(name: str) -> str | None:
+    prefix = "shadow_promotion_review_request_"
     suffix = ".json"
     if not name.startswith(prefix) or not name.endswith(suffix):
         return None
@@ -2121,13 +3302,17 @@ def _safety_reports_mutation(safety: Mapping[str, Any]) -> bool:
     return any(bool(safety.get(key)) for key in FORBIDDEN_REPLAY_EVIDENCE_FLAGS)
 
 
-def _load_json_object(path: Path) -> tuple[dict[str, Any], str | None]:
+def _load_json_object(
+    path: Path,
+    *,
+    artifact_label: str = "shadow replay/backtest evidence artifact",
+) -> tuple[dict[str, Any], str | None]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        return {}, f"shadow replay/backtest evidence artifact is not valid JSON: {exc}"
+        return {}, f"{artifact_label} is not valid JSON: {exc}"
     if not isinstance(value, dict):
-        return {}, "shadow replay/backtest evidence artifact must be a JSON object."
+        return {}, f"{artifact_label} must be a JSON object."
     return value, None
 
 

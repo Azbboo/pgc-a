@@ -213,6 +213,7 @@ class DailyReportTest(unittest.TestCase):
             reports_dir = Path(tmp) / "reports"
             reports_dir.mkdir()
             self._write_shadow_strategy_artifacts(reports_dir)
+            self._write_shadow_evidence_closure_artifacts(reports_dir)
             self._write_shadow_replay_backtest_evidence(reports_dir, "trend_extension_shadow")
 
             result = ReportingQueryService(db_path, reports_dir=reports_dir).get_daily_report(
@@ -248,6 +249,12 @@ class DailyReportTest(unittest.TestCase):
             self.assertIn("source_refs", markdown)
             self.assertIn("research-only", markdown)
             self.assertIn("不会进入今日候选、生成交易计划或开启 timer", markdown)
+            self.assertIn("## Shadow Evidence Closure", markdown)
+            self.assertIn("artifact parity：dossier=pass", markdown)
+            self.assertIn("review_request=pass", markdown)
+            self.assertIn("scorecard=pass", markdown)
+            self.assertIn("Dashboard history parity：pass", markdown)
+            self.assertIn("review_ready 不是批准", markdown)
 
             payload = json.loads(render_daily_report_json(result.data))
             self.assertEqual(payload["shadow_observation"]["status"], "blocked")
@@ -258,6 +265,11 @@ class DailyReportTest(unittest.TestCase):
             )
             self.assertEqual(payload["shadow_strategy"]["status"], "blocked")
             self.assertEqual(payload["shadow_strategy"]["top_candidates"][0]["today_top"]["name"], "Shadow Top")
+            self.assertEqual(payload["shadow_evidence"]["artifact_summary"]["scorecard"], "pass")
+            self.assertEqual(payload["shadow_evidence"]["artifact_summary"]["dossier"], "pass")
+            self.assertEqual(payload["shadow_evidence"]["artifact_summary"]["review_request"], "pass")
+            self.assertEqual(payload["shadow_evidence"]["dashboard_history_parity"]["status"], "pass")
+            self.assertIn("preconfirm_watchlist", ";".join(payload["shadow_evidence"]["missing_blockers"]))
             self.assertEqual(payload["candidate"]["name"], "Report Pick")
             self.assertFalse(payload["shadow_strategy"]["safety"]["promotion_allowed"])
 
@@ -1215,6 +1227,76 @@ class DailyReportTest(unittest.TestCase):
             json.dumps(preflight, ensure_ascii=False),
             encoding="utf-8",
         )
+
+    def _write_shadow_evidence_closure_artifacts(self, reports_dir: Path) -> None:
+        scorecard = {
+            "artifact_type": "shadow_observation_scorecard",
+            "generated_at": "2026-05-12T00:00:02+00:00",
+            "review_date": AS_OF_DATE,
+            "status": "blocked",
+            "read_only": True,
+            "artifact_only": True,
+            "candidate_count": 2,
+            "safety": {
+                "writes_trade_state": False,
+                "writes_paper_live_behavior": False,
+                "timer_mutated": False,
+                "promotion_allowed": False,
+                "paper_observation_allowed": False,
+            },
+        }
+        dossier = {
+            "artifact_type": "shadow_promotion_dossier",
+            "dossier_contract": "shadow_promotion_dossier_v1",
+            "generated_at": "2026-05-12T00:00:03+00:00",
+            "as_of_date": AS_OF_DATE,
+            "summary": {
+                "status": "blocked",
+                "candidate_count": 2,
+                "review_ready_is_not_approval": True,
+                "promotion_allowed": False,
+                "read_only": True,
+                "artifact_only": True,
+            },
+            "safety": {
+                "writes_trade_state": False,
+                "writes_paper_live_behavior": False,
+                "timer_mutated": False,
+                "promotion_allowed": False,
+                "paper_observation_allowed": False,
+            },
+        }
+        review_request = {
+            "artifact_type": "shadow_promotion_review_request",
+            "review_request_contract": "shadow_promotion_review_request_v1",
+            "generated_at": "2026-05-12T00:00:04+00:00",
+            "as_of_date": AS_OF_DATE,
+            "summary": {
+                "status": "blocked",
+                "candidate_count": 2,
+                "review_ready_is_not_approval": True,
+                "manual_review_required": True,
+                "promotion_allowed": False,
+            },
+            "safety": {
+                "writes_trade_state": False,
+                "writes_paper_live_behavior": False,
+                "timer_mutated": False,
+                "promotion_allowed": False,
+                "paper_observation_allowed": False,
+            },
+        }
+        artifacts = {
+            f"shadow_observation_scorecard_{AS_OF_DATE}": scorecard,
+            f"shadow_promotion_dossier_{AS_OF_DATE}": dossier,
+            f"shadow_promotion_review_request_{AS_OF_DATE}": review_request,
+        }
+        for stem, payload in artifacts.items():
+            (reports_dir / f"{stem}.json").write_text(
+                json.dumps(payload, ensure_ascii=False, sort_keys=True),
+                encoding="utf-8",
+            )
+            (reports_dir / f"{stem}.md").write_text(f"# {stem}\n", encoding="utf-8")
 
     def _write_shadow_replay_backtest_evidence(self, reports_dir: Path, candidate_key: str) -> None:
         metrics = {

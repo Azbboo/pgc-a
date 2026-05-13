@@ -372,6 +372,27 @@ class OperationalRunbookStaticTest(unittest.TestCase):
         ]:
             self.assertIn(text, source)
 
+    def test_m94_runbook_documents_shadow_threshold_calibration_sandbox(self) -> None:
+        source = RUNBOOK.read_text(encoding="utf-8")
+
+        for text in [
+            "M94 影子策略 threshold calibration sandbox",
+            "shadow_threshold_calibration_YYYYMMDD.json",
+            "shadow_threshold_calibration_v1",
+            "artifact_type=shadow_threshold_calibration",
+            "artifact_only=true",
+            "promotion_allowed=false",
+            "active_params_mutated=false",
+            "current_shadow_review_gate",
+            "quality_tighten_candidate",
+            "exploratory_relaxed_sample",
+            "recommended_next_experiments",
+            "rejected_variants",
+            "scripts/calibrate_shadow_thresholds.py --date YYYYMMDD --reports-dir reports --apply",
+            "PYTHONPATH=src:. pytest -q tests/test_strategy_evolution_service.py tests/test_shadow_threshold_calibration_script.py tests/test_operational_runbook_static.py",
+        ]:
+            self.assertIn(text, source)
+
     def test_m20_deploy_script_is_guarded_and_parseable(self) -> None:
         self.assertTrue(DEPLOY_SCRIPT.exists(), f"missing {DEPLOY_SCRIPT}")
         source = DEPLOY_SCRIPT.read_text(encoding="utf-8")

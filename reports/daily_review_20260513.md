@@ -1,6 +1,6 @@
 # PGC 每日复盘报告
 
-生成时间：2026-05-13T11:51:15.994550+00:00
+生成时间：2026-05-13T14:28:22.433299+00:00
 复盘日：2026-05-13
 最新行情日：2026-05-13
 下一交易日：2026-05-14
@@ -147,7 +147,8 @@ readiness gates：
 - 最新 artifact：monitor 2026-05-13 / preflight 2026-05-13；next_trade_date 2026-05-14
 - 状态：blocked；candidate 5；blocked 5；distinct blockers 23；hypotheses 5
 - blocker counts：active_cpb_db_params_hash_mismatch 1 / chase_gap_guard_required 1 / close_return_stability_required 1 / dip_buy_stop_and_sizing_required 1 / falling_knife_guard_required 1 / liquidity_slippage_review_required 1 / micro_sleeve_risk_model_required 1 / next_day_confirmation_rule_required 1 / operator_promotion_approval_required 5 / operator_review_required 5 / paper_observation_not_authorized 5 / proposal_review_required 5 / replay_backtest_result_artifact_required 5 / sector_evidence_confirmation_required 1 / separate_breakout_pressure_candidate_required 1 / separate_dip_buy_candidate_required 1 / separate_low_price_micro_sleeve_required 1 / separate_trend_extension_candidate_required 1 / strategy_version_proposal_not_authorized 5 / volume_overheat_guard_required 1 / walk_forward_shadow_monitor_20_trading_days_required 5 / watchlist_only_ui_lane_required 1 / watchlist_to_signal_contract_required 1
-- top candidates：breakout_pressure_shadow（shadow_bucket，today 68，walk complete，blockers 10:close_return_stability_required/operator_promotion_approval_required，top 002112.SZ 三变科技）；low_price_momentum_shadow（shadow_bucket，today 66，walk complete，blockers 10:liquidity_slippage_review_required/micro_sleeve_risk_model_required，top 600719.SH 大连热电）；trend_extension_shadow（shadow_bucket，today 49，walk complete，blockers 10:chase_gap_guard_required/operator_promotion_approval_required，top 002428.SZ 云南锗业）；另有 2 条
+- replay/backtest evidence：accepted 0 / rejected 0 / missing 5
+- top candidates：breakout_pressure_shadow（shadow_bucket，today 68，walk complete，replay missing，blockers 10:close_return_stability_required/operator_promotion_approval_required，top 002112.SZ 三变科技）；low_price_momentum_shadow（shadow_bucket，today 66，walk complete，replay missing，blockers 10:liquidity_slippage_review_required/micro_sleeve_risk_model_required，top 600719.SH 大连热电）；trend_extension_shadow（shadow_bucket，today 49，walk complete，replay missing，blockers 10:chase_gap_guard_required/operator_promotion_approval_required，top 002428.SZ 云南锗业）；另有 2 条
 - 安全边界：read_only=true；artifact_only=true；writes_trade_state=false；promotion_allowed=false
 - 提醒：Shadow 候选是 research-only，仅展示监控/预检 artifact，不会进入今日候选、生成交易计划或开启 timer。
 
@@ -162,6 +163,16 @@ readiness gates：
 | preconfirm_watchlist | preconfirm_watchlist | blocked | - | complete | 10:next_day_confirmation_rule_required/operator_promotion_approval_required/operator_review_required/paper_observation_not_authorized/proposal_review_required/replay_backtest_result_artifact_required/strategy_version_proposal_not_authorized/walk_forward_shadow_monitor_20_trading_days_required/watchlist_only_ui_lane_required/watchlist_to_signal_contract_required | - |
 
 source_refs：monitor_json=/Users/azboo/Desktop/Person/pgc/reports/strategy_shadow_monitor_20260513.json; monitor_markdown=/Users/azboo/Desktop/Person/pgc/reports/strategy_shadow_monitor_20260513.md; promotion_preflight_json=/Users/azboo/Desktop/Person/pgc/reports/strategy_shadow_promotion_preflight_20260513.json; promotion_preflight_markdown=/Users/azboo/Desktop/Person/pgc/reports/strategy_shadow_promotion_preflight_20260513.md
+
+## Shadow Evidence Closure
+
+- 状态：blocked；missing blockers 6
+- artifact parity：dossier=pass / replay_backtest_evidence=blocked / review_request=pass / scorecard=pass
+- replay/backtest evidence：accepted 0 / rejected 0 / missing 5
+- Dashboard history parity：pass；empty_history_risk=false
+- local/remote parity：pass；remote_sync_required=true
+- missing blockers：breakout_pressure_shadow:replay_backtest_result_artifact_required;low_price_momentum_shadow:replay_backtest_result_artifact_required;preconfirm_watchlist:replay_backtest_result_artifact_required;pullback_dip_buy:replay_backtest_result_artifact_required;trend_extension_shadow:replay_backtest_result_artifact_required;shadow_replay_backtest_evidence_missing
+- 边界：review package only；review_ready 不是批准；不会 promote、写交易计划、成交、持仓或 timer。
 
 ## Agent 复核
 

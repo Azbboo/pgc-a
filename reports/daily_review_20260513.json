@@ -417,7 +417,7 @@
       }
     ],
     "entry_count": 10,
-    "generated_at": "2026-05-13T11:51:15+00:00",
+    "generated_at": "2026-05-13T14:28:22+00:00",
     "ledger_contract": "evidence_coverage_ledger_v1",
     "manifest_files": [],
     "provider_counts": {
@@ -460,7 +460,7 @@
       "unavailable_count": 0
     }
   },
-  "generated_at": "2026-05-13T11:51:15.994495+00:00",
+  "generated_at": "2026-05-13T14:28:22.432955+00:00",
   "latest_market_date": "20260513",
   "lineage": {
     "agent_decision_id": 7,
@@ -1116,6 +1116,295 @@
       "ts_code": "301188.SZ"
     }
   ],
+  "shadow_evidence": {
+    "artifact_contract": "shadow_daily_evidence_closure_v1",
+    "artifact_summary": {
+      "dossier": "pass",
+      "replay_backtest_evidence": "blocked",
+      "review_request": "pass",
+      "scorecard": "pass"
+    },
+    "artifacts": {
+      "dossier": {
+        "artifact_key": "dossier",
+        "blockers": [],
+        "contract_valid": true,
+        "date_valid": true,
+        "json_exists": true,
+        "json_path": "/Users/azboo/Desktop/Person/pgc/reports/shadow_promotion_dossier_20260513.json",
+        "json_valid": true,
+        "markdown_exists": true,
+        "markdown_path": "/Users/azboo/Desktop/Person/pgc/reports/shadow_promotion_dossier_20260513.md",
+        "safety_valid": true,
+        "status": "pass"
+      },
+      "replay_backtest_evidence": {
+        "artifact_key": "replay_backtest_evidence",
+        "blockers": [
+          "breakout_pressure_shadow:replay_backtest_result_artifact_required",
+          "low_price_momentum_shadow:replay_backtest_result_artifact_required",
+          "preconfirm_watchlist:replay_backtest_result_artifact_required",
+          "pullback_dip_buy:replay_backtest_result_artifact_required",
+          "trend_extension_shadow:replay_backtest_result_artifact_required",
+          "shadow_replay_backtest_evidence_missing"
+        ],
+        "by_candidate": {
+          "breakout_pressure_shadow": {
+            "advisory_only": true,
+            "artifact_path": null,
+            "artifact_type": null,
+            "as_of_date": null,
+            "blockers": [
+              "replay_backtest_result_artifact_required"
+            ],
+            "candidate_key": "breakout_pressure_shadow",
+            "date_range": {
+              "end_date": null,
+              "start_date": null
+            },
+            "error": "validated shadow replay/backtest evidence artifact is required.",
+            "evidence_contract": "shadow_replay_backtest_evidence_v1",
+            "expected_source_hash": null,
+            "metrics": {},
+            "no_future_boundary": {},
+            "paper_observation_allowed": false,
+            "promotion_allowed": false,
+            "provider": null,
+            "required_sample_size": 20,
+            "safety": {},
+            "sample_size": 0,
+            "source_hash": null,
+            "status": "missing",
+            "valid": false
+          },
+          "low_price_momentum_shadow": {
+            "advisory_only": true,
+            "artifact_path": null,
+            "artifact_type": null,
+            "as_of_date": null,
+            "blockers": [
+              "replay_backtest_result_artifact_required"
+            ],
+            "candidate_key": "low_price_momentum_shadow",
+            "date_range": {
+              "end_date": null,
+              "start_date": null
+            },
+            "error": "validated shadow replay/backtest evidence artifact is required.",
+            "evidence_contract": "shadow_replay_backtest_evidence_v1",
+            "expected_source_hash": null,
+            "metrics": {},
+            "no_future_boundary": {},
+            "paper_observation_allowed": false,
+            "promotion_allowed": false,
+            "provider": null,
+            "required_sample_size": 20,
+            "safety": {},
+            "sample_size": 0,
+            "source_hash": null,
+            "status": "missing",
+            "valid": false
+          },
+          "preconfirm_watchlist": {
+            "advisory_only": true,
+            "artifact_path": null,
+            "artifact_type": null,
+            "as_of_date": null,
+            "blockers": [
+              "replay_backtest_result_artifact_required"
+            ],
+            "candidate_key": "preconfirm_watchlist",
+            "date_range": {
+              "end_date": null,
+              "start_date": null
+            },
+            "error": "validated shadow replay/backtest evidence artifact is required.",
+            "evidence_contract": "shadow_replay_backtest_evidence_v1",
+            "expected_source_hash": null,
+            "metrics": {},
+            "no_future_boundary": {},
+            "paper_observation_allowed": false,
+            "promotion_allowed": false,
+            "provider": null,
+            "required_sample_size": 20,
+            "safety": {},
+            "sample_size": 0,
+            "source_hash": null,
+            "status": "missing",
+            "valid": false
+          },
+          "pullback_dip_buy": {
+            "advisory_only": true,
+            "artifact_path": null,
+            "artifact_type": null,
+            "as_of_date": null,
+            "blockers": [
+              "replay_backtest_result_artifact_required"
+            ],
+            "candidate_key": "pullback_dip_buy",
+            "date_range": {
+              "end_date": null,
+              "start_date": null
+            },
+            "error": "validated shadow replay/backtest evidence artifact is required.",
+            "evidence_contract": "shadow_replay_backtest_evidence_v1",
+            "expected_source_hash": null,
+            "metrics": {},
+            "no_future_boundary": {},
+            "paper_observation_allowed": false,
+            "promotion_allowed": false,
+            "provider": null,
+            "required_sample_size": 20,
+            "safety": {},
+            "sample_size": 0,
+            "source_hash": null,
+            "status": "missing",
+            "valid": false
+          },
+          "trend_extension_shadow": {
+            "advisory_only": true,
+            "artifact_path": null,
+            "artifact_type": null,
+            "as_of_date": null,
+            "blockers": [
+              "replay_backtest_result_artifact_required"
+            ],
+            "candidate_key": "trend_extension_shadow",
+            "date_range": {
+              "end_date": null,
+              "start_date": null
+            },
+            "error": "validated shadow replay/backtest evidence artifact is required.",
+            "evidence_contract": "shadow_replay_backtest_evidence_v1",
+            "expected_source_hash": null,
+            "metrics": {},
+            "no_future_boundary": {},
+            "paper_observation_allowed": false,
+            "promotion_allowed": false,
+            "provider": null,
+            "required_sample_size": 20,
+            "safety": {},
+            "sample_size": 0,
+            "source_hash": null,
+            "status": "missing",
+            "valid": false
+          }
+        },
+        "expected_candidate_count": 5,
+        "orphaned": [],
+        "source_file_count": 0,
+        "status": "blocked",
+        "summary": {
+          "accepted_count": 0,
+          "advisory_only": true,
+          "candidate_count": 5,
+          "clears_only": [
+            "replay_backtest_result_artifact_required"
+          ],
+          "evidence_contract": "shadow_replay_backtest_evidence_v1",
+          "missing_count": 5,
+          "promotion_allowed": false,
+          "rejected_count": 0,
+          "state_counts": {
+            "missing": 5
+          }
+        }
+      },
+      "review_request": {
+        "artifact_key": "review_request",
+        "blockers": [],
+        "contract_valid": true,
+        "date_valid": true,
+        "json_exists": true,
+        "json_path": "/Users/azboo/Desktop/Person/pgc/reports/shadow_promotion_review_request_20260513.json",
+        "json_valid": true,
+        "markdown_exists": true,
+        "markdown_path": "/Users/azboo/Desktop/Person/pgc/reports/shadow_promotion_review_request_20260513.md",
+        "safety_valid": true,
+        "status": "pass"
+      },
+      "scorecard": {
+        "artifact_key": "scorecard",
+        "blockers": [],
+        "contract_valid": true,
+        "date_valid": true,
+        "json_exists": true,
+        "json_path": "/Users/azboo/Desktop/Person/pgc/reports/shadow_observation_scorecard_20260513.json",
+        "json_valid": true,
+        "markdown_exists": true,
+        "markdown_path": "/Users/azboo/Desktop/Person/pgc/reports/shadow_observation_scorecard_20260513.md",
+        "safety_valid": true,
+        "status": "pass"
+      }
+    },
+    "as_of_date": "20260513",
+    "dashboard_history_parity": {
+      "as_of_date": "20260513",
+      "blockers": [],
+      "dashboard_empty_history_risk": false,
+      "expected_dossier_json": "/Users/azboo/Desktop/Person/pgc/reports/shadow_promotion_dossier_20260513.json",
+      "expected_scorecard_json": "/Users/azboo/Desktop/Person/pgc/reports/shadow_observation_scorecard_20260513.json",
+      "history_index_ready": true,
+      "operator_note": "Dashboard history has both scorecard and dossier for this date.",
+      "status": "pass"
+    },
+    "local_remote_parity": {
+      "as_of_date": "20260513",
+      "blockers": [],
+      "dashboard_empty_history_risk": false,
+      "local_artifact_status": {
+        "dossier": "pass",
+        "replay_backtest_evidence": "blocked",
+        "review_request": "pass",
+        "scorecard": "pass"
+      },
+      "operator_note": "Local report artifacts are ready for Dashboard history; remote parity still requires syncing this reports directory.",
+      "remote_sync_required": true,
+      "source_artifacts": {
+        "monitor_json": "/Users/azboo/Desktop/Person/pgc/reports/strategy_shadow_monitor_20260513.json",
+        "monitor_markdown": "/Users/azboo/Desktop/Person/pgc/reports/strategy_shadow_monitor_20260513.md",
+        "promotion_preflight_json": "/Users/azboo/Desktop/Person/pgc/reports/strategy_shadow_promotion_preflight_20260513.json",
+        "promotion_preflight_markdown": "/Users/azboo/Desktop/Person/pgc/reports/strategy_shadow_promotion_preflight_20260513.md"
+      },
+      "status": "pass"
+    },
+    "missing_blocker_count": 6,
+    "missing_blockers": [
+      "breakout_pressure_shadow:replay_backtest_result_artifact_required",
+      "low_price_momentum_shadow:replay_backtest_result_artifact_required",
+      "preconfirm_watchlist:replay_backtest_result_artifact_required",
+      "pullback_dip_buy:replay_backtest_result_artifact_required",
+      "trend_extension_shadow:replay_backtest_result_artifact_required",
+      "shadow_replay_backtest_evidence_missing"
+    ],
+    "notice": "Shadow evidence is review context only; review_ready is not approval and this section does not promote candidates, create trade plans, write trades, change positions, or touch timers.",
+    "replay_backtest_evidence": {
+      "accepted_count": 0,
+      "advisory_only": true,
+      "candidate_count": 5,
+      "clears_only": [
+        "replay_backtest_result_artifact_required"
+      ],
+      "evidence_contract": "shadow_replay_backtest_evidence_v1",
+      "missing_count": 5,
+      "promotion_allowed": false,
+      "rejected_count": 0,
+      "state_counts": {
+        "missing": 5
+      }
+    },
+    "safety": {
+      "artifact_only": true,
+      "paper_observation_allowed": false,
+      "promotion_allowed": false,
+      "read_only": true,
+      "review_ready_is_not_approval": true,
+      "timer_mutated": false,
+      "writes_paper_live_behavior": false,
+      "writes_trade_state": false
+    },
+    "status": "blocked"
+  },
   "shadow_observation": {
     "artifact_only": true,
     "as_of_date": "20260513",
@@ -1153,11 +1442,26 @@
     },
     "distinct_blocker_count": 23,
     "latest_monitor_date": "20260513",
-    "latest_monitor_generated_at": "2026-05-13T11:50:37+00:00",
+    "latest_monitor_generated_at": "2026-05-13T12:11:53+00:00",
     "latest_preflight_date": "20260513",
-    "latest_preflight_generated_at": "2026-05-13T11:50:37+00:00",
+    "latest_preflight_generated_at": "2026-05-13T12:11:53+00:00",
     "next_trade_date": "20260514",
     "read_only": true,
+    "replay_backtest_evidence": {
+      "accepted_count": 0,
+      "advisory_only": true,
+      "candidate_count": 5,
+      "clears_only": [
+        "replay_backtest_result_artifact_required"
+      ],
+      "evidence_contract": "shadow_replay_backtest_evidence_v1",
+      "missing_count": 5,
+      "promotion_allowed": false,
+      "rejected_count": 0,
+      "state_counts": {
+        "missing": 5
+      }
+    },
     "safety": {
       "active_params_mutated": false,
       "artifact_only": true,
@@ -1198,6 +1502,34 @@
         "candidate_key": "breakout_pressure_shadow",
         "paper_observation_allowed": false,
         "promotion_allowed": false,
+        "replay_backtest_evidence": {
+          "advisory_only": true,
+          "artifact_path": null,
+          "artifact_type": null,
+          "as_of_date": null,
+          "blockers": [
+            "replay_backtest_result_artifact_required"
+          ],
+          "candidate_key": "breakout_pressure_shadow",
+          "date_range": {
+            "end_date": null,
+            "start_date": null
+          },
+          "error": "validated shadow replay/backtest evidence artifact is required.",
+          "evidence_contract": "shadow_replay_backtest_evidence_v1",
+          "expected_source_hash": null,
+          "metrics": {},
+          "no_future_boundary": {},
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "provider": null,
+          "required_sample_size": 20,
+          "safety": {},
+          "sample_size": 0,
+          "source_hash": null,
+          "status": "missing",
+          "valid": false
+        },
         "status": "blocked",
         "today_candidate_count": 68,
         "today_top": {
@@ -1241,6 +1573,34 @@
         "candidate_key": "low_price_momentum_shadow",
         "paper_observation_allowed": false,
         "promotion_allowed": false,
+        "replay_backtest_evidence": {
+          "advisory_only": true,
+          "artifact_path": null,
+          "artifact_type": null,
+          "as_of_date": null,
+          "blockers": [
+            "replay_backtest_result_artifact_required"
+          ],
+          "candidate_key": "low_price_momentum_shadow",
+          "date_range": {
+            "end_date": null,
+            "start_date": null
+          },
+          "error": "validated shadow replay/backtest evidence artifact is required.",
+          "evidence_contract": "shadow_replay_backtest_evidence_v1",
+          "expected_source_hash": null,
+          "metrics": {},
+          "no_future_boundary": {},
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "provider": null,
+          "required_sample_size": 20,
+          "safety": {},
+          "sample_size": 0,
+          "source_hash": null,
+          "status": "missing",
+          "valid": false
+        },
         "status": "blocked",
         "today_candidate_count": 66,
         "today_top": {
@@ -1284,6 +1644,34 @@
         "candidate_key": "trend_extension_shadow",
         "paper_observation_allowed": false,
         "promotion_allowed": false,
+        "replay_backtest_evidence": {
+          "advisory_only": true,
+          "artifact_path": null,
+          "artifact_type": null,
+          "as_of_date": null,
+          "blockers": [
+            "replay_backtest_result_artifact_required"
+          ],
+          "candidate_key": "trend_extension_shadow",
+          "date_range": {
+            "end_date": null,
+            "start_date": null
+          },
+          "error": "validated shadow replay/backtest evidence artifact is required.",
+          "evidence_contract": "shadow_replay_backtest_evidence_v1",
+          "expected_source_hash": null,
+          "metrics": {},
+          "no_future_boundary": {},
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "provider": null,
+          "required_sample_size": 20,
+          "safety": {},
+          "sample_size": 0,
+          "source_hash": null,
+          "status": "missing",
+          "valid": false
+        },
         "status": "blocked",
         "today_candidate_count": 49,
         "today_top": {
@@ -1328,6 +1716,34 @@
         "candidate_key": "pullback_dip_buy",
         "paper_observation_allowed": false,
         "promotion_allowed": false,
+        "replay_backtest_evidence": {
+          "advisory_only": true,
+          "artifact_path": null,
+          "artifact_type": null,
+          "as_of_date": null,
+          "blockers": [
+            "replay_backtest_result_artifact_required"
+          ],
+          "candidate_key": "pullback_dip_buy",
+          "date_range": {
+            "end_date": null,
+            "start_date": null
+          },
+          "error": "validated shadow replay/backtest evidence artifact is required.",
+          "evidence_contract": "shadow_replay_backtest_evidence_v1",
+          "expected_source_hash": null,
+          "metrics": {},
+          "no_future_boundary": {},
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "provider": null,
+          "required_sample_size": 20,
+          "safety": {},
+          "sample_size": 0,
+          "source_hash": null,
+          "status": "missing",
+          "valid": false
+        },
         "status": "blocked",
         "today_candidate_count": null,
         "today_top": {},
@@ -1351,6 +1767,34 @@
         "candidate_key": "preconfirm_watchlist",
         "paper_observation_allowed": false,
         "promotion_allowed": false,
+        "replay_backtest_evidence": {
+          "advisory_only": true,
+          "artifact_path": null,
+          "artifact_type": null,
+          "as_of_date": null,
+          "blockers": [
+            "replay_backtest_result_artifact_required"
+          ],
+          "candidate_key": "preconfirm_watchlist",
+          "date_range": {
+            "end_date": null,
+            "start_date": null
+          },
+          "error": "validated shadow replay/backtest evidence artifact is required.",
+          "evidence_contract": "shadow_replay_backtest_evidence_v1",
+          "expected_source_hash": null,
+          "metrics": {},
+          "no_future_boundary": {},
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "provider": null,
+          "required_sample_size": 20,
+          "safety": {},
+          "sample_size": 0,
+          "source_hash": null,
+          "status": "missing",
+          "valid": false
+        },
         "status": "blocked",
         "today_candidate_count": null,
         "today_top": {},
@@ -1396,11 +1840,26 @@
     },
     "distinct_blocker_count": 23,
     "latest_monitor_date": "20260513",
-    "latest_monitor_generated_at": "2026-05-13T11:50:37+00:00",
+    "latest_monitor_generated_at": "2026-05-13T12:11:53+00:00",
     "latest_preflight_date": "20260513",
-    "latest_preflight_generated_at": "2026-05-13T11:50:37+00:00",
+    "latest_preflight_generated_at": "2026-05-13T12:11:53+00:00",
     "next_trade_date": "20260514",
     "read_only": true,
+    "replay_backtest_evidence": {
+      "accepted_count": 0,
+      "advisory_only": true,
+      "candidate_count": 5,
+      "clears_only": [
+        "replay_backtest_result_artifact_required"
+      ],
+      "evidence_contract": "shadow_replay_backtest_evidence_v1",
+      "missing_count": 5,
+      "promotion_allowed": false,
+      "rejected_count": 0,
+      "state_counts": {
+        "missing": 5
+      }
+    },
     "safety": {
       "active_params_mutated": false,
       "artifact_only": true,
@@ -1441,6 +1900,34 @@
         "candidate_key": "breakout_pressure_shadow",
         "paper_observation_allowed": false,
         "promotion_allowed": false,
+        "replay_backtest_evidence": {
+          "advisory_only": true,
+          "artifact_path": null,
+          "artifact_type": null,
+          "as_of_date": null,
+          "blockers": [
+            "replay_backtest_result_artifact_required"
+          ],
+          "candidate_key": "breakout_pressure_shadow",
+          "date_range": {
+            "end_date": null,
+            "start_date": null
+          },
+          "error": "validated shadow replay/backtest evidence artifact is required.",
+          "evidence_contract": "shadow_replay_backtest_evidence_v1",
+          "expected_source_hash": null,
+          "metrics": {},
+          "no_future_boundary": {},
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "provider": null,
+          "required_sample_size": 20,
+          "safety": {},
+          "sample_size": 0,
+          "source_hash": null,
+          "status": "missing",
+          "valid": false
+        },
         "status": "blocked",
         "today_candidate_count": 68,
         "today_top": {
@@ -1484,6 +1971,34 @@
         "candidate_key": "low_price_momentum_shadow",
         "paper_observation_allowed": false,
         "promotion_allowed": false,
+        "replay_backtest_evidence": {
+          "advisory_only": true,
+          "artifact_path": null,
+          "artifact_type": null,
+          "as_of_date": null,
+          "blockers": [
+            "replay_backtest_result_artifact_required"
+          ],
+          "candidate_key": "low_price_momentum_shadow",
+          "date_range": {
+            "end_date": null,
+            "start_date": null
+          },
+          "error": "validated shadow replay/backtest evidence artifact is required.",
+          "evidence_contract": "shadow_replay_backtest_evidence_v1",
+          "expected_source_hash": null,
+          "metrics": {},
+          "no_future_boundary": {},
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "provider": null,
+          "required_sample_size": 20,
+          "safety": {},
+          "sample_size": 0,
+          "source_hash": null,
+          "status": "missing",
+          "valid": false
+        },
         "status": "blocked",
         "today_candidate_count": 66,
         "today_top": {
@@ -1527,6 +2042,34 @@
         "candidate_key": "trend_extension_shadow",
         "paper_observation_allowed": false,
         "promotion_allowed": false,
+        "replay_backtest_evidence": {
+          "advisory_only": true,
+          "artifact_path": null,
+          "artifact_type": null,
+          "as_of_date": null,
+          "blockers": [
+            "replay_backtest_result_artifact_required"
+          ],
+          "candidate_key": "trend_extension_shadow",
+          "date_range": {
+            "end_date": null,
+            "start_date": null
+          },
+          "error": "validated shadow replay/backtest evidence artifact is required.",
+          "evidence_contract": "shadow_replay_backtest_evidence_v1",
+          "expected_source_hash": null,
+          "metrics": {},
+          "no_future_boundary": {},
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "provider": null,
+          "required_sample_size": 20,
+          "safety": {},
+          "sample_size": 0,
+          "source_hash": null,
+          "status": "missing",
+          "valid": false
+        },
         "status": "blocked",
         "today_candidate_count": 49,
         "today_top": {
@@ -1571,6 +2114,34 @@
         "candidate_key": "pullback_dip_buy",
         "paper_observation_allowed": false,
         "promotion_allowed": false,
+        "replay_backtest_evidence": {
+          "advisory_only": true,
+          "artifact_path": null,
+          "artifact_type": null,
+          "as_of_date": null,
+          "blockers": [
+            "replay_backtest_result_artifact_required"
+          ],
+          "candidate_key": "pullback_dip_buy",
+          "date_range": {
+            "end_date": null,
+            "start_date": null
+          },
+          "error": "validated shadow replay/backtest evidence artifact is required.",
+          "evidence_contract": "shadow_replay_backtest_evidence_v1",
+          "expected_source_hash": null,
+          "metrics": {},
+          "no_future_boundary": {},
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "provider": null,
+          "required_sample_size": 20,
+          "safety": {},
+          "sample_size": 0,
+          "source_hash": null,
+          "status": "missing",
+          "valid": false
+        },
         "status": "blocked",
         "today_candidate_count": null,
         "today_top": {},
@@ -1594,6 +2165,34 @@
         "candidate_key": "preconfirm_watchlist",
         "paper_observation_allowed": false,
         "promotion_allowed": false,
+        "replay_backtest_evidence": {
+          "advisory_only": true,
+          "artifact_path": null,
+          "artifact_type": null,
+          "as_of_date": null,
+          "blockers": [
+            "replay_backtest_result_artifact_required"
+          ],
+          "candidate_key": "preconfirm_watchlist",
+          "date_range": {
+            "end_date": null,
+            "start_date": null
+          },
+          "error": "validated shadow replay/backtest evidence artifact is required.",
+          "evidence_contract": "shadow_replay_backtest_evidence_v1",
+          "expected_source_hash": null,
+          "metrics": {},
+          "no_future_boundary": {},
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "provider": null,
+          "required_sample_size": 20,
+          "safety": {},
+          "sample_size": 0,
+          "source_hash": null,
+          "status": "missing",
+          "valid": false
+        },
         "status": "blocked",
         "today_candidate_count": null,
         "today_top": {},

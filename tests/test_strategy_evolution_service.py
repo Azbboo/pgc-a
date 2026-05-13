@@ -8,6 +8,7 @@ from pathlib import Path
 
 from pgc_trading.services.common import RequestContext
 from pgc_trading.services.strategy_evolution_service import (
+    BuildShadowThresholdCalibrationRequest,
     CreateStrategyVersionProposalReviewRequest,
     CreateStrategyVersionProposalRequest,
     EvaluateStrategyHypothesesRequest,
@@ -18,9 +19,11 @@ from pgc_trading.services.strategy_evolution_service import (
     StrategyEvolutionService,
     review_shadow_promotion_dossier_artifact,
     review_shadow_promotion_review_request_artifact,
+    review_shadow_threshold_calibration_artifact,
     review_strategy_version_proposal_review_artifact,
     review_strategy_version_proposal_artifact,
 )
+from pgc_trading.services.shadow_observation_service import build_shadow_replay_backtest_source_hash
 from pgc_trading.storage.migrate import run_migrations
 
 
@@ -706,6 +709,80 @@ class StrategyEvolutionServiceTest(unittest.TestCase):
                 "shadow promotion review request artifact reports mutation or promotion permission.",
             )
 
+    def test_builds_shadow_threshold_calibration_artifact_only_sandbox(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc.db"
+            reports_dir = Path(tmp) / "reports"
+            output_path = reports_dir / "custom_shadow_threshold_calibration.json"
+            run_migrations(db_path)
+            _write_shadow_threshold_calibration_inputs(reports_dir)
+            params_before = _strategy_param_file_contents()
+            strategy_versions_before = _count_strategy_versions(db_path)
+            state_counts_before = _state_counts(db_path)
+            service = StrategyEvolutionService(db_path, reports_dir=reports_dir)
+
+            result = service.build_shadow_threshold_calibration(
+                BuildShadowThresholdCalibrationRequest(
+                    as_of_date="20260513",
+                    output_path=str(output_path),
+                ),
+                RequestContext(request_id="m94", dry_run=False, operator="azboo"),
+            )
+
+            self.assertEqual(result.status, "success")
+            self.assertIsNotNone(result.data)
+            assert result.data is not None
+            self.assertTrue(result.data.wrote_artifact)
+            self.assertTrue(output_path.exists())
+            self.assertTrue(output_path.with_suffix(".md").exists())
+            self.assertFalse(result.data.active_params_mutated)
+            self.assertFalse(result.data.wrote_strategy_versions)
+            self.assertFalse(result.data.writes_trade_state)
+            self.assertFalse(result.data.writes_paper_live_behavior)
+            self.assertFalse(result.data.timer_mutated)
+            self.assertEqual(_strategy_param_file_contents(), params_before)
+            self.assertEqual(_count_strategy_versions(db_path), strategy_versions_before)
+            self.assertEqual(_state_counts(db_path), state_counts_before)
+
+            artifact = json.loads(output_path.read_text(encoding="utf-8"))
+            self.assertEqual(artifact["artifact_type"], "shadow_threshold_calibration")
+            self.assertEqual(artifact["calibration_contract"], "shadow_threshold_calibration_v1")
+            self.assertTrue(artifact["summary"]["artifact_only"])
+            self.assertFalse(artifact["summary"]["promotion_allowed"])
+            self.assertFalse(artifact["summary"]["active_params_mutated"])
+            self.assertEqual(artifact["summary"]["candidate_count"], 5)
+            self.assertGreaterEqual(artifact["summary"]["recommended_next_experiment_count"], 1)
+            self.assertGreaterEqual(artifact["summary"]["rejected_variant_count"], 1)
+            trend = next(item for item in artifact["candidates"] if item["candidate_key"] == "trend_extension_shadow")
+            self.assertEqual(trend["metrics"]["sample_size"], 24)
+            self.assertEqual(trend["metrics"]["evidence_coverage"]["status"], "accepted")
+            self.assertIn("median_return_pct", trend["metrics"])
+            self.assertIn("frozen_cpb_comparison", trend["metrics"])
+            self.assertIn("threshold_variant_results", trend)
+            self.assertFalse(artifact["safety"]["active_params_mutated"])
+            self.assertFalse(artifact["safety"]["wrote_strategy_versions"])
+            self.assertFalse(artifact["safety"]["writes_trade_state"])
+            self.assertFalse(artifact["safety"]["writes_paper_live_behavior"])
+            self.assertFalse(artifact["safety"]["timer_mutated"])
+
+            review = review_shadow_threshold_calibration_artifact(output_path)
+            self.assertTrue(review.exists)
+            self.assertTrue(review.valid)
+            self.assertEqual(review.calibration_contract, "shadow_threshold_calibration_v1")
+            self.assertTrue(review.artifact_only)
+            self.assertFalse(review.promotion_allowed)
+            self.assertFalse(review.active_params_mutated)
+
+            unsafe = json.loads(output_path.read_text(encoding="utf-8"))
+            unsafe["safety"]["active_params_mutated"] = True
+            output_path.write_text(json.dumps(unsafe), encoding="utf-8")
+            unsafe_review = review_shadow_threshold_calibration_artifact(output_path)
+            self.assertFalse(unsafe_review.valid)
+            self.assertEqual(
+                unsafe_review.error,
+                "shadow threshold calibration artifact reports mutation or promotion permission.",
+            )
+
     def test_strategy_version_proposal_review_requires_accepted_hypothesis_and_valid_proposal_for_approval(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "pgc.db"
@@ -1202,6 +1279,142 @@ def _write_shadow_promotion_review_request_artifact(path: Path) -> None:
         },
     }
     path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+
+
+def _write_shadow_threshold_calibration_inputs(reports_dir: Path) -> None:
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    (reports_dir / "strategy_shadow_backtest_20260401_20260508.json").write_text(
+        json.dumps(
+            {
+                "start_date": "20260401",
+                "end_date": "20260508",
+                "summary": [
+                    {
+                        "label": "active_cpb_persisted_picks",
+                        "n": 20,
+                        "days": 20,
+                        "t1_close_mean_pct": 1.1,
+                        "t1_close_win_rate_pct": 55.0,
+                        "t5_close_mean_pct": 3.0,
+                    }
+                ],
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    scorecard = {
+        "artifact_type": "shadow_observation_scorecard",
+        "scorecard_contract": "shadow_observation_scorecard_v1",
+        "as_of_date": "20260513",
+        "review_date": "20260513",
+        "candidate_count": 2,
+        "candidates": [
+            {
+                "candidate_key": "trend_extension_shadow",
+                "candidate_family": "shadow_bucket",
+                "sample_size": 24,
+                "walk_forward_progress": {
+                    "required_days": 20,
+                    "days": 24,
+                    "t1_close_mean_pct": 2.5,
+                    "t1_close_win_rate_pct": 62.5,
+                    "t5_close_mean_pct": 4.6,
+                    "t5_close_median_pct": 1.4,
+                    "max_drawdown_pct": -5.5,
+                },
+                "comparison_vs_frozen_cpb": {
+                    "status": "compared",
+                    "baseline_label": "active_cpb_persisted_picks",
+                    "t5_close_mean_delta_pct": 1.6,
+                    "t1_close_mean_delta_pct": 1.4,
+                },
+                "source_artifacts": ["reports/strategy_shadow_monitor_20260513.json"],
+            },
+            {
+                "candidate_key": "breakout_pressure_shadow",
+                "candidate_family": "shadow_bucket",
+                "sample_size": 12,
+                "walk_forward_progress": {
+                    "required_days": 20,
+                    "days": 12,
+                    "t1_close_mean_pct": -0.1,
+                    "t1_close_win_rate_pct": 45.0,
+                    "t5_close_mean_pct": -1.0,
+                    "max_drawdown_pct": -11.0,
+                },
+                "comparison_vs_frozen_cpb": {
+                    "status": "compared",
+                    "baseline_label": "active_cpb_persisted_picks",
+                    "t5_close_mean_delta_pct": -4.0,
+                },
+                "source_artifacts": ["reports/strategy_shadow_monitor_20260513.json"],
+            },
+        ],
+        "safety": {
+            "read_only": True,
+            "artifact_only": True,
+            "active_params_mutated": False,
+            "wrote_strategy_versions": False,
+            "writes_trade_state": False,
+            "writes_paper_live_behavior": False,
+            "timer_mutated": False,
+            "promotion_allowed": False,
+        },
+    }
+    (reports_dir / "shadow_observation_scorecard_20260513.json").write_text(
+        json.dumps(scorecard, sort_keys=True),
+        encoding="utf-8",
+    )
+    metrics = {
+        "t1_close_mean_pct": 2.5,
+        "t1_close_win_rate_pct": 62.5,
+        "t5_close_mean_pct": 4.6,
+        "t5_close_median_pct": 1.4,
+        "max_drawdown_pct": -5.5,
+    }
+    source_hash = build_shadow_replay_backtest_source_hash(
+        provider="unit_test_calibration",
+        candidate_key="trend_extension_shadow",
+        start_date="20260409",
+        end_date="20260513",
+        sample_size=24,
+        metrics=metrics,
+    )
+    evidence = {
+        "artifact_type": "shadow_replay_backtest_evidence",
+        "evidence_contract": "shadow_replay_backtest_evidence_v1",
+        "provider": "unit_test_calibration",
+        "as_of_date": "20260513",
+        "results": [
+            {
+                "candidate_key": "trend_extension_shadow",
+                "candidate_family": "shadow_bucket",
+                "date_range": {"start_date": "20260409", "end_date": "20260513"},
+                "sample_size": 24,
+                "metrics": metrics,
+                "source_hash": source_hash,
+                "no_future_boundary": {
+                    "passed": True,
+                    "max_input_date": "20260513",
+                    "data_cutoff_date": "20260513",
+                },
+            }
+        ],
+        "safety": {
+            "active_params_mutated": False,
+            "wrote_strategy_versions": False,
+            "writes_trade_state": False,
+            "writes_paper_live_behavior": False,
+            "timer_mutated": False,
+            "promotion_allowed": False,
+            "paper_observation_allowed": False,
+        },
+    }
+    (reports_dir / "shadow_replay_backtest_evidence_20260513_trend_extension_shadow.json").write_text(
+        json.dumps(evidence, sort_keys=True),
+        encoding="utf-8",
+    )
 
 
 def _write_shadow_artifacts(reports_dir: Path) -> None:

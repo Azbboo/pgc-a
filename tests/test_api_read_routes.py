@@ -15,6 +15,7 @@ from pgc_trading.api.routes import (
     get_market_review_plan_context,
     get_paper_acceptance,
     get_shadow_observation_scorecard,
+    get_shadow_promotion_review_request,
     get_shadow_strategy_snapshot,
     list_shadow_observation_history,
     list_ops_history,
@@ -506,6 +507,91 @@ class _FakeShadowObservationService:
             lineage={"read_only": "true", "history_contract": "shadow_observation_history_v1"},
         )
 
+    def get_promotion_review_request(self, request, ctx):
+        self.calls.append((self.db_path, request, ctx))
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data={
+                "review_request_contract": "shadow_promotion_review_request_v1",
+                "as_of_date": request.as_of_date,
+                "status": "blocked",
+                "artifact_valid": True,
+                "summary": {
+                    "status": "blocked",
+                    "candidate_count": 1,
+                    "review_ready_count": 0,
+                    "blocked_count": 1,
+                    "manual_review_required": True,
+                    "promotion_allowed": False,
+                    "replay_backtest_evidence": {
+                        "accepted_count": 0,
+                        "rejected_count": 0,
+                        "missing_count": 1,
+                    },
+                },
+                "review_request": {
+                    "request_status": "blocked",
+                    "blocking_reason": "no_review_ready_candidates",
+                    "required_human_decisions": [
+                        {
+                            "decision_key": "manual_promotion_approval_required",
+                            "required": True,
+                            "status": "required",
+                        }
+                    ],
+                    "required_replay_backtest_evidence": [
+                        {
+                            "candidate_key": "trend_extension_shadow",
+                            "status": "missing",
+                            "blockers": ["replay_backtest_result_artifact_required"],
+                            "promotion_allowed": False,
+                        }
+                    ],
+                    "rollback_notes": ["review_ready is not approval"],
+                    "safety_notes": ["manual review only; no active strategy, trade, or timer mutation"],
+                },
+                "candidate_readiness": [
+                    {
+                        "candidate_key": "trend_extension_shadow",
+                        "candidate_family": "shadow_bucket",
+                        "review_status": "blocked",
+                        "blocked_reasons": ["replay_backtest_result_artifact_required"],
+                    }
+                ],
+                "replay_backtest_evidence": {
+                    "summary": {
+                        "accepted_count": 0,
+                        "rejected_count": 0,
+                        "missing_count": 1,
+                    },
+                    "by_candidate": {
+                        "trend_extension_shadow": {
+                            "candidate_key": "trend_extension_shadow",
+                            "status": "missing",
+                            "blockers": ["replay_backtest_result_artifact_required"],
+                            "promotion_allowed": False,
+                            "sample_size": 0,
+                            "required_sample_size": 20,
+                        }
+                    },
+                },
+                "safety": {
+                    "read_only": True,
+                    "artifact_only": True,
+                    "review_request_is_not_approval": True,
+                    "manual_review_required": True,
+                    "promotion_allowed": False,
+                    "active_params_mutated": False,
+                    "wrote_strategy_version": False,
+                    "writes_trade_state": False,
+                    "writes_paper_live_behavior": False,
+                    "timer_mutated": False,
+                },
+            },
+            lineage={"read_only": "true", "review_request_contract": "shadow_promotion_review_request_v1"},
+        )
+
 
 class _FakePositionService:
     calls: list[tuple[Path, object, object]] = []
@@ -594,6 +680,7 @@ class ApiReadRoutesTest(unittest.TestCase):
             evidence_coverage_ledger_service_factory=_FakeEvidenceCoverageLedgerService,
             shadow_strategy_service_factory=_FakeShadowStrategyService,
             shadow_observation_service_factory=_FakeShadowObservationService,
+            shadow_promotion_review_service_factory=_FakeShadowObservationService,
             open_execution_service_factory=_FakeOpenExecutionService,
             portfolio_planning_service_factory=_FakePortfolioService,
             position_lifecycle_service_factory=_FakePositionService,
@@ -928,6 +1015,42 @@ class ApiReadRoutesTest(unittest.TestCase):
         self.assertTrue(ctx.dry_run)
         self.assertEqual(ctx.source, "api")
         self.assertEqual(ctx.request_id, "req-api-shadow-observation-history")
+
+    def test_shadow_promotion_review_request_route_is_read_only_and_normalizes_date(self) -> None:
+        response = _Response()
+
+        payload = get_shadow_promotion_review_request(
+            self.settings,
+            self.services,
+            response,
+            as_of_date="2026-05-12",
+            request_id="req-api-shadow-promotion-review",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["data"]["as_of_date"], "20260512")
+        self.assertEqual(payload["data"]["review_request_contract"], "shadow_promotion_review_request_v1")
+        self.assertEqual(payload["data"]["summary"]["status"], "blocked")
+        self.assertEqual(payload["data"]["summary"]["replay_backtest_evidence"]["missing_count"], 1)
+        self.assertEqual(
+            payload["data"]["review_request"]["required_human_decisions"][0]["decision_key"],
+            "manual_promotion_approval_required",
+        )
+        self.assertEqual(payload["data"]["candidate_readiness"][0]["candidate_key"], "trend_extension_shadow")
+        self.assertTrue(payload["data"]["safety"]["read_only"])
+        self.assertTrue(payload["data"]["safety"]["artifact_only"])
+        self.assertTrue(payload["data"]["safety"]["review_request_is_not_approval"])
+        self.assertFalse(payload["data"]["safety"]["promotion_allowed"])
+        self.assertFalse(payload["data"]["safety"]["active_params_mutated"])
+        self.assertFalse(payload["data"]["safety"]["writes_trade_state"])
+        self.assertFalse(payload["data"]["safety"]["timer_mutated"])
+        db_path, request, ctx = _FakeShadowObservationService.calls[0]
+        self.assertEqual(db_path, self.settings.db_path)
+        self.assertEqual(request.as_of_date, "20260512")
+        self.assertTrue(ctx.dry_run)
+        self.assertEqual(ctx.source, "api")
+        self.assertEqual(ctx.request_id, "req-api-shadow-promotion-review")
 
     def test_daily_review_history_route_passes_filters_to_reporting_service(self) -> None:
         response = _Response()

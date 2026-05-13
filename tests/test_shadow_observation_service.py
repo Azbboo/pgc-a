@@ -10,6 +10,7 @@ from pgc_trading.services.common import RequestContext
 from pgc_trading.services.shadow_observation_service import (
     BuildShadowPromotionDossierRequest,
     BuildShadowPromotionReviewRequest,
+    BuildShadowReplayBacktestEvidenceRequest,
     GetShadowObservationScorecardRequest,
     ListShadowObservationHistoryRequest,
     ShadowObservationService,
@@ -311,6 +312,98 @@ class ShadowObservationServiceTest(unittest.TestCase):
             self.assertEqual(review.status, "rejected")
             self.assertIn("shadow_replay_backtest_candidate_key_mismatch", review.blockers)
 
+    def test_builds_replay_backtest_evidence_artifacts_from_monitor_and_market_bars(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "pgc.db"
+            reports_dir = root / "reports"
+            reports_dir.mkdir()
+            run_migrations(db_path)
+            _seed_shadow_replay_market(db_path, sample_days=4)
+            _seed_shadow_replay_monitor_artifacts(reports_dir, sample_days=4)
+            before_counts = _state_counts(db_path)
+
+            result = ShadowObservationService(db_path, reports_dir=reports_dir).build_replay_backtest_evidence(
+                BuildShadowReplayBacktestEvidenceRequest(
+                    as_of_date="20260512",
+                    required_sample_size=3,
+                ),
+                RequestContext(request_id="req-shadow-replay-producer", dry_run=False, source="test"),
+            )
+
+            self.assertTrue(result.ok, result.errors)
+            self.assertEqual(_state_counts(db_path), before_counts)
+            assert result.data is not None
+            self.assertEqual(result.data.evidence_contract, "shadow_replay_backtest_evidence_v1")
+            self.assertTrue(result.data.wrote_artifacts)
+            self.assertEqual(result.data.candidate_count, 2)
+            self.assertEqual(result.data.accepted_count, 1)
+            self.assertEqual(result.data.rejected_count, 1)
+            self.assertFalse(result.data.safety["writes_trade_state"])
+            accepted_path = reports_dir / "shadow_replay_backtest_evidence_20260512_trend_extension_shadow.json"
+            rejected_path = reports_dir / "shadow_replay_backtest_evidence_20260512_pullback_dip_buy.json"
+            self.assertTrue(accepted_path.exists())
+            self.assertTrue(rejected_path.exists())
+            accepted_review = review_shadow_replay_backtest_evidence_artifact(
+                accepted_path,
+                expected_candidate_key="trend_extension_shadow",
+                expected_as_of_date="20260512",
+                required_sample_size=3,
+            )
+            self.assertTrue(accepted_review.valid, accepted_review.blockers)
+            self.assertEqual(accepted_review.status, "accepted")
+            rejected_review = review_shadow_replay_backtest_evidence_artifact(
+                rejected_path,
+                expected_candidate_key="pullback_dip_buy",
+                expected_as_of_date="20260512",
+                required_sample_size=3,
+            )
+            self.assertEqual(rejected_review.status, "rejected")
+            self.assertIn("shadow_replay_backtest_metric_completeness_missing", rejected_review.blockers)
+            artifact = json.loads(accepted_path.read_text(encoding="utf-8"))
+            generation = artifact["results"][0]["generation"]
+            self.assertEqual(generation["source_kind"], "shadow_monitor_walk_forward_market_bars")
+            self.assertEqual(generation["t1_sample_size"], 4)
+            self.assertFalse(artifact["safety"]["promotion_allowed"])
+
+    def test_replay_backtest_evidence_generation_keeps_missing_bars_as_blocker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "pgc.db"
+            reports_dir = root / "reports"
+            reports_dir.mkdir()
+            run_migrations(db_path)
+            _seed_shadow_replay_market(db_path, sample_days=2)
+            _seed_shadow_replay_monitor_artifacts(reports_dir, sample_days=4, include_dip=False)
+
+            result = ShadowObservationService(db_path, reports_dir=reports_dir).build_replay_backtest_evidence(
+                BuildShadowReplayBacktestEvidenceRequest(
+                    as_of_date="20260512",
+                    required_sample_size=4,
+                ),
+                RequestContext(request_id="req-shadow-replay-missing-bars", dry_run=False, source="test"),
+            )
+
+            self.assertTrue(result.ok, result.errors)
+            assert result.data is not None
+            self.assertEqual(result.data.accepted_count, 0)
+            self.assertEqual(result.data.rejected_count, 1)
+            artifact = json.loads(
+                (reports_dir / "shadow_replay_backtest_evidence_20260512_trend_extension_shadow.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            generation = artifact["results"][0]["generation"]
+            self.assertIn("shadow_replay_backtest_missing_bars", generation["blockers"])
+            review = review_shadow_replay_backtest_evidence_artifact(
+                reports_dir / "shadow_replay_backtest_evidence_20260512_trend_extension_shadow.json",
+                expected_candidate_key="trend_extension_shadow",
+                expected_as_of_date="20260512",
+                required_sample_size=4,
+            )
+            self.assertEqual(review.status, "rejected")
+            self.assertIn("shadow_replay_backtest_sample_size_insufficient", review.blockers)
+
 
 def _seed_shadow_history_artifacts(reports_dir: Path) -> None:
     _write_shadow_history_scorecard(reports_dir, "20260512", trend_score=44.0, breakout_score=48.0)
@@ -552,6 +645,178 @@ def _seed_shadow_observation_artifacts(reports_dir: Path) -> None:
         json.dumps(preflight),
         encoding="utf-8",
     )
+
+
+def _seed_shadow_replay_monitor_artifacts(
+    reports_dir: Path,
+    *,
+    sample_days: int,
+    include_dip: bool = True,
+) -> None:
+    rows = []
+    for day in range(1, sample_days + 1):
+        rows.append(
+            {
+                "ts_code": f"300{day:03d}.SZ",
+                "review_date": f"202605{day:02d}",
+                "signal_date": f"202605{day:02d}",
+                "planned_buy_date": f"202605{day:02d}",
+                "bucket": "trend_extension_shadow",
+            }
+        )
+    trend_monitor = {
+        "candidate_key": "trend_extension_shadow",
+        "candidate_family": "shadow_bucket",
+        "walk_forward_progress": {
+            "status": "complete",
+            "required_days": sample_days,
+            "days": sample_days,
+            "start_signal_date": "20260501",
+            "latest_signal_date": f"202605{sample_days:02d}",
+            "latest_outcome_date": "20260512",
+        },
+        "comparison_vs_frozen_cpb": {"status": "compared", "candidate_days": sample_days},
+        "promotion_gates": {
+            "paper_observation_gate": {"allowed": False, "artifact_only": True, "blockers": []},
+            "strategy_version_gate": {
+                "allowed": False,
+                "artifact_only": True,
+                "blockers": ["replay_backtest_result_artifact_required"],
+            },
+        },
+    }
+    candidate_monitors = [trend_monitor]
+    candidate_gates = [
+        {
+            "candidate_key": "trend_extension_shadow",
+            "candidate_family": "shadow_bucket",
+            "status": "blocked",
+            "walk_forward_progress": trend_monitor["walk_forward_progress"],
+            "paper_observation_gate": {"allowed": False, "artifact_only": True, "blockers": []},
+            "strategy_version_gate": {
+                "allowed": False,
+                "artifact_only": True,
+                "blockers": ["replay_backtest_result_artifact_required"],
+            },
+        }
+    ]
+    if include_dip:
+        dip_path = reports_dir / "pgc_pullback_dip_buy.json"
+        dip_path.write_text(
+            json.dumps(
+                {
+                    "selected_variant": "dip_r15_a6_run05",
+                    "variants": [
+                        {
+                            "variant_id": "dip_r15_a6_run05",
+                            "fill_n": 6,
+                            "ret_5d_n": 6,
+                            "ret_5d_mean": 0.03,
+                            "ret_5d_win_rate": 0.66,
+                            "mae_10d_median": -0.04,
+                        }
+                    ],
+                    "current_levels": [{"review_date": "20260512"}],
+                }
+            ),
+            encoding="utf-8",
+        )
+        dip_monitor = {
+            "candidate_key": "pullback_dip_buy",
+            "candidate_family": "dip_buy",
+            "walk_forward_progress": {
+                "status": "artifact_summary_only",
+                "required_days": 3,
+                "observed_trades": 6,
+                "source_artifact": str(dip_path),
+            },
+            "comparison_vs_frozen_cpb": {"status": "compared", "candidate_days": 6},
+            "promotion_gates": {
+                "paper_observation_gate": {"allowed": False, "artifact_only": True, "blockers": []},
+                "strategy_version_gate": {
+                    "allowed": False,
+                    "artifact_only": True,
+                    "blockers": ["replay_backtest_result_artifact_required"],
+                },
+            },
+        }
+        candidate_monitors.append(dip_monitor)
+        candidate_gates.append(
+            {
+                "candidate_key": "pullback_dip_buy",
+                "candidate_family": "dip_buy",
+                "status": "blocked",
+                "walk_forward_progress": dip_monitor["walk_forward_progress"],
+                "paper_observation_gate": {"allowed": False, "artifact_only": True, "blockers": []},
+                "strategy_version_gate": {
+                    "allowed": False,
+                    "artifact_only": True,
+                    "blockers": ["replay_backtest_result_artifact_required"],
+                },
+            }
+        )
+    monitor = {
+        "review_date": "20260512",
+        "next_trade_date": "20260513",
+        "walk_forward_progress": {
+            "status": "complete",
+            "required_days": sample_days,
+            "rows": rows,
+        },
+        "candidate_monitors": candidate_monitors,
+        "safety": {
+            "artifact_only": True,
+            "active_params_mutated": False,
+            "writes_trade_state": False,
+            "writes_paper_live_behavior": False,
+            "timer_mutated": False,
+            "promotion_allowed": False,
+            "paper_observation_allowed": False,
+        },
+    }
+    preflight = {
+        "artifact_type": "shadow_strategy_promotion_preflight",
+        "review_date": "20260512",
+        "next_trade_date": "20260513",
+        "status": "blocked",
+        "candidate_count": len(candidate_monitors),
+        "candidate_gates": candidate_gates,
+        "blocker_counts": {"replay_backtest_result_artifact_required": len(candidate_monitors)},
+        "safety": monitor["safety"],
+    }
+    (reports_dir / "strategy_shadow_monitor_20260512.json").write_text(
+        json.dumps(monitor, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (reports_dir / "strategy_shadow_promotion_preflight_20260512.json").write_text(
+        json.dumps(preflight, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
+def _seed_shadow_replay_market(db_path: Path, *, sample_days: int) -> None:
+    with sqlite3.connect(db_path) as conn:
+        for day in range(1, sample_days + 1):
+            ts_code = f"300{day:03d}.SZ"
+            for offset in range(5):
+                trade_day = day + offset
+                open_price = 10.0 + day
+                close_price = open_price * (1.01 + offset * 0.005)
+                conn.execute(
+                    """
+                    INSERT INTO market_bars
+                      (ts_code, trade_date, open, high, low, close, vol, amount)
+                    VALUES (?, ?, ?, ?, ?, ?, 100000.0, 1000.0)
+                    """,
+                    (
+                        ts_code,
+                        f"202605{trade_day:02d}",
+                        open_price,
+                        open_price * 1.04,
+                        open_price * 0.97,
+                        close_price,
+                    ),
+                )
 
 
 def _write_shadow_replay_backtest_evidence(

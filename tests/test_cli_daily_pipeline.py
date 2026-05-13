@@ -38,6 +38,11 @@ class _FakePipelineData:
     shadow_observation_status: str | None = "blocked"
     shadow_observation_top_candidates: str | None = "trend_extension_shadow[status=blocked,today=3]"
     shadow_observation_blockers: str | None = "operator_review_required:1"
+    shadow_evidence_status: str | None = "blocked"
+    shadow_evidence_artifacts: str | None = "dossier:pass;replay_backtest_evidence:blocked;review_request:missing;scorecard:pass"
+    shadow_evidence_blockers: str | None = "shadow_review_request_json_missing;shadow_replay_backtest_evidence_missing"
+    shadow_evidence_dashboard_history: str | None = "status=pass,empty_history_risk=false"
+    shadow_evidence_replay_backtest: str | None = "accepted=1,rejected=0,missing=4"
 
 
 class _FakeDailyPipelineService:
@@ -109,6 +114,12 @@ class CliDailyPipelineTest(unittest.TestCase):
         self.assertIn("shadow_observation_status=blocked", output)
         self.assertIn("shadow_observation_top_candidates=trend_extension_shadow", output)
         self.assertIn("shadow_observation_blockers=operator_review_required:1", output)
+        self.assertIn("shadow_evidence_status=blocked", output)
+        self.assertIn("shadow_evidence_artifacts=dossier:pass", output)
+        self.assertIn("shadow_evidence_blockers=shadow_review_request_json_missing", output)
+        self.assertIn("shadow_evidence_dashboard_history=status=pass,empty_history_risk=false", output)
+        self.assertIn("shadow_evidence_replay_backtest=accepted=1,rejected=0,missing=4", output)
+        self.assertIn("shadow_evidence_notice=review package only", output)
         self.assertIn("market_review_status=skipped", output)
         self.assertIn("market_plan_context_status=skipped", output)
         self.assertIn("market_review_would_write=false", output)

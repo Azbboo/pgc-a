@@ -4,8 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>PGC 操作台</title>
-    <link rel="stylesheet" href="/dashboard/assets/styles.css?v=20260513-m88-shadow-history-1" />
-    <script defer src="/dashboard/assets/app.js?v=20260513-m88-shadow-history-1"></script>
+    <link rel="stylesheet" href="/dashboard/assets/styles.css?v=20260513-m92-promotion-review-1" />
+    <script defer src="/dashboard/assets/app.js?v=20260513-m92-promotion-review-1"></script>
   </head>
   <body>
     <div class="app-shell">
@@ -692,6 +692,17 @@
           </div>
 
           <section class="shadow-summary-panel" id="shadowSummaryPanel" aria-live="polite"></section>
+
+          <section class="panel shadow-review-workbench-panel">
+            <div class="panel-heading">
+              <h2>晋升评审工作台</h2>
+              <div class="panel-heading-actions">
+                <span id="shadowPromotionReviewState" class="muted">-</span>
+                <span class="chip chip-agent">read-only review package</span>
+              </div>
+            </div>
+            <div id="shadowPromotionReviewWorkbench" class="shadow-review-workbench"></div>
+          </section>
 
           <section class="panel shadow-history-panel">
             <div class="panel-heading">

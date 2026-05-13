@@ -105,6 +105,11 @@ class DailyPipelineResult:
     shadow_observation_status: str | None = None
     shadow_observation_top_candidates: str | None = None
     shadow_observation_blockers: str | None = None
+    shadow_evidence_status: str | None = None
+    shadow_evidence_artifacts: str | None = None
+    shadow_evidence_blockers: str | None = None
+    shadow_evidence_dashboard_history: str | None = None
+    shadow_evidence_replay_backtest: str | None = None
     invariant_violation_codes: list[str] = field(default_factory=list)
     step_summaries: dict[str, PipelineStepSummary] = field(default_factory=dict)
 
@@ -414,6 +419,10 @@ class DailyPipelineService:
                 warnings=warnings,
                 errors=report_result.errors,
             )
+        step_summaries["shadow_evidence"] = PipelineStepSummary(
+            status=report_result.data.shadow_evidence_status or "unknown",
+            detail=report_result.data.shadow_evidence_blockers or "none",
+        )
 
         after_counts = _table_counts(self.db_path)
         changed = _counts_changed(before_counts, after_counts) or report_result.data.changed
@@ -444,6 +453,11 @@ class DailyPipelineService:
             shadow_observation_status=report_result.data.shadow_observation_status,
             shadow_observation_top_candidates=report_result.data.shadow_observation_top_candidates,
             shadow_observation_blockers=report_result.data.shadow_observation_blockers,
+            shadow_evidence_status=report_result.data.shadow_evidence_status,
+            shadow_evidence_artifacts=report_result.data.shadow_evidence_artifacts,
+            shadow_evidence_blockers=report_result.data.shadow_evidence_blockers,
+            shadow_evidence_dashboard_history=report_result.data.shadow_evidence_dashboard_history,
+            shadow_evidence_replay_backtest=report_result.data.shadow_evidence_replay_backtest,
             step_summaries=step_summaries,
         )
         return ServiceResult(
@@ -492,6 +506,12 @@ class DailyPipelineService:
         shadow_status = _shadow_observation_status(shadow_observation)
         shadow_top_candidates = _shadow_observation_top_candidates(shadow_observation)
         shadow_blockers = _shadow_observation_blockers(shadow_observation)
+        shadow_evidence = getattr(report.data, "shadow_evidence", {}) or {}
+        shadow_evidence_status = _shadow_evidence_status(shadow_evidence)
+        shadow_evidence_artifacts = _shadow_evidence_artifacts(shadow_evidence)
+        shadow_evidence_blockers = _shadow_evidence_blockers(shadow_evidence)
+        shadow_evidence_dashboard_history = _shadow_evidence_dashboard_history(shadow_evidence)
+        shadow_evidence_replay_backtest = _shadow_evidence_replay_backtest(shadow_evidence)
 
         if ctx.dry_run:
             return ServiceResult(
@@ -505,6 +525,11 @@ class DailyPipelineService:
                     shadow_observation_status=shadow_status,
                     shadow_observation_top_candidates=shadow_top_candidates,
                     shadow_observation_blockers=shadow_blockers,
+                    shadow_evidence_status=shadow_evidence_status,
+                    shadow_evidence_artifacts=shadow_evidence_artifacts,
+                    shadow_evidence_blockers=shadow_evidence_blockers,
+                    shadow_evidence_dashboard_history=shadow_evidence_dashboard_history,
+                    shadow_evidence_replay_backtest=shadow_evidence_replay_backtest,
                 ),
                 warnings=report.warnings,
             )
@@ -523,6 +548,11 @@ class DailyPipelineService:
                 shadow_observation_status=shadow_status,
                 shadow_observation_top_candidates=shadow_top_candidates,
                 shadow_observation_blockers=shadow_blockers,
+                shadow_evidence_status=shadow_evidence_status,
+                shadow_evidence_artifacts=shadow_evidence_artifacts,
+                shadow_evidence_blockers=shadow_evidence_blockers,
+                shadow_evidence_dashboard_history=shadow_evidence_dashboard_history,
+                shadow_evidence_replay_backtest=shadow_evidence_replay_backtest,
             ),
             warnings=report.warnings,
         )
@@ -537,6 +567,11 @@ class _ReportWriteResult:
     shadow_observation_status: str | None = None
     shadow_observation_top_candidates: str | None = None
     shadow_observation_blockers: str | None = None
+    shadow_evidence_status: str | None = None
+    shadow_evidence_artifacts: str | None = None
+    shadow_evidence_blockers: str | None = None
+    shadow_evidence_dashboard_history: str | None = None
+    shadow_evidence_replay_backtest: str | None = None
 
 
 def _shadow_observation_status(shadow: object | None) -> str:
@@ -573,6 +608,54 @@ def _shadow_observation_blockers(shadow: object | None) -> str:
         return ";".join(f"{key}:{counts[key]}" for key in sorted(counts))
     reason = getattr(shadow, "unavailable_reason", None)
     return str(reason) if reason else "none"
+
+
+def _shadow_evidence_status(evidence: object) -> str:
+    if not isinstance(evidence, dict):
+        return "unavailable"
+    return str(evidence.get("status") or "unknown")
+
+
+def _shadow_evidence_artifacts(evidence: object) -> str:
+    if not isinstance(evidence, dict):
+        return "none"
+    summary = evidence.get("artifact_summary")
+    if not isinstance(summary, dict) or not summary:
+        return "none"
+    return ";".join(f"{key}:{summary[key]}" for key in sorted(summary))
+
+
+def _shadow_evidence_blockers(evidence: object) -> str:
+    if not isinstance(evidence, dict):
+        return "shadow_evidence_unavailable"
+    blockers = evidence.get("missing_blockers")
+    if isinstance(blockers, list) and blockers:
+        return ";".join(str(blocker) for blocker in blockers if str(blocker))
+    return "none"
+
+
+def _shadow_evidence_dashboard_history(evidence: object) -> str:
+    if not isinstance(evidence, dict):
+        return "unavailable"
+    parity = evidence.get("dashboard_history_parity")
+    if not isinstance(parity, dict):
+        return "unavailable"
+    status = str(parity.get("status") or "unknown")
+    empty_risk = str(bool(parity.get("dashboard_empty_history_risk"))).lower()
+    return f"status={status},empty_history_risk={empty_risk}"
+
+
+def _shadow_evidence_replay_backtest(evidence: object) -> str:
+    if not isinstance(evidence, dict):
+        return "unavailable"
+    replay = evidence.get("replay_backtest_evidence")
+    if not isinstance(replay, dict):
+        return "unavailable"
+    return (
+        f"accepted={replay.get('accepted_count', 0)},"
+        f"rejected={replay.get('rejected_count', 0)},"
+        f"missing={replay.get('missing_count', 0)}"
+    )
 
 
 def _validate_request(request: RunDailyPipelineRequest, ctx: RequestContext) -> list[ServiceError]:

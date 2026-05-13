@@ -42,6 +42,51 @@ SHADOW_RESEARCH_ARTIFACTS = {
     "preconfirm_watchlist": "preconfirm_watchlist_backtest.json",
     "dip_buy": "pgc_pullback_dip_buy.json",
 }
+SHADOW_THRESHOLD_CALIBRATION_CONTRACT = "shadow_threshold_calibration_v1"
+SHADOW_THRESHOLD_CALIBRATION_ARTIFACT_TYPE = "shadow_threshold_calibration"
+SHADOW_THRESHOLD_CALIBRATION_CANDIDATES = (
+    "trend_extension_shadow",
+    "breakout_pressure_shadow",
+    "low_price_momentum_shadow",
+    "preconfirm_watchlist",
+    "pullback_dip_buy",
+)
+SHADOW_THRESHOLD_VARIANTS: tuple[dict[str, Any], ...] = (
+    {
+        "variant_key": "current_shadow_review_gate",
+        "label": "Current shadow review gate",
+        "min_sample_size": 20,
+        "min_win_rate_pct": 50.0,
+        "min_mean_return_pct": 0.0,
+        "min_median_return_pct": None,
+        "min_frozen_cpb_delta_pct": 0.0,
+        "min_drawdown_proxy_pct": -8.0,
+        "requires_accepted_replay_evidence": True,
+    },
+    {
+        "variant_key": "quality_tighten_candidate",
+        "label": "Quality-tightened candidate gate",
+        "min_sample_size": 30,
+        "min_win_rate_pct": 55.0,
+        "min_mean_return_pct": 1.0,
+        "min_median_return_pct": 0.0,
+        "min_frozen_cpb_delta_pct": 0.5,
+        "min_drawdown_proxy_pct": -6.0,
+        "requires_accepted_replay_evidence": True,
+    },
+    {
+        "variant_key": "exploratory_relaxed_sample",
+        "label": "Exploratory low-sample research gate",
+        "min_sample_size": 10,
+        "min_win_rate_pct": 50.0,
+        "min_mean_return_pct": 0.0,
+        "min_median_return_pct": None,
+        "min_frozen_cpb_delta_pct": -0.5,
+        "min_drawdown_proxy_pct": -10.0,
+        "requires_accepted_replay_evidence": True,
+    },
+)
+TRADE_STATE_TABLES = ("strategy_versions", "trade_plans", "trades", "positions")
 
 
 @dataclass(frozen=True)
@@ -70,6 +115,12 @@ class RegisterShadowStrategyCandidatesRequest:
     shadow_backtest_artifact_path: str | None = None
     preconfirm_watchlist_artifact_path: str | None = None
     dip_buy_artifact_path: str | None = None
+
+
+@dataclass(frozen=True)
+class BuildShadowThresholdCalibrationRequest:
+    as_of_date: str | None = None
+    output_path: str | None = None
 
 
 @dataclass(frozen=True)
@@ -129,6 +180,23 @@ class RegisterShadowStrategyCandidatesResult:
     artifact_paths: dict[str, str] = field(default_factory=dict)
     comparison_summary: dict[str, Any] = field(default_factory=dict)
     hypotheses: list[StrategyHypothesis] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class BuildShadowThresholdCalibrationResult:
+    as_of_date: str | None = None
+    would_write_artifact: bool = False
+    wrote_artifact: bool = False
+    artifact_path: str | None = None
+    markdown_path: str | None = None
+    artifact: dict[str, Any] = field(default_factory=dict)
+    summary: dict[str, Any] = field(default_factory=dict)
+    active_params_mutated: bool = False
+    wrote_strategy_version: bool = False
+    wrote_strategy_versions: bool = False
+    writes_trade_state: bool = False
+    writes_paper_live_behavior: bool = False
+    timer_mutated: bool = False
 
 
 @dataclass(frozen=True)
@@ -257,6 +325,29 @@ class ShadowPromotionReviewRequestArtifactReview:
     required_replay_backtest_evidence_count: int = 0
     review_ready_is_not_approval: bool | None = None
     manual_review_required: bool | None = None
+    promotion_allowed: bool | None = None
+    active_params_mutated: bool | None = None
+    wrote_strategy_version: bool | None = None
+    wrote_strategy_versions: bool | None = None
+    writes_trade_state: bool | None = None
+    writes_paper_live_behavior: bool | None = None
+    timer_mutated: bool | None = None
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class ShadowThresholdCalibrationArtifactReview:
+    path: str
+    exists: bool
+    valid: bool
+    artifact_type: str | None = None
+    calibration_contract: str | None = None
+    as_of_date: str | None = None
+    candidate_count: int = 0
+    variant_count: int = 0
+    recommended_next_experiment_count: int = 0
+    rejected_variant_count: int = 0
+    artifact_only: bool | None = None
     promotion_allowed: bool | None = None
     active_params_mutated: bool | None = None
     wrote_strategy_version: bool | None = None
@@ -525,6 +616,101 @@ class StrategyEvolutionService:
             ),
             created_ids={"strategy_hypotheses": inserted_ids},
             lineage={"as_of_date": request.as_of_date, "source": SHADOW_RESEARCH_SOURCE},
+        )
+
+    def build_shadow_threshold_calibration(
+        self,
+        request: BuildShadowThresholdCalibrationRequest,
+        ctx: RequestContext,
+    ) -> ServiceResult[BuildShadowThresholdCalibrationResult]:
+        validation_errors = _validate_shadow_threshold_calibration_request(request)
+        if validation_errors:
+            return ServiceResult(
+                status="validation_failed",
+                request_id=ctx.request_id,
+                data=BuildShadowThresholdCalibrationResult(as_of_date=request.as_of_date),
+                errors=validation_errors,
+            )
+
+        current_strategy = None
+        if Path(self.db_path).exists():
+            with connect(self.db_path) as conn:
+                current_strategy = _load_current_strategy(conn, "cpb_6157")
+        trade_counts_before = _trade_state_counts(self.db_path)
+        artifact = _build_shadow_threshold_calibration_artifact(
+            reports_dir=self.reports_dir,
+            as_of_date=request.as_of_date,
+            current_strategy=current_strategy,
+            operator=ctx.operator,
+            trade_counts_before=trade_counts_before,
+            trade_counts_after=_trade_state_counts(self.db_path),
+        )
+        summary = _mapping(artifact.get("summary"))
+        artifact_path = self._shadow_threshold_calibration_artifact_path(request, artifact)
+        markdown_path = artifact_path.with_suffix(".md")
+
+        if ctx.dry_run:
+            return ServiceResult(
+                status="success",
+                request_id=ctx.request_id,
+                data=BuildShadowThresholdCalibrationResult(
+                    as_of_date=_optional_text(artifact.get("as_of_date")),
+                    would_write_artifact=True,
+                    wrote_artifact=False,
+                    artifact_path=None,
+                    markdown_path=None,
+                    artifact=artifact,
+                    summary=summary,
+                    active_params_mutated=False,
+                    wrote_strategy_version=False,
+                    wrote_strategy_versions=False,
+                    writes_trade_state=False,
+                    writes_paper_live_behavior=False,
+                    timer_mutated=False,
+                ),
+                warnings=[
+                    ServiceWarning(
+                        code="SHADOW_THRESHOLD_CALIBRATION_DRY_RUN",
+                        message=(
+                            "Shadow threshold calibration artifact was built in memory only; no strategy "
+                            "params, strategy versions, trade state, paper/live behavior, or timers were changed."
+                        ),
+                    )
+                ],
+                lineage={
+                    "as_of_date": artifact.get("as_of_date"),
+                    "artifact_path": str(artifact_path),
+                    "calibration_contract": SHADOW_THRESHOLD_CALIBRATION_CONTRACT,
+                },
+            )
+
+        self._write_shadow_threshold_calibration_artifact(artifact_path, artifact)
+        self._write_shadow_threshold_calibration_markdown(markdown_path, artifact)
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data=BuildShadowThresholdCalibrationResult(
+                as_of_date=_optional_text(artifact.get("as_of_date")),
+                would_write_artifact=True,
+                wrote_artifact=True,
+                artifact_path=str(artifact_path),
+                markdown_path=str(markdown_path),
+                artifact=artifact,
+                summary=summary,
+                active_params_mutated=False,
+                wrote_strategy_version=False,
+                wrote_strategy_versions=False,
+                writes_trade_state=False,
+                writes_paper_live_behavior=False,
+                timer_mutated=False,
+            ),
+            created_ids={"shadow_threshold_calibration_artifact": _optional_text(artifact.get("as_of_date"))},
+            lineage={
+                "as_of_date": artifact.get("as_of_date"),
+                "artifact_path": str(artifact_path),
+                "markdown_path": str(markdown_path),
+                "calibration_contract": SHADOW_THRESHOLD_CALIBRATION_CONTRACT,
+            },
         )
 
     def list_hypotheses(
@@ -1078,6 +1264,24 @@ class StrategyEvolutionService:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(_json_dumps(artifact) + "\n", encoding="utf-8")
 
+    def _shadow_threshold_calibration_artifact_path(
+        self,
+        request: BuildShadowThresholdCalibrationRequest,
+        artifact: Mapping[str, Any],
+    ) -> Path:
+        if request.output_path is not None:
+            return Path(request.output_path).expanduser()
+        as_of_date = _optional_text(artifact.get("as_of_date")) or "latest"
+        return self.reports_dir / f"shadow_threshold_calibration_{as_of_date}.json"
+
+    def _write_shadow_threshold_calibration_artifact(self, path: Path, artifact: dict[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_json_dumps(artifact) + "\n", encoding="utf-8")
+
+    def _write_shadow_threshold_calibration_markdown(self, path: Path, artifact: dict[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_render_shadow_threshold_calibration_markdown(artifact), encoding="utf-8")
+
 
 def _validate_propose_request(request: ProposeStrategyHypothesesRequest) -> list[ServiceError]:
     if not is_yyyymmdd(request.as_of_date):
@@ -1118,6 +1322,17 @@ def _validate_shadow_register_request(request: RegisterShadowStrategyCandidatesR
     ]:
         if value is not None and not str(value).strip():
             errors.append(ServiceError(code="VALIDATION_ERROR", message=f"{label} must not be blank."))
+    return errors
+
+
+def _validate_shadow_threshold_calibration_request(
+    request: BuildShadowThresholdCalibrationRequest,
+) -> list[ServiceError]:
+    errors: list[ServiceError] = []
+    if request.as_of_date is not None and not is_yyyymmdd(request.as_of_date):
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="as_of_date must use YYYYMMDD format."))
+    if request.output_path is not None and not str(request.output_path).strip():
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="output_path must not be blank."))
     return errors
 
 
@@ -1929,6 +2144,826 @@ def review_shadow_promotion_review_request_artifact(
     )
 
 
+def review_shadow_threshold_calibration_artifact(
+    artifact_path: str | Path,
+) -> ShadowThresholdCalibrationArtifactReview:
+    path = Path(artifact_path).expanduser()
+    if not path.exists():
+        return ShadowThresholdCalibrationArtifactReview(
+            path=str(path),
+            exists=False,
+            valid=False,
+            error="shadow threshold calibration artifact was not found.",
+        )
+    try:
+        artifact = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return ShadowThresholdCalibrationArtifactReview(
+            path=str(path),
+            exists=True,
+            valid=False,
+            error=f"shadow threshold calibration artifact is not valid JSON: {exc}",
+        )
+    if not isinstance(artifact, dict):
+        return ShadowThresholdCalibrationArtifactReview(
+            path=str(path),
+            exists=True,
+            valid=False,
+            error="shadow threshold calibration artifact must be a JSON object.",
+        )
+
+    artifact_type = _optional_text(artifact.get("artifact_type"))
+    calibration_contract = _optional_text(artifact.get("calibration_contract"))
+    summary = _mapping(artifact.get("summary"))
+    safety = _mapping(artifact.get("safety"))
+    candidates = _list_mapping(artifact.get("candidates"))
+    threshold_variants = _list_mapping(artifact.get("threshold_variants"))
+    recommended = _list_mapping(artifact.get("recommended_next_experiments"))
+    rejected = _list_mapping(artifact.get("rejected_variants"))
+    artifact_only = bool(safety.get("artifact_only")) and bool(summary.get("artifact_only"))
+    promotion_allowed = any(
+        bool(value)
+        for value in (
+            safety.get("promotion_allowed"),
+            summary.get("promotion_allowed"),
+            _mapping(artifact.get("release_gate")).get("promotion_allowed"),
+        )
+    )
+    active_params_mutated = bool(safety.get("active_params_mutated"))
+    wrote_strategy_version = bool(safety.get("wrote_strategy_version"))
+    wrote_strategy_versions = bool(safety.get("wrote_strategy_versions"))
+    writes_trade_state = bool(safety.get("writes_trade_state"))
+    writes_paper_live_behavior = bool(safety.get("writes_paper_live_behavior"))
+    timer_mutated = bool(safety.get("timer_mutated"))
+    valid_safety = artifact_only and not any(
+        [
+            promotion_allowed,
+            active_params_mutated,
+            wrote_strategy_version,
+            wrote_strategy_versions,
+            writes_trade_state,
+            writes_paper_live_behavior,
+            timer_mutated,
+        ]
+    )
+
+    error = None
+    if artifact_type != SHADOW_THRESHOLD_CALIBRATION_ARTIFACT_TYPE:
+        error = "shadow threshold calibration artifact must use artifact_type=shadow_threshold_calibration."
+    elif calibration_contract != SHADOW_THRESHOLD_CALIBRATION_CONTRACT:
+        error = "shadow threshold calibration artifact must use calibration_contract=shadow_threshold_calibration_v1."
+    elif not candidates:
+        error = "shadow threshold calibration artifact must include candidate comparisons."
+    elif not threshold_variants:
+        error = "shadow threshold calibration artifact must include threshold variants."
+    elif not rejected:
+        error = "shadow threshold calibration artifact must include rejected variants with reasons."
+    elif not valid_safety:
+        error = "shadow threshold calibration artifact reports mutation or promotion permission."
+
+    return ShadowThresholdCalibrationArtifactReview(
+        path=str(path),
+        exists=True,
+        valid=error is None,
+        artifact_type=artifact_type,
+        calibration_contract=calibration_contract,
+        as_of_date=_optional_text(artifact.get("as_of_date")),
+        candidate_count=_optional_int(summary.get("candidate_count")) or len(candidates),
+        variant_count=_optional_int(summary.get("variant_count")) or len(threshold_variants),
+        recommended_next_experiment_count=_optional_int(summary.get("recommended_next_experiment_count"))
+        or len(recommended),
+        rejected_variant_count=_optional_int(summary.get("rejected_variant_count")) or len(rejected),
+        artifact_only=artifact_only,
+        promotion_allowed=promotion_allowed,
+        active_params_mutated=active_params_mutated,
+        wrote_strategy_version=wrote_strategy_version,
+        wrote_strategy_versions=wrote_strategy_versions,
+        writes_trade_state=writes_trade_state,
+        writes_paper_live_behavior=writes_paper_live_behavior,
+        timer_mutated=timer_mutated,
+        error=error,
+    )
+
+
+def _build_shadow_threshold_calibration_artifact(
+    *,
+    reports_dir: Path,
+    as_of_date: str | None,
+    current_strategy: sqlite3.Row | None,
+    operator: str | None,
+    trade_counts_before: dict[str, int],
+    trade_counts_after: dict[str, int],
+) -> dict[str, Any]:
+    scorecard_path, scorecard = _load_shadow_calibration_scorecard(reports_dir, as_of_date)
+    resolved_as_of_date = (
+        as_of_date
+        or _optional_text(scorecard.get("as_of_date"))
+        or _optional_text(scorecard.get("review_date"))
+        or _latest_shadow_replay_evidence_date(reports_dir)
+    )
+    scorecard_candidates = _shadow_calibration_scorecard_candidates(scorecard)
+    candidate_keys = _shadow_calibration_candidate_keys(scorecard_candidates)
+    required_samples = _shadow_calibration_required_samples(scorecard_candidates)
+
+    from pgc_trading.services.shadow_observation_service import load_shadow_replay_backtest_evidence_index
+
+    replay_evidence_index = load_shadow_replay_backtest_evidence_index(
+        reports_dir,
+        as_of_date=resolved_as_of_date,
+        candidate_required_samples=required_samples,
+    )
+    baseline = _load_shadow_calibration_frozen_cpb_baseline(reports_dir, scorecard)
+    research_metrics = _load_shadow_calibration_research_metrics(reports_dir)
+    scorecard_by_key = {
+        str(candidate.get("candidate_key")): candidate
+        for candidate in scorecard_candidates
+        if candidate.get("candidate_key") is not None
+    }
+    evidence_by_candidate = _mapping(replay_evidence_index.get("by_candidate"))
+    candidates = [
+        _shadow_threshold_candidate_payload(
+            candidate_key=candidate_key,
+            scorecard_candidate=scorecard_by_key.get(candidate_key, {}),
+            replay_evidence=_mapping(evidence_by_candidate.get(candidate_key)),
+            baseline=baseline,
+            research_metrics=_mapping(research_metrics.get(candidate_key)),
+        )
+        for candidate_key in candidate_keys
+    ]
+    rejected_variants = _shadow_calibration_rejected_variants(candidates)
+    recommended_next_experiments = _shadow_calibration_recommendations(candidates)
+    family_metrics = _shadow_calibration_family_metrics(candidates)
+    replay_summary = _mapping(replay_evidence_index.get("summary"))
+    safety = _shadow_calibration_safety(trade_counts_before, trade_counts_after)
+    summary = {
+        "status": "artifact_only",
+        "candidate_count": len(candidates),
+        "family_count": len(family_metrics),
+        "variant_count": len(SHADOW_THRESHOLD_VARIANTS),
+        "accepted_replay_evidence_count": _int_value(replay_summary.get("accepted_count"), 0),
+        "rejected_replay_evidence_count": _int_value(replay_summary.get("rejected_count"), 0),
+        "missing_replay_evidence_count": _int_value(replay_summary.get("missing_count"), 0),
+        "recommended_next_experiment_count": len(recommended_next_experiments),
+        "rejected_variant_count": len(rejected_variants),
+        "artifact_only": True,
+        "promotion_allowed": False,
+        "active_params_mutated": False,
+    }
+    return {
+        "artifact_type": SHADOW_THRESHOLD_CALIBRATION_ARTIFACT_TYPE,
+        "calibration_contract": SHADOW_THRESHOLD_CALIBRATION_CONTRACT,
+        "artifact_version": 1,
+        "generated_at": _utc_timestamp(),
+        "operator": operator,
+        "as_of_date": resolved_as_of_date,
+        "source_artifacts": {
+            "shadow_observation_scorecard": str(scorecard_path) if scorecard_path is not None else None,
+            "shadow_replay_backtest_evidence_source_file_count": _int_value(
+                replay_evidence_index.get("source_file_count"),
+                0,
+            ),
+            "frozen_cpb_baseline": baseline.get("source_artifact"),
+        },
+        "active_strategy": _current_strategy_payload(current_strategy, "cpb_6157"),
+        "summary": summary,
+        "threshold_variants": [dict(variant) for variant in SHADOW_THRESHOLD_VARIANTS],
+        "family_metrics": family_metrics,
+        "candidates": candidates,
+        "recommended_next_experiments": recommended_next_experiments,
+        "rejected_variants": rejected_variants,
+        "release_gate": {
+            "status": "blocked",
+            "artifact_only": True,
+            "review_ready_is_not_approval": True,
+            "promotion_allowed": False,
+            "paper_observation_allowed": False,
+            "requires_future_strategy_work": True,
+            "blocked_mutation_targets": [
+                "active_cpb_params",
+                "strategy_versions",
+                "trade_plans",
+                "trades",
+                "positions",
+                "paper_live_behavior",
+                "broker_execution",
+                "timer_state",
+            ],
+        },
+        "read_only_guard": {
+            "trade_state_tables": list(TRADE_STATE_TABLES),
+            "trade_state_counts_before": trade_counts_before,
+            "trade_state_counts_after": trade_counts_after,
+            "trade_state_counts_unchanged": trade_counts_before == trade_counts_after,
+            "changed_tables": [
+                table
+                for table in TRADE_STATE_TABLES
+                if trade_counts_before.get(table) != trade_counts_after.get(table)
+            ],
+        },
+        "safety": safety,
+    }
+
+
+def _shadow_threshold_candidate_payload(
+    *,
+    candidate_key: str,
+    scorecard_candidate: Mapping[str, Any],
+    replay_evidence: Mapping[str, Any],
+    baseline: Mapping[str, Any],
+    research_metrics: Mapping[str, Any],
+) -> dict[str, Any]:
+    candidate_family = (
+        _optional_text(scorecard_candidate.get("candidate_family"))
+        or _candidate_family_for_key(candidate_key)
+    )
+    metrics = _shadow_threshold_candidate_metrics(
+        candidate_key=candidate_key,
+        candidate=scorecard_candidate,
+        replay_evidence=replay_evidence,
+        baseline=baseline,
+        research_metrics=research_metrics,
+    )
+    variant_results = [
+        _evaluate_shadow_threshold_variant(metrics, variant)
+        for variant in SHADOW_THRESHOLD_VARIANTS
+    ]
+    return {
+        "candidate_key": candidate_key,
+        "candidate_family": candidate_family,
+        "metrics": metrics,
+        "threshold_variant_results": variant_results,
+        "artifact_only": True,
+        "promotion_allowed": False,
+    }
+
+
+def _shadow_threshold_candidate_metrics(
+    *,
+    candidate_key: str,
+    candidate: Mapping[str, Any],
+    replay_evidence: Mapping[str, Any],
+    baseline: Mapping[str, Any],
+    research_metrics: Mapping[str, Any],
+) -> dict[str, Any]:
+    progress = (
+        _mapping(candidate.get("walk_forward_progress"))
+        or _mapping(candidate.get("walk_forward"))
+        or _mapping(candidate.get("metrics"))
+        or _mapping(research_metrics)
+    )
+    comparison = (
+        _mapping(candidate.get("comparison_vs_frozen_cpb"))
+        or _mapping(candidate.get("frozen_cpb_comparison"))
+    )
+    replay_metrics = _mapping(replay_evidence.get("metrics"))
+    sample_size = _first_positive_int_value(
+        replay_evidence,
+        candidate,
+        progress,
+        "sample_size",
+        "observed_trades",
+        "signals",
+        "n",
+        "days",
+    )
+    win_rate_pct = _first_float_value(
+        replay_metrics,
+        progress,
+        "t1_close_win_rate_pct",
+        "t5_close_win_rate_pct",
+        "ret_5d_win_rate_pct",
+    )
+    mean_return_pct = _first_float_value(
+        replay_metrics,
+        progress,
+        "t5_close_mean_pct",
+        "t1_close_mean_pct",
+        "ret_5d_mean_pct",
+        "next_open_ret_5d_mean_pct",
+        "next_open_ret_1d_mean_pct",
+    )
+    median_return_pct = _first_float_value(
+        replay_metrics,
+        progress,
+        "t5_close_median_pct",
+        "t1_close_median_pct",
+        "ret_5d_median_pct",
+        "mfe_10d_median_pct",
+    )
+    drawdown_proxy_pct = _first_float_value(
+        replay_metrics,
+        candidate,
+        progress,
+        "max_drawdown_pct",
+        "drawdown_proxy_pct",
+        "mae_10d_median_pct",
+        "t1_low_mean_pct",
+        "max_t1_loss_pct",
+    )
+    frozen_delta_pct = _first_float_value(
+        comparison,
+        "t5_close_mean_delta_pct",
+        "t1_close_mean_delta_pct",
+    )
+    if frozen_delta_pct is None:
+        frozen_delta_pct = _delta(mean_return_pct, _optional_float(baseline.get("t5_close_mean_pct")))
+    evidence_coverage = _shadow_threshold_evidence_coverage(candidate_key, candidate, replay_evidence)
+    return {
+        "sample_size": sample_size,
+        "win_rate_pct": win_rate_pct,
+        "mean_return_pct": mean_return_pct,
+        "median_return_pct": median_return_pct,
+        "drawdown_proxy_pct": drawdown_proxy_pct,
+        "frozen_cpb_comparison": {
+            "status": "compared" if frozen_delta_pct is not None else "missing_baseline",
+            "baseline_label": baseline.get("label") or comparison.get("baseline_label"),
+            "baseline_sample_size": baseline.get("sample_size") or comparison.get("baseline_days"),
+            "baseline_mean_return_pct": baseline.get("t5_close_mean_pct"),
+            "mean_return_delta_pct": frozen_delta_pct,
+            "source_artifact": baseline.get("source_artifact"),
+        },
+        "evidence_coverage": evidence_coverage,
+        "metric_source_artifact": progress.get("source_artifact"),
+        "source_metric_keys": sorted(replay_metrics) if replay_metrics else sorted(progress),
+    }
+
+
+def _evaluate_shadow_threshold_variant(
+    metrics: Mapping[str, Any],
+    variant: Mapping[str, Any],
+) -> dict[str, Any]:
+    evidence = _mapping(metrics.get("evidence_coverage"))
+    frozen = _mapping(metrics.get("frozen_cpb_comparison"))
+    blockers: list[str] = []
+    if bool(variant.get("requires_accepted_replay_evidence")) and evidence.get("status") != "accepted":
+        blockers.append("accepted_replay_backtest_evidence_required")
+    if _int_value(metrics.get("sample_size"), 0) < _int_value(variant.get("min_sample_size"), 0):
+        blockers.append("sample_size_below_threshold")
+    blockers.extend(
+        _numeric_threshold_blockers(
+            actual=_optional_float(metrics.get("win_rate_pct")),
+            threshold=_optional_float(variant.get("min_win_rate_pct")),
+            missing_code="win_rate_missing",
+            below_code="win_rate_below_threshold",
+        )
+    )
+    blockers.extend(
+        _numeric_threshold_blockers(
+            actual=_optional_float(metrics.get("mean_return_pct")),
+            threshold=_optional_float(variant.get("min_mean_return_pct")),
+            missing_code="mean_return_missing",
+            below_code="mean_return_below_threshold",
+        )
+    )
+    blockers.extend(
+        _numeric_threshold_blockers(
+            actual=_optional_float(metrics.get("median_return_pct")),
+            threshold=_optional_float(variant.get("min_median_return_pct")),
+            missing_code="median_return_missing",
+            below_code="median_return_below_threshold",
+        )
+    )
+    blockers.extend(
+        _numeric_threshold_blockers(
+            actual=_optional_float(frozen.get("mean_return_delta_pct")),
+            threshold=_optional_float(variant.get("min_frozen_cpb_delta_pct")),
+            missing_code="frozen_cpb_delta_missing",
+            below_code="frozen_cpb_delta_below_threshold",
+        )
+    )
+    blockers.extend(
+        _numeric_threshold_blockers(
+            actual=_optional_float(metrics.get("drawdown_proxy_pct")),
+            threshold=_optional_float(variant.get("min_drawdown_proxy_pct")),
+            missing_code="drawdown_proxy_missing",
+            below_code="drawdown_proxy_below_threshold",
+        )
+    )
+    blockers = _merge_validation_values([], blockers)
+    return {
+        "variant_key": _optional_text(variant.get("variant_key")),
+        "label": _optional_text(variant.get("label")),
+        "status": "passed" if not blockers else "rejected",
+        "passed": not blockers,
+        "blockers": blockers,
+        "thresholds": {
+            "min_sample_size": variant.get("min_sample_size"),
+            "min_win_rate_pct": variant.get("min_win_rate_pct"),
+            "min_mean_return_pct": variant.get("min_mean_return_pct"),
+            "min_median_return_pct": variant.get("min_median_return_pct"),
+            "min_frozen_cpb_delta_pct": variant.get("min_frozen_cpb_delta_pct"),
+            "min_drawdown_proxy_pct": variant.get("min_drawdown_proxy_pct"),
+            "requires_accepted_replay_evidence": variant.get("requires_accepted_replay_evidence"),
+        },
+        "artifact_only": True,
+        "promotion_allowed": False,
+    }
+
+
+def _numeric_threshold_blockers(
+    *,
+    actual: float | None,
+    threshold: float | None,
+    missing_code: str,
+    below_code: str,
+) -> list[str]:
+    if threshold is None:
+        return []
+    if actual is None:
+        return [missing_code]
+    if actual < threshold:
+        return [below_code]
+    return []
+
+
+def _shadow_calibration_recommendations(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    recommendations: list[dict[str, Any]] = []
+    for candidate in candidates:
+        candidate_key = str(candidate.get("candidate_key") or "unknown")
+        family = str(candidate.get("candidate_family") or "unknown")
+        metrics = _mapping(candidate.get("metrics"))
+        evidence = _mapping(metrics.get("evidence_coverage"))
+        variant_results = _list_mapping(candidate.get("threshold_variant_results"))
+        passed_next_variants = [
+            result
+            for result in variant_results
+            if result.get("passed") and result.get("variant_key") != "current_shadow_review_gate"
+        ]
+        if passed_next_variants:
+            chosen = passed_next_variants[0]
+            recommendations.append(
+                {
+                    "candidate_key": candidate_key,
+                    "candidate_family": family,
+                    "experiment_key": f"{candidate_key}:{chosen.get('variant_key')}",
+                    "recommended_variant": chosen.get("variant_key"),
+                    "reason": "candidate metrics pass this artifact-only threshold variant",
+                    "next_step": "rerun replay/backtest on the next closed evidence window",
+                    "artifact_only": True,
+                    "promotion_allowed": False,
+                }
+            )
+            continue
+        if evidence.get("status") != "accepted":
+            recommendations.append(
+                {
+                    "candidate_key": candidate_key,
+                    "candidate_family": family,
+                    "experiment_key": f"{candidate_key}:collect_replay_evidence",
+                    "recommended_variant": None,
+                    "reason": "accepted replay/backtest evidence is missing or rejected",
+                    "next_step": "generate valid shadow_replay_backtest_evidence_v1 before recalibrating thresholds",
+                    "artifact_only": True,
+                    "promotion_allowed": False,
+                }
+            )
+            continue
+        recommendations.append(
+            {
+                "candidate_key": candidate_key,
+                "candidate_family": family,
+                "experiment_key": f"{candidate_key}:extend_sample",
+                "recommended_variant": "quality_tighten_candidate",
+                "reason": "current evidence does not pass tighter quality gates",
+                "next_step": "extend sample size and retest the quality-tightened variant",
+                "artifact_only": True,
+                "promotion_allowed": False,
+            }
+        )
+    return recommendations
+
+
+def _shadow_calibration_rejected_variants(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rejected: list[dict[str, Any]] = []
+    for candidate in candidates:
+        for result in _list_mapping(candidate.get("threshold_variant_results")):
+            if result.get("status") != "rejected":
+                continue
+            rejected.append(
+                {
+                    "candidate_key": candidate.get("candidate_key"),
+                    "candidate_family": candidate.get("candidate_family"),
+                    "variant_key": result.get("variant_key"),
+                    "reasons": _list_text(result.get("blockers")),
+                    "artifact_only": True,
+                    "promotion_allowed": False,
+                }
+            )
+    return rejected
+
+
+def _shadow_calibration_family_metrics(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_family: dict[str, list[dict[str, Any]]] = {}
+    for candidate in candidates:
+        by_family.setdefault(str(candidate.get("candidate_family") or "unknown"), []).append(candidate)
+    rows: list[dict[str, Any]] = []
+    for family, family_candidates in sorted(by_family.items()):
+        metrics = [_mapping(candidate.get("metrics")) for candidate in family_candidates]
+        evidence_statuses = [
+            str(_mapping(metric.get("evidence_coverage")).get("status") or "missing")
+            for metric in metrics
+        ]
+        rows.append(
+            {
+                "candidate_family": family,
+                "candidate_count": len(family_candidates),
+                "sample_size": sum(_int_value(metric.get("sample_size"), 0) for metric in metrics),
+                "win_rate_pct_avg": _mean_optional([_optional_float(metric.get("win_rate_pct")) for metric in metrics]),
+                "mean_return_pct_avg": _mean_optional(
+                    [_optional_float(metric.get("mean_return_pct")) for metric in metrics]
+                ),
+                "median_return_pct_avg": _mean_optional(
+                    [_optional_float(metric.get("median_return_pct")) for metric in metrics]
+                ),
+                "drawdown_proxy_pct_worst": _min_optional(
+                    [_optional_float(metric.get("drawdown_proxy_pct")) for metric in metrics]
+                ),
+                "frozen_cpb_delta_pct_avg": _mean_optional(
+                    [
+                        _optional_float(_mapping(metric.get("frozen_cpb_comparison")).get("mean_return_delta_pct"))
+                        for metric in metrics
+                    ]
+                ),
+                "evidence_coverage": {
+                    "accepted_count": evidence_statuses.count("accepted"),
+                    "rejected_count": evidence_statuses.count("rejected"),
+                    "missing_count": evidence_statuses.count("missing"),
+                },
+            }
+        )
+    return rows
+
+
+def _shadow_threshold_evidence_coverage(
+    candidate_key: str,
+    candidate: Mapping[str, Any],
+    replay_evidence: Mapping[str, Any],
+) -> dict[str, Any]:
+    source_artifacts = _merge_validation_values(
+        _list_text(candidate.get("source_artifacts")),
+        [_optional_text(replay_evidence.get("artifact_path")) or ""],
+    )
+    status = _optional_text(replay_evidence.get("status")) or "missing"
+    return {
+        "status": status,
+        "valid": bool(replay_evidence.get("valid")),
+        "candidate_key": candidate_key,
+        "evidence_contract": replay_evidence.get("evidence_contract"),
+        "artifact_path": replay_evidence.get("artifact_path"),
+        "source_hash": replay_evidence.get("source_hash"),
+        "source_artifact_count": len(source_artifacts),
+        "source_artifacts": source_artifacts,
+        "blockers": _list_text(replay_evidence.get("blockers")),
+        "advisory_only": True,
+        "promotion_allowed": False,
+    }
+
+
+def _shadow_calibration_safety(
+    trade_counts_before: Mapping[str, int],
+    trade_counts_after: Mapping[str, int],
+) -> dict[str, Any]:
+    return {
+        "read_only": True,
+        "artifact_only": True,
+        "promotion_allowed": False,
+        "paper_observation_allowed": False,
+        "active_params_mutated": False,
+        "wrote_strategy_version": False,
+        "wrote_strategy_versions": False,
+        "writes_trade_state": False,
+        "writes_paper_live_behavior": False,
+        "timer_mutated": False,
+        "trade_state_counts_unchanged": dict(trade_counts_before) == dict(trade_counts_after),
+        "active_params_mutated_by_calibration": False,
+    }
+
+
+def _load_shadow_calibration_scorecard(
+    reports_dir: Path,
+    as_of_date: str | None,
+) -> tuple[Path | None, dict[str, Any]]:
+    path = _latest_matching_artifact_path(reports_dir, "shadow_observation_scorecard_*.json", as_of_date)
+    if path is None:
+        return None, {}
+    return path, _read_json_object_or_empty(path)
+
+
+def _shadow_calibration_scorecard_candidates(scorecard: Mapping[str, Any]) -> list[dict[str, Any]]:
+    for key in ("candidates", "rows", "scorecard_rows", "top_candidates"):
+        candidates = _list_mapping(scorecard.get(key))
+        if candidates:
+            return candidates
+    return []
+
+
+def _shadow_calibration_candidate_keys(candidates: list[dict[str, Any]]) -> list[str]:
+    keys = [str(candidate.get("candidate_key")) for candidate in candidates if candidate.get("candidate_key")]
+    return _merge_validation_values(list(SHADOW_THRESHOLD_CALIBRATION_CANDIDATES), keys)
+
+
+def _shadow_calibration_required_samples(candidates: list[dict[str, Any]]) -> dict[str, int]:
+    required = {candidate_key: 20 for candidate_key in SHADOW_THRESHOLD_CALIBRATION_CANDIDATES}
+    for candidate in candidates:
+        candidate_key = _optional_text(candidate.get("candidate_key"))
+        if not candidate_key:
+            continue
+        progress = _mapping(candidate.get("walk_forward_progress")) or _mapping(candidate.get("walk_forward"))
+        required[candidate_key] = _int_value(progress.get("required_days"), 20)
+    return required
+
+
+def _load_shadow_calibration_frozen_cpb_baseline(
+    reports_dir: Path,
+    scorecard: Mapping[str, Any],
+) -> dict[str, Any]:
+    scorecard_baseline = _mapping(scorecard.get("frozen_cpb_baseline"))
+    if scorecard_baseline:
+        metrics = _mapping(scorecard_baseline.get("metrics")) or scorecard_baseline
+        return _shadow_calibration_baseline_payload(metrics, scorecard_baseline.get("source_artifact"))
+
+    backtest_path = reports_dir / SHADOW_RESEARCH_ARTIFACTS["shadow_backtest"]
+    payload = _read_json_object_or_empty(backtest_path)
+    row = _summary_row(payload, "active_cpb_persisted_picks")
+    return _shadow_calibration_baseline_payload(row, str(backtest_path) if row else None)
+
+
+def _load_shadow_calibration_research_metrics(reports_dir: Path) -> dict[str, dict[str, Any]]:
+    metrics: dict[str, dict[str, Any]] = {}
+    shadow_backtest_path = reports_dir / SHADOW_RESEARCH_ARTIFACTS["shadow_backtest"]
+    shadow_backtest = _read_json_object_or_empty(shadow_backtest_path)
+    for candidate_key in (
+        "trend_extension_shadow",
+        "breakout_pressure_shadow",
+        "low_price_momentum_shadow",
+    ):
+        row = _summary_row(shadow_backtest, f"daily_top1_{candidate_key}") or _summary_row(
+            shadow_backtest,
+            f"all_{candidate_key}",
+        )
+        if row:
+            metrics[candidate_key] = {
+                **row,
+                "sample_size": _int_value(row.get("n"), 0),
+                "source_artifact": str(shadow_backtest_path),
+            }
+
+    preconfirm_path = reports_dir / SHADOW_RESEARCH_ARTIFACTS["preconfirm_watchlist"]
+    preconfirm = _read_json_object_or_empty(preconfirm_path)
+    preconfirm_high = _preconfirm_summary_row(preconfirm, "高潜伏预警")
+    if preconfirm_high:
+        metrics["preconfirm_watchlist"] = {
+            "sample_size": _int_value(
+                preconfirm_high.get("confirm_next_day_n"),
+                _int_value(preconfirm_high.get("signals"), 0),
+            ),
+            "days": _int_value(preconfirm_high.get("review_days"), 0),
+            "signals": preconfirm_high.get("signals"),
+            "next_open_ret_1d_mean_pct": _ratio_percent(preconfirm_high.get("next_open_ret_1d_mean")),
+            "next_open_ret_5d_mean_pct": _ratio_percent(preconfirm_high.get("next_open_ret_5d_mean")),
+            "t1_close_win_rate_pct": _ratio_percent(preconfirm_high.get("next_open_ret_1d_win_rate")),
+            "source_artifact": str(preconfirm_path),
+        }
+
+    dip_buy_path = reports_dir / SHADOW_RESEARCH_ARTIFACTS["dip_buy"]
+    dip_buy = _read_json_object_or_empty(dip_buy_path)
+    selected_groups = dip_buy.get("selected_groups") if isinstance(dip_buy.get("selected_groups"), dict) else {}
+    score_groups = selected_groups.get("score") if isinstance(selected_groups, dict) else []
+    high_score = _first_group_row(score_groups, "潜力分>=75") or _first_group_row(score_groups, "全部")
+    if high_score:
+        metrics["pullback_dip_buy"] = {
+            "sample_size": _int_value(high_score.get("ret_5d_n"), 0),
+            "ret_5d_win_rate_pct": _ratio_percent(high_score.get("ret_5d_win_rate")),
+            "ret_5d_mean_pct": _ratio_percent(high_score.get("ret_5d_mean")),
+            "ret_5d_median_pct": _ratio_percent(high_score.get("ret_5d_median")),
+            "mae_10d_median_pct": _ratio_percent(high_score.get("mae_10d_median")),
+            "source_artifact": str(dip_buy_path),
+        }
+    return metrics
+
+
+def _shadow_calibration_baseline_payload(metrics: Mapping[str, Any], source_artifact: object) -> dict[str, Any]:
+    return {
+        "label": metrics.get("label") or "active_cpb_persisted_picks",
+        "sample_size": _int_value(metrics.get("n"), _int_value(metrics.get("sample_size"), 0)),
+        "days": _int_value(metrics.get("days"), 0),
+        "t1_close_mean_pct": _optional_float(metrics.get("t1_close_mean_pct")),
+        "t5_close_mean_pct": _optional_float(metrics.get("t5_close_mean_pct")),
+        "source_artifact": _optional_text(source_artifact),
+    }
+
+
+def _ratio_percent(value: object) -> float | None:
+    parsed = _optional_float(value)
+    if parsed is None:
+        return None
+    return round(parsed * 100, 4) if abs(parsed) <= 1 else parsed
+
+
+def _latest_shadow_replay_evidence_date(reports_dir: Path) -> str | None:
+    latest = _latest_matching_artifact_path(reports_dir, "shadow_replay_backtest_evidence*.json", None)
+    if latest is None:
+        return None
+    payload = _read_json_object_or_empty(latest)
+    return _optional_text(payload.get("as_of_date"))
+
+
+def _latest_matching_artifact_path(reports_dir: Path, pattern: str, as_of_date: str | None) -> Path | None:
+    paths = sorted(Path(reports_dir).glob(pattern))
+    if as_of_date is not None:
+        exact = [path for path in paths if as_of_date in path.stem]
+        return exact[-1] if exact else None
+    return paths[-1] if paths else None
+
+
+def _read_json_object_or_empty(path: Path) -> dict[str, Any]:
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
+
+
+def _candidate_family_for_key(candidate_key: str) -> str:
+    mapping = {
+        "trend_extension_shadow": "shadow_bucket",
+        "breakout_pressure_shadow": "shadow_bucket",
+        "low_price_momentum_shadow": "shadow_bucket",
+        "preconfirm_watchlist": "preconfirm_watchlist",
+        "pullback_dip_buy": "dip_buy",
+    }
+    return mapping.get(candidate_key, "unknown")
+
+
+def _render_shadow_threshold_calibration_markdown(artifact: Mapping[str, Any]) -> str:
+    summary = _mapping(artifact.get("summary"))
+    lines = [
+        "# M94 Shadow Threshold Calibration Sandbox",
+        "",
+        f"- as_of_date: {artifact.get('as_of_date') or 'unknown'}",
+        "- artifact_only=true",
+        "- promotion_allowed=false",
+        "- active_params_mutated=false",
+        f"- candidates: {summary.get('candidate_count', 0)}",
+        f"- recommended_next_experiments: {summary.get('recommended_next_experiment_count', 0)}",
+        f"- rejected_variants: {summary.get('rejected_variant_count', 0)}",
+        "",
+        "## Family Metrics",
+        "",
+    ]
+    lines.extend(
+        _markdown_table(
+            ["Family", "Candidates", "Sample", "Win %", "Mean %", "Median %", "Drawdown %", "CPB Delta %"],
+            [
+                [
+                    row.get("candidate_family"),
+                    row.get("candidate_count"),
+                    row.get("sample_size"),
+                    _fmt_metric(row.get("win_rate_pct_avg")),
+                    _fmt_metric(row.get("mean_return_pct_avg")),
+                    _fmt_metric(row.get("median_return_pct_avg")),
+                    _fmt_metric(row.get("drawdown_proxy_pct_worst")),
+                    _fmt_metric(row.get("frozen_cpb_delta_pct_avg")),
+                ]
+                for row in _list_mapping(artifact.get("family_metrics"))
+            ],
+        )
+    )
+    lines.extend(["", "## Recommended Next Experiments", ""])
+    recommendations = _list_mapping(artifact.get("recommended_next_experiments"))
+    if recommendations:
+        for item in recommendations:
+            lines.append(
+                f"- {item.get('candidate_key')}: {item.get('experiment_key')} "
+                f"({item.get('reason')}; promotion_allowed=false)"
+            )
+    else:
+        lines.append("- none")
+    lines.extend(["", "## Rejected Variants", ""])
+    for item in _list_mapping(artifact.get("rejected_variants"))[:20]:
+        lines.append(
+            f"- {item.get('candidate_key')} / {item.get('variant_key')}: "
+            f"{', '.join(_list_text(item.get('reasons')))}"
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _markdown_table(headers: list[str], rows: list[list[Any]]) -> list[str]:
+    lines = [
+        "| " + " | ".join(headers) + " |",
+        "| " + " | ".join("---" for _ in headers) + " |",
+    ]
+    for row in rows:
+        lines.append("| " + " | ".join(str(value if value is not None else "-") for value in row) + " |")
+    return lines
+
+
+def _fmt_metric(value: object) -> str:
+    number = _optional_float(value)
+    return "-" if number is None else f"{number:.2f}"
+
+
 def _proposal_artifact_path_for_review(hypothesis: StrategyHypothesis, explicit_path: str | None) -> Path | None:
     if explicit_path is not None:
         return Path(explicit_path).expanduser()
@@ -2617,10 +3652,26 @@ def _optional_int(value: Any) -> int | None:
         return None
 
 
+def _int_value(value: Any, default: int = 0) -> int:
+    parsed = _optional_int(value)
+    return default if parsed is None else parsed
+
+
+def _optional_float(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _optional_text(value: object) -> str | None:
     if value in (None, ""):
         return None
     return str(value)
+
+
+def _mapping(value: object) -> dict[str, Any]:
+    return dict(value) if isinstance(value, Mapping) else {}
 
 
 def _list_mapping(value: object) -> list[dict[str, Any]]:
@@ -2635,6 +3686,69 @@ def _list_text(value: object) -> list[str]:
     if value in (None, ""):
         return []
     return [str(value)]
+
+
+def _first_float_value(*sources_and_keys: object) -> float | None:
+    mappings: list[Mapping[str, Any]] = []
+    keys: list[str] = []
+    for item in sources_and_keys:
+        if isinstance(item, Mapping):
+            mappings.append(item)
+        elif isinstance(item, str):
+            keys.append(item)
+    for key in keys:
+        for source in mappings:
+            parsed = _optional_float(source.get(key))
+            if parsed is not None:
+                return parsed
+    return None
+
+
+def _first_positive_int_value(*sources_and_keys: object) -> int:
+    mappings: list[Mapping[str, Any]] = []
+    keys: list[str] = []
+    for item in sources_and_keys:
+        if isinstance(item, Mapping):
+            mappings.append(item)
+        elif isinstance(item, str):
+            keys.append(item)
+    for key in keys:
+        for source in mappings:
+            parsed = _optional_int(source.get(key))
+            if parsed is not None and parsed > 0:
+                return parsed
+    return 0
+
+
+def _delta(value: float | None, baseline: float | None) -> float | None:
+    if value is None or baseline is None:
+        return None
+    return round(value - baseline, 4)
+
+
+def _mean_optional(values: list[float | None]) -> float | None:
+    numbers = [value for value in values if value is not None]
+    if not numbers:
+        return None
+    return round(sum(numbers) / len(numbers), 4)
+
+
+def _min_optional(values: list[float | None]) -> float | None:
+    numbers = [value for value in values if value is not None]
+    return min(numbers) if numbers else None
+
+
+def _trade_state_counts(db_path: Path) -> dict[str, int]:
+    if not Path(db_path).exists():
+        return {table: 0 for table in TRADE_STATE_TABLES}
+    counts: dict[str, int] = {}
+    try:
+        with connect(db_path) as conn:
+            for table in TRADE_STATE_TABLES:
+                counts[table] = int(conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+    except sqlite3.Error:
+        return {table: 0 for table in TRADE_STATE_TABLES}
+    return counts
 
 
 def _load_current_strategy(conn: sqlite3.Connection, strategy_id: str) -> sqlite3.Row | None:

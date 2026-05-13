@@ -20,10 +20,10 @@
 
 | Track | Task | Status | Can Run In Parallel? | Depends On | Suggested Session |
 | --- | --- | --- | --- | --- | --- |
-| M91 | Shadow replay/backtest evidence producer | Next | First | M90 evidence contract, market bars, shadow monitor artifacts | Session A |
-| M92 | Dashboard promotion review workbench | Next | Parallel after M89/M90 | M89 review request, M90 evidence status | Session B |
-| M93 | Daily pipeline shadow evidence closure | Next | Parallel after M91 shape | M87 history, M89 review request, M91 evidence artifacts | Session C |
-| M94 | Shadow threshold calibration sandbox | Next | After M91 evidence or with fixtures | M91 evidence metrics, M87 history | Session D |
+| M91 | Shadow replay/backtest evidence producer | Done, Deployed | First | M90 evidence contract, market bars, shadow monitor artifacts | Session A |
+| M92 | Dashboard promotion review workbench | Done, Deployed | Parallel after M89/M90 | M89 review request, M90 evidence status | Session B |
+| M93 | Daily pipeline shadow evidence closure | Done, Deployed | Parallel after M91 shape | M87 history, M89 review request, M91 evidence artifacts | Session C |
+| M94 | Shadow threshold calibration sandbox | Done, Deployed | After M91 evidence or with fixtures | M91 evidence metrics, M87 history | Session D |
 
 ## M91: Shadow Replay/Backtest Evidence Producer
 
@@ -46,6 +46,10 @@
 - `PYTHONPATH=src:. pytest -q tests/test_shadow_observation_service.py tests/test_shadow_replay_backtest_evidence_script.py tests/test_cli_main.py`
 - Generated artifacts must validate through `review_shadow_replay_backtest_evidence_artifact`.
 - No strategy/trade/paper-live/timer tables may change.
+
+**M91 completion note (2026-05-13):** Added the read-only replay/backtest evidence producer in `ShadowObservationService`, the `scripts/generate_shadow_replay_backtest_evidence.py` entrypoint, and the `strategy-evolution shadow-replay-backtest-evidence` CLI command. Generated `reports/shadow_replay_backtest_evidence_20260513_{candidate}.json` for all five candidates: trend extension, breakout pressure, and low-price momentum validate as `accepted`; preconfirm watchlist remains `rejected` for stale source evidence; pullback dip-buy remains `rejected` for stale source evidence plus missing T1 replay metrics. Verification passed with `PYTHONPATH=src:. pytest -q tests/test_shadow_observation_service.py tests/test_shadow_replay_backtest_evidence_script.py tests/test_cli_main.py`; no strategy/trade/paper-live/timer mutation was enabled.
+
+**Codex release review note (2026-05-13):** Added direct-script `src` path bootstrapping for the shadow monitor, replay evidence generator, and threshold calibration scripts so child sessions can run `python3 scripts/...` without manually setting `PYTHONPATH`. Release verification passed with `node --check web/dashboard/app.js`, Python compile checks, focused M91-M94 pytest (`168 passed, 1 skipped, 1 subtests passed`), full `PYTHONPATH=src:. pytest -q` (`462 passed, 3 skipped, 10 subtests passed`), `git diff --check`, direct script dry-runs, and secret/path scans. Release tag: `pgc-v0.1.0-20260513-m91-m94-r1`.
 
 ## M92: Dashboard Promotion Review Workbench
 
