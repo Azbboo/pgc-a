@@ -633,6 +633,7 @@ class DailyReport:
     market_review: MarketReviewReport | None
     market_plan_context: MarketPlanContextReport | None
     evidence_coverage_ledger: dict[str, Any]
+    shadow_observation: ShadowStrategyReport
     shadow_strategy: ShadowStrategyReport
     agent_advice: AgentAdviceReport
     positions: list[PositionReport]
@@ -738,7 +739,7 @@ class ReportingQueryService:
             action_log=_decision_action_log(self.db_path, request, account, context),
         )
         evidence_coverage_ledger = _evidence_coverage_ledger_payload(self.db_path, request, context)
-        shadow_strategy = _shadow_strategy_report(self.db_path, self.reports_dir, context)
+        shadow_observation = _shadow_strategy_report(self.db_path, self.reports_dir, request.as_of_date, context)
         report = DailyReport(
             generated_at=datetime.now(UTC).isoformat(),
             as_of_date=request.as_of_date,
@@ -756,7 +757,8 @@ class ReportingQueryService:
             market_review=market_review,
             market_plan_context=market_plan_context,
             evidence_coverage_ledger=evidence_coverage_ledger,
-            shadow_strategy=shadow_strategy,
+            shadow_observation=shadow_observation,
+            shadow_strategy=shadow_observation,
             agent_advice=agent_advice,
             positions=positions,
             due_positions=[position for position in positions if position.action_due != "none"],
@@ -1144,7 +1146,7 @@ def render_daily_report_markdown(report: DailyReport) -> str:
     lines.extend(_market_review_lines(report.market_review))
     lines.extend(_market_plan_context_lines(report.market_plan_context))
     lines.extend(_evidence_coverage_ledger_lines(report.evidence_coverage_ledger))
-    lines.extend(_shadow_strategy_lines(report.shadow_strategy))
+    lines.extend(_shadow_strategy_lines(report.shadow_observation))
 
     lines.extend(["", "## Agent 复核", ""])
     lines.extend(
@@ -1582,9 +1584,14 @@ def _evidence_coverage_ledger_payload(
     return payload
 
 
-def _shadow_strategy_report(db_path: Path, reports_dir: Path, context: RequestContext) -> ShadowStrategyReport:
+def _shadow_strategy_report(
+    db_path: Path,
+    reports_dir: Path,
+    as_of_date: str,
+    context: RequestContext,
+) -> ShadowStrategyReport:
     result = ShadowStrategyService(db_path, reports_dir=reports_dir).get_snapshot(
-        GetShadowStrategySnapshotRequest(),
+        GetShadowStrategySnapshotRequest(as_of_date=as_of_date),
         RequestContext(request_id=context.request_id, dry_run=True, operator=context.operator, source="report"),
     )
     if result.data is None:
@@ -4773,11 +4780,13 @@ def _evidence_coverage_ledger_lines(ledger: dict[str, Any]) -> list[str]:
 
 
 def _shadow_strategy_lines(shadow: ShadowStrategyReport) -> list[str]:
-    lines = ["", "## Shadow 策略观察", ""]
+    lines = ["", "## Shadow 策略观察 (shadow_observation)", ""]
     if shadow.status == "unavailable":
         lines.extend(
             [
+                "- section_key：shadow_observation",
                 f"- 状态：unavailable；原因：{shadow.unavailable_reason or '未找到 monitor/preflight artifact'}",
+                f"- 显式 blocker：{shadow.unavailable_reason or 'shadow snapshot unavailable'}",
                 "- 边界：research-only / artifact-only；不会进入今日候选、生成交易计划或开启 timer。",
             ]
         )
@@ -4785,6 +4794,7 @@ def _shadow_strategy_lines(shadow: ShadowStrategyReport) -> list[str]:
 
     lines.extend(
         [
+            "- section_key：shadow_observation",
             (
                 "- 最新 artifact："
                 f"monitor {_date_text(shadow.latest_monitor_date)} / "
@@ -4810,6 +4820,8 @@ def _shadow_strategy_lines(shadow: ShadowStrategyReport) -> list[str]:
             "- 提醒：Shadow 候选是 research-only，仅展示监控/预检 artifact，不会进入今日候选、生成交易计划或开启 timer。",
         ]
     )
+    lines.extend(_shadow_candidate_table_lines(shadow.top_candidates))
+    lines.extend(_shadow_source_artifact_lines(shadow.source_artifacts))
     return lines
 
 
@@ -4834,6 +4846,39 @@ def _shadow_top_candidates_text(candidates: list[ShadowCandidateReport]) -> str:
         )
     suffix = f"；另有 {len(candidates) - 3} 条" if len(candidates) > 3 else ""
     return "；".join(parts) + suffix
+
+
+def _shadow_candidate_table_lines(candidates: list[ShadowCandidateReport]) -> list[str]:
+    if not candidates:
+        return ["", "候选明细：无"]
+    lines = [
+        "",
+        "候选明细：",
+        "",
+        "| candidate | family | status | today | walk_forward | blockers | top |",
+        "| --- | --- | --- | ---: | --- | --- | --- |",
+    ]
+    for candidate in candidates:
+        today_count = candidate.today_candidate_count if candidate.today_candidate_count is not None else "-"
+        blockers = "/".join(candidate.blockers) if candidate.blockers else "none"
+        lines.append(
+            "| "
+            f"{candidate.candidate_key} | "
+            f"{candidate.candidate_family} | "
+            f"{candidate.status} | "
+            f"{today_count} | "
+            f"{candidate.walk_forward_status} | "
+            f"{candidate.blocker_count}:{blockers} | "
+            f"{_shadow_today_top_text(candidate.today_top)} |"
+        )
+    return lines
+
+
+def _shadow_source_artifact_lines(source_artifacts: dict[str, str | None]) -> list[str]:
+    refs = [f"{key}={value}" for key, value in sorted(source_artifacts.items()) if value]
+    if not refs:
+        return []
+    return ["", f"source_refs：{'; '.join(refs)}"]
 
 
 def _shadow_today_top_text(today_top: dict[str, Any]) -> str:

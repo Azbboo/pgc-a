@@ -16,6 +16,7 @@ from pgc_trading.services.strategy_evolution_service import (
     ProposeStrategyHypothesesRequest,
     RegisterShadowStrategyCandidatesRequest,
     StrategyEvolutionService,
+    review_shadow_promotion_dossier_artifact,
     review_strategy_version_proposal_review_artifact,
     review_strategy_version_proposal_artifact,
 )
@@ -636,6 +637,35 @@ class StrategyEvolutionServiceTest(unittest.TestCase):
             self.assertFalse(mismatch.valid)
             self.assertEqual(mismatch.error, "proposal review artifact hypothesis id does not match.")
 
+    def test_reviews_shadow_promotion_dossier_artifact_as_manual_review_evidence_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            dossier_path = Path(tmp) / "shadow_promotion_dossier_20260512.json"
+            _write_shadow_promotion_dossier_artifact(dossier_path)
+
+            review = review_shadow_promotion_dossier_artifact(dossier_path)
+
+            self.assertTrue(review.exists)
+            self.assertTrue(review.valid)
+            self.assertEqual(review.artifact_type, "shadow_promotion_dossier")
+            self.assertEqual(review.dossier_contract, "shadow_promotion_dossier_v1")
+            self.assertEqual(review.review_ready_count, 1)
+            self.assertEqual(review.blocked_count, 1)
+            self.assertFalse(review.active_params_mutated)
+            self.assertFalse(review.wrote_strategy_version)
+            self.assertFalse(review.writes_trade_state)
+            self.assertFalse(review.writes_paper_live_behavior)
+            self.assertFalse(review.timer_mutated)
+            self.assertFalse(review.promotion_allowed)
+            self.assertIn("review_ready_shadow", review.review_ready_candidates)
+
+            unsafe = json.loads(dossier_path.read_text(encoding="utf-8"))
+            unsafe["safety"]["writes_trade_state"] = True
+            dossier_path.write_text(json.dumps(unsafe), encoding="utf-8")
+            unsafe_review = review_shadow_promotion_dossier_artifact(dossier_path)
+
+            self.assertFalse(unsafe_review.valid)
+            self.assertEqual(unsafe_review.error, "shadow promotion dossier reports mutation or promotion permission.")
+
     def test_strategy_version_proposal_review_requires_accepted_hypothesis_and_valid_proposal_for_approval(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "pgc.db"
@@ -959,6 +989,52 @@ def _write_strategy_version_proposal_review_artifact(path: Path, hypothesis_id: 
             "artifact_only": True,
         }
     path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+
+
+def _write_shadow_promotion_dossier_artifact(path: Path) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "artifact_type": "shadow_promotion_dossier",
+                "dossier_contract": "shadow_promotion_dossier_v1",
+                "as_of_date": "20260512",
+                "summary": {
+                    "candidate_count": 2,
+                    "review_ready_count": 1,
+                    "blocked_count": 1,
+                },
+                "candidates": [
+                    {
+                        "candidate_key": "review_ready_shadow",
+                        "review_status": "review_ready",
+                        "promotion_gate": {"promotion_allowed": False},
+                    },
+                    {
+                        "candidate_key": "blocked_shadow",
+                        "review_status": "blocked",
+                        "promotion_gate": {"promotion_allowed": False},
+                    },
+                ],
+                "release_gate": {
+                    "status": "blocked",
+                    "manual_approval_contract": "future_strategy_version_task_required",
+                    "promotion_allowed": False,
+                },
+                "safety": {
+                    "active_params_mutated": False,
+                    "wrote_strategy_version": False,
+                    "wrote_strategy_versions": False,
+                    "writes_trade_state": False,
+                    "writes_paper_live_behavior": False,
+                    "timer_mutated": False,
+                    "promotion_allowed": False,
+                    "artifact_only": True,
+                },
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
 
 
 def _write_shadow_artifacts(reports_dir: Path) -> None:

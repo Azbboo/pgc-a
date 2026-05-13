@@ -1369,6 +1369,9 @@ class CliMainTest(unittest.TestCase):
             )
             self.assertIn("promotion_allowed=false", output)
             self.assertIn("shadow_top_candidates=trend_extension_shadow", output)
+            self.assertIn("shadow_observation_status=blocked", output)
+            self.assertIn("shadow_observation_top_candidates=trend_extension_shadow", output)
+            self.assertIn("shadow_observation_coverage_blockers=operator_review_required:1;proposal_review_required:1", output)
             self.assertIn("research-only artifact feed", output)
             self.assertIn("safety_json=", output)
 
@@ -1401,10 +1404,48 @@ class CliMainTest(unittest.TestCase):
             output = stdout.getvalue()
             self.assertIn("shadow_summary=status=blocked candidates=1 blocked=1 blockers=2", output)
             self.assertIn("shadow_top_candidates=trend_extension_shadow", output)
+            self.assertIn("shadow_observation_coverage_blockers=operator_review_required:1;proposal_review_required:1", output)
             self.assertIn("research-only artifact feed", output)
             self.assertNotIn("shadow_candidates_json=", output)
             self.assertNotIn("candidate_families_json=", output)
             self.assertNotIn("safety_json=", output)
+
+    def test_ops_shadow_observation_reads_scorecard_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "pgc_shadow_observation.db"
+            reports_dir = root / "reports"
+            reports_dir.mkdir()
+            run_migrations(db_path)
+            _seed_cli_shadow_snapshot_artifacts(reports_dir)
+            stdout = io.StringIO()
+
+            code = main(
+                [
+                    "ops",
+                    "shadow-observation",
+                    "--date",
+                    "20260512",
+                    "--db-path",
+                    str(db_path),
+                    "--reports-dir",
+                    str(reports_dir),
+                ],
+                stdout=stdout,
+            )
+
+            self.assertEqual(code, 0, stdout.getvalue())
+            output = stdout.getvalue()
+            self.assertIn("ops shadow-observation command routed", output)
+            self.assertIn("shadow_observation_status=success", output)
+            self.assertIn("scorecard_contract=shadow_observation_scorecard_v1", output)
+            self.assertIn("candidate_count=1", output)
+            self.assertIn("shadow_observation_summary=status=blocked candidates=1 blocked=0", output)
+            self.assertIn("not_paper_trading=true", output)
+            self.assertIn("promotion_allowed=false", output)
+            self.assertIn("shadow_observation_top_candidates=trend_extension_shadow", output)
+            self.assertIn("not paper trading; no promote/trade/plan/timer mutation", output)
+            self.assertIn("shadow_observation_rows_json=", output)
 
     def test_ops_open_execution_routes_to_service_and_prints_market_context(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

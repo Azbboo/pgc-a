@@ -4,8 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>PGC 操作台</title>
-    <link rel="stylesheet" href="/dashboard/assets/styles.css?v=20260513-m82-shadow-lab-1" />
-    <script defer src="/dashboard/assets/app.js?v=20260513-m82-shadow-lab-1"></script>
+    <link rel="stylesheet" href="/dashboard/assets/styles.css?v=20260513-m84-shadow-observation-1" />
+    <script defer src="/dashboard/assets/app.js?v=20260513-m84-shadow-observation-1"></script>
   </head>
   <body>
     <div class="app-shell">
@@ -676,6 +676,17 @@
           </div>
 
           <section class="shadow-summary-panel" id="shadowSummaryPanel" aria-live="polite"></section>
+
+          <section class="panel shadow-observation-panel">
+            <div class="panel-heading">
+              <h2>观察队列</h2>
+              <div class="panel-heading-actions">
+                <span id="shadowObservationQueueState" class="muted">-</span>
+                <span class="chip chip-neutral">不是 paper trading</span>
+              </div>
+            </div>
+            <div id="shadowObservationQueue" class="shadow-observation-queue"></div>
+          </section>
 
           <div class="shadow-lab-grid">
             <section class="panel">

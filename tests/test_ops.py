@@ -11,6 +11,7 @@ from pgc_trading.ops import (
     run_market_review_parity_check,
     run_ops_health_check,
     run_ops_migration_step,
+    run_shadow_observation_scorecard,
     run_shadow_strategy_snapshot,
 )
 from pgc_trading.storage.migrate import discover_migrations, run_migrations
@@ -165,6 +166,28 @@ class OpsTest(unittest.TestCase):
             self.assertEqual(result.data.counts["candidate_count"], 1)
             self.assertEqual(result.data.blocker_counts["operator_review_required"], 1)
             self.assertFalse(result.data.safety["writes_trade_state"])
+
+    def test_shadow_observation_helper_routes_read_only_scorecard(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "pgc.db"
+            reports_dir = root / "reports"
+            reports_dir.mkdir()
+            run_migrations(db_path)
+            _seed_shadow_snapshot_artifacts(reports_dir)
+
+            result = run_shadow_observation_scorecard(db_path, as_of_date="20260512", reports_dir=reports_dir)
+
+            self.assertTrue(result.ok, result.errors)
+            self.assertEqual(result.request_id, "ops-shadow-observation-scorecard")
+            assert result.data is not None
+            self.assertEqual(result.data.scorecard_contract, "shadow_observation_scorecard_v1")
+            self.assertEqual(result.data.as_of_date, "20260512")
+            self.assertTrue(result.data.read_only)
+            self.assertTrue(result.data.safety["observation_is_not_paper_trading"])
+            self.assertFalse(result.data.safety["writes_trade_state"])
+            self.assertFalse(result.data.safety["timer_mutated"])
+            self.assertEqual(result.data.rows[0]["candidate_key"], "trend_extension_shadow")
 
     def test_market_review_parity_detects_matching_and_mismatched_tables(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

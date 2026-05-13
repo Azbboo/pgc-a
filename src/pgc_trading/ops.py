@@ -14,6 +14,11 @@ from typing import Any
 
 from pgc_trading import __version__
 from pgc_trading.services.common import RequestContext, ServiceResult
+from pgc_trading.services.shadow_observation_service import (
+    GetShadowObservationScorecardRequest,
+    ShadowObservationScorecardResult,
+    ShadowObservationService,
+)
 from pgc_trading.services.shadow_strategy_service import (
     GetShadowStrategySnapshotRequest,
     ShadowStrategySnapshotResult,
@@ -375,6 +380,21 @@ def run_shadow_strategy_snapshot(
     return service.get_snapshot(
         GetShadowStrategySnapshotRequest(as_of_date=as_of_date),
         RequestContext(request_id="ops-shadow-strategy-snapshot", dry_run=True, operator="cli", source="ops"),
+    )
+
+
+def run_shadow_observation_scorecard(
+    db_path: Path,
+    *,
+    as_of_date: str | None = None,
+    reports_dir: Path | None = None,
+) -> ServiceResult[ShadowObservationScorecardResult]:
+    """Build the read-only shadow observation scorecard used by ops/API/Dashboard views."""
+
+    service = ShadowObservationService(Path(db_path), reports_dir=reports_dir)
+    return service.get_scorecard(
+        GetShadowObservationScorecardRequest(as_of_date=as_of_date),
+        RequestContext(request_id="ops-shadow-observation-scorecard", dry_run=True, operator="cli", source="ops"),
     )
 
 

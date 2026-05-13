@@ -14,6 +14,12 @@ from pathlib import Path
 from statistics import mean, median
 from typing import Any
 
+from pgc_trading.services.common import RequestContext
+from pgc_trading.services.shadow_observation_service import (
+    BuildShadowPromotionDossierRequest,
+    ShadowObservationService,
+)
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DB_PATH = ROOT / "data" / "pgc_trading.db"
@@ -141,6 +147,26 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def repo_portable_payload(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): repo_portable_payload(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [repo_portable_payload(item) for item in value]
+    if isinstance(value, str):
+        return repo_portable_path(value)
+    return value
+
+
+def repo_portable_path(value: str) -> str:
+    text = value.strip()
+    if not text.startswith("/"):
+        return value
+    try:
+        return str(Path(text).resolve().relative_to(ROOT.resolve()))
+    except (OSError, ValueError):
+        return value
+
+
 def generate_shadow_monitor(
     *,
     db_path: Path,
@@ -232,23 +258,60 @@ def generate_shadow_monitor(
     md_path = reports_dir / f"strategy_shadow_monitor_{review_date}.md"
     preflight_json_path = reports_dir / f"strategy_shadow_promotion_preflight_{review_date}.json"
     preflight_md_path = reports_dir / f"strategy_shadow_promotion_preflight_{review_date}.md"
+    scorecard_json_path = reports_dir / f"shadow_observation_scorecard_{review_date}.json"
+    scorecard_md_path = reports_dir / f"shadow_observation_scorecard_{review_date}.md"
     prior_csv_path = data_dir / f"strategy_shadow_outcome_{prior_date}_to_{review_date}.csv"
     walk_csv_path = data_dir / f"strategy_shadow_walk_forward_{review_date}.csv"
     watch_csv_path = data_dir / f"strategy_shadow_watchlist_{review_date}.csv"
+    scorecard = build_shadow_observation_scorecard(
+        summary,
+        source_artifacts={
+            "strategy_shadow_monitor_json": str(json_path),
+            "strategy_shadow_monitor_report": str(md_path),
+            "promotion_preflight_json": str(preflight_json_path),
+            "promotion_preflight_report": str(preflight_md_path),
+            "walk_forward_csv": str(walk_csv_path),
+            "watchlist_csv": str(watch_csv_path),
+        },
+    )
 
-    json_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    md_path.write_text(render_markdown(summary), encoding="utf-8")
-    preflight_json_path.write_text(json.dumps(promotion_preflight, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    preflight_md_path.write_text(render_preflight_markdown(summary), encoding="utf-8")
+    portable_summary = repo_portable_payload(summary)
+    portable_preflight = repo_portable_payload(promotion_preflight)
+    portable_scorecard = repo_portable_payload(scorecard)
+    json_path.write_text(json.dumps(portable_summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    md_path.write_text(render_markdown(portable_summary), encoding="utf-8")
+    preflight_json_path.write_text(json.dumps(portable_preflight, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    preflight_md_path.write_text(render_preflight_markdown(portable_summary), encoding="utf-8")
+    scorecard_json_path.write_text(json.dumps(portable_scorecard, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    scorecard_md_path.write_text(render_shadow_observation_scorecard_markdown(portable_scorecard), encoding="utf-8")
     write_csv(prior_csv_path, outcome_rows)
     write_csv(walk_csv_path, walk_forward["rows"])
     write_csv(watch_csv_path, [item.to_dict() for item in today_combined])
+    dossier_result = ShadowObservationService(db_path, reports_dir=reports_dir).build_promotion_dossier(
+        BuildShadowPromotionDossierRequest(as_of_date=review_date),
+        RequestContext(request_id=f"shadow-promotion-dossier-{review_date}", dry_run=False, source="monitor-script"),
+    )
+    summary["promotion_dossier"] = (
+        dossier_result.data.artifact
+        if dossier_result.ok and dossier_result.data is not None
+        else {
+            "artifact_type": "shadow_promotion_dossier",
+            "dossier_contract": "shadow_promotion_dossier_v1",
+            "status": "unavailable",
+            "errors": [error.code for error in dossier_result.errors],
+            "promotion_allowed": False,
+        }
+    )
 
     summary["outputs"] = {
         "report": str(md_path),
         "json": str(json_path),
         "promotion_preflight_report": str(preflight_md_path),
         "promotion_preflight_json": str(preflight_json_path),
+        "promotion_dossier_report": dossier_result.data.markdown_path if dossier_result.data else None,
+        "promotion_dossier_json": dossier_result.data.artifact_path if dossier_result.data else None,
+        "shadow_observation_scorecard_report": str(scorecard_md_path),
+        "shadow_observation_scorecard_json": str(scorecard_json_path),
         "prior_outcome_csv": str(prior_csv_path),
         "walk_forward_csv": str(walk_csv_path),
         "watchlist_csv": str(watch_csv_path),
@@ -987,9 +1050,10 @@ def build_release_gate(read_only_guard: dict[str, Any]) -> dict[str, Any]:
         "displayed_surfaces": [
             "strategy_shadow_monitor artifact",
             "strategy_shadow_promotion_preflight artifact",
+            "shadow_observation_scorecard artifact",
             "shadow_strategy_snapshot API/CLI",
             "Dashboard Shadow Lab",
-            "daily review shadow_strategy section",
+            "daily review shadow_observation section",
         ],
         "blocked_paths": [
             "active_cpb_params",
@@ -1211,6 +1275,127 @@ def merge_unique(base: list[str], extra: list[str]) -> list[str]:
             seen.add(item)
             merged.append(item)
     return merged
+
+
+def build_shadow_observation_scorecard(
+    summary: dict[str, Any],
+    *,
+    source_artifacts: dict[str, str],
+) -> dict[str, Any]:
+    preflight = summary["promotion_preflight"]
+    blocker_counts = dict(preflight.get("blocker_counts", {}))
+    candidates = []
+    for monitor in summary["candidate_monitors"]:
+        gates = monitor.get("promotion_gates", {})
+        paper_gate = gates.get("paper_observation_gate", {})
+        proposal_gate = gates.get("strategy_version_gate", {})
+        blockers = merge_unique(
+            list(paper_gate.get("blockers", [])),
+            list(proposal_gate.get("blockers", [])),
+        )
+        progress = monitor.get("walk_forward_progress", {})
+        candidates.append(
+            {
+                "candidate_key": monitor.get("candidate_key"),
+                "candidate_family": monitor.get("candidate_family"),
+                "status": "blocked" if blockers else str(progress.get("status") or "observing"),
+                "today_candidate_count": monitor.get("today_candidate_count"),
+                "today_top": monitor.get("today_top") or {},
+                "walk_forward_status": progress.get("status"),
+                "walk_forward_days": progress.get("days") or progress.get("evaluable_signal_days"),
+                "paper_observation_allowed": bool(paper_gate.get("allowed")),
+                "promotion_allowed": bool(proposal_gate.get("allowed")),
+                "blocker_count": len(blockers),
+                "blockers": blockers,
+                "comparison_vs_frozen_cpb": monitor.get("comparison_vs_frozen_cpb", {}),
+            }
+        )
+    return {
+        "artifact_type": "shadow_observation_scorecard",
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "review_date": summary["review_date"],
+        "next_trade_date": summary.get("next_trade_date"),
+        "status": preflight.get("status", "unknown"),
+        "read_only": True,
+        "artifact_only": True,
+        "candidate_count": len(candidates),
+        "blocked_candidate_count": sum(1 for item in candidates if item["blocker_count"]),
+        "distinct_blocker_count": len(blocker_counts),
+        "coverage_blockers": [
+            {"code": key, "count": blocker_counts[key]}
+            for key in sorted(blocker_counts)
+        ],
+        "top_candidates": sorted(
+            candidates,
+            key=lambda item: (-(optional_int(item.get("today_candidate_count")) or 0), -item["blocker_count"], str(item["candidate_key"])),
+        )[:5],
+        "candidates": candidates,
+        "source_artifacts": source_artifacts,
+        "safety": {
+            **artifact_safety_flags(),
+            "read_only": True,
+            "artifact_only": True,
+            "promotion_allowed": False,
+            "paper_observation_allowed": False,
+        },
+        "notice": "Observation scorecard is research-only and does not create active picks, trade plans, paper/live behavior, or timers.",
+    }
+
+
+def render_shadow_observation_scorecard_markdown(scorecard: dict[str, Any]) -> str:
+    lines = [
+        f"# {format_date(scorecard['review_date'])} Shadow Observation Scorecard",
+        "",
+        "> Research-only scorecard. It does not create active daily picks, trade plans, paper/live behavior, or timers.",
+        "",
+        "## Status",
+        "",
+        f"- Status: {scorecard['status']}",
+        f"- Candidates: {scorecard['candidate_count']}",
+        f"- Blocked candidates: {scorecard['blocked_candidate_count']}",
+        f"- Distinct blockers: {scorecard['distinct_blocker_count']}",
+        f"- Read only: {scorecard['read_only']}",
+        f"- Artifact only: {scorecard['artifact_only']}",
+        "",
+        "## Coverage Blockers",
+        "",
+    ]
+    blockers = scorecard.get("coverage_blockers", [])
+    if blockers:
+        for blocker in blockers:
+            lines.append(f"- {blocker['code']}: {blocker['count']}")
+    else:
+        lines.append("- none")
+    lines.extend(["", "## Top Candidates", ""])
+    lines.extend(
+        table(
+            ["Candidate", "Family", "Status", "Today", "Walk-forward", "Blockers", "Top"],
+            [
+                [
+                    item.get("candidate_key"),
+                    item.get("candidate_family"),
+                    item.get("status"),
+                    item.get("today_candidate_count") if item.get("today_candidate_count") is not None else "-",
+                    item.get("walk_forward_status") or "-",
+                    ", ".join(item.get("blockers", [])[:3]) + ("..." if len(item.get("blockers", [])) > 3 else ""),
+                    top_candidate_text(item.get("today_top")),
+                ]
+                for item in scorecard.get("top_candidates", [])
+            ],
+        )
+    )
+    lines.extend(["", "## Source Artifacts", ""])
+    for label, path in sorted(scorecard.get("source_artifacts", {}).items()):
+        lines.append(f"- {label}: `{path}`")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def top_candidate_text(value: Any) -> str:
+    if not isinstance(value, dict) or not value:
+        return "-"
+    stock = " ".join(str(part) for part in [value.get("ts_code"), value.get("name")] if part)
+    return stock or "-"
 
 
 def render_markdown(summary: dict[str, Any]) -> str:

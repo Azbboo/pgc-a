@@ -311,6 +311,30 @@ class OperationalRunbookStaticTest(unittest.TestCase):
         ]:
             self.assertIn(text, source)
 
+    def test_m86_runbook_documents_shadow_promotion_dossier_release_gate(self) -> None:
+        source = RUNBOOK.read_text(encoding="utf-8")
+
+        for text in [
+            "M86 影子策略 promotion dossier 发布门禁",
+            "shadow_promotion_dossier_YYYYMMDD.json",
+            "shadow_promotion_dossier_v1",
+            "review_ready is not approval",
+            "minimum_sample",
+            "positive_frozen_cpb_delta",
+            "evidence_coverage",
+            "drawdown_cap",
+            "blocker_clearance",
+            "future_strategy_version_task_required",
+            "manual_promotion_approval_required",
+            "promotion_allowed=false",
+            "active CPB params/hash must remain unchanged",
+            "strategy_versions, trade_plans, trades, positions",
+            "paper/live behavior",
+            "pgc-daily-pipeline.timer",
+            "PYTHONPATH=src:. pytest -q tests/test_shadow_observation_service.py tests/test_strategy_evolution_service.py tests/test_operational_runbook_static.py",
+        ]:
+            self.assertIn(text, source)
+
     def test_m20_deploy_script_is_guarded_and_parseable(self) -> None:
         self.assertTrue(DEPLOY_SCRIPT.exists(), f"missing {DEPLOY_SCRIPT}")
         source = DEPLOY_SCRIPT.read_text(encoding="utf-8")

@@ -1449,6 +1449,37 @@ PYTHONPATH=src:. pytest -q
 git diff --check
 ```
 
+## 27. M86 影子策略 promotion dossier 发布门禁
+
+M86 的 promotion dossier 仍然是 review-only artifact。`shadow_promotion_dossier_YYYYMMDD.json`
+使用 `shadow_promotion_dossier_v1` 合同；`review_ready is not approval`，只表示候选满足人工复核所需的展示条件，不表示允许写入 active strategy、paper observation lane 或交易状态。
+
+固定 readiness checks：
+
+- `minimum_sample`
+- `positive_frozen_cpb_delta`
+- `evidence_coverage`
+- `drawdown_cap`
+- `blocker_clearance`
+
+发布门禁规则：
+
+1. `future_strategy_version_task_required` 必须存在；任何推广都只能进入后续独立 strategy-version review task。
+2. `manual_promotion_approval_required` 必须保持为人工门禁；没有 operator approval 不得继续。
+3. `promotion_allowed=false` 是默认和发布状态。
+4. active CPB params/hash must remain unchanged。
+5. `strategy_versions, trade_plans, trades, positions` 不得因 dossier 生成而新增、删除或改状态。
+6. `paper/live behavior` 不得变化。
+7. `pgc-daily-pipeline.timer` 不得启用、重载或修改。
+
+最小发布验证：
+
+```bash
+PYTHONPATH=src:. pytest -q tests/test_shadow_observation_service.py tests/test_strategy_evolution_service.py tests/test_operational_runbook_static.py
+PYTHONPATH=src:. pytest -q
+git diff --check
+```
+
 ## 24. M46 收盘后定时流水线
 
 M46 把 M42 的全市场复盘流水线固化为远端 systemd timer。只在 M42 已验收、远端 API write token 由部署脚本保留、并且手工 dry-run 通过后启用 apply 定时任务。

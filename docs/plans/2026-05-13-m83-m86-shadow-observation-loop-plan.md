@@ -21,10 +21,10 @@
 
 | Track | Task | Status | Can Run In Parallel? | Depends On | Suggested Session |
 | --- | --- | --- | --- | --- | --- |
-| M83 | Shadow observation scorecard service and API | Next | First | M79 snapshot, M78 monitor artifacts, market bars | Session A |
-| M84 | Dashboard observation queue and attribution view | Next | After M83 contract | M83 scorecard payload | Session B |
-| M85 | Daily report, CLI, and pipeline observation artifacts | Next | After M83 contract | M83 scorecard payload, M81 report plumbing | Session C |
-| M86 | Promotion dossier, guardrails, and release gate | Next | After M83-M85 shapes | M83-M85 outputs, M82 guardrails | Session D |
+| M83 | Shadow observation scorecard service and API | Done, Deployed | First | M79 snapshot, M78 monitor artifacts, market bars | Session A |
+| M84 | Dashboard observation queue and attribution view | Done, Deployed | After M83 contract | M83 scorecard payload | Session B |
+| M85 | Daily report, CLI, and pipeline observation artifacts | Done, Deployed | After M83 contract | M83 scorecard payload, M81 report plumbing | Session C |
+| M86 | Promotion dossier, guardrails, and release gate | Done, Deployed | After M83-M85 shapes | M83-M85 outputs, M82 guardrails | Session D |
 
 ## M83: Shadow Observation Scorecard Service And API
 

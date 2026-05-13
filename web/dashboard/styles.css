@@ -1798,6 +1798,67 @@ code {
   margin-top: 10px;
 }
 
+.shadow-observation-panel {
+  margin-bottom: 14px;
+}
+
+.shadow-observation-queue,
+.shadow-observation-list {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.shadow-observation-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.shadow-observation-card {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  gap: 12px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.shadow-observation-card__rank {
+  display: grid;
+  place-items: start center;
+  min-width: 0;
+}
+
+.shadow-observation-card__rank span {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid #b9c8ff;
+  border-radius: 50%;
+  background: #eef3ff;
+  color: #2d4fb8;
+  font-weight: 800;
+}
+
+.shadow-observation-card__body {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.shadow-observation-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
 .shadow-lab-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(300px, 0.82fr);
@@ -3677,6 +3738,7 @@ td > .empty-state {
   .market-history-strip,
   .market-regime-strip,
   .market-hierarchy-chain,
+  .shadow-observation-card,
   .market-evidence-item dl {
     grid-template-columns: 1fr;
   }

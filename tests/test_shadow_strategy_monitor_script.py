@@ -82,8 +82,33 @@ class ShadowStrategyMonitorScriptTest(unittest.TestCase):
             self.assertTrue(preflight["release_gate"]["trade_state_counts_unchanged"])
             self.assertTrue(summary["api_summary"]["read_only"])
             self.assertEqual(summary["api_summary"]["promotion_preflight"]["release_gate"]["status"], "blocked")
+            dossier = summary["promotion_dossier"]
+            self.assertEqual(dossier["artifact_type"], "shadow_promotion_dossier")
+            self.assertEqual(dossier["dossier_contract"], "shadow_promotion_dossier_v1")
+            self.assertEqual(dossier["summary"]["candidate_count"], 5)
+            self.assertFalse(dossier["safety"]["active_params_mutated"])
+            self.assertFalse(dossier["safety"]["writes_trade_state"])
+            self.assertFalse(dossier["safety"]["writes_paper_live_behavior"])
+            self.assertFalse(dossier["safety"]["timer_mutated"])
+            self.assertFalse(dossier["release_gate"]["promotion_allowed"])
             self.assertTrue(Path(summary["outputs"]["promotion_preflight_json"]).exists())
+            self.assertTrue(Path(summary["outputs"]["promotion_dossier_json"]).exists())
+            self.assertTrue(Path(summary["outputs"]["shadow_observation_scorecard_json"]).exists())
+            self.assertTrue(Path(summary["outputs"]["shadow_observation_scorecard_report"]).exists())
             self.assertTrue(Path(summary["outputs"]["walk_forward_csv"]).exists())
+            scorecard = json.loads(
+                Path(summary["outputs"]["shadow_observation_scorecard_json"]).read_text(encoding="utf-8")
+            )
+            self.assertEqual(scorecard["artifact_type"], "shadow_observation_scorecard")
+            self.assertEqual(scorecard["review_date"], "20260514")
+            self.assertEqual(scorecard["status"], "blocked")
+            self.assertTrue(scorecard["read_only"])
+            self.assertTrue(scorecard["artifact_only"])
+            self.assertFalse(scorecard["safety"]["writes_trade_state"])
+            self.assertEqual(scorecard["candidate_count"], 5)
+            self.assertGreaterEqual(len(scorecard["coverage_blockers"]), 1)
+            self.assertIn("strategy_shadow_monitor_json", scorecard["source_artifacts"])
+            self.assertIn("trade plans", scorecard["notice"])
 
 
 def _seed_shadow_market(db_path: Path) -> None:

@@ -50,14 +50,29 @@
     "valid_raw_count": 256,
     "warning_count": 0
   },
-  "due_positions": [],
+  "due_positions": [
+    {
+      "action_due": "sell_plan_exists",
+      "buy_date": "20260511",
+      "buy_price": 27.5,
+      "latest_close": 33.03,
+      "latest_trade_date": "20260512",
+      "name": "力诺药包",
+      "planned_t2_date": "20260513",
+      "planned_t5_date": "20260518",
+      "position_id": 2,
+      "shares": 2300,
+      "status": "planned_exit",
+      "ts_code": "301188.SZ"
+    }
+  ],
   "evidence_coverage_ledger": {
     "as_of_date": "20260512",
     "blocking_dates": [
       "20260512"
     ],
     "blocking_entry_count": 10,
-    "db_path": "data/pgc_trading.db",
+    "db_path": "/Users/azboo/Desktop/Person/pgc/data/pgc_trading.db",
     "discovered_manifest_count": 1,
     "entries": [
       {
@@ -212,7 +227,7 @@
       }
     ],
     "entry_count": 10,
-    "generated_at": "2026-05-13T08:26:24+00:00",
+    "generated_at": "2026-05-13T11:51:15+00:00",
     "ledger_contract": "evidence_coverage_ledger_v1",
     "manifest_files": [
       "/Users/azboo/Desktop/Person/pgc/.pgc-runs/m71-evidence-pack-20260512/pack/manifest.json"
@@ -257,7 +272,7 @@
       "unavailable_count": 0
     }
   },
-  "generated_at": "2026-05-13T08:26:24.232897+00:00",
+  "generated_at": "2026-05-13T11:51:15.995548+00:00",
   "latest_market_date": "20260512",
   "lineage": {
     "agent_decision_id": null,
@@ -870,7 +885,7 @@
         "source_refs": [
           "market_review_runs:4",
           "market_regime_snapshots:4",
-          "positions:2"
+          "trade_plans:5"
         ],
         "status": "blocked",
         "summary": "纸盘每日运营验收阻断：1 项 blocker 需要先处理。",
@@ -878,6 +893,7 @@
           "MARKET_EVIDENCE_MISSING",
           "AGENT_EXTERNAL_EVIDENCE_MISSING",
           "AGENT_REVIEW_NOT_RUN",
+          "OPEN_EXECUTION_PLAN_DATE_MISMATCH",
           "AGENT_EVIDENCE_MISSING"
         ]
       },
@@ -916,16 +932,18 @@
       },
       {
         "blocker_codes": [],
-        "detail": "执行日 2026-05-13；预期 2026-05-13；计划 -；持仓 2",
+        "detail": "执行日 2026-05-13；预期 2026-05-13；计划 5；持仓 -",
         "key": "open_execution",
         "label": "open-execution 下一步",
-        "manual_action": "人工评估到期持仓并按显式流程生成退出动作。",
+        "manual_action": "等待未来计划交易日，不做当日成交录入。",
         "source_refs": [
-          "positions:2"
+          "trade_plans:5"
         ],
-        "status": "pass",
-        "summary": "ready / evaluate_exit",
-        "warning_codes": []
+        "status": "warning",
+        "summary": "waiting / wait",
+        "warning_codes": [
+          "OPEN_EXECUTION_PLAN_DATE_MISMATCH"
+        ]
       },
       {
         "blocker_codes": [],
@@ -1513,15 +1531,15 @@
     "open_execution": {
       "as_of_date": "20260513",
       "blocked_reasons": [],
-      "next_action": "evaluate_exit",
-      "operator_required": true,
-      "planned_shares": 2300,
-      "planned_trade_date": "20260513",
-      "primary_plan_id": null,
-      "primary_position_id": 2,
-      "status": "ready",
-      "target_name": "力诺药包",
-      "target_stock": "301188.SZ"
+      "next_action": "wait",
+      "operator_required": false,
+      "planned_shares": 4400,
+      "planned_trade_date": "20260514",
+      "primary_plan_id": 5,
+      "primary_position_id": null,
+      "status": "waiting",
+      "target_name": "江钨装备",
+      "target_stock": "600397.SH"
     },
     "recommended_manual_action": "处理 paper acceptance 未处理 blocker。",
     "status": "blocked",
@@ -2044,15 +2062,15 @@
       "total_count": 5
     },
     "system_proposal": {
-      "action": "evaluate_exit",
-      "planned_shares": 2300,
-      "planned_trade_date": "20260513",
-      "position_id": 2,
-      "rationale": "人工评估到期持仓并按显式流程生成退出动作。",
-      "target": "301188.SZ 力诺药包",
-      "trade_plan_id": null
+      "action": "wait",
+      "planned_shares": 4400,
+      "planned_trade_date": "20260514",
+      "position_id": null,
+      "rationale": "等待未来计划交易日，不做当日成交录入。",
+      "target": "600397.SH 江钨装备",
+      "trade_plan_id": 5
     },
-    "warning_count": 3
+    "warning_count": 4
   },
   "next_trade_date": "20260513",
   "no_candidate_reason": "no_strategy_signals",
@@ -2098,6 +2116,15 @@
         "severity": "warning",
         "summary": "2026-05-12 的 Agent 状态为 not_run / no_opinion / risk unknown。",
         "title": "Agent 复核缺失"
+      },
+      {
+        "action": "execution",
+        "as_of_date": "20260512",
+        "code": "OPEN_EXECUTION_MISMATCH",
+        "gate_key": "open_execution",
+        "severity": "warning",
+        "summary": "2026-05-12 open-execution 为 waiting/wait。",
+        "title": "open-execution 不匹配"
       }
     ],
     "as_of_date": "20260512",
@@ -2132,27 +2159,29 @@
     "open_execution": {
       "as_of_date": "20260513",
       "blocked_reasons": [],
-      "next_action": "evaluate_exit",
-      "operator_required": true,
-      "planned_shares": 2300,
-      "planned_trade_date": "20260513",
-      "primary_plan_id": null,
-      "primary_position_id": 2,
-      "status": "ready",
-      "target_name": "力诺药包",
-      "target_stock": "301188.SZ"
+      "next_action": "wait",
+      "operator_required": false,
+      "planned_shares": 4400,
+      "planned_trade_date": "20260514",
+      "primary_plan_id": 5,
+      "primary_position_id": null,
+      "status": "waiting",
+      "target_name": "江钨装备",
+      "target_stock": "600397.SH"
     },
     "open_execution_gate": {
       "blocker_codes": [],
-      "detail": "执行日 2026-05-13；预期 2026-05-13；计划 -；持仓 2",
+      "detail": "执行日 2026-05-13；预期 2026-05-13；计划 5；持仓 -",
       "key": "open_execution",
       "label": "open-execution 状态",
       "source_refs": [
-        "positions:2"
+        "trade_plans:5"
       ],
-      "status": "pass",
-      "summary": "ready / evaluate_exit",
-      "warning_codes": []
+      "status": "warning",
+      "summary": "waiting / wait",
+      "warning_codes": [
+        "OPEN_EXECUTION_PLAN_DATE_MISMATCH"
+      ]
     },
     "readiness_gates": [
       {
@@ -2167,7 +2196,7 @@
       },
       {
         "blocker_codes": [],
-        "detail": "当前持仓 1；T+2/T+5 待处理 0",
+        "detail": "当前持仓 1；T+2/T+5 待处理 1",
         "key": "account_capacity",
         "label": "账户容量 gate",
         "source_refs": [],
@@ -2325,7 +2354,7 @@
   },
   "positions": [
     {
-      "action_due": "none",
+      "action_due": "sell_plan_exists",
       "buy_date": "20260511",
       "buy_price": 27.5,
       "latest_close": 33.03,
@@ -2335,10 +2364,253 @@
       "planned_t5_date": "20260518",
       "position_id": 2,
       "shares": 2300,
-      "status": "waiting_t2",
+      "status": "planned_exit",
       "ts_code": "301188.SZ"
     }
   ],
+  "shadow_observation": {
+    "artifact_only": true,
+    "as_of_date": "20260512",
+    "blocked_candidate_count": 5,
+    "blocker_counts": {
+      "active_cpb_db_params_hash_mismatch": 1,
+      "chase_gap_guard_required": 1,
+      "close_return_stability_required": 1,
+      "dip_buy_stop_and_sizing_required": 1,
+      "falling_knife_guard_required": 1,
+      "liquidity_slippage_review_required": 1,
+      "micro_sleeve_risk_model_required": 1,
+      "next_day_confirmation_rule_required": 1,
+      "operator_promotion_approval_required": 5,
+      "operator_review_required": 5,
+      "paper_observation_not_authorized": 5,
+      "proposal_review_required": 5,
+      "replay_backtest_result_artifact_required": 5,
+      "sector_evidence_confirmation_required": 1,
+      "separate_breakout_pressure_candidate_required": 1,
+      "separate_dip_buy_candidate_required": 1,
+      "separate_low_price_micro_sleeve_required": 1,
+      "separate_trend_extension_candidate_required": 1,
+      "strategy_version_proposal_not_authorized": 5,
+      "volume_overheat_guard_required": 1,
+      "walk_forward_shadow_monitor_20_trading_days_required": 5,
+      "watchlist_only_ui_lane_required": 1,
+      "watchlist_to_signal_contract_required": 1
+    },
+    "candidate_count": 5,
+    "candidate_families": {
+      "dip_buy": 1,
+      "preconfirm_watchlist": 1,
+      "shadow_bucket": 3
+    },
+    "distinct_blocker_count": 23,
+    "latest_monitor_date": "20260512",
+    "latest_monitor_generated_at": "2026-05-13T11:49:54+00:00",
+    "latest_preflight_date": "20260512",
+    "latest_preflight_generated_at": "2026-05-13T11:49:54+00:00",
+    "next_trade_date": "20260513",
+    "read_only": true,
+    "safety": {
+      "active_params_mutated": false,
+      "artifact_only": true,
+      "paper_observation_allowed": false,
+      "promotion_allowed": false,
+      "read_only": true,
+      "requires_explicit_blocker_clearance": true,
+      "timer_mutated": false,
+      "visibility_layer_writes": false,
+      "writes_paper_live_behavior": false,
+      "writes_trade_state": false,
+      "wrote_strategy_version": false
+    },
+    "shadow_hypothesis_count": 5,
+    "source_artifacts": {
+      "monitor_json": "/Users/azboo/Desktop/Person/pgc/reports/strategy_shadow_monitor_20260512.json",
+      "monitor_markdown": "/Users/azboo/Desktop/Person/pgc/reports/strategy_shadow_monitor_20260512.md",
+      "promotion_preflight_json": "/Users/azboo/Desktop/Person/pgc/reports/strategy_shadow_promotion_preflight_20260512.json",
+      "promotion_preflight_markdown": "/Users/azboo/Desktop/Person/pgc/reports/strategy_shadow_promotion_preflight_20260512.md"
+    },
+    "status": "blocked",
+    "top_candidates": [
+      {
+        "blocker_count": 10,
+        "blockers": [
+          "liquidity_slippage_review_required",
+          "micro_sleeve_risk_model_required",
+          "operator_promotion_approval_required",
+          "operator_review_required",
+          "paper_observation_not_authorized",
+          "proposal_review_required",
+          "replay_backtest_result_artifact_required",
+          "separate_low_price_micro_sleeve_required",
+          "strategy_version_proposal_not_authorized",
+          "walk_forward_shadow_monitor_20_trading_days_required"
+        ],
+        "candidate_family": "shadow_bucket",
+        "candidate_key": "low_price_momentum_shadow",
+        "paper_observation_allowed": false,
+        "promotion_allowed": false,
+        "status": "blocked",
+        "today_candidate_count": 72,
+        "today_top": {
+          "amount_to_ma10": 2.151,
+          "amount_to_ma20": 3.2646,
+          "bucket": "low_price_momentum_shadow",
+          "close_pos20": 1.0,
+          "day_pct_chg": 10.05,
+          "dist20_high_pct": 0.0,
+          "dist5_high_pct": 0.0,
+          "entry_date": "20260326",
+          "entry_price": 7.53,
+          "entry_runup_pct": 41.04,
+          "industry": "供气供热",
+          "name": "大连热电",
+          "ret10_pct": 44.29,
+          "ret3_pct": 13.22,
+          "ret5_pct": 37.03,
+          "review_close": 10.62,
+          "review_date": "20260512",
+          "score": 117.9918,
+          "ts_code": "600719.SH"
+        },
+        "walk_forward_status": "complete"
+      },
+      {
+        "blocker_count": 10,
+        "blockers": [
+          "close_return_stability_required",
+          "operator_promotion_approval_required",
+          "operator_review_required",
+          "paper_observation_not_authorized",
+          "proposal_review_required",
+          "replay_backtest_result_artifact_required",
+          "separate_breakout_pressure_candidate_required",
+          "strategy_version_proposal_not_authorized",
+          "volume_overheat_guard_required",
+          "walk_forward_shadow_monitor_20_trading_days_required"
+        ],
+        "candidate_family": "shadow_bucket",
+        "candidate_key": "breakout_pressure_shadow",
+        "paper_observation_allowed": false,
+        "promotion_allowed": false,
+        "status": "blocked",
+        "today_candidate_count": 69,
+        "today_top": {
+          "amount_to_ma10": 1.9328,
+          "amount_to_ma20": 1.5798,
+          "bucket": "breakout_pressure_shadow",
+          "close_pos20": 0.9637,
+          "day_pct_chg": 2.78,
+          "dist20_high_pct": -0.71,
+          "dist5_high_pct": -0.71,
+          "entry_date": "20260319",
+          "entry_price": 20.82,
+          "entry_runup_pct": 13.54,
+          "industry": "通信设备",
+          "name": "华脉科技",
+          "ret10_pct": 17.15,
+          "ret3_pct": 10.93,
+          "ret5_pct": 22.49,
+          "review_close": 23.64,
+          "review_date": "20260512",
+          "score": 107.9674,
+          "ts_code": "603042.SH"
+        },
+        "walk_forward_status": "complete"
+      },
+      {
+        "blocker_count": 10,
+        "blockers": [
+          "chase_gap_guard_required",
+          "operator_promotion_approval_required",
+          "operator_review_required",
+          "paper_observation_not_authorized",
+          "proposal_review_required",
+          "replay_backtest_result_artifact_required",
+          "sector_evidence_confirmation_required",
+          "separate_trend_extension_candidate_required",
+          "strategy_version_proposal_not_authorized",
+          "walk_forward_shadow_monitor_20_trading_days_required"
+        ],
+        "candidate_family": "shadow_bucket",
+        "candidate_key": "trend_extension_shadow",
+        "paper_observation_allowed": false,
+        "promotion_allowed": false,
+        "status": "blocked",
+        "today_candidate_count": 47,
+        "today_top": {
+          "amount_to_ma10": 1.2552,
+          "amount_to_ma20": 1.4139,
+          "bucket": "trend_extension_shadow",
+          "close_pos20": 1.0,
+          "day_pct_chg": 10.0,
+          "dist20_high_pct": 0.0,
+          "dist5_high_pct": 0.0,
+          "entry_date": "20251127",
+          "entry_price": 26.52,
+          "entry_runup_pct": 282.43,
+          "industry": "小金属",
+          "name": "云南锗业",
+          "ret10_pct": 31.92,
+          "ret3_pct": 26.46,
+          "ret5_pct": 44.87,
+          "review_close": 101.42,
+          "review_date": "20260512",
+          "score": 124.8948,
+          "ts_code": "002428.SZ"
+        },
+        "walk_forward_status": "complete"
+      },
+      {
+        "blocker_count": 11,
+        "blockers": [
+          "daily_walk_forward_monitor_required_for_dip_buy",
+          "dip_buy_stop_and_sizing_required",
+          "falling_knife_guard_required",
+          "operator_promotion_approval_required",
+          "operator_review_required",
+          "paper_observation_not_authorized",
+          "proposal_review_required",
+          "replay_backtest_result_artifact_required",
+          "separate_dip_buy_candidate_required",
+          "strategy_version_proposal_not_authorized",
+          "walk_forward_shadow_monitor_20_trading_days_required"
+        ],
+        "candidate_family": "dip_buy",
+        "candidate_key": "pullback_dip_buy",
+        "paper_observation_allowed": false,
+        "promotion_allowed": false,
+        "status": "blocked",
+        "today_candidate_count": null,
+        "today_top": {},
+        "walk_forward_status": "artifact_summary_only"
+      },
+      {
+        "blocker_count": 10,
+        "blockers": [
+          "next_day_confirmation_rule_required",
+          "operator_promotion_approval_required",
+          "operator_review_required",
+          "paper_observation_not_authorized",
+          "proposal_review_required",
+          "replay_backtest_result_artifact_required",
+          "strategy_version_proposal_not_authorized",
+          "walk_forward_shadow_monitor_20_trading_days_required",
+          "watchlist_only_ui_lane_required",
+          "watchlist_to_signal_contract_required"
+        ],
+        "candidate_family": "preconfirm_watchlist",
+        "candidate_key": "preconfirm_watchlist",
+        "paper_observation_allowed": false,
+        "promotion_allowed": false,
+        "status": "blocked",
+        "today_candidate_count": null,
+        "today_top": {},
+        "walk_forward_status": "complete"
+      }
+    ],
+    "unavailable_reason": null
+  },
   "shadow_strategy": {
     "artifact_only": true,
     "as_of_date": "20260512",
@@ -2376,9 +2648,9 @@
     },
     "distinct_blocker_count": 23,
     "latest_monitor_date": "20260512",
-    "latest_monitor_generated_at": "2026-05-12T14:44:02+00:00",
+    "latest_monitor_generated_at": "2026-05-13T11:49:54+00:00",
     "latest_preflight_date": "20260512",
-    "latest_preflight_generated_at": "2026-05-12T14:44:02+00:00",
+    "latest_preflight_generated_at": "2026-05-13T11:49:54+00:00",
     "next_trade_date": "20260513",
     "read_only": true,
     "safety": {

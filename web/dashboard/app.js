@@ -71,6 +71,8 @@ const state = {
   strategyHypothesisWorkbenchEnvelope: null,
   shadowStrategySnapshot: null,
   shadowStrategySnapshotEnvelope: null,
+  shadowObservationScorecard: null,
+  shadowObservationScorecardEnvelope: null,
   tradePlans: [],
   positions: [],
   qualityEvents: [],
@@ -188,6 +190,8 @@ function cacheElements() {
     "shadowWalkForwardPanel",
     "shadowBlockerPanel",
     "shadowFrozenCpbPanel",
+    "shadowObservationQueueState",
+    "shadowObservationQueue",
     "shadowCandidateState",
     "shadowCandidateList",
     "shadowSafetyPanel",
@@ -331,6 +335,7 @@ function bindEvents() {
   els.strategyHypothesisWorkbenchList.addEventListener("click", onStrategyHypothesisWorkbenchClick);
   els.strategyHypothesisQueue.addEventListener("click", onStrategyHypothesisWorkbenchClick);
   els.reloadShadowStrategyButton.addEventListener("click", loadShadowStrategySnapshotAndRender);
+  els.shadowObservationQueue.addEventListener("click", onShadowObservationClick);
   els.shadowCandidateList.addEventListener("click", onShadowCandidateClick);
   els.reloadExecutionButton.addEventListener("click", refreshAll);
   els.executionEvaluateExitsButton.addEventListener("click", evaluateExits);
@@ -568,6 +573,7 @@ async function refreshAll(options = {}) {
       loadOpsHistory(),
       loadStrategyHypothesisWorkbench(),
       loadShadowStrategySnapshot(),
+      loadShadowObservationScorecard(),
     ]);
     renderAll();
   } catch (error) {
@@ -805,6 +811,16 @@ async function loadShadowStrategySnapshot() {
   state.shadowStrategySnapshot = envelope.data || null;
 }
 
+async function loadShadowObservationScorecard() {
+  const params = new URLSearchParams();
+  params.set("request_id", requestId("shadow-observation"));
+  const asOfDate = normalizeDate(state.asOfDate);
+  if (/^\d{8}$/.test(asOfDate)) params.set("as_of_date", asOfDate);
+  const envelope = await apiRequest(`/api/shadow-observation-scorecard?${params.toString()}`);
+  state.shadowObservationScorecardEnvelope = envelope;
+  state.shadowObservationScorecard = envelope.data || null;
+}
+
 function latestReviewHistoryDate() {
   const dates = reviewHistoryDates();
   return dates.length ? dates[dates.length - 1] : "";
@@ -947,7 +963,7 @@ async function loadStrategyHypothesisWorkbenchAndRender() {
 
 async function loadShadowStrategySnapshotAndRender() {
   await runWithNotice(async () => {
-    await loadShadowStrategySnapshot();
+    await Promise.all([loadShadowStrategySnapshot(), loadShadowObservationScorecard()]);
     renderShadowStrategyLab();
     renderBadges();
   });
@@ -2908,6 +2924,7 @@ function renderShadowStrategyLab() {
   const preflightDate = latest.promotion_preflight_review_date ? `preflight ${displayDate(latest.promotion_preflight_review_date)}` : "preflight -";
   els.shadowSnapshotDateLabel.textContent = `${snapshot.as_of_date ? `Shadow snapshot ${displayDate(snapshot.as_of_date)}` : "Shadow snapshot -"} · ${monitorDate} · ${preflightDate}`;
   renderShadowSummaryPanel(snapshot, candidates);
+  renderShadowObservationQueue(shadowObservationData());
   renderShadowFamilies(snapshot.candidate_families || {});
   renderShadowWalkForward(snapshot.walk_forward || {}, candidates);
   renderShadowBlockers(snapshot.blocker_counts || {});
@@ -2936,6 +2953,72 @@ function renderShadowSummaryPanel(snapshot, candidates) {
       ["active CPB", snapshot.active_cpb_integrity?.status || summary.active_cpb_integrity_status || "-"],
       ["API", "/api/shadow-strategy-snapshot"],
     ])}
+  `;
+}
+
+function renderShadowObservationQueue(scorecard) {
+  const rows = shadowObservationRows();
+  const counts = scorecard.counts || {};
+  const errors = errorMessages(state.shadowObservationScorecardEnvelope || {});
+  els.shadowObservationQueueState.textContent = rows.length
+    ? `${rows.length} 个观察候选`
+    : scorecard.status
+      ? shadowObservationStatusText(scorecard.status)
+      : "-";
+  if (errors.length) {
+    els.shadowObservationQueue.innerHTML = `
+      <p class="market-readonly-note">观察队列读取到异常：${escapeHtml(errors.join("；"))}。该区域仍只读，不创建 trade plan、不记录 trade、不发布 strategy version、不改 timer。</p>
+    `;
+    return;
+  }
+  els.shadowObservationQueue.innerHTML = `
+    <p class="shadow-observation-note">观察队列来自 shadow_observation_scorecard_v1；观察不是 paper trading，只用于解释排名、样本覆盖和 blocker。</p>
+    ${actionMetrics([
+      ["API", "/api/shadow-observation-scorecard"],
+      ["状态", shadowObservationStatusText(scorecard.status)],
+      ["候选数", integerText(counts.candidate_count ?? rows.length)],
+      ["样本不足", integerText(counts.insufficient_sample_count || 0)],
+      ["market gaps", integerText(counts.market_data_gap_count || 0)],
+      ["observation_is_not_paper_trading", scorecard.safety?.observation_is_not_paper_trading ? "是" : "否"],
+      ["trade_plan_allowed", scorecard.safety?.trade_plan_allowed ? "是" : "否"],
+      ["top", scorecard.summary?.top_candidate_key || "-"],
+    ])}
+    <div class="shadow-observation-list">
+      ${rows.length ? rows.map(shadowObservationCard).join("") : emptyState("暂无 shadow observation scorecard；promotion 仍保持阻断。")}
+    </div>
+  `;
+}
+
+function shadowObservationCard(row) {
+  const gaps = [...listValue(row.coverage_gaps), ...listValue(row.evidence_gaps), ...listValue(row.market_data_gaps)];
+  return `
+    <article class="shadow-observation-card">
+      <div class="shadow-observation-card__rank">
+        <span>${integerText(row.rank)}</span>
+      </div>
+      <div class="shadow-observation-card__body">
+        <div class="shadow-candidate-card__head">
+          <div>
+            <span class="market-regime-kicker">${escapeHtml(row.candidate_family || "shadow_candidate")}</span>
+            <strong>${escapeHtml(row.candidate_key || "-")}</strong>
+          </div>
+          <div class="hypothesis-chip-stack">
+            ${chipHtml(shadowObservationStatusText(row.observation_status), shadowObservationStatusClass(row.observation_status))}
+            ${chipHtml(sampleCoverageText(row.sample_coverage_status), sampleCoverageClass(row.sample_coverage_status))}
+          </div>
+        </div>
+        <p>Outcome score ${numberText(row.outcome_score, 1)}；sample ${integerText(row.sample_size)}/${integerText(row.required_sample)}；frozen-CPB delta ${shadowDeltaText(row.frozen_cpb_delta_pct)}；promotion remains blocked.</p>
+        <div class="hypothesis-gate-strip">
+          ${chipHtml(`${integerText(row.blocker_count || 0)} blockers`, row.blocker_count ? "chip-red" : "chip-green")}
+          ${chipHtml(gaps.length ? `${gaps.length} gaps` : "coverage clear", gaps.length ? "chip-amber" : "chip-green")}
+          ${chipHtml(row.market_data_gaps?.length ? "market data gap" : "market data checked", row.market_data_gaps?.length ? "chip-amber" : "chip-blue")}
+          ${chipHtml("not paper trading", "chip-neutral")}
+        </div>
+        <div class="row-actions">
+          <button type="button" data-shadow-observation-key="${escapeHtml(row.candidate_key)}">打开归因抽屉</button>
+        </div>
+      </div>
+    </article>
   `;
 }
 
@@ -3152,6 +3235,60 @@ function openShadowCandidateDrawer(candidate) {
       detailSection("Paper observation gate", marketObjectRows(candidate.paper_observation_gate || {})),
       detailSection("Strategy-version gate", marketObjectRows(candidate.strategy_version_gate || {})),
       detailSection("Source artifacts", shadowArtifactRows(artifacts)),
+    ],
+  });
+}
+
+function openShadowObservationDrawer(row) {
+  const metrics = row.metrics || {};
+  const observedDays = row.observed_days || {};
+  const gaps = [...listValue(row.coverage_gaps), ...listValue(row.evidence_gaps), ...listValue(row.market_data_gaps)];
+  openDetailDrawer({
+    kicker: "影子观察归因",
+    title: row.candidate_key || "-",
+    subtitle: "归因抽屉展示 shadow_observation_scorecard_v1 的只读排名依据；观察不是 paper trading，不能 promote、trade、plan 或改 timer。",
+    meta: [
+      [`rank ${integerText(row.rank)}`, "chip-blue"],
+      [shadowObservationStatusText(row.observation_status), shadowObservationStatusClass(row.observation_status)],
+      [sampleCoverageText(row.sample_coverage_status), sampleCoverageClass(row.sample_coverage_status)],
+    ],
+    actions: [
+      { label: "影子实验室", action: "page", page: "shadow" },
+    ],
+    sections: [
+      detailSection("排名归因", detailMetrics([
+        ["outcome score", numberText(row.outcome_score, 1)],
+        ["sample", `${integerText(row.sample_size)}/${integerText(row.required_sample)}`],
+        ["blockers", integerText(row.blocker_count)],
+        ["frozen CPB delta", shadowDeltaText(row.frozen_cpb_delta_pct)],
+      ])),
+      detailSection("Observed days", detailRows([
+        ["start_signal_date", displayDate(observedDays.start_signal_date)],
+        ["latest_signal_date", displayDate(observedDays.latest_signal_date)],
+        ["latest_outcome_date", displayDate(observedDays.latest_outcome_date)],
+        ["sample coverage", sampleCoverageText(row.sample_coverage_status)],
+      ])),
+      detailSection("Best / worst outcomes", detailRows([
+        ["best", `${row.best_outcome?.label || "-"} ${shadowPctText(row.best_outcome?.value_pct)}`],
+        ["worst", `${row.worst_outcome?.label || "-"} ${shadowPctText(row.worst_outcome?.value_pct)}`],
+        ["T+1 close mean", shadowPctText(metrics.t1_close_mean_pct)],
+        ["T+1 win rate", shadowPctText(metrics.t1_close_win_rate_pct)],
+        ["T+1 high mean", shadowPctText(metrics.t1_high_mean_pct)],
+        ["T+5 close mean", shadowPctText(metrics.t5_close_mean_pct)],
+        ["drawdown proxy", shadowPctText(metrics.drawdown_proxy_pct)],
+      ])),
+      detailSection("为什么排在这里", detailRows([
+        ["rationale", row.ranking_rationale || "-"],
+        ["source top", shadowTopCandidateText(row.today_top)],
+        ["sample warning", metrics.sample_warning || "-"],
+      ])),
+      detailSection("Promotion remains blocked", detailRows([
+        ["blocked reason", row.promotion_blocked_reason || "manual_promotion_review_required"],
+        ["not paper trading", "是"],
+        ["no promote/trade/plan/timer controls", "是"],
+      ])),
+      detailSection("Coverage / evidence / market gaps", gaps.length ? shadowBlockerListHtml(gaps) : emptyState("暂无覆盖或证据缺口。")),
+      detailSection("Source artifacts", shadowArtifactRows(listValue(row.source_artifacts))),
     ],
   });
 }
@@ -4273,6 +4410,13 @@ function onShadowCandidateClick(event) {
   if (!button) return;
   const candidate = findShadowCandidate(button.dataset.shadowCandidateKey);
   if (candidate) openShadowCandidateDrawer(candidate);
+}
+
+function onShadowObservationClick(event) {
+  const button = event.target.closest("button[data-shadow-observation-key]");
+  if (!button) return;
+  const row = findShadowObservationRow(button.dataset.shadowObservationKey);
+  if (row) openShadowObservationDrawer(row);
 }
 
 function onDrawerActionClick(event) {
@@ -5397,9 +5541,24 @@ function shadowSnapshotData() {
     : {};
 }
 
+function shadowObservationData() {
+  return state.shadowObservationScorecard && typeof state.shadowObservationScorecard === "object"
+    ? state.shadowObservationScorecard
+    : {};
+}
+
+function shadowObservationRows() {
+  const rows = shadowObservationData().rows;
+  return Array.isArray(rows) ? rows : [];
+}
+
 function shadowCandidates() {
   const candidates = shadowSnapshotData().candidates;
   return Array.isArray(candidates) ? candidates : [];
+}
+
+function findShadowObservationRow(candidateKey) {
+  return shadowObservationRows().find((item) => String(item.candidate_key) === String(candidateKey));
 }
 
 function findShadowCandidate(candidateKey) {
@@ -6034,6 +6193,10 @@ function acceptanceStatusClass(value) {
 function shadowStatusText(value) {
   return {
     blocked: "阻断",
+    observing: "观察中",
+    insufficient_sample: "样本不足",
+    missing: "缺数据",
+    artifact_summary_only: "artifact 摘要",
     available: "可观察",
     compared: "已对照",
     complete: "完成",
@@ -6046,12 +6209,54 @@ function shadowStatusText(value) {
 function shadowStatusClass(value) {
   return {
     blocked: "chip-red",
+    observing: "chip-blue",
+    insufficient_sample: "chip-amber",
+    missing: "chip-amber",
+    artifact_summary_only: "chip-neutral",
     available: "chip-green",
     compared: "chip-blue",
     complete: "chip-green",
     success: "chip-green",
     unavailable: "chip-amber",
     unknown: "chip-neutral",
+  }[value] || "chip-neutral";
+}
+
+function shadowObservationStatusText(value) {
+  return {
+    blocked: "观察阻断",
+    observing: "观察中",
+    insufficient_sample: "样本不足",
+    missing: "缺数据",
+    complete: "观察完成",
+  }[value] || shadowStatusText(value);
+}
+
+function shadowObservationStatusClass(value) {
+  return {
+    blocked: "chip-red",
+    observing: "chip-blue",
+    insufficient_sample: "chip-amber",
+    missing: "chip-amber",
+    complete: "chip-green",
+  }[value] || shadowStatusClass(value);
+}
+
+function sampleCoverageText(value) {
+  return {
+    complete: "样本覆盖完整",
+    insufficient_sample: "样本不足",
+    missing: "市场数据缺口",
+    artifact_summary_only: "artifact 摘要",
+  }[value] || dash(value);
+}
+
+function sampleCoverageClass(value) {
+  return {
+    complete: "chip-green",
+    insufficient_sample: "chip-amber",
+    missing: "chip-amber",
+    artifact_summary_only: "chip-neutral",
   }[value] || "chip-neutral";
 }
 

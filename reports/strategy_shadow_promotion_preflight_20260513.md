@@ -1,4 +1,4 @@
-# 2026-05-12 Shadow Promotion Preflight
+# 2026-05-13 Shadow Promotion Preflight
 
 > Artifact-only preflight. It does not activate strategy params, write trade plans, write trades, change positions, or touch timers.
 

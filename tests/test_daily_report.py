@@ -100,6 +100,7 @@ class DailyReportTest(unittest.TestCase):
             self.assertNotIn("trade_plan_id", markdown)
 
             payload = json.loads(render_daily_report_json(result.data))
+            self.assertIn("shadow_observation", payload)
             self.assertEqual(payload["as_of_date"], AS_OF_DATE)
             self.assertIn("paper_promotion", payload)
             self.assertIn("paper_acceptance", payload)
@@ -157,6 +158,7 @@ class DailyReportTest(unittest.TestCase):
             self.assertIn("不会自动创建、取消或执行交易计划", markdown)
 
             payload = json.loads(render_daily_report_json(result.data))
+            self.assertIn("shadow_observation", payload)
             self.assertEqual(payload["market_review"]["market_review_run_id"], market_review_run_id)
             self.assertEqual(payload["market_review"]["continuity_label"], "improving")
             self.assertEqual(payload["market_review"]["top_sectors"][0]["sector_name"], "人工智能")
@@ -219,8 +221,8 @@ class DailyReportTest(unittest.TestCase):
             self.assertEqual(result.status, "success")
             shadow = result.data.shadow_strategy
             self.assertEqual(shadow.status, "blocked")
-            self.assertEqual(shadow.latest_monitor_date, "20260512")
-            self.assertEqual(shadow.latest_preflight_date, "20260512")
+            self.assertEqual(shadow.latest_monitor_date, AS_OF_DATE)
+            self.assertEqual(shadow.latest_preflight_date, AS_OF_DATE)
             self.assertEqual(shadow.candidate_count, 2)
             self.assertEqual(shadow.blocked_candidate_count, 2)
             self.assertEqual(shadow.distinct_blocker_count, 3)
@@ -232,13 +234,18 @@ class DailyReportTest(unittest.TestCase):
 
             markdown = render_daily_report_markdown(result.data)
             self.assertIn("## Shadow 策略观察", markdown)
-            self.assertIn("monitor 2026-05-12 / preflight 2026-05-12", markdown)
+            self.assertIn("shadow_observation", markdown)
+            self.assertIn("monitor 2026-05-04 / preflight 2026-05-04", markdown)
             self.assertIn("operator_review_required 2", markdown)
             self.assertIn("trend_extension_shadow", markdown)
+            self.assertIn("| candidate | family | status | today | walk_forward | blockers | top |", markdown)
+            self.assertIn("source_refs", markdown)
             self.assertIn("research-only", markdown)
             self.assertIn("不会进入今日候选、生成交易计划或开启 timer", markdown)
 
             payload = json.loads(render_daily_report_json(result.data))
+            self.assertEqual(payload["shadow_observation"]["status"], "blocked")
+            self.assertEqual(payload["shadow_observation"]["top_candidates"][0]["today_top"]["name"], "Shadow Top")
             self.assertEqual(payload["shadow_strategy"]["status"], "blocked")
             self.assertEqual(payload["shadow_strategy"]["top_candidates"][0]["today_top"]["name"], "Shadow Top")
             self.assertEqual(payload["candidate"]["name"], "Report Pick")
@@ -1141,8 +1148,8 @@ class DailyReportTest(unittest.TestCase):
         ]
         monitor = {
             "generated_at": "2026-05-12T00:00:00+00:00",
-            "review_date": "20260512",
-            "next_trade_date": "20260513",
+            "review_date": AS_OF_DATE,
+            "next_trade_date": BUY_DATE,
             "today_candidate_count": 11,
             "walk_forward_progress": {"status": "partial", "required_days": 20, "evaluable_signal_days": 12},
             "candidate_monitors": [
@@ -1172,8 +1179,8 @@ class DailyReportTest(unittest.TestCase):
         }
         preflight = {
             "generated_at": "2026-05-12T00:00:01+00:00",
-            "review_date": "20260512",
-            "next_trade_date": "20260513",
+            "review_date": AS_OF_DATE,
+            "next_trade_date": BUY_DATE,
             "status": "blocked",
             "candidate_count": 2,
             "candidate_gates": gates,
@@ -1190,11 +1197,11 @@ class DailyReportTest(unittest.TestCase):
                 "timer_mutated": False,
             },
         }
-        (reports_dir / "strategy_shadow_monitor_20260512.json").write_text(
+        (reports_dir / f"strategy_shadow_monitor_{AS_OF_DATE}.json").write_text(
             json.dumps(monitor, ensure_ascii=False),
             encoding="utf-8",
         )
-        (reports_dir / "strategy_shadow_promotion_preflight_20260512.json").write_text(
+        (reports_dir / f"strategy_shadow_promotion_preflight_{AS_OF_DATE}.json").write_text(
             json.dumps(preflight, ensure_ascii=False),
             encoding="utf-8",
         )

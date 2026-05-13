@@ -16,6 +16,7 @@ from pgc_trading.services.market_review_service import MarketReviewService
 from pgc_trading.services.open_execution_service import OpenExecutionService
 from pgc_trading.services.portfolio_planning_service import PortfolioPlanningService
 from pgc_trading.services.position_lifecycle_service import PositionLifecycleService
+from pgc_trading.services.shadow_observation_service import ShadowObservationService
 from pgc_trading.services.shadow_strategy_service import ShadowStrategyService
 from pgc_trading.services.strategy_evolution_service import StrategyEvolutionService
 
@@ -30,6 +31,7 @@ MarketReviewServiceFactory = Callable[[Path], MarketReviewService]
 OpenExecutionServiceFactory = Callable[[Path], OpenExecutionService]
 PortfolioPlanningServiceFactory = Callable[[Path], PortfolioPlanningService]
 PositionLifecycleServiceFactory = Callable[[Path], PositionLifecycleService]
+ShadowObservationServiceFactory = Callable[[Path], ShadowObservationService]
 ShadowStrategyServiceFactory = Callable[[Path], ShadowStrategyService]
 StrategyEvolutionServiceFactory = Callable[[Path], StrategyEvolutionService]
 
@@ -46,5 +48,6 @@ class ApiServices:
     open_execution_service_factory: OpenExecutionServiceFactory = OpenExecutionService
     portfolio_planning_service_factory: PortfolioPlanningServiceFactory = PortfolioPlanningService
     position_lifecycle_service_factory: PositionLifecycleServiceFactory = PositionLifecycleService
+    shadow_observation_service_factory: ShadowObservationServiceFactory = ShadowObservationService
     shadow_strategy_service_factory: ShadowStrategyServiceFactory = ShadowStrategyService
     strategy_evolution_service_factory: StrategyEvolutionServiceFactory = StrategyEvolutionService

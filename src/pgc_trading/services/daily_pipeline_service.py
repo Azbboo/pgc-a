@@ -102,6 +102,9 @@ class DailyPipelineResult:
     market_plan_context_status: str | None = None
     market_review_would_write: bool = False
     market_plan_context_would_write: bool = False
+    shadow_observation_status: str | None = None
+    shadow_observation_top_candidates: str | None = None
+    shadow_observation_blockers: str | None = None
     invariant_violation_codes: list[str] = field(default_factory=list)
     step_summaries: dict[str, PipelineStepSummary] = field(default_factory=dict)
 
@@ -438,6 +441,9 @@ class DailyPipelineService:
             market_plan_context_status=market_plan_context_status,
             market_review_would_write=market_review_would_write,
             market_plan_context_would_write=market_plan_context_would_write,
+            shadow_observation_status=report_result.data.shadow_observation_status,
+            shadow_observation_top_candidates=report_result.data.shadow_observation_top_candidates,
+            shadow_observation_blockers=report_result.data.shadow_observation_blockers,
             step_summaries=step_summaries,
         )
         return ServiceResult(
@@ -482,6 +488,10 @@ class DailyPipelineService:
         json_path = self.reports_dir / f"daily_review_{request.as_of_date}.json"
         markdown = render_daily_report_markdown(report.data)
         payload_json = render_daily_report_json(report.data)
+        shadow_observation = getattr(report.data, "shadow_observation", None)
+        shadow_status = _shadow_observation_status(shadow_observation)
+        shadow_top_candidates = _shadow_observation_top_candidates(shadow_observation)
+        shadow_blockers = _shadow_observation_blockers(shadow_observation)
 
         if ctx.dry_run:
             return ServiceResult(
@@ -492,6 +502,9 @@ class DailyPipelineService:
                     json_path=json_path,
                     changed=False,
                     would_write=True,
+                    shadow_observation_status=shadow_status,
+                    shadow_observation_top_candidates=shadow_top_candidates,
+                    shadow_observation_blockers=shadow_blockers,
                 ),
                 warnings=report.warnings,
             )
@@ -507,6 +520,9 @@ class DailyPipelineService:
                 json_path=json_path,
                 changed=changed,
                 would_write=False,
+                shadow_observation_status=shadow_status,
+                shadow_observation_top_candidates=shadow_top_candidates,
+                shadow_observation_blockers=shadow_blockers,
             ),
             warnings=report.warnings,
         )
@@ -518,6 +534,45 @@ class _ReportWriteResult:
     json_path: Path
     changed: bool
     would_write: bool = False
+    shadow_observation_status: str | None = None
+    shadow_observation_top_candidates: str | None = None
+    shadow_observation_blockers: str | None = None
+
+
+def _shadow_observation_status(shadow: object | None) -> str:
+    if shadow is None:
+        return "unavailable"
+    return str(getattr(shadow, "status", "unknown") or "unknown")
+
+
+def _shadow_observation_top_candidates(shadow: object | None) -> str:
+    if shadow is None:
+        return "none"
+    candidates = getattr(shadow, "top_candidates", []) or []
+    parts: list[str] = []
+    for candidate in list(candidates)[:3]:
+        today_top = getattr(candidate, "today_top", {}) or {}
+        stock = ""
+        if isinstance(today_top, dict):
+            stock = " ".join(str(part) for part in [today_top.get("ts_code"), today_top.get("name")] if part)
+        parts.append(
+            f"{getattr(candidate, 'candidate_key', 'unknown')}"
+            f"[status={getattr(candidate, 'status', 'unknown')},"
+            f"today={getattr(candidate, 'today_candidate_count', None) or 'none'},"
+            f"walk={getattr(candidate, 'walk_forward_status', 'unknown')},"
+            f"top={stock or 'none'}]"
+        )
+    return ";".join(parts) if parts else "none"
+
+
+def _shadow_observation_blockers(shadow: object | None) -> str:
+    if shadow is None:
+        return "shadow_observation_unavailable"
+    counts = getattr(shadow, "blocker_counts", {}) or {}
+    if isinstance(counts, dict) and counts:
+        return ";".join(f"{key}:{counts[key]}" for key in sorted(counts))
+    reason = getattr(shadow, "unavailable_reason", None)
+    return str(reason) if reason else "none"
 
 
 def _validate_request(request: RunDailyPipelineRequest, ctx: RequestContext) -> list[ServiceError]:

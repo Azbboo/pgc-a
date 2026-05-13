@@ -1,0 +1,518 @@
+{
+  "artifact_type": "shadow_promotion_dossier",
+  "as_of_date": "20260512",
+  "candidates": [
+    {
+      "blocked_reasons": [
+        "frozen_cpb_delta_not_positive",
+        "drawdown_proxy_missing",
+        "candidate_blockers_not_cleared"
+      ],
+      "candidate_family": "shadow_bucket",
+      "candidate_key": "trend_extension_shadow",
+      "drawdown_proxy_pct": null,
+      "frozen_cpb_delta_pct": -8.11,
+      "linked_hypothesis": {
+        "as_of_date": "20260512",
+        "hypothesis_id": 4,
+        "status": "proposed",
+        "title": "Shadow candidate: trend-extension continuation bucket."
+      },
+      "next_step": "clear_observation_blockers",
+      "promotion_gate": {
+        "artifact_only": true,
+        "blockers": [
+          "manual_promotion_approval_required",
+          "future_strategy_version_task_required",
+          "paper_live_deployment_not_authorized"
+        ],
+        "paper_observation_allowed": false,
+        "promotion_allowed": false,
+        "status": "blocked"
+      },
+      "readiness_checks": {
+        "blocker_clearance": {
+          "blocker_count": 10,
+          "blockers": [
+            "chase_gap_guard_required",
+            "operator_promotion_approval_required",
+            "operator_review_required",
+            "paper_observation_not_authorized",
+            "proposal_review_required",
+            "replay_backtest_result_artifact_required",
+            "sector_evidence_confirmation_required",
+            "separate_trend_extension_candidate_required",
+            "strategy_version_proposal_not_authorized",
+            "walk_forward_shadow_monitor_20_trading_days_required"
+          ],
+          "passed": false
+        },
+        "drawdown_cap": {
+          "actual_pct": null,
+          "passed": false,
+          "threshold_pct": -8.0
+        },
+        "evidence_coverage": {
+          "linked_hypothesis": {
+            "as_of_date": "20260512",
+            "hypothesis_id": 4,
+            "status": "proposed",
+            "title": "Shadow candidate: trend-extension continuation bucket."
+          },
+          "minimum_source_artifacts": 2,
+          "passed": true,
+          "source_artifact_count": 6
+        },
+        "minimum_sample": {
+          "actual": 20,
+          "passed": true,
+          "threshold": 20
+        },
+        "positive_frozen_cpb_delta": {
+          "actual_pct": -8.11,
+          "passed": false,
+          "threshold_pct": 0.0
+        }
+      },
+      "review_status": "blocked",
+      "sample_size": 20,
+      "source_artifacts": [
+        "reports/strategy_shadow_monitor_20260512.json",
+        "reports/strategy_shadow_monitor_20260512.md",
+        "reports/strategy_shadow_promotion_preflight_20260512.json",
+        "reports/strategy_shadow_promotion_preflight_20260512.md",
+        "reports/strategy_shadow_backtest_20260401_20260508.json",
+        "reports/strategy_shadow_review_20260511.json"
+      ]
+    },
+    {
+      "blocked_reasons": [
+        "frozen_cpb_delta_not_positive",
+        "drawdown_proxy_missing",
+        "candidate_blockers_not_cleared"
+      ],
+      "candidate_family": "shadow_bucket",
+      "candidate_key": "breakout_pressure_shadow",
+      "drawdown_proxy_pct": null,
+      "frozen_cpb_delta_pct": -9.01,
+      "linked_hypothesis": {
+        "as_of_date": "20260512",
+        "hypothesis_id": 5,
+        "status": "proposed",
+        "title": "Shadow candidate: breakout-pressure bucket."
+      },
+      "next_step": "clear_observation_blockers",
+      "promotion_gate": {
+        "artifact_only": true,
+        "blockers": [
+          "manual_promotion_approval_required",
+          "future_strategy_version_task_required",
+          "paper_live_deployment_not_authorized"
+        ],
+        "paper_observation_allowed": false,
+        "promotion_allowed": false,
+        "status": "blocked"
+      },
+      "readiness_checks": {
+        "blocker_clearance": {
+          "blocker_count": 10,
+          "blockers": [
+            "close_return_stability_required",
+            "operator_promotion_approval_required",
+            "operator_review_required",
+            "paper_observation_not_authorized",
+            "proposal_review_required",
+            "replay_backtest_result_artifact_required",
+            "separate_breakout_pressure_candidate_required",
+            "strategy_version_proposal_not_authorized",
+            "volume_overheat_guard_required",
+            "walk_forward_shadow_monitor_20_trading_days_required"
+          ],
+          "passed": false
+        },
+        "drawdown_cap": {
+          "actual_pct": null,
+          "passed": false,
+          "threshold_pct": -8.0
+        },
+        "evidence_coverage": {
+          "linked_hypothesis": {
+            "as_of_date": "20260512",
+            "hypothesis_id": 5,
+            "status": "proposed",
+            "title": "Shadow candidate: breakout-pressure bucket."
+          },
+          "minimum_source_artifacts": 2,
+          "passed": true,
+          "source_artifact_count": 6
+        },
+        "minimum_sample": {
+          "actual": 20,
+          "passed": true,
+          "threshold": 20
+        },
+        "positive_frozen_cpb_delta": {
+          "actual_pct": -9.01,
+          "passed": false,
+          "threshold_pct": 0.0
+        }
+      },
+      "review_status": "blocked",
+      "sample_size": 20,
+      "source_artifacts": [
+        "reports/strategy_shadow_monitor_20260512.json",
+        "reports/strategy_shadow_monitor_20260512.md",
+        "reports/strategy_shadow_promotion_preflight_20260512.json",
+        "reports/strategy_shadow_promotion_preflight_20260512.md",
+        "reports/strategy_shadow_backtest_20260401_20260508.json",
+        "reports/strategy_shadow_review_20260511.json"
+      ]
+    },
+    {
+      "blocked_reasons": [
+        "frozen_cpb_delta_not_positive",
+        "drawdown_proxy_missing",
+        "candidate_blockers_not_cleared"
+      ],
+      "candidate_family": "shadow_bucket",
+      "candidate_key": "low_price_momentum_shadow",
+      "drawdown_proxy_pct": null,
+      "frozen_cpb_delta_pct": -7.48,
+      "linked_hypothesis": {
+        "as_of_date": "20260512",
+        "hypothesis_id": 6,
+        "status": "proposed",
+        "title": "Shadow candidate: low-price momentum micro-sleeve."
+      },
+      "next_step": "clear_observation_blockers",
+      "promotion_gate": {
+        "artifact_only": true,
+        "blockers": [
+          "manual_promotion_approval_required",
+          "future_strategy_version_task_required",
+          "paper_live_deployment_not_authorized"
+        ],
+        "paper_observation_allowed": false,
+        "promotion_allowed": false,
+        "status": "blocked"
+      },
+      "readiness_checks": {
+        "blocker_clearance": {
+          "blocker_count": 10,
+          "blockers": [
+            "liquidity_slippage_review_required",
+            "micro_sleeve_risk_model_required",
+            "operator_promotion_approval_required",
+            "operator_review_required",
+            "paper_observation_not_authorized",
+            "proposal_review_required",
+            "replay_backtest_result_artifact_required",
+            "separate_low_price_micro_sleeve_required",
+            "strategy_version_proposal_not_authorized",
+            "walk_forward_shadow_monitor_20_trading_days_required"
+          ],
+          "passed": false
+        },
+        "drawdown_cap": {
+          "actual_pct": null,
+          "passed": false,
+          "threshold_pct": -8.0
+        },
+        "evidence_coverage": {
+          "linked_hypothesis": {
+            "as_of_date": "20260512",
+            "hypothesis_id": 6,
+            "status": "proposed",
+            "title": "Shadow candidate: low-price momentum micro-sleeve."
+          },
+          "minimum_source_artifacts": 2,
+          "passed": true,
+          "source_artifact_count": 6
+        },
+        "minimum_sample": {
+          "actual": 20,
+          "passed": true,
+          "threshold": 20
+        },
+        "positive_frozen_cpb_delta": {
+          "actual_pct": -7.48,
+          "passed": false,
+          "threshold_pct": 0.0
+        }
+      },
+      "review_status": "blocked",
+      "sample_size": 20,
+      "source_artifacts": [
+        "reports/strategy_shadow_monitor_20260512.json",
+        "reports/strategy_shadow_monitor_20260512.md",
+        "reports/strategy_shadow_promotion_preflight_20260512.json",
+        "reports/strategy_shadow_promotion_preflight_20260512.md",
+        "reports/strategy_shadow_backtest_20260401_20260508.json",
+        "reports/strategy_shadow_review_20260511.json"
+      ]
+    },
+    {
+      "blocked_reasons": [
+        "frozen_cpb_delta_not_positive",
+        "drawdown_proxy_missing",
+        "candidate_blockers_not_cleared"
+      ],
+      "candidate_family": "preconfirm_watchlist",
+      "candidate_key": "preconfirm_watchlist",
+      "drawdown_proxy_pct": null,
+      "frozen_cpb_delta_pct": -6.79,
+      "linked_hypothesis": {
+        "as_of_date": "20260512",
+        "hypothesis_id": 7,
+        "status": "proposed",
+        "title": "Shadow candidate: pre-confirm watchlist observation lane."
+      },
+      "next_step": "clear_observation_blockers",
+      "promotion_gate": {
+        "artifact_only": true,
+        "blockers": [
+          "manual_promotion_approval_required",
+          "future_strategy_version_task_required",
+          "paper_live_deployment_not_authorized"
+        ],
+        "paper_observation_allowed": false,
+        "promotion_allowed": false,
+        "status": "blocked"
+      },
+      "readiness_checks": {
+        "blocker_clearance": {
+          "blocker_count": 10,
+          "blockers": [
+            "next_day_confirmation_rule_required",
+            "operator_promotion_approval_required",
+            "operator_review_required",
+            "paper_observation_not_authorized",
+            "proposal_review_required",
+            "replay_backtest_result_artifact_required",
+            "strategy_version_proposal_not_authorized",
+            "walk_forward_shadow_monitor_20_trading_days_required",
+            "watchlist_only_ui_lane_required",
+            "watchlist_to_signal_contract_required"
+          ],
+          "passed": false
+        },
+        "drawdown_cap": {
+          "actual_pct": null,
+          "passed": false,
+          "threshold_pct": -8.0
+        },
+        "evidence_coverage": {
+          "linked_hypothesis": {
+            "as_of_date": "20260512",
+            "hypothesis_id": 7,
+            "status": "proposed",
+            "title": "Shadow candidate: pre-confirm watchlist observation lane."
+          },
+          "minimum_source_artifacts": 2,
+          "passed": true,
+          "source_artifact_count": 8
+        },
+        "minimum_sample": {
+          "actual": 27,
+          "passed": true,
+          "threshold": 20
+        },
+        "positive_frozen_cpb_delta": {
+          "actual_pct": -6.79,
+          "passed": false,
+          "threshold_pct": 0.0
+        }
+      },
+      "review_status": "blocked",
+      "sample_size": 27,
+      "source_artifacts": [
+        "reports/strategy_shadow_monitor_20260512.json",
+        "reports/strategy_shadow_monitor_20260512.md",
+        "reports/strategy_shadow_promotion_preflight_20260512.json",
+        "reports/strategy_shadow_promotion_preflight_20260512.md",
+        "data/preconfirm_watchlist_backtest_summary.csv",
+        "data/preconfirm_watchlist_backtest_trades.csv",
+        "reports/preconfirm_watchlist_backtest.json",
+        "reports/preconfirm_watchlist_backtest.md"
+      ]
+    },
+    {
+      "blocked_reasons": [
+        "frozen_cpb_delta_missing",
+        "candidate_blockers_not_cleared"
+      ],
+      "candidate_family": "dip_buy",
+      "candidate_key": "pullback_dip_buy",
+      "drawdown_proxy_pct": -7.86,
+      "frozen_cpb_delta_pct": null,
+      "linked_hypothesis": {
+        "as_of_date": "20260512",
+        "hypothesis_id": 8,
+        "status": "proposed",
+        "title": "Shadow candidate: pullback dip-buy observation lane."
+      },
+      "next_step": "clear_observation_blockers",
+      "promotion_gate": {
+        "artifact_only": true,
+        "blockers": [
+          "manual_promotion_approval_required",
+          "future_strategy_version_task_required",
+          "paper_live_deployment_not_authorized"
+        ],
+        "paper_observation_allowed": false,
+        "promotion_allowed": false,
+        "status": "blocked"
+      },
+      "readiness_checks": {
+        "blocker_clearance": {
+          "blocker_count": 11,
+          "blockers": [
+            "daily_walk_forward_monitor_required_for_dip_buy",
+            "dip_buy_stop_and_sizing_required",
+            "falling_knife_guard_required",
+            "operator_promotion_approval_required",
+            "operator_review_required",
+            "paper_observation_not_authorized",
+            "proposal_review_required",
+            "replay_backtest_result_artifact_required",
+            "separate_dip_buy_candidate_required",
+            "strategy_version_proposal_not_authorized",
+            "walk_forward_shadow_monitor_20_trading_days_required"
+          ],
+          "passed": false
+        },
+        "drawdown_cap": {
+          "actual_pct": -7.86,
+          "passed": true,
+          "threshold_pct": -8.0
+        },
+        "evidence_coverage": {
+          "linked_hypothesis": {
+            "as_of_date": "20260512",
+            "hypothesis_id": 8,
+            "status": "proposed",
+            "title": "Shadow candidate: pullback dip-buy observation lane."
+          },
+          "minimum_source_artifacts": 2,
+          "passed": true,
+          "source_artifact_count": 5
+        },
+        "minimum_sample": {
+          "actual": 99,
+          "passed": true,
+          "threshold": 20
+        },
+        "positive_frozen_cpb_delta": {
+          "actual_pct": null,
+          "passed": false,
+          "threshold_pct": 0.0
+        }
+      },
+      "review_status": "blocked",
+      "sample_size": 99,
+      "source_artifacts": [
+        "reports/strategy_shadow_monitor_20260512.json",
+        "reports/strategy_shadow_monitor_20260512.md",
+        "reports/strategy_shadow_promotion_preflight_20260512.json",
+        "reports/strategy_shadow_promotion_preflight_20260512.md",
+        "reports/pgc_pullback_dip_buy.json"
+      ]
+    }
+  ],
+  "dossier_contract": "shadow_promotion_dossier_v1",
+  "generated_at": "2026-05-13T12:05:54+00:00",
+  "next_trade_date": "20260513",
+  "release_gate": {
+    "active_params_mutated": false,
+    "artifact_only": true,
+    "blocked_mutation_targets": [
+      "active_cpb_params",
+      "strategy_versions",
+      "trade_plans",
+      "trades",
+      "positions",
+      "paper_live_behavior",
+      "broker_execution",
+      "timer_state"
+    ],
+    "blocked_paths": [
+      "active_cpb_params",
+      "strategy_versions",
+      "trade_plans",
+      "trades",
+      "positions",
+      "paper_live_behavior",
+      "pgc-daily-pipeline.timer"
+    ],
+    "displayed_surfaces": [
+      "strategy_shadow_monitor artifact",
+      "strategy_shadow_promotion_preflight artifact",
+      "shadow_observation_scorecard artifact",
+      "shadow_strategy_snapshot API/CLI",
+      "Dashboard Shadow Lab",
+      "daily review shadow_observation section"
+    ],
+    "manual_approval_contract": "future_strategy_version_task_required",
+    "manual_promotion_approval_required": true,
+    "paper_observation_allowed": false,
+    "promotion_allowed": false,
+    "requires_explicit_blocker_clearance": true,
+    "review_ready_is_not_approval": true,
+    "status": "blocked",
+    "timer_mutated": false,
+    "trade_state_counts_unchanged": true,
+    "writes_paper_live_behavior": false,
+    "writes_trade_state": false
+  },
+  "safety": {
+    "active_params_mutated": false,
+    "artifact_only": true,
+    "dossier_is_review_evidence_only": true,
+    "paper_observation_allowed": false,
+    "promotion_allowed": false,
+    "read_only": true,
+    "timer_mutated": false,
+    "writes_paper_live_behavior": false,
+    "writes_trade_state": false,
+    "wrote_strategy_version": false,
+    "wrote_strategy_versions": false
+  },
+  "source_artifacts": {
+    "monitor_json": "reports/strategy_shadow_monitor_20260512.json",
+    "monitor_markdown": "reports/strategy_shadow_monitor_20260512.md",
+    "promotion_preflight_json": "reports/strategy_shadow_promotion_preflight_20260512.json",
+    "promotion_preflight_markdown": "reports/strategy_shadow_promotion_preflight_20260512.md"
+  },
+  "summary": {
+    "artifact_only": true,
+    "blocked_count": 5,
+    "candidate_count": 5,
+    "promotion_allowed": false,
+    "read_only": true,
+    "review_ready_count": 0,
+    "review_ready_is_not_approval": true,
+    "status": "blocked"
+  },
+  "threshold_metadata": {
+    "blocker_clearance": {
+      "manual_promotion_blocker_still_required": true,
+      "requires_zero_candidate_blockers": true
+    },
+    "drawdown_cap": {
+      "metric": "max_drawdown_pct or mae_10d_median_pct",
+      "minimum_drawdown_proxy_pct": -8.0
+    },
+    "evidence_coverage": {
+      "minimum_source_artifacts": 2,
+      "requires_linked_shadow_hypothesis": true
+    },
+    "minimum_sample": {
+      "reason": "minimum observation sample before promotion review readiness",
+      "required_days": 20
+    },
+    "positive_frozen_cpb_delta": {
+      "metric": "comparison_vs_frozen_cpb.t1_close_mean_delta_pct",
+      "minimum_delta_pct": 0.0
+    }
+  }
+}

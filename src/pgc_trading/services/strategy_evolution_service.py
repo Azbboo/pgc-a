@@ -215,6 +215,27 @@ class StrategyVersionProposalReviewArtifactReview:
 
 
 @dataclass(frozen=True)
+class ShadowPromotionDossierArtifactReview:
+    path: str
+    exists: bool
+    valid: bool
+    artifact_type: str | None = None
+    dossier_contract: str | None = None
+    candidate_count: int = 0
+    review_ready_count: int = 0
+    blocked_count: int = 0
+    review_ready_candidates: list[str] = field(default_factory=list)
+    active_params_mutated: bool | None = None
+    wrote_strategy_version: bool | None = None
+    wrote_strategy_versions: bool | None = None
+    writes_trade_state: bool | None = None
+    writes_paper_live_behavior: bool | None = None
+    timer_mutated: bool | None = None
+    promotion_allowed: bool | None = None
+    error: str | None = None
+
+
+@dataclass(frozen=True)
 class CreateStrategyVersionProposalResult:
     hypothesis_id: int | None = None
     hypothesis_status: str | None = None
@@ -1580,6 +1601,112 @@ def review_strategy_version_proposal_review_artifact(
             bool(writes_paper_live_behavior) if writes_paper_live_behavior is not None else None
         ),
         timer_mutated=bool(timer_mutated) if timer_mutated is not None else None,
+        error=error,
+    )
+
+
+def review_shadow_promotion_dossier_artifact(
+    artifact_path: str | Path,
+) -> ShadowPromotionDossierArtifactReview:
+    path = Path(artifact_path).expanduser()
+    if not path.exists():
+        return ShadowPromotionDossierArtifactReview(
+            path=str(path),
+            exists=False,
+            valid=False,
+            error="shadow promotion dossier artifact was not found.",
+        )
+    try:
+        artifact = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return ShadowPromotionDossierArtifactReview(
+            path=str(path),
+            exists=True,
+            valid=False,
+            error=f"shadow promotion dossier artifact is not valid JSON: {exc}",
+        )
+    if not isinstance(artifact, dict):
+        return ShadowPromotionDossierArtifactReview(
+            path=str(path),
+            exists=True,
+            valid=False,
+            error="shadow promotion dossier artifact must be a JSON object.",
+        )
+
+    artifact_type = artifact.get("artifact_type")
+    dossier_contract = artifact.get("dossier_contract")
+    summary = artifact.get("summary") if isinstance(artifact.get("summary"), dict) else {}
+    release_gate = artifact.get("release_gate") if isinstance(artifact.get("release_gate"), dict) else {}
+    safety = artifact.get("safety") if isinstance(artifact.get("safety"), dict) else {}
+    candidates = artifact.get("candidates") if isinstance(artifact.get("candidates"), list) else []
+    candidate_dicts = [dict(item) for item in candidates if isinstance(item, dict)]
+    review_ready_candidates = [
+        str(item.get("candidate_key"))
+        for item in candidate_dicts
+        if item.get("review_status") == "review_ready" and item.get("candidate_key") is not None
+    ]
+    candidate_promotion_allowed = any(
+        bool(item.get("promotion_allowed"))
+        or (
+            isinstance(item.get("promotion_gate"), dict)
+            and bool(item["promotion_gate"].get("promotion_allowed"))
+        )
+        for item in candidate_dicts
+    )
+    active_params_mutated = bool(safety.get("active_params_mutated"))
+    wrote_strategy_version = bool(safety.get("wrote_strategy_version"))
+    wrote_strategy_versions = bool(safety.get("wrote_strategy_versions"))
+    writes_trade_state = bool(safety.get("writes_trade_state"))
+    writes_paper_live_behavior = bool(safety.get("writes_paper_live_behavior"))
+    timer_mutated = bool(safety.get("timer_mutated"))
+    promotion_allowed = any(
+        bool(value)
+        for value in (
+            safety.get("promotion_allowed"),
+            summary.get("promotion_allowed"),
+            release_gate.get("promotion_allowed"),
+            candidate_promotion_allowed,
+        )
+    )
+    valid_type = artifact_type == "shadow_promotion_dossier"
+    valid_contract = dossier_contract == "shadow_promotion_dossier_v1"
+    valid_safety = not any(
+        [
+            active_params_mutated,
+            wrote_strategy_version,
+            wrote_strategy_versions,
+            writes_trade_state,
+            writes_paper_live_behavior,
+            timer_mutated,
+            promotion_allowed,
+        ]
+    )
+    error = None
+    if not valid_type:
+        error = "shadow promotion dossier artifact must use artifact_type=shadow_promotion_dossier."
+    elif not valid_contract:
+        error = "shadow promotion dossier artifact must use dossier_contract=shadow_promotion_dossier_v1."
+    elif not valid_safety:
+        error = "shadow promotion dossier reports mutation or promotion permission."
+
+    return ShadowPromotionDossierArtifactReview(
+        path=str(path),
+        exists=True,
+        valid=valid_type and valid_contract and valid_safety,
+        artifact_type=str(artifact_type) if artifact_type is not None else None,
+        dossier_contract=str(dossier_contract) if dossier_contract is not None else None,
+        candidate_count=_optional_int(summary.get("candidate_count")) or len(candidate_dicts),
+        review_ready_count=_optional_int(summary.get("review_ready_count")) or len(review_ready_candidates),
+        blocked_count=_optional_int(summary.get("blocked_count"))
+        or sum(1 for item in candidate_dicts if item.get("review_status") == "blocked"),
+        review_ready_candidates=review_ready_candidates,
+        active_params_mutated=active_params_mutated,
+        wrote_strategy_version=wrote_strategy_version,
+        wrote_strategy_versions=wrote_strategy_versions,
+        writes_trade_state=writes_trade_state,
+        writes_paper_live_behavior=writes_paper_live_behavior,
+        timer_mutated=timer_mutated,
+        promotion_allowed=promotion_allowed,
         error=error,
     )
 

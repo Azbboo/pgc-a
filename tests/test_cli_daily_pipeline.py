@@ -35,6 +35,9 @@ class _FakePipelineData:
     market_plan_context_status: str | None = "skipped"
     market_review_would_write: bool = False
     market_plan_context_would_write: bool = False
+    shadow_observation_status: str | None = "blocked"
+    shadow_observation_top_candidates: str | None = "trend_extension_shadow[status=blocked,today=3]"
+    shadow_observation_blockers: str | None = "operator_review_required:1"
 
 
 class _FakeDailyPipelineService:
@@ -103,6 +106,9 @@ class CliDailyPipelineTest(unittest.TestCase):
         self.assertIn("report_json=reports/daily_review_20260508.json", output)
         self.assertIn("changed=false", output)
         self.assertIn("report_would_write=false", output)
+        self.assertIn("shadow_observation_status=blocked", output)
+        self.assertIn("shadow_observation_top_candidates=trend_extension_shadow", output)
+        self.assertIn("shadow_observation_blockers=operator_review_required:1", output)
         self.assertIn("market_review_status=skipped", output)
         self.assertIn("market_plan_context_status=skipped", output)
         self.assertIn("market_review_would_write=false", output)

@@ -14,6 +14,7 @@ from pgc_trading.api.routes import (
     get_market_review,
     get_market_review_plan_context,
     get_paper_acceptance,
+    get_shadow_observation_scorecard,
     get_shadow_strategy_snapshot,
     list_ops_history,
     list_paper_acceptance_history,
@@ -409,6 +410,58 @@ class _FakeShadowStrategyService:
         )
 
 
+class _FakeShadowObservationService:
+    calls: list[tuple[Path, object, object]] = []
+
+    def __init__(self, db_path: Path):
+        self.db_path = db_path
+
+    def get_scorecard(self, request, ctx):
+        self.calls.append((self.db_path, request, ctx))
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data={
+                "scorecard_contract": "shadow_observation_scorecard_v1",
+                "as_of_date": request.as_of_date,
+                "status": "blocked",
+                "counts": {
+                    "candidate_count": 1,
+                    "blocked_candidate_count": 1,
+                    "insufficient_sample_count": 0,
+                    "market_data_gap_count": 0,
+                },
+                "summary": {
+                    "top_candidate_key": "trend_extension_shadow",
+                    "operator_note": "Observation queue is read-only research; it is not paper trading.",
+                },
+                "rows": [
+                    {
+                        "rank": 1,
+                        "candidate_key": "trend_extension_shadow",
+                        "observation_status": "blocked",
+                        "outcome_score": 41.2,
+                        "sample_coverage_status": "complete",
+                        "blocker_count": 2,
+                        "frozen_cpb_delta_pct": -8.11,
+                        "promotion_blocked_reason": "operator_review_required",
+                    }
+                ],
+                "safety": {
+                    "read_only": True,
+                    "artifact_only": True,
+                    "observation_is_not_paper_trading": True,
+                    "active_params_mutated": False,
+                    "writes_trade_state": False,
+                    "timer_mutated": False,
+                    "promotion_allowed": False,
+                    "trade_plan_allowed": False,
+                },
+            },
+            lineage={"read_only": "true", "scorecard_contract": "shadow_observation_scorecard_v1"},
+        )
+
+
 class _FakePositionService:
     calls: list[tuple[Path, object, object]] = []
 
@@ -482,6 +535,7 @@ class ApiReadRoutesTest(unittest.TestCase):
         _FakeDecisionActionLogService.calls = []
         _FakeEvidenceCoverageLedgerService.calls = []
         _FakeShadowStrategyService.calls = []
+        _FakeShadowObservationService.calls = []
         _FakeOpenExecutionService.calls = []
         _FakePositionService.calls = []
         _FakePortfolioService.calls = []
@@ -494,6 +548,7 @@ class ApiReadRoutesTest(unittest.TestCase):
             decision_action_log_service_factory=_FakeDecisionActionLogService,
             evidence_coverage_ledger_service_factory=_FakeEvidenceCoverageLedgerService,
             shadow_strategy_service_factory=_FakeShadowStrategyService,
+            shadow_observation_service_factory=_FakeShadowObservationService,
             open_execution_service_factory=_FakeOpenExecutionService,
             portfolio_planning_service_factory=_FakePortfolioService,
             position_lifecycle_service_factory=_FakePositionService,
@@ -766,6 +821,37 @@ class ApiReadRoutesTest(unittest.TestCase):
         self.assertTrue(ctx.dry_run)
         self.assertEqual(ctx.source, "api")
         self.assertEqual(ctx.request_id, "req-api-shadow-snapshot")
+
+    def test_shadow_observation_scorecard_route_is_read_only_and_normalizes_date(self) -> None:
+        response = _Response()
+
+        payload = get_shadow_observation_scorecard(
+            self.settings,
+            self.services,
+            response,
+            as_of_date="2026-05-12",
+            request_id="req-api-shadow-observation",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["data"]["as_of_date"], "20260512")
+        self.assertEqual(payload["data"]["scorecard_contract"], "shadow_observation_scorecard_v1")
+        self.assertEqual(payload["data"]["summary"]["top_candidate_key"], "trend_extension_shadow")
+        self.assertEqual(payload["data"]["rows"][0]["sample_coverage_status"], "complete")
+        self.assertTrue(payload["data"]["safety"]["read_only"])
+        self.assertTrue(payload["data"]["safety"]["artifact_only"])
+        self.assertTrue(payload["data"]["safety"]["observation_is_not_paper_trading"])
+        self.assertFalse(payload["data"]["safety"]["active_params_mutated"])
+        self.assertFalse(payload["data"]["safety"]["writes_trade_state"])
+        self.assertFalse(payload["data"]["safety"]["timer_mutated"])
+        self.assertFalse(payload["data"]["safety"]["promotion_allowed"])
+        db_path, request, ctx = _FakeShadowObservationService.calls[0]
+        self.assertEqual(db_path, self.settings.db_path)
+        self.assertEqual(request.as_of_date, "20260512")
+        self.assertTrue(ctx.dry_run)
+        self.assertEqual(ctx.source, "api")
+        self.assertEqual(ctx.request_id, "req-api-shadow-observation")
 
     def test_daily_review_history_route_passes_filters_to_reporting_service(self) -> None:
         response = _Response()

@@ -19,6 +19,7 @@ from pgc_trading.ops import (
     run_market_review_parity_check,
     run_ops_health_check,
     run_ops_migration_step,
+    run_shadow_observation_scorecard,
     run_shadow_strategy_snapshot,
 )
 from pgc_trading.reporting.daily_report import (
@@ -1128,6 +1129,34 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
     _add_lifecycle_context_arguments(ops_shadow_snapshot)
     _add_db_path_argument(ops_shadow_snapshot)
     ops_shadow_snapshot.set_defaults(handler=_run_ops_shadow_snapshot)
+
+    ops_shadow_observation = ops_subparsers.add_parser(
+        "shadow-observation",
+        help="show the read-only shadow observation scorecard",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    ops_shadow_observation.add_argument(
+        "--date",
+        "--as-of-date",
+        dest="date",
+        type=_parse_report_date,
+        help="optional shadow observation date in ISO or YYYYMMDD format; defaults to latest artifact",
+    )
+    ops_shadow_observation.add_argument(
+        "--reports-dir",
+        type=Path,
+        default=Paths().reports_dir,
+        help="reports directory containing strategy_shadow_monitor/preflight artifacts",
+    )
+    ops_shadow_observation.add_argument(
+        "--compact",
+        action="store_true",
+        help="print only the compact observation summary and omit full JSON payloads",
+    )
+    _add_lifecycle_context_arguments(ops_shadow_observation)
+    _add_db_path_argument(ops_shadow_observation)
+    ops_shadow_observation.set_defaults(handler=_run_ops_shadow_observation)
 
     return parser
 
@@ -2479,6 +2508,22 @@ def _run_ops_shadow_snapshot(args: argparse.Namespace, stdout: TextIO, services:
     return 0 if result.ok else 1
 
 
+def _run_ops_shadow_observation(args: argparse.Namespace, stdout: TextIO, services: CommandServices) -> int:
+    db_path = _normalized_db_path(args.db_path)
+    reports_dir = _normalized_db_path(args.reports_dir)
+    command = "ops shadow-observation"
+
+    try:
+        result = run_shadow_observation_scorecard(db_path, as_of_date=args.date, reports_dir=reports_dir)
+    except sqlite3.OperationalError as exc:
+        stdout.write("shadow_observation_status=failed\n")
+        stdout.write(f"database_error={exc}\n")
+        return 1
+
+    _write_shadow_observation_scorecard_result(stdout, command, db_path, reports_dir, result, compact=args.compact)
+    return 0 if result.ok else 1
+
+
 def _add_date_argument(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--date",
@@ -3133,6 +3178,12 @@ def _write_shadow_strategy_snapshot_result(
         f"promotion_allowed={_display_bool(bool(safety.get('promotion_allowed', False)))}\n"
     )
     stdout.write(f"shadow_top_candidates={_shadow_compact_candidates(candidates)}\n")
+    stdout.write(f"shadow_observation_status={getattr(data, 'status', 'unknown')}\n")
+    stdout.write(f"shadow_observation_top_candidates={_shadow_compact_candidates(candidates)}\n")
+    stdout.write(
+        "shadow_observation_coverage_blockers="
+        f"{_shadow_compact_blockers(getattr(data, 'blocker_counts', {}))}\n"
+    )
     stdout.write(
         "shadow_artifact_notice=research-only artifact feed; no active strategy, trade, or timer mutation\n"
     )
@@ -3146,6 +3197,82 @@ def _write_shadow_strategy_snapshot_result(
         stdout.write(f"shadow_candidates_json={_json_compact(candidates)}\n")
 
 
+def _write_shadow_observation_scorecard_result(
+    stdout: TextIO,
+    command: str,
+    db_path: Path,
+    reports_dir: Path,
+    result: ServiceResult[object],
+    *,
+    compact: bool = False,
+) -> None:
+    data = result.data
+    as_of_date = getattr(data, "as_of_date", None) if data is not None else None
+    _write_routed_message(
+        stdout,
+        command,
+        as_of_date or "latest",
+        db_path,
+        f"service returned {result.status}",
+    )
+    _write_warnings_and_errors(stdout, result)
+    if data is None:
+        return
+
+    counts = getattr(data, "counts", {})
+    summary = getattr(data, "summary", {})
+    rows = getattr(data, "rows", [])
+    safety = getattr(data, "safety", {})
+    stdout.write(f"shadow_observation_status={result.status}\n")
+    stdout.write(f"scorecard_contract={getattr(data, 'scorecard_contract', 'shadow_observation_scorecard_v1')}\n")
+    stdout.write(f"as_of_date={as_of_date or 'latest'}\n")
+    stdout.write(f"next_trade_date={getattr(data, 'next_trade_date', None) or 'none'}\n")
+    stdout.write(f"reports_dir={reports_dir}\n")
+    stdout.write(f"scorecard_feed_status={getattr(data, 'status', 'unknown')}\n")
+    stdout.write(f"candidate_count={counts.get('candidate_count', 0)}\n")
+    stdout.write(f"blocked_candidate_count={counts.get('blocked_candidate_count', 0)}\n")
+    stdout.write(f"insufficient_sample_count={counts.get('insufficient_sample_count', 0)}\n")
+    stdout.write(f"market_data_gap_count={counts.get('market_data_gap_count', 0)}\n")
+    stdout.write(
+        "shadow_observation_summary="
+        f"status={getattr(data, 'status', 'unknown')} "
+        f"candidates={counts.get('candidate_count', 0)} "
+        f"blocked={counts.get('blocked_candidate_count', 0)} "
+        f"top={summary.get('top_candidate_key') or 'none'} "
+        f"read_only={_display_bool(bool(getattr(data, 'read_only', True)))} "
+        f"not_paper_trading={_display_bool(bool(safety.get('observation_is_not_paper_trading', True)))} "
+        f"promotion_allowed={_display_bool(bool(safety.get('promotion_allowed', False)))}\n"
+    )
+    stdout.write(f"shadow_observation_top_candidates={_shadow_observation_compact_rows(rows)}\n")
+    stdout.write(
+        "shadow_observation_notice=read-only observation queue; not paper trading; no promote/trade/plan/timer mutation\n"
+    )
+    if compact:
+        return
+    stdout.write(f"shadow_observation_counts_json={_json_compact(counts)}\n")
+    stdout.write(f"shadow_observation_safety_json={_json_compact(safety)}\n")
+    stdout.write(f"shadow_observation_rows_json={_json_compact(rows)}\n")
+
+
+def _shadow_observation_compact_rows(rows: object) -> str:
+    if not isinstance(rows, list) or not rows:
+        return "none"
+    parts = []
+    for row in rows[:3]:
+        if not isinstance(row, dict):
+            continue
+        parts.append(
+            f"{row.get('candidate_key', 'unknown')}"
+            f"[rank={row.get('rank', '-')},"
+            f"score={row.get('outcome_score', '-')},"
+            f"coverage={row.get('sample_coverage_status', 'unknown')},"
+            f"blockers={row.get('blocker_count', 0)},"
+            f"delta={row.get('frozen_cpb_delta_pct', '-')}]"
+        )
+    suffix = f";+{len(rows) - 3}" if len(rows) > 3 else ""
+    return ";".join(parts) + suffix if parts else "none"
+
+
 def _shadow_compact_candidates(candidates: object) -> str:
     if not isinstance(candidates, list) or not candidates:
         return "none"
@@ -3156,6 +3283,12 @@ def _shadow_compact_candidates(candidates: object) -> str:
     parts = [_shadow_compact_candidate(candidate) for candidate in ordered[:3]]
     suffix = f";+{len(ordered) - 3}" if len(ordered) > 3 else ""
     return ";".join(parts) + suffix if parts else "none"
+
+
+def _shadow_compact_blockers(blocker_counts: object) -> str:
+    if not isinstance(blocker_counts, dict) or not blocker_counts:
+        return "none"
+    return ";".join(f"{key}:{blocker_counts[key]}" for key in sorted(blocker_counts))
 
 
 def _shadow_compact_candidate(candidate: dict[str, object]) -> str:
@@ -3818,6 +3951,15 @@ def _write_daily_pipeline_result(stdout: TextIO, result: ServiceResult[object]) 
     stdout.write(f"exit_status={getattr(data, 'exit_status', None) or 'none'}\n")
     stdout.write(f"report_status={getattr(data, 'report_status', None) or 'none'}\n")
     stdout.write(f"report_would_write={str(bool(getattr(data, 'report_would_write', False))).lower()}\n")
+    stdout.write(f"shadow_observation_status={getattr(data, 'shadow_observation_status', None) or 'none'}\n")
+    stdout.write(
+        "shadow_observation_top_candidates="
+        f"{getattr(data, 'shadow_observation_top_candidates', None) or 'none'}\n"
+    )
+    stdout.write(
+        "shadow_observation_blockers="
+        f"{getattr(data, 'shadow_observation_blockers', None) or 'none'}\n"
+    )
     stdout.write(f"market_review_would_write={str(bool(getattr(data, 'market_review_would_write', False))).lower()}\n")
     stdout.write(
         "market_plan_context_would_write="

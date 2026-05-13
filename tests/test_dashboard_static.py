@@ -47,6 +47,7 @@ class DashboardStaticTest(unittest.TestCase):
             "/api/decision-action-log",
             "/api/ops-history",
             "/api/shadow-strategy-snapshot",
+            "/api/shadow-observation-scorecard",
             "/api/review-timeline",
             "/api/trade-plans",
             "/api/open-execution",
@@ -869,6 +870,51 @@ class DashboardStaticTest(unittest.TestCase):
         self.assertIn("writes_trade_state", source)
         self.assertIn("timer_mutated", source)
         self.assertNotIn('apiRequest("/api/shadow-strategy-snapshot", { method: "POST"', script)
+
+    def test_dashboard_m84_shadow_observation_queue_is_visible_and_read_only(self) -> None:
+        source = "\n".join(
+            [
+                (DASHBOARD_DIR / "index.html").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "styles.css").read_text(encoding="utf-8"),
+            ]
+        )
+        script = (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8")
+
+        for label in [
+            "观察队列",
+            "归因抽屉",
+            "shadow_observation_scorecard_v1",
+            "观察不是 paper trading",
+            "Outcome score",
+            "sample coverage",
+            "frozen-CPB delta",
+            "Promotion remains blocked",
+            "no promote/trade/plan/timer controls",
+            "/api/shadow-observation-scorecard",
+        ]:
+            self.assertIn(label, source)
+        for html_id in [
+            'id="shadowObservationQueueState"',
+            'id="shadowObservationQueue"',
+        ]:
+            self.assertIn(html_id, source)
+        for fn_name in [
+            "function loadShadowObservationScorecard",
+            "function renderShadowObservationQueue",
+            "function openShadowObservationDrawer",
+            "function onShadowObservationClick",
+            "function findShadowObservationRow",
+            "function sampleCoverageText",
+        ]:
+            self.assertIn(fn_name, source)
+        self.assertIn("data-shadow-observation-key", source)
+        self.assertIn("observation_is_not_paper_trading", source)
+        self.assertIn("trade_plan_allowed", source)
+        self.assertNotIn('apiRequest("/api/shadow-observation-scorecard", { method: "POST"', script)
+        self.assertNotIn("data-shadow-promote", source)
+        self.assertNotIn("data-shadow-trade", source)
+        self.assertNotIn("data-shadow-timer", source)
 
     def test_dashboard_p1_cancel_and_execution_guardrails_are_visible(self) -> None:
         source = "\n".join(

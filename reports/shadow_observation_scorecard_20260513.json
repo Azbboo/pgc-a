@@ -1,0 +1,590 @@
+{
+  "artifact_type": "shadow_observation_scorecard",
+  "generated_at": "2026-05-13T12:05:54+00:00",
+  "review_date": "20260513",
+  "next_trade_date": "20260514",
+  "status": "blocked",
+  "read_only": true,
+  "artifact_only": true,
+  "candidate_count": 5,
+  "blocked_candidate_count": 5,
+  "distinct_blocker_count": 23,
+  "coverage_blockers": [
+    {
+      "code": "active_cpb_db_params_hash_mismatch",
+      "count": 1
+    },
+    {
+      "code": "chase_gap_guard_required",
+      "count": 1
+    },
+    {
+      "code": "close_return_stability_required",
+      "count": 1
+    },
+    {
+      "code": "dip_buy_stop_and_sizing_required",
+      "count": 1
+    },
+    {
+      "code": "falling_knife_guard_required",
+      "count": 1
+    },
+    {
+      "code": "liquidity_slippage_review_required",
+      "count": 1
+    },
+    {
+      "code": "micro_sleeve_risk_model_required",
+      "count": 1
+    },
+    {
+      "code": "next_day_confirmation_rule_required",
+      "count": 1
+    },
+    {
+      "code": "operator_promotion_approval_required",
+      "count": 5
+    },
+    {
+      "code": "operator_review_required",
+      "count": 5
+    },
+    {
+      "code": "paper_observation_not_authorized",
+      "count": 5
+    },
+    {
+      "code": "proposal_review_required",
+      "count": 5
+    },
+    {
+      "code": "replay_backtest_result_artifact_required",
+      "count": 5
+    },
+    {
+      "code": "sector_evidence_confirmation_required",
+      "count": 1
+    },
+    {
+      "code": "separate_breakout_pressure_candidate_required",
+      "count": 1
+    },
+    {
+      "code": "separate_dip_buy_candidate_required",
+      "count": 1
+    },
+    {
+      "code": "separate_low_price_micro_sleeve_required",
+      "count": 1
+    },
+    {
+      "code": "separate_trend_extension_candidate_required",
+      "count": 1
+    },
+    {
+      "code": "strategy_version_proposal_not_authorized",
+      "count": 5
+    },
+    {
+      "code": "volume_overheat_guard_required",
+      "count": 1
+    },
+    {
+      "code": "walk_forward_shadow_monitor_20_trading_days_required",
+      "count": 5
+    },
+    {
+      "code": "watchlist_only_ui_lane_required",
+      "count": 1
+    },
+    {
+      "code": "watchlist_to_signal_contract_required",
+      "count": 1
+    }
+  ],
+  "top_candidates": [
+    {
+      "candidate_key": "breakout_pressure_shadow",
+      "candidate_family": "shadow_bucket",
+      "status": "blocked",
+      "today_candidate_count": 68,
+      "today_top": {
+        "ts_code": "002112.SZ",
+        "name": "三变科技",
+        "industry": "电气设备",
+        "entry_date": "20260323",
+        "entry_price": 23.95,
+        "review_date": "20260513",
+        "review_close": 23.09,
+        "bucket": "breakout_pressure_shadow",
+        "score": 106.364,
+        "entry_runup_pct": -3.59,
+        "ret3_pct": 10.0,
+        "ret5_pct": 10.43,
+        "ret10_pct": 15.33,
+        "dist20_high_pct": -0.69,
+        "dist5_high_pct": -0.69,
+        "close_pos20": 0.961,
+        "amount_to_ma10": 2.378,
+        "amount_to_ma20": 2.3458,
+        "day_pct_chg": 5.05
+      },
+      "walk_forward_status": "complete",
+      "walk_forward_days": 20,
+      "paper_observation_allowed": false,
+      "promotion_allowed": false,
+      "blocker_count": 10,
+      "blockers": [
+        "paper_observation_not_authorized",
+        "walk_forward_shadow_monitor_20_trading_days_required",
+        "operator_review_required",
+        "volume_overheat_guard_required",
+        "close_return_stability_required",
+        "strategy_version_proposal_not_authorized",
+        "replay_backtest_result_artifact_required",
+        "proposal_review_required",
+        "operator_promotion_approval_required",
+        "separate_breakout_pressure_candidate_required"
+      ],
+      "comparison_vs_frozen_cpb": {
+        "status": "compared",
+        "baseline_label": "active_cpb_persisted_picks",
+        "baseline_days": 2,
+        "candidate_days": 20,
+        "t1_close_mean_delta_pct": -8.8,
+        "t1_close_win_rate_delta_pct": 20.0,
+        "t5_close_mean_delta_pct": null,
+        "sample_warning": "baseline_sample_lt_20"
+      }
+    },
+    {
+      "candidate_key": "low_price_momentum_shadow",
+      "candidate_family": "shadow_bucket",
+      "status": "blocked",
+      "today_candidate_count": 66,
+      "today_top": {
+        "ts_code": "600719.SH",
+        "name": "大连热电",
+        "industry": "供气供热",
+        "entry_date": "20260326",
+        "entry_price": 7.53,
+        "review_date": "20260513",
+        "review_close": 10.83,
+        "bucket": "low_price_momentum_shadow",
+        "score": 115.3768,
+        "entry_runup_pct": 43.82,
+        "ret3_pct": 19.14,
+        "ret5_pct": 26.96,
+        "ret10_pct": 46.75,
+        "dist20_high_pct": -7.28,
+        "dist5_high_pct": -7.28,
+        "close_pos20": 0.8337,
+        "amount_to_ma10": 2.5128,
+        "amount_to_ma20": 4.0085,
+        "day_pct_chg": 1.98
+      },
+      "walk_forward_status": "complete",
+      "walk_forward_days": 20,
+      "paper_observation_allowed": false,
+      "promotion_allowed": false,
+      "blocker_count": 10,
+      "blockers": [
+        "paper_observation_not_authorized",
+        "walk_forward_shadow_monitor_20_trading_days_required",
+        "operator_review_required",
+        "micro_sleeve_risk_model_required",
+        "liquidity_slippage_review_required",
+        "strategy_version_proposal_not_authorized",
+        "replay_backtest_result_artifact_required",
+        "proposal_review_required",
+        "operator_promotion_approval_required",
+        "separate_low_price_micro_sleeve_required"
+      ],
+      "comparison_vs_frozen_cpb": {
+        "status": "compared",
+        "baseline_label": "active_cpb_persisted_picks",
+        "baseline_days": 2,
+        "candidate_days": 20,
+        "t1_close_mean_delta_pct": -7.37,
+        "t1_close_win_rate_delta_pct": 10.0,
+        "t5_close_mean_delta_pct": null,
+        "sample_warning": "baseline_sample_lt_20"
+      }
+    },
+    {
+      "candidate_key": "trend_extension_shadow",
+      "candidate_family": "shadow_bucket",
+      "status": "blocked",
+      "today_candidate_count": 49,
+      "today_top": {
+        "ts_code": "002428.SZ",
+        "name": "云南锗业",
+        "industry": "小金属",
+        "entry_date": "20251127",
+        "entry_price": 26.52,
+        "review_date": "20260513",
+        "review_close": 101.51,
+        "bucket": "trend_extension_shadow",
+        "score": 124.0459,
+        "entry_runup_pct": 282.77,
+        "ret3_pct": 17.94,
+        "ret5_pct": 31.81,
+        "ret10_pct": 31.63,
+        "dist20_high_pct": -3.42,
+        "dist5_high_pct": -3.42,
+        "close_pos20": 0.9295,
+        "amount_to_ma10": 1.2684,
+        "amount_to_ma20": 1.3946,
+        "day_pct_chg": 0.09
+      },
+      "walk_forward_status": "complete",
+      "walk_forward_days": 20,
+      "paper_observation_allowed": false,
+      "promotion_allowed": false,
+      "blocker_count": 10,
+      "blockers": [
+        "paper_observation_not_authorized",
+        "walk_forward_shadow_monitor_20_trading_days_required",
+        "operator_review_required",
+        "sector_evidence_confirmation_required",
+        "chase_gap_guard_required",
+        "strategy_version_proposal_not_authorized",
+        "replay_backtest_result_artifact_required",
+        "proposal_review_required",
+        "operator_promotion_approval_required",
+        "separate_trend_extension_candidate_required"
+      ],
+      "comparison_vs_frozen_cpb": {
+        "status": "compared",
+        "baseline_label": "active_cpb_persisted_picks",
+        "baseline_days": 2,
+        "candidate_days": 20,
+        "t1_close_mean_delta_pct": -7.9,
+        "t1_close_win_rate_delta_pct": 0.0,
+        "t5_close_mean_delta_pct": null,
+        "sample_warning": "baseline_sample_lt_20"
+      }
+    },
+    {
+      "candidate_key": "preconfirm_watchlist",
+      "candidate_family": "preconfirm_watchlist",
+      "status": "blocked",
+      "today_candidate_count": null,
+      "today_top": {},
+      "walk_forward_status": "complete",
+      "walk_forward_days": 27,
+      "paper_observation_allowed": false,
+      "promotion_allowed": false,
+      "blocker_count": 10,
+      "blockers": [
+        "paper_observation_not_authorized",
+        "walk_forward_shadow_monitor_20_trading_days_required",
+        "operator_review_required",
+        "next_day_confirmation_rule_required",
+        "watchlist_only_ui_lane_required",
+        "strategy_version_proposal_not_authorized",
+        "replay_backtest_result_artifact_required",
+        "proposal_review_required",
+        "operator_promotion_approval_required",
+        "watchlist_to_signal_contract_required"
+      ],
+      "comparison_vs_frozen_cpb": {
+        "status": "compared",
+        "baseline_label": "active_cpb_persisted_picks",
+        "baseline_days": 2,
+        "candidate_days": 27,
+        "t1_close_mean_delta_pct": -6.79,
+        "t1_close_win_rate_delta_pct": 17.57,
+        "t5_close_mean_delta_pct": null,
+        "sample_warning": "baseline_sample_lt_20"
+      }
+    },
+    {
+      "candidate_key": "pullback_dip_buy",
+      "candidate_family": "dip_buy",
+      "status": "blocked",
+      "today_candidate_count": null,
+      "today_top": {},
+      "walk_forward_status": "artifact_summary_only",
+      "walk_forward_days": null,
+      "paper_observation_allowed": false,
+      "promotion_allowed": false,
+      "blocker_count": 10,
+      "blockers": [
+        "paper_observation_not_authorized",
+        "walk_forward_shadow_monitor_20_trading_days_required",
+        "operator_review_required",
+        "dip_buy_stop_and_sizing_required",
+        "falling_knife_guard_required",
+        "strategy_version_proposal_not_authorized",
+        "replay_backtest_result_artifact_required",
+        "proposal_review_required",
+        "operator_promotion_approval_required",
+        "separate_dip_buy_candidate_required"
+      ],
+      "comparison_vs_frozen_cpb": {
+        "status": "compared",
+        "baseline_label": "active_cpb_persisted_picks",
+        "baseline_days": 2,
+        "candidate_days": null,
+        "t1_close_mean_delta_pct": null,
+        "t1_close_win_rate_delta_pct": null,
+        "t5_close_mean_delta_pct": null,
+        "sample_warning": "baseline_sample_lt_20"
+      }
+    }
+  ],
+  "candidates": [
+    {
+      "candidate_key": "trend_extension_shadow",
+      "candidate_family": "shadow_bucket",
+      "status": "blocked",
+      "today_candidate_count": 49,
+      "today_top": {
+        "ts_code": "002428.SZ",
+        "name": "云南锗业",
+        "industry": "小金属",
+        "entry_date": "20251127",
+        "entry_price": 26.52,
+        "review_date": "20260513",
+        "review_close": 101.51,
+        "bucket": "trend_extension_shadow",
+        "score": 124.0459,
+        "entry_runup_pct": 282.77,
+        "ret3_pct": 17.94,
+        "ret5_pct": 31.81,
+        "ret10_pct": 31.63,
+        "dist20_high_pct": -3.42,
+        "dist5_high_pct": -3.42,
+        "close_pos20": 0.9295,
+        "amount_to_ma10": 1.2684,
+        "amount_to_ma20": 1.3946,
+        "day_pct_chg": 0.09
+      },
+      "walk_forward_status": "complete",
+      "walk_forward_days": 20,
+      "paper_observation_allowed": false,
+      "promotion_allowed": false,
+      "blocker_count": 10,
+      "blockers": [
+        "paper_observation_not_authorized",
+        "walk_forward_shadow_monitor_20_trading_days_required",
+        "operator_review_required",
+        "sector_evidence_confirmation_required",
+        "chase_gap_guard_required",
+        "strategy_version_proposal_not_authorized",
+        "replay_backtest_result_artifact_required",
+        "proposal_review_required",
+        "operator_promotion_approval_required",
+        "separate_trend_extension_candidate_required"
+      ],
+      "comparison_vs_frozen_cpb": {
+        "status": "compared",
+        "baseline_label": "active_cpb_persisted_picks",
+        "baseline_days": 2,
+        "candidate_days": 20,
+        "t1_close_mean_delta_pct": -7.9,
+        "t1_close_win_rate_delta_pct": 0.0,
+        "t5_close_mean_delta_pct": null,
+        "sample_warning": "baseline_sample_lt_20"
+      }
+    },
+    {
+      "candidate_key": "breakout_pressure_shadow",
+      "candidate_family": "shadow_bucket",
+      "status": "blocked",
+      "today_candidate_count": 68,
+      "today_top": {
+        "ts_code": "002112.SZ",
+        "name": "三变科技",
+        "industry": "电气设备",
+        "entry_date": "20260323",
+        "entry_price": 23.95,
+        "review_date": "20260513",
+        "review_close": 23.09,
+        "bucket": "breakout_pressure_shadow",
+        "score": 106.364,
+        "entry_runup_pct": -3.59,
+        "ret3_pct": 10.0,
+        "ret5_pct": 10.43,
+        "ret10_pct": 15.33,
+        "dist20_high_pct": -0.69,
+        "dist5_high_pct": -0.69,
+        "close_pos20": 0.961,
+        "amount_to_ma10": 2.378,
+        "amount_to_ma20": 2.3458,
+        "day_pct_chg": 5.05
+      },
+      "walk_forward_status": "complete",
+      "walk_forward_days": 20,
+      "paper_observation_allowed": false,
+      "promotion_allowed": false,
+      "blocker_count": 10,
+      "blockers": [
+        "paper_observation_not_authorized",
+        "walk_forward_shadow_monitor_20_trading_days_required",
+        "operator_review_required",
+        "volume_overheat_guard_required",
+        "close_return_stability_required",
+        "strategy_version_proposal_not_authorized",
+        "replay_backtest_result_artifact_required",
+        "proposal_review_required",
+        "operator_promotion_approval_required",
+        "separate_breakout_pressure_candidate_required"
+      ],
+      "comparison_vs_frozen_cpb": {
+        "status": "compared",
+        "baseline_label": "active_cpb_persisted_picks",
+        "baseline_days": 2,
+        "candidate_days": 20,
+        "t1_close_mean_delta_pct": -8.8,
+        "t1_close_win_rate_delta_pct": 20.0,
+        "t5_close_mean_delta_pct": null,
+        "sample_warning": "baseline_sample_lt_20"
+      }
+    },
+    {
+      "candidate_key": "low_price_momentum_shadow",
+      "candidate_family": "shadow_bucket",
+      "status": "blocked",
+      "today_candidate_count": 66,
+      "today_top": {
+        "ts_code": "600719.SH",
+        "name": "大连热电",
+        "industry": "供气供热",
+        "entry_date": "20260326",
+        "entry_price": 7.53,
+        "review_date": "20260513",
+        "review_close": 10.83,
+        "bucket": "low_price_momentum_shadow",
+        "score": 115.3768,
+        "entry_runup_pct": 43.82,
+        "ret3_pct": 19.14,
+        "ret5_pct": 26.96,
+        "ret10_pct": 46.75,
+        "dist20_high_pct": -7.28,
+        "dist5_high_pct": -7.28,
+        "close_pos20": 0.8337,
+        "amount_to_ma10": 2.5128,
+        "amount_to_ma20": 4.0085,
+        "day_pct_chg": 1.98
+      },
+      "walk_forward_status": "complete",
+      "walk_forward_days": 20,
+      "paper_observation_allowed": false,
+      "promotion_allowed": false,
+      "blocker_count": 10,
+      "blockers": [
+        "paper_observation_not_authorized",
+        "walk_forward_shadow_monitor_20_trading_days_required",
+        "operator_review_required",
+        "micro_sleeve_risk_model_required",
+        "liquidity_slippage_review_required",
+        "strategy_version_proposal_not_authorized",
+        "replay_backtest_result_artifact_required",
+        "proposal_review_required",
+        "operator_promotion_approval_required",
+        "separate_low_price_micro_sleeve_required"
+      ],
+      "comparison_vs_frozen_cpb": {
+        "status": "compared",
+        "baseline_label": "active_cpb_persisted_picks",
+        "baseline_days": 2,
+        "candidate_days": 20,
+        "t1_close_mean_delta_pct": -7.37,
+        "t1_close_win_rate_delta_pct": 10.0,
+        "t5_close_mean_delta_pct": null,
+        "sample_warning": "baseline_sample_lt_20"
+      }
+    },
+    {
+      "candidate_key": "preconfirm_watchlist",
+      "candidate_family": "preconfirm_watchlist",
+      "status": "blocked",
+      "today_candidate_count": null,
+      "today_top": {},
+      "walk_forward_status": "complete",
+      "walk_forward_days": 27,
+      "paper_observation_allowed": false,
+      "promotion_allowed": false,
+      "blocker_count": 10,
+      "blockers": [
+        "paper_observation_not_authorized",
+        "walk_forward_shadow_monitor_20_trading_days_required",
+        "operator_review_required",
+        "next_day_confirmation_rule_required",
+        "watchlist_only_ui_lane_required",
+        "strategy_version_proposal_not_authorized",
+        "replay_backtest_result_artifact_required",
+        "proposal_review_required",
+        "operator_promotion_approval_required",
+        "watchlist_to_signal_contract_required"
+      ],
+      "comparison_vs_frozen_cpb": {
+        "status": "compared",
+        "baseline_label": "active_cpb_persisted_picks",
+        "baseline_days": 2,
+        "candidate_days": 27,
+        "t1_close_mean_delta_pct": -6.79,
+        "t1_close_win_rate_delta_pct": 17.57,
+        "t5_close_mean_delta_pct": null,
+        "sample_warning": "baseline_sample_lt_20"
+      }
+    },
+    {
+      "candidate_key": "pullback_dip_buy",
+      "candidate_family": "dip_buy",
+      "status": "blocked",
+      "today_candidate_count": null,
+      "today_top": {},
+      "walk_forward_status": "artifact_summary_only",
+      "walk_forward_days": null,
+      "paper_observation_allowed": false,
+      "promotion_allowed": false,
+      "blocker_count": 10,
+      "blockers": [
+        "paper_observation_not_authorized",
+        "walk_forward_shadow_monitor_20_trading_days_required",
+        "operator_review_required",
+        "dip_buy_stop_and_sizing_required",
+        "falling_knife_guard_required",
+        "strategy_version_proposal_not_authorized",
+        "replay_backtest_result_artifact_required",
+        "proposal_review_required",
+        "operator_promotion_approval_required",
+        "separate_dip_buy_candidate_required"
+      ],
+      "comparison_vs_frozen_cpb": {
+        "status": "compared",
+        "baseline_label": "active_cpb_persisted_picks",
+        "baseline_days": 2,
+        "candidate_days": null,
+        "t1_close_mean_delta_pct": null,
+        "t1_close_win_rate_delta_pct": null,
+        "t5_close_mean_delta_pct": null,
+        "sample_warning": "baseline_sample_lt_20"
+      }
+    }
+  ],
+  "source_artifacts": {
+    "strategy_shadow_monitor_json": "reports/strategy_shadow_monitor_20260513.json",
+    "strategy_shadow_monitor_report": "reports/strategy_shadow_monitor_20260513.md",
+    "promotion_preflight_json": "reports/strategy_shadow_promotion_preflight_20260513.json",
+    "promotion_preflight_report": "reports/strategy_shadow_promotion_preflight_20260513.md",
+    "walk_forward_csv": "data/strategy_shadow_walk_forward_20260513.csv",
+    "watchlist_csv": "data/strategy_shadow_watchlist_20260513.csv"
+  },
+  "safety": {
+    "active_params_mutated": false,
+    "wrote_strategy_version": false,
+    "writes_trade_state": false,
+    "writes_paper_live_behavior": false,
+    "timer_mutated": false,
+    "read_only": true,
+    "artifact_only": true,
+    "promotion_allowed": false,
+    "paper_observation_allowed": false
+  },
+  "notice": "Observation scorecard is research-only and does not create active picks, trade plans, paper/live behavior, or timers."
+}

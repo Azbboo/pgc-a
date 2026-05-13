@@ -1,6 +1,6 @@
 # PGC 每日复盘报告
 
-生成时间：2026-05-13T08:50:26.105550+00:00
+生成时间：2026-05-13T11:51:15.994550+00:00
 复盘日：2026-05-13
 最新行情日：2026-05-13
 下一交易日：2026-05-14
@@ -141,14 +141,27 @@ readiness gates：
 - Provider pack：manifest_count=0；discovered=0
 - 安全边界：read_only=true；live_fetches=false；writes_trade_state=false
 
-## Shadow 策略观察
+## Shadow 策略观察 (shadow_observation)
 
-- 最新 artifact：monitor 2026-05-12 / preflight 2026-05-12；next_trade_date 2026-05-13
+- section_key：shadow_observation
+- 最新 artifact：monitor 2026-05-13 / preflight 2026-05-13；next_trade_date 2026-05-14
 - 状态：blocked；candidate 5；blocked 5；distinct blockers 23；hypotheses 5
 - blocker counts：active_cpb_db_params_hash_mismatch 1 / chase_gap_guard_required 1 / close_return_stability_required 1 / dip_buy_stop_and_sizing_required 1 / falling_knife_guard_required 1 / liquidity_slippage_review_required 1 / micro_sleeve_risk_model_required 1 / next_day_confirmation_rule_required 1 / operator_promotion_approval_required 5 / operator_review_required 5 / paper_observation_not_authorized 5 / proposal_review_required 5 / replay_backtest_result_artifact_required 5 / sector_evidence_confirmation_required 1 / separate_breakout_pressure_candidate_required 1 / separate_dip_buy_candidate_required 1 / separate_low_price_micro_sleeve_required 1 / separate_trend_extension_candidate_required 1 / strategy_version_proposal_not_authorized 5 / volume_overheat_guard_required 1 / walk_forward_shadow_monitor_20_trading_days_required 5 / watchlist_only_ui_lane_required 1 / watchlist_to_signal_contract_required 1
-- top candidates：low_price_momentum_shadow（shadow_bucket，today 72，walk complete，blockers 10:liquidity_slippage_review_required/micro_sleeve_risk_model_required，top 600719.SH 大连热电）；breakout_pressure_shadow（shadow_bucket，today 69，walk complete，blockers 10:close_return_stability_required/operator_promotion_approval_required，top 603042.SH 华脉科技）；trend_extension_shadow（shadow_bucket，today 47，walk complete，blockers 10:chase_gap_guard_required/operator_promotion_approval_required，top 002428.SZ 云南锗业）；另有 2 条
+- top candidates：breakout_pressure_shadow（shadow_bucket，today 68，walk complete，blockers 10:close_return_stability_required/operator_promotion_approval_required，top 002112.SZ 三变科技）；low_price_momentum_shadow（shadow_bucket，today 66，walk complete，blockers 10:liquidity_slippage_review_required/micro_sleeve_risk_model_required，top 600719.SH 大连热电）；trend_extension_shadow（shadow_bucket，today 49，walk complete，blockers 10:chase_gap_guard_required/operator_promotion_approval_required，top 002428.SZ 云南锗业）；另有 2 条
 - 安全边界：read_only=true；artifact_only=true；writes_trade_state=false；promotion_allowed=false
 - 提醒：Shadow 候选是 research-only，仅展示监控/预检 artifact，不会进入今日候选、生成交易计划或开启 timer。
+
+候选明细：
+
+| candidate | family | status | today | walk_forward | blockers | top |
+| --- | --- | --- | ---: | --- | --- | --- |
+| breakout_pressure_shadow | shadow_bucket | blocked | 68 | complete | 10:close_return_stability_required/operator_promotion_approval_required/operator_review_required/paper_observation_not_authorized/proposal_review_required/replay_backtest_result_artifact_required/separate_breakout_pressure_candidate_required/strategy_version_proposal_not_authorized/volume_overheat_guard_required/walk_forward_shadow_monitor_20_trading_days_required | 002112.SZ 三变科技 |
+| low_price_momentum_shadow | shadow_bucket | blocked | 66 | complete | 10:liquidity_slippage_review_required/micro_sleeve_risk_model_required/operator_promotion_approval_required/operator_review_required/paper_observation_not_authorized/proposal_review_required/replay_backtest_result_artifact_required/separate_low_price_micro_sleeve_required/strategy_version_proposal_not_authorized/walk_forward_shadow_monitor_20_trading_days_required | 600719.SH 大连热电 |
+| trend_extension_shadow | shadow_bucket | blocked | 49 | complete | 10:chase_gap_guard_required/operator_promotion_approval_required/operator_review_required/paper_observation_not_authorized/proposal_review_required/replay_backtest_result_artifact_required/sector_evidence_confirmation_required/separate_trend_extension_candidate_required/strategy_version_proposal_not_authorized/walk_forward_shadow_monitor_20_trading_days_required | 002428.SZ 云南锗业 |
+| pullback_dip_buy | dip_buy | blocked | - | artifact_summary_only | 11:daily_walk_forward_monitor_required_for_dip_buy/dip_buy_stop_and_sizing_required/falling_knife_guard_required/operator_promotion_approval_required/operator_review_required/paper_observation_not_authorized/proposal_review_required/replay_backtest_result_artifact_required/separate_dip_buy_candidate_required/strategy_version_proposal_not_authorized/walk_forward_shadow_monitor_20_trading_days_required | - |
+| preconfirm_watchlist | preconfirm_watchlist | blocked | - | complete | 10:next_day_confirmation_rule_required/operator_promotion_approval_required/operator_review_required/paper_observation_not_authorized/proposal_review_required/replay_backtest_result_artifact_required/strategy_version_proposal_not_authorized/walk_forward_shadow_monitor_20_trading_days_required/watchlist_only_ui_lane_required/watchlist_to_signal_contract_required | - |
+
+source_refs：monitor_json=/Users/azboo/Desktop/Person/pgc/reports/strategy_shadow_monitor_20260513.json; monitor_markdown=/Users/azboo/Desktop/Person/pgc/reports/strategy_shadow_monitor_20260513.md; promotion_preflight_json=/Users/azboo/Desktop/Person/pgc/reports/strategy_shadow_promotion_preflight_20260513.json; promotion_preflight_markdown=/Users/azboo/Desktop/Person/pgc/reports/strategy_shadow_promotion_preflight_20260513.md
 
 ## Agent 复核
 
