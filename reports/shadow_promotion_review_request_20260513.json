@@ -1,165 +1,302 @@
 {
   "artifact_type": "shadow_promotion_review_request",
   "as_of_date": "20260513",
-  "generated_at": "2026-05-13T13:11:24+00:00",
+  "generated_at": "2026-05-13T15:06:21+00:00",
   "replay_backtest_evidence": {
     "by_candidate": {
       "breakout_pressure_shadow": {
         "advisory_only": true,
-        "artifact_path": null,
-        "artifact_type": null,
-        "as_of_date": null,
-        "blockers": [
-          "replay_backtest_result_artifact_required"
-        ],
+        "artifact_path": "reports/shadow_replay_backtest_evidence_20260513_breakout_pressure_shadow.json",
+        "artifact_type": "shadow_replay_backtest_evidence",
+        "as_of_date": "20260513",
+        "blockers": [],
         "candidate_key": "breakout_pressure_shadow",
         "date_range": {
-          "end_date": null,
-          "start_date": null
+          "end_date": "20260513",
+          "start_date": "20260410"
         },
-        "error": "validated shadow replay/backtest evidence artifact is required.",
+        "error": null,
         "evidence_contract": "shadow_replay_backtest_evidence_v1",
-        "expected_source_hash": null,
-        "metrics": {},
-        "no_future_boundary": {},
+        "expected_source_hash": "fe454f1b8ffbe3fc406b1063a34629add082563a3a073595218456945a721f9d",
+        "metrics": {
+          "max_drawdown_pct": -15.66,
+          "source_row_count": 20,
+          "t1_close_mean_pct": 0.77,
+          "t1_close_win_rate_pct": 70.0,
+          "t1_high_mean_pct": 3.36,
+          "t1_sample_size": 20,
+          "t5_close_mean_pct": 7.83,
+          "t5_close_win_rate_pct": 56.25,
+          "t5_sample_size": 16
+        },
+        "no_future_boundary": {
+          "data_cutoff_date": "20260513",
+          "latest_market_date": "20260513",
+          "max_input_date": "20260513",
+          "passed": true
+        },
         "paper_observation_allowed": false,
         "promotion_allowed": false,
-        "provider": null,
+        "provider": "pgc_shadow_replay_backtest_evidence_producer_v1",
         "required_sample_size": 20,
-        "safety": {},
-        "sample_size": 0,
-        "source_hash": null,
-        "status": "missing",
-        "valid": false
+        "safety": {
+          "active_params_mutated": false,
+          "advisory_only": true,
+          "artifact_only": true,
+          "paper_live_deployment_changed": false,
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "read_only": true,
+          "timer_mutated": false,
+          "writes_paper_live_behavior": false,
+          "writes_trade_state": false,
+          "wrote_strategy_version": false,
+          "wrote_strategy_versions": false
+        },
+        "sample_size": 20,
+        "source_hash": "fe454f1b8ffbe3fc406b1063a34629add082563a3a073595218456945a721f9d",
+        "status": "accepted",
+        "valid": true
       },
       "low_price_momentum_shadow": {
         "advisory_only": true,
-        "artifact_path": null,
-        "artifact_type": null,
-        "as_of_date": null,
-        "blockers": [
-          "replay_backtest_result_artifact_required"
-        ],
+        "artifact_path": "reports/shadow_replay_backtest_evidence_20260513_low_price_momentum_shadow.json",
+        "artifact_type": "shadow_replay_backtest_evidence",
+        "as_of_date": "20260513",
+        "blockers": [],
         "candidate_key": "low_price_momentum_shadow",
         "date_range": {
-          "end_date": null,
-          "start_date": null
+          "end_date": "20260513",
+          "start_date": "20260410"
         },
-        "error": "validated shadow replay/backtest evidence artifact is required.",
+        "error": null,
         "evidence_contract": "shadow_replay_backtest_evidence_v1",
-        "expected_source_hash": null,
-        "metrics": {},
-        "no_future_boundary": {},
+        "expected_source_hash": "5955a7e2f313e987a3b914c618cbad7e33e2ce515e5e8e2a9ecbdc4c3d394e11",
+        "metrics": {
+          "max_drawdown_pct": -18.0,
+          "source_row_count": 20,
+          "t1_close_mean_pct": 2.2,
+          "t1_close_win_rate_pct": 60.0,
+          "t1_high_mean_pct": 5.73,
+          "t1_sample_size": 20,
+          "t5_close_mean_pct": 2.36,
+          "t5_close_win_rate_pct": 50.0,
+          "t5_sample_size": 16
+        },
+        "no_future_boundary": {
+          "data_cutoff_date": "20260513",
+          "latest_market_date": "20260513",
+          "max_input_date": "20260513",
+          "passed": true
+        },
         "paper_observation_allowed": false,
         "promotion_allowed": false,
-        "provider": null,
+        "provider": "pgc_shadow_replay_backtest_evidence_producer_v1",
         "required_sample_size": 20,
-        "safety": {},
-        "sample_size": 0,
-        "source_hash": null,
-        "status": "missing",
-        "valid": false
+        "safety": {
+          "active_params_mutated": false,
+          "advisory_only": true,
+          "artifact_only": true,
+          "paper_live_deployment_changed": false,
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "read_only": true,
+          "timer_mutated": false,
+          "writes_paper_live_behavior": false,
+          "writes_trade_state": false,
+          "wrote_strategy_version": false,
+          "wrote_strategy_versions": false
+        },
+        "sample_size": 20,
+        "source_hash": "5955a7e2f313e987a3b914c618cbad7e33e2ce515e5e8e2a9ecbdc4c3d394e11",
+        "status": "accepted",
+        "valid": true
       },
       "preconfirm_watchlist": {
         "advisory_only": true,
-        "artifact_path": null,
-        "artifact_type": null,
-        "as_of_date": null,
+        "artifact_path": "reports/shadow_replay_backtest_evidence_20260513_preconfirm_watchlist.json",
+        "artifact_type": "shadow_replay_backtest_evidence",
+        "as_of_date": "20260513",
         "blockers": [
+          "shadow_replay_backtest_evidence_stale",
           "replay_backtest_result_artifact_required"
         ],
         "candidate_key": "preconfirm_watchlist",
         "date_range": {
-          "end_date": null,
-          "start_date": null
+          "end_date": "20260511",
+          "start_date": "20251110"
         },
-        "error": "validated shadow replay/backtest evidence artifact is required.",
+        "error": "shadow_replay_backtest_evidence_stale",
         "evidence_contract": "shadow_replay_backtest_evidence_v1",
-        "expected_source_hash": null,
-        "metrics": {},
-        "no_future_boundary": {},
+        "expected_source_hash": "479f00bf6a8056ea0e4a25a845e3f85f2294a3e3de0a09a461744e152d16bfab",
+        "metrics": {
+          "max_drawdown_pct": -15.1,
+          "source_row_count": 38,
+          "t1_close_mean_pct": 2.42,
+          "t1_close_win_rate_pct": 70.27,
+          "t1_high_mean_pct": 5.06,
+          "t1_sample_size": 37,
+          "t5_close_mean_pct": 6.8,
+          "t5_close_win_rate_pct": 74.29,
+          "t5_sample_size": 35
+        },
+        "no_future_boundary": {
+          "data_cutoff_date": "20260511",
+          "latest_market_date": "20260511",
+          "max_input_date": "20260511",
+          "passed": true
+        },
         "paper_observation_allowed": false,
         "promotion_allowed": false,
-        "provider": null,
+        "provider": "pgc_shadow_replay_backtest_evidence_producer_v1",
         "required_sample_size": 20,
-        "safety": {},
-        "sample_size": 0,
-        "source_hash": null,
-        "status": "missing",
+        "safety": {
+          "active_params_mutated": false,
+          "advisory_only": true,
+          "artifact_only": true,
+          "paper_live_deployment_changed": false,
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "read_only": true,
+          "timer_mutated": false,
+          "writes_paper_live_behavior": false,
+          "writes_trade_state": false,
+          "wrote_strategy_version": false,
+          "wrote_strategy_versions": false
+        },
+        "sample_size": 37,
+        "source_hash": "479f00bf6a8056ea0e4a25a845e3f85f2294a3e3de0a09a461744e152d16bfab",
+        "status": "rejected",
         "valid": false
       },
       "pullback_dip_buy": {
         "advisory_only": true,
-        "artifact_path": null,
-        "artifact_type": null,
-        "as_of_date": null,
+        "artifact_path": "reports/shadow_replay_backtest_evidence_20260513_pullback_dip_buy.json",
+        "artifact_type": "shadow_replay_backtest_evidence",
+        "as_of_date": "20260513",
         "blockers": [
+          "shadow_replay_backtest_evidence_stale",
+          "shadow_replay_backtest_metric_completeness_missing",
           "replay_backtest_result_artifact_required"
         ],
         "candidate_key": "pullback_dip_buy",
         "date_range": {
-          "end_date": null,
-          "start_date": null
+          "end_date": "20260511",
+          "start_date": "20260511"
         },
-        "error": "validated shadow replay/backtest evidence artifact is required.",
+        "error": "shadow_replay_backtest_evidence_stale; shadow_replay_backtest_metric_completeness_missing",
         "evidence_contract": "shadow_replay_backtest_evidence_v1",
-        "expected_source_hash": null,
-        "metrics": {},
-        "no_future_boundary": {},
+        "expected_source_hash": "e22e87538f05c920792566750193c108001fb019ad6dadcb046de1c754703f96",
+        "metrics": {
+          "max_drawdown_pct": -7.86,
+          "source_row_count": 107,
+          "t1_close_mean_pct": null,
+          "t1_close_win_rate_pct": null,
+          "t1_sample_size": 0,
+          "t5_close_mean_pct": 1.23,
+          "t5_close_win_rate_pct": 53.54,
+          "t5_sample_size": 99
+        },
+        "no_future_boundary": {
+          "data_cutoff_date": "20260511",
+          "latest_market_date": "20260511",
+          "max_input_date": "20260511",
+          "passed": true
+        },
         "paper_observation_allowed": false,
         "promotion_allowed": false,
-        "provider": null,
+        "provider": "pgc_shadow_replay_backtest_evidence_producer_v1",
         "required_sample_size": 20,
-        "safety": {},
-        "sample_size": 0,
-        "source_hash": null,
-        "status": "missing",
+        "safety": {
+          "active_params_mutated": false,
+          "advisory_only": true,
+          "artifact_only": true,
+          "paper_live_deployment_changed": false,
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "read_only": true,
+          "timer_mutated": false,
+          "writes_paper_live_behavior": false,
+          "writes_trade_state": false,
+          "wrote_strategy_version": false,
+          "wrote_strategy_versions": false
+        },
+        "sample_size": 99,
+        "source_hash": "e22e87538f05c920792566750193c108001fb019ad6dadcb046de1c754703f96",
+        "status": "rejected",
         "valid": false
       },
       "trend_extension_shadow": {
         "advisory_only": true,
-        "artifact_path": null,
-        "artifact_type": null,
-        "as_of_date": null,
-        "blockers": [
-          "replay_backtest_result_artifact_required"
-        ],
+        "artifact_path": "reports/shadow_replay_backtest_evidence_20260513_trend_extension_shadow.json",
+        "artifact_type": "shadow_replay_backtest_evidence",
+        "as_of_date": "20260513",
+        "blockers": [],
         "candidate_key": "trend_extension_shadow",
         "date_range": {
-          "end_date": null,
-          "start_date": null
+          "end_date": "20260513",
+          "start_date": "20260410"
         },
-        "error": "validated shadow replay/backtest evidence artifact is required.",
+        "error": null,
         "evidence_contract": "shadow_replay_backtest_evidence_v1",
-        "expected_source_hash": null,
-        "metrics": {},
-        "no_future_boundary": {},
+        "expected_source_hash": "51d62bb34a0eda6a1c7ae8696e1832e649b5530f16829179c26209e425cce400",
+        "metrics": {
+          "max_drawdown_pct": -14.79,
+          "source_row_count": 20,
+          "t1_close_mean_pct": 1.67,
+          "t1_close_win_rate_pct": 50.0,
+          "t1_high_mean_pct": 4.42,
+          "t1_sample_size": 20,
+          "t5_close_mean_pct": 3.54,
+          "t5_close_win_rate_pct": 68.75,
+          "t5_sample_size": 16
+        },
+        "no_future_boundary": {
+          "data_cutoff_date": "20260513",
+          "latest_market_date": "20260513",
+          "max_input_date": "20260513",
+          "passed": true
+        },
         "paper_observation_allowed": false,
         "promotion_allowed": false,
-        "provider": null,
+        "provider": "pgc_shadow_replay_backtest_evidence_producer_v1",
         "required_sample_size": 20,
-        "safety": {},
-        "sample_size": 0,
-        "source_hash": null,
-        "status": "missing",
-        "valid": false
+        "safety": {
+          "active_params_mutated": false,
+          "advisory_only": true,
+          "artifact_only": true,
+          "paper_live_deployment_changed": false,
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "read_only": true,
+          "timer_mutated": false,
+          "writes_paper_live_behavior": false,
+          "writes_trade_state": false,
+          "wrote_strategy_version": false,
+          "wrote_strategy_versions": false
+        },
+        "sample_size": 20,
+        "source_hash": "51d62bb34a0eda6a1c7ae8696e1832e649b5530f16829179c26209e425cce400",
+        "status": "accepted",
+        "valid": true
       }
     },
     "orphaned": [],
-    "source_file_count": 0,
+    "source_file_count": 5,
     "summary": {
-      "accepted_count": 0,
+      "accepted_count": 3,
       "advisory_only": true,
       "candidate_count": 5,
       "clears_only": [
         "replay_backtest_result_artifact_required"
       ],
       "evidence_contract": "shadow_replay_backtest_evidence_v1",
-      "missing_count": 5,
+      "missing_count": 0,
       "promotion_allowed": false,
-      "rejected_count": 0,
+      "rejected_count": 2,
       "state_counts": {
-        "missing": 5
+        "accepted": 3,
+        "rejected": 2
       }
     }
   },
@@ -214,143 +351,279 @@
     "required_replay_backtest_evidence": [
       {
         "advisory_only": true,
-        "artifact_path": null,
-        "artifact_type": null,
-        "as_of_date": null,
-        "blockers": [
-          "replay_backtest_result_artifact_required"
-        ],
+        "artifact_path": "reports/shadow_replay_backtest_evidence_20260513_breakout_pressure_shadow.json",
+        "artifact_type": "shadow_replay_backtest_evidence",
+        "as_of_date": "20260513",
+        "blockers": [],
         "candidate_key": "breakout_pressure_shadow",
         "date_range": {
-          "end_date": null,
-          "start_date": null
+          "end_date": "20260513",
+          "start_date": "20260410"
         },
-        "error": "validated shadow replay/backtest evidence artifact is required.",
+        "error": null,
         "evidence_contract": "shadow_replay_backtest_evidence_v1",
-        "expected_source_hash": null,
-        "metrics": {},
-        "no_future_boundary": {},
+        "expected_source_hash": "fe454f1b8ffbe3fc406b1063a34629add082563a3a073595218456945a721f9d",
+        "metrics": {
+          "max_drawdown_pct": -15.66,
+          "source_row_count": 20,
+          "t1_close_mean_pct": 0.77,
+          "t1_close_win_rate_pct": 70.0,
+          "t1_high_mean_pct": 3.36,
+          "t1_sample_size": 20,
+          "t5_close_mean_pct": 7.83,
+          "t5_close_win_rate_pct": 56.25,
+          "t5_sample_size": 16
+        },
+        "no_future_boundary": {
+          "data_cutoff_date": "20260513",
+          "latest_market_date": "20260513",
+          "max_input_date": "20260513",
+          "passed": true
+        },
         "paper_observation_allowed": false,
         "promotion_allowed": false,
-        "provider": null,
+        "provider": "pgc_shadow_replay_backtest_evidence_producer_v1",
         "required_sample_size": 20,
-        "safety": {},
-        "sample_size": 0,
-        "source_hash": null,
-        "status": "missing",
-        "valid": false
+        "safety": {
+          "active_params_mutated": false,
+          "advisory_only": true,
+          "artifact_only": true,
+          "paper_live_deployment_changed": false,
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "read_only": true,
+          "timer_mutated": false,
+          "writes_paper_live_behavior": false,
+          "writes_trade_state": false,
+          "wrote_strategy_version": false,
+          "wrote_strategy_versions": false
+        },
+        "sample_size": 20,
+        "source_hash": "fe454f1b8ffbe3fc406b1063a34629add082563a3a073595218456945a721f9d",
+        "status": "accepted",
+        "valid": true
       },
       {
         "advisory_only": true,
-        "artifact_path": null,
-        "artifact_type": null,
-        "as_of_date": null,
-        "blockers": [
-          "replay_backtest_result_artifact_required"
-        ],
+        "artifact_path": "reports/shadow_replay_backtest_evidence_20260513_low_price_momentum_shadow.json",
+        "artifact_type": "shadow_replay_backtest_evidence",
+        "as_of_date": "20260513",
+        "blockers": [],
         "candidate_key": "low_price_momentum_shadow",
         "date_range": {
-          "end_date": null,
-          "start_date": null
+          "end_date": "20260513",
+          "start_date": "20260410"
         },
-        "error": "validated shadow replay/backtest evidence artifact is required.",
+        "error": null,
         "evidence_contract": "shadow_replay_backtest_evidence_v1",
-        "expected_source_hash": null,
-        "metrics": {},
-        "no_future_boundary": {},
+        "expected_source_hash": "5955a7e2f313e987a3b914c618cbad7e33e2ce515e5e8e2a9ecbdc4c3d394e11",
+        "metrics": {
+          "max_drawdown_pct": -18.0,
+          "source_row_count": 20,
+          "t1_close_mean_pct": 2.2,
+          "t1_close_win_rate_pct": 60.0,
+          "t1_high_mean_pct": 5.73,
+          "t1_sample_size": 20,
+          "t5_close_mean_pct": 2.36,
+          "t5_close_win_rate_pct": 50.0,
+          "t5_sample_size": 16
+        },
+        "no_future_boundary": {
+          "data_cutoff_date": "20260513",
+          "latest_market_date": "20260513",
+          "max_input_date": "20260513",
+          "passed": true
+        },
         "paper_observation_allowed": false,
         "promotion_allowed": false,
-        "provider": null,
+        "provider": "pgc_shadow_replay_backtest_evidence_producer_v1",
         "required_sample_size": 20,
-        "safety": {},
-        "sample_size": 0,
-        "source_hash": null,
-        "status": "missing",
-        "valid": false
+        "safety": {
+          "active_params_mutated": false,
+          "advisory_only": true,
+          "artifact_only": true,
+          "paper_live_deployment_changed": false,
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "read_only": true,
+          "timer_mutated": false,
+          "writes_paper_live_behavior": false,
+          "writes_trade_state": false,
+          "wrote_strategy_version": false,
+          "wrote_strategy_versions": false
+        },
+        "sample_size": 20,
+        "source_hash": "5955a7e2f313e987a3b914c618cbad7e33e2ce515e5e8e2a9ecbdc4c3d394e11",
+        "status": "accepted",
+        "valid": true
       },
       {
         "advisory_only": true,
-        "artifact_path": null,
-        "artifact_type": null,
-        "as_of_date": null,
+        "artifact_path": "reports/shadow_replay_backtest_evidence_20260513_preconfirm_watchlist.json",
+        "artifact_type": "shadow_replay_backtest_evidence",
+        "as_of_date": "20260513",
         "blockers": [
+          "shadow_replay_backtest_evidence_stale",
           "replay_backtest_result_artifact_required"
         ],
         "candidate_key": "preconfirm_watchlist",
         "date_range": {
-          "end_date": null,
-          "start_date": null
+          "end_date": "20260511",
+          "start_date": "20251110"
         },
-        "error": "validated shadow replay/backtest evidence artifact is required.",
+        "error": "shadow_replay_backtest_evidence_stale",
         "evidence_contract": "shadow_replay_backtest_evidence_v1",
-        "expected_source_hash": null,
-        "metrics": {},
-        "no_future_boundary": {},
+        "expected_source_hash": "479f00bf6a8056ea0e4a25a845e3f85f2294a3e3de0a09a461744e152d16bfab",
+        "metrics": {
+          "max_drawdown_pct": -15.1,
+          "source_row_count": 38,
+          "t1_close_mean_pct": 2.42,
+          "t1_close_win_rate_pct": 70.27,
+          "t1_high_mean_pct": 5.06,
+          "t1_sample_size": 37,
+          "t5_close_mean_pct": 6.8,
+          "t5_close_win_rate_pct": 74.29,
+          "t5_sample_size": 35
+        },
+        "no_future_boundary": {
+          "data_cutoff_date": "20260511",
+          "latest_market_date": "20260511",
+          "max_input_date": "20260511",
+          "passed": true
+        },
         "paper_observation_allowed": false,
         "promotion_allowed": false,
-        "provider": null,
+        "provider": "pgc_shadow_replay_backtest_evidence_producer_v1",
         "required_sample_size": 20,
-        "safety": {},
-        "sample_size": 0,
-        "source_hash": null,
-        "status": "missing",
+        "safety": {
+          "active_params_mutated": false,
+          "advisory_only": true,
+          "artifact_only": true,
+          "paper_live_deployment_changed": false,
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "read_only": true,
+          "timer_mutated": false,
+          "writes_paper_live_behavior": false,
+          "writes_trade_state": false,
+          "wrote_strategy_version": false,
+          "wrote_strategy_versions": false
+        },
+        "sample_size": 37,
+        "source_hash": "479f00bf6a8056ea0e4a25a845e3f85f2294a3e3de0a09a461744e152d16bfab",
+        "status": "rejected",
         "valid": false
       },
       {
         "advisory_only": true,
-        "artifact_path": null,
-        "artifact_type": null,
-        "as_of_date": null,
+        "artifact_path": "reports/shadow_replay_backtest_evidence_20260513_pullback_dip_buy.json",
+        "artifact_type": "shadow_replay_backtest_evidence",
+        "as_of_date": "20260513",
         "blockers": [
+          "shadow_replay_backtest_evidence_stale",
+          "shadow_replay_backtest_metric_completeness_missing",
           "replay_backtest_result_artifact_required"
         ],
         "candidate_key": "pullback_dip_buy",
         "date_range": {
-          "end_date": null,
-          "start_date": null
+          "end_date": "20260511",
+          "start_date": "20260511"
         },
-        "error": "validated shadow replay/backtest evidence artifact is required.",
+        "error": "shadow_replay_backtest_evidence_stale; shadow_replay_backtest_metric_completeness_missing",
         "evidence_contract": "shadow_replay_backtest_evidence_v1",
-        "expected_source_hash": null,
-        "metrics": {},
-        "no_future_boundary": {},
+        "expected_source_hash": "e22e87538f05c920792566750193c108001fb019ad6dadcb046de1c754703f96",
+        "metrics": {
+          "max_drawdown_pct": -7.86,
+          "source_row_count": 107,
+          "t1_close_mean_pct": null,
+          "t1_close_win_rate_pct": null,
+          "t1_sample_size": 0,
+          "t5_close_mean_pct": 1.23,
+          "t5_close_win_rate_pct": 53.54,
+          "t5_sample_size": 99
+        },
+        "no_future_boundary": {
+          "data_cutoff_date": "20260511",
+          "latest_market_date": "20260511",
+          "max_input_date": "20260511",
+          "passed": true
+        },
         "paper_observation_allowed": false,
         "promotion_allowed": false,
-        "provider": null,
+        "provider": "pgc_shadow_replay_backtest_evidence_producer_v1",
         "required_sample_size": 20,
-        "safety": {},
-        "sample_size": 0,
-        "source_hash": null,
-        "status": "missing",
+        "safety": {
+          "active_params_mutated": false,
+          "advisory_only": true,
+          "artifact_only": true,
+          "paper_live_deployment_changed": false,
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "read_only": true,
+          "timer_mutated": false,
+          "writes_paper_live_behavior": false,
+          "writes_trade_state": false,
+          "wrote_strategy_version": false,
+          "wrote_strategy_versions": false
+        },
+        "sample_size": 99,
+        "source_hash": "e22e87538f05c920792566750193c108001fb019ad6dadcb046de1c754703f96",
+        "status": "rejected",
         "valid": false
       },
       {
         "advisory_only": true,
-        "artifact_path": null,
-        "artifact_type": null,
-        "as_of_date": null,
-        "blockers": [
-          "replay_backtest_result_artifact_required"
-        ],
+        "artifact_path": "reports/shadow_replay_backtest_evidence_20260513_trend_extension_shadow.json",
+        "artifact_type": "shadow_replay_backtest_evidence",
+        "as_of_date": "20260513",
+        "blockers": [],
         "candidate_key": "trend_extension_shadow",
         "date_range": {
-          "end_date": null,
-          "start_date": null
+          "end_date": "20260513",
+          "start_date": "20260410"
         },
-        "error": "validated shadow replay/backtest evidence artifact is required.",
+        "error": null,
         "evidence_contract": "shadow_replay_backtest_evidence_v1",
-        "expected_source_hash": null,
-        "metrics": {},
-        "no_future_boundary": {},
+        "expected_source_hash": "51d62bb34a0eda6a1c7ae8696e1832e649b5530f16829179c26209e425cce400",
+        "metrics": {
+          "max_drawdown_pct": -14.79,
+          "source_row_count": 20,
+          "t1_close_mean_pct": 1.67,
+          "t1_close_win_rate_pct": 50.0,
+          "t1_high_mean_pct": 4.42,
+          "t1_sample_size": 20,
+          "t5_close_mean_pct": 3.54,
+          "t5_close_win_rate_pct": 68.75,
+          "t5_sample_size": 16
+        },
+        "no_future_boundary": {
+          "data_cutoff_date": "20260513",
+          "latest_market_date": "20260513",
+          "max_input_date": "20260513",
+          "passed": true
+        },
         "paper_observation_allowed": false,
         "promotion_allowed": false,
-        "provider": null,
+        "provider": "pgc_shadow_replay_backtest_evidence_producer_v1",
         "required_sample_size": 20,
-        "safety": {},
-        "sample_size": 0,
-        "source_hash": null,
-        "status": "missing",
-        "valid": false
+        "safety": {
+          "active_params_mutated": false,
+          "advisory_only": true,
+          "artifact_only": true,
+          "paper_live_deployment_changed": false,
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "read_only": true,
+          "timer_mutated": false,
+          "writes_paper_live_behavior": false,
+          "writes_trade_state": false,
+          "wrote_strategy_version": false,
+          "wrote_strategy_versions": false
+        },
+        "sample_size": 20,
+        "source_hash": "51d62bb34a0eda6a1c7ae8696e1832e649b5530f16829179c26209e425cce400",
+        "status": "accepted",
+        "valid": true
       }
     ],
     "review_ready_candidates": [],
@@ -926,18 +1199,19 @@
     "manual_review_required": true,
     "promotion_allowed": false,
     "replay_backtest_evidence": {
-      "accepted_count": 0,
+      "accepted_count": 3,
       "advisory_only": true,
       "candidate_count": 5,
       "clears_only": [
         "replay_backtest_result_artifact_required"
       ],
       "evidence_contract": "shadow_replay_backtest_evidence_v1",
-      "missing_count": 5,
+      "missing_count": 0,
       "promotion_allowed": false,
-      "rejected_count": 0,
+      "rejected_count": 2,
       "state_counts": {
-        "missing": 5
+        "accepted": 3,
+        "rejected": 2
       }
     },
     "review_ready_candidate_keys": [],

@@ -971,6 +971,11 @@ class ShadowObservationService:
             )
 
         artifact = _portable_artifact_paths(artifact, artifact_root)
+        artifact = _promotion_review_artifact_with_current_replay_evidence(
+            artifact,
+            reports_dir=self.reports_dir,
+            artifact_root=artifact_root,
+        )
         summary = _mapping(artifact.get("summary"))
         review_request = _mapping(artifact.get("review_request"))
         replay_backtest_evidence = _mapping(artifact.get("replay_backtest_evidence"))
@@ -2582,6 +2587,46 @@ def _promotion_review_request_artifact(
         "safety": _promotion_review_request_safety(),
     }
     return artifact
+
+
+def _promotion_review_artifact_with_current_replay_evidence(
+    artifact: Mapping[str, Any],
+    *,
+    reports_dir: Path,
+    artifact_root: Path,
+) -> dict[str, Any]:
+    refreshed = dict(artifact)
+    as_of_date = _compact_history_date(_optional_text(refreshed.get("as_of_date")))
+    source_dossier = _mapping(refreshed.get("source_dossier"))
+    source_dossier_candidates = _list_mapping(source_dossier.get("candidates"))
+    if as_of_date is None or not source_dossier_candidates:
+        return refreshed
+
+    threshold_metadata = _mapping(source_dossier.get("threshold_metadata"))
+    minimum_sample = _mapping(threshold_metadata.get("minimum_sample"))
+    replay_evidence_index = load_shadow_replay_backtest_evidence_index(
+        reports_dir,
+        as_of_date=as_of_date,
+        candidate_required_samples=_candidate_required_samples(
+            source_dossier_candidates,
+            _int_value(minimum_sample.get("required_days"), DEFAULT_REQUIRED_SAMPLE_SIZE),
+        ),
+    )
+    replay_evidence_index = _portable_artifact_paths(replay_evidence_index, artifact_root)
+
+    summary = dict(_mapping(refreshed.get("summary")))
+    review_request = dict(_mapping(refreshed.get("review_request")))
+    source_dossier_status = str(summary.get("source_dossier_status") or "valid")
+    summary["replay_backtest_evidence"] = _mapping(replay_evidence_index.get("summary"))
+    review_request["required_replay_backtest_evidence"] = _promotion_review_request_required_replay_backtest_evidence(
+        replay_evidence_index,
+        source_dossier_candidates,
+        source_dossier_status,
+    )
+    refreshed["summary"] = summary
+    refreshed["review_request"] = review_request
+    refreshed["replay_backtest_evidence"] = replay_evidence_index
+    return refreshed
 
 
 def _promotion_review_request_required_human_decisions(

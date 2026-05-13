@@ -6,7 +6,7 @@
 - status: blocked
 - review_ready is not approval
 - blocking_reason: no_review_ready_candidates
-- replay_backtest_evidence: accepted=0 / rejected=0 / missing=5
+- replay_backtest_evidence: accepted=3 / rejected=2 / missing=0
 
 ## Source Dossier
 - candidates: 5
@@ -29,11 +29,11 @@
 - rollback_scope_confirmation: required (required=true; note=Confirm that the blocked mutation targets remain unchanged during any follow-up work.)
 
 ## Required Replay/Backtest Evidence
-- breakout_pressure_shadow: missing (blockers=replay_backtest_result_artifact_required)
-- low_price_momentum_shadow: missing (blockers=replay_backtest_result_artifact_required)
-- preconfirm_watchlist: missing (blockers=replay_backtest_result_artifact_required)
-- pullback_dip_buy: missing (blockers=replay_backtest_result_artifact_required)
-- trend_extension_shadow: missing (blockers=replay_backtest_result_artifact_required)
+- breakout_pressure_shadow: accepted (blockers=none)
+- low_price_momentum_shadow: accepted (blockers=none)
+- preconfirm_watchlist: rejected (blockers=shadow_replay_backtest_evidence_stale, replay_backtest_result_artifact_required)
+- pullback_dip_buy: rejected (blockers=shadow_replay_backtest_evidence_stale, shadow_replay_backtest_metric_completeness_missing, replay_backtest_result_artifact_required)
+- trend_extension_shadow: accepted (blockers=none)
 
 ## Rollback / Safety
 - review_ready is not approval

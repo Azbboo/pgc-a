@@ -12,6 +12,7 @@ from pgc_trading.services.shadow_observation_service import (
     BuildShadowPromotionReviewRequest,
     BuildShadowReplayBacktestEvidenceRequest,
     GetShadowObservationScorecardRequest,
+    GetShadowPromotionReviewRequest,
     ListShadowObservationHistoryRequest,
     ShadowObservationService,
     build_shadow_replay_backtest_source_hash,
@@ -160,6 +161,56 @@ class ShadowObservationServiceTest(unittest.TestCase):
             markdown = markdown_path.read_text(encoding="utf-8")
             self.assertIn("no_review_ready_candidates", markdown)
             self.assertIn("Required Replay/Backtest Evidence", markdown)
+
+    def test_get_promotion_review_request_overlays_current_replay_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "pgc.db"
+            reports_dir = root / "reports"
+            reports_dir.mkdir()
+            run_migrations(db_path)
+            _seed_shadow_observation_artifacts(reports_dir)
+            service = ShadowObservationService(db_path, reports_dir=reports_dir)
+
+            dossier_result = service.build_promotion_dossier(
+                BuildShadowPromotionDossierRequest(as_of_date="20260512"),
+                RequestContext(request_id="req-shadow-dossier-write", dry_run=False, source="test"),
+            )
+            review_result = service.build_promotion_review_request(
+                BuildShadowPromotionReviewRequest(as_of_date="20260512"),
+                RequestContext(request_id="req-shadow-review-request", dry_run=False, source="test"),
+            )
+            self.assertTrue(dossier_result.ok, dossier_result.errors)
+            self.assertTrue(review_result.ok, review_result.errors)
+            stored_artifact = json.loads(
+                (reports_dir / "shadow_promotion_review_request_20260512.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(stored_artifact["summary"]["replay_backtest_evidence"]["missing_count"], 2)
+
+            _write_shadow_replay_backtest_evidence(
+                reports_dir,
+                candidate_key="trend_extension_shadow",
+                as_of_date="20260512",
+            )
+
+            workbench = service.get_promotion_review_request(
+                GetShadowPromotionReviewRequest(as_of_date="20260512"),
+                RequestContext(request_id="req-shadow-review-workbench", dry_run=True, source="test"),
+            )
+
+            self.assertTrue(workbench.ok, workbench.errors)
+            assert workbench.data is not None
+            replay_summary = workbench.data.summary["replay_backtest_evidence"]
+            self.assertEqual(replay_summary["accepted_count"], 1)
+            self.assertEqual(replay_summary["missing_count"], 1)
+            by_candidate = workbench.data.replay_backtest_evidence["by_candidate"]
+            self.assertEqual(by_candidate["trend_extension_shadow"]["status"], "accepted")
+            required = {
+                item["candidate_key"]: item
+                for item in workbench.data.review_request["required_replay_backtest_evidence"]
+            }
+            self.assertEqual(required["trend_extension_shadow"]["status"], "accepted")
+            self.assertFalse(workbench.data.safety["promotion_allowed"])
 
     def test_shadow_observation_history_indexes_scorecard_and_dossier_artifacts_read_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
