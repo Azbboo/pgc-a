@@ -18,6 +18,8 @@ from pgc_trading.services.common import RequestContext
 from pgc_trading.services.shadow_observation_service import (
     BuildShadowPromotionDossierRequest,
     ShadowObservationService,
+    apply_shadow_replay_backtest_evidence_to_blockers,
+    load_shadow_replay_backtest_evidence_index,
 )
 
 
@@ -253,6 +255,12 @@ def generate_shadow_monitor(
         "today_top_by_bucket": [item.to_dict() for item in prior_order(today_top_by_bucket)],
         "today_combined_watchlist": [item.to_dict() for item in today_combined],
     }
+    replay_evidence_index = load_shadow_replay_backtest_evidence_index(
+        reports_dir,
+        as_of_date=review_date,
+        candidate_required_samples=candidate_required_samples(candidate_monitors, walk_forward),
+    )
+    summary["replay_backtest_evidence"] = replay_evidence_index
 
     json_path = reports_dir / f"strategy_shadow_monitor_{review_date}.json"
     md_path = reports_dir / f"strategy_shadow_monitor_{review_date}.md"
@@ -1116,6 +1124,21 @@ def build_api_summary(
     }
 
 
+def candidate_required_samples(
+    candidate_monitors: list[dict[str, Any]],
+    walk_forward: dict[str, Any],
+) -> dict[str, int]:
+    fallback = optional_int(walk_forward.get("required_days")) or 20
+    required: dict[str, int] = {}
+    for monitor in candidate_monitors:
+        candidate_key = str(monitor.get("candidate_key") or "").strip()
+        if not candidate_key:
+            continue
+        progress = monitor.get("walk_forward_progress", {})
+        required[candidate_key] = optional_int(progress.get("required_days")) or fallback
+    return required
+
+
 def candidate_promotion_gates(candidate_key: str) -> dict[str, Any]:
     paper_blockers = merge_unique(list(BASE_PAPER_BLOCKERS), list(CANDIDATE_PAPER_BLOCKERS.get(candidate_key, ())))
     strategy_blockers = merge_unique(
@@ -1283,20 +1306,30 @@ def build_shadow_observation_scorecard(
     source_artifacts: dict[str, str],
 ) -> dict[str, Any]:
     preflight = summary["promotion_preflight"]
-    blocker_counts = dict(preflight.get("blocker_counts", {}))
+    replay_evidence_index = summary.get("replay_backtest_evidence", {})
+    replay_evidence_by_candidate = (
+        replay_evidence_index.get("by_candidate", {}) if isinstance(replay_evidence_index, dict) else {}
+    )
     candidates = []
     for monitor in summary["candidate_monitors"]:
         gates = monitor.get("promotion_gates", {})
         paper_gate = gates.get("paper_observation_gate", {})
         proposal_gate = gates.get("strategy_version_gate", {})
+        candidate_key = str(monitor.get("candidate_key") or "")
+        replay_evidence = (
+            replay_evidence_by_candidate.get(candidate_key, {})
+            if isinstance(replay_evidence_by_candidate, dict)
+            else {}
+        )
         blockers = merge_unique(
             list(paper_gate.get("blockers", [])),
             list(proposal_gate.get("blockers", [])),
         )
+        blockers = apply_shadow_replay_backtest_evidence_to_blockers(blockers, replay_evidence)
         progress = monitor.get("walk_forward_progress", {})
         candidates.append(
             {
-                "candidate_key": monitor.get("candidate_key"),
+                "candidate_key": candidate_key or monitor.get("candidate_key"),
                 "candidate_family": monitor.get("candidate_family"),
                 "status": "blocked" if blockers else str(progress.get("status") or "observing"),
                 "today_candidate_count": monitor.get("today_candidate_count"),
@@ -1307,9 +1340,14 @@ def build_shadow_observation_scorecard(
                 "promotion_allowed": bool(proposal_gate.get("allowed")),
                 "blocker_count": len(blockers),
                 "blockers": blockers,
+                "replay_backtest_evidence": replay_evidence,
                 "comparison_vs_frozen_cpb": monitor.get("comparison_vs_frozen_cpb", {}),
             }
         )
+    blocker_counts = dict(sorted(Counter(blocker for item in candidates for blocker in item["blockers"]).items()))
+    replay_summary = (
+        replay_evidence_index.get("summary", {}) if isinstance(replay_evidence_index, dict) else {}
+    )
     return {
         "artifact_type": "shadow_observation_scorecard",
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -1325,6 +1363,7 @@ def build_shadow_observation_scorecard(
             {"code": key, "count": blocker_counts[key]}
             for key in sorted(blocker_counts)
         ],
+        "replay_backtest_evidence_summary": replay_summary,
         "top_candidates": sorted(
             candidates,
             key=lambda item: (-(optional_int(item.get("today_candidate_count")) or 0), -item["blocker_count"], str(item["candidate_key"])),
@@ -1356,6 +1395,12 @@ def render_shadow_observation_scorecard_markdown(scorecard: dict[str, Any]) -> s
         f"- Distinct blockers: {scorecard['distinct_blocker_count']}",
         f"- Read only: {scorecard['read_only']}",
         f"- Artifact only: {scorecard['artifact_only']}",
+        (
+            "- Replay/backtest evidence: "
+            f"accepted={scorecard.get('replay_backtest_evidence_summary', {}).get('accepted_count', 0)} / "
+            f"rejected={scorecard.get('replay_backtest_evidence_summary', {}).get('rejected_count', 0)} / "
+            f"missing={scorecard.get('replay_backtest_evidence_summary', {}).get('missing_count', 0)}"
+        ),
         "",
         "## Coverage Blockers",
         "",
@@ -1369,7 +1414,7 @@ def render_shadow_observation_scorecard_markdown(scorecard: dict[str, Any]) -> s
     lines.extend(["", "## Top Candidates", ""])
     lines.extend(
         table(
-            ["Candidate", "Family", "Status", "Today", "Walk-forward", "Blockers", "Top"],
+            ["Candidate", "Family", "Status", "Today", "Walk-forward", "Replay", "Blockers", "Top"],
             [
                 [
                     item.get("candidate_key"),
@@ -1377,6 +1422,7 @@ def render_shadow_observation_scorecard_markdown(scorecard: dict[str, Any]) -> s
                     item.get("status"),
                     item.get("today_candidate_count") if item.get("today_candidate_count") is not None else "-",
                     item.get("walk_forward_status") or "-",
+                    (item.get("replay_backtest_evidence") or {}).get("status", "missing"),
                     ", ".join(item.get("blockers", [])[:3]) + ("..." if len(item.get("blockers", [])) > 3 else ""),
                     top_candidate_text(item.get("today_top")),
                 ]

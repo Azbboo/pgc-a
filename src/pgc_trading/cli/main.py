@@ -19,6 +19,7 @@ from pgc_trading.ops import (
     run_market_review_parity_check,
     run_ops_health_check,
     run_ops_migration_step,
+    run_shadow_observation_history,
     run_shadow_observation_scorecard,
     run_shadow_strategy_snapshot,
 )
@@ -92,12 +93,17 @@ from pgc_trading.services.strategy_evolution_service import (
     MarkStrategyHypothesisRequest,
     ProposeStrategyHypothesesRequest,
     RegisterShadowStrategyCandidatesRequest,
+    review_shadow_promotion_review_request_artifact,
     StrategyEvolutionService,
     VALID_HYPOTHESIS_STATUSES,
 )
 from pgc_trading.services.strategy_hypothesis_backtest_service import (
     CreateStrategyHypothesisBacktestRequest,
     StrategyHypothesisBacktestService,
+)
+from pgc_trading.services.shadow_observation_service import (
+    BuildShadowPromotionReviewRequest,
+    ShadowObservationService,
 )
 from pgc_trading.services.sector_rotation_service import ImportSectorMembershipRequest
 from pgc_trading.strategies.cpb_6157 import STRATEGY_VERSION
@@ -693,6 +699,46 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
     _add_db_path_argument(strategy_evolution_register_shadow)
     strategy_evolution_register_shadow.set_defaults(handler=_run_strategy_evolution_register_shadow)
 
+    strategy_evolution_shadow_review_request = strategy_evolution_subparsers.add_parser(
+        "shadow-promotion-review-request",
+        help="build a manual review package from the latest shadow promotion dossier",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    strategy_evolution_shadow_review_request.add_argument(
+        "--date",
+        "--as-of-date",
+        dest="date",
+        type=_parse_report_date,
+        help="optional shadow dossier date in ISO or YYYYMMDD format; defaults to the latest dossier",
+    )
+    strategy_evolution_shadow_review_request.add_argument(
+        "--reports-dir",
+        type=Path,
+        default=Paths().reports_dir,
+        help="reports directory containing shadow promotion dossier artifacts",
+    )
+    strategy_evolution_shadow_review_request.add_argument(
+        "--output",
+        type=Path,
+        help="optional JSON output path override",
+    )
+    strategy_evolution_shadow_review_request.add_argument(
+        "--compact",
+        action="store_true",
+        help="print only the compact review-request summary and omit full JSON payloads",
+    )
+    strategy_evolution_shadow_review_request.add_argument(
+        "--apply",
+        action="store_true",
+        help="write the review request artifact instead of running a dry-run preview",
+    )
+    _add_lifecycle_context_arguments(strategy_evolution_shadow_review_request)
+    _add_db_path_argument(strategy_evolution_shadow_review_request)
+    strategy_evolution_shadow_review_request.set_defaults(
+        handler=_run_strategy_evolution_shadow_promotion_review_request
+    )
+
     strategy_evolution_list = strategy_evolution_subparsers.add_parser(
         "list",
         help="list strategy-evolution hypotheses",
@@ -1157,6 +1203,40 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
     _add_lifecycle_context_arguments(ops_shadow_observation)
     _add_db_path_argument(ops_shadow_observation)
     ops_shadow_observation.set_defaults(handler=_run_ops_shadow_observation)
+
+    ops_shadow_observation_history = ops_subparsers.add_parser(
+        "shadow-observation-history",
+        help="show the read-only cross-date shadow observation history",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    ops_shadow_observation_history.add_argument(
+        "--date",
+        "--as-of-date",
+        dest="date",
+        type=_parse_report_date,
+        help="optional history end date in ISO or YYYYMMDD format; defaults to latest artifact",
+    )
+    ops_shadow_observation_history.add_argument(
+        "--window",
+        type=_positive_int,
+        default=20,
+        help="number of artifact dates to include",
+    )
+    ops_shadow_observation_history.add_argument(
+        "--reports-dir",
+        type=Path,
+        default=Paths().reports_dir,
+        help="reports directory containing shadow observation scorecards and promotion dossiers",
+    )
+    ops_shadow_observation_history.add_argument(
+        "--compact",
+        action="store_true",
+        help="print only the compact history summary and omit full JSON payloads",
+    )
+    _add_lifecycle_context_arguments(ops_shadow_observation_history)
+    _add_db_path_argument(ops_shadow_observation_history)
+    ops_shadow_observation_history.set_defaults(handler=_run_ops_shadow_observation_history)
 
     return parser
 
@@ -1922,6 +2002,56 @@ def _run_strategy_evolution_register_shadow(
     return 0 if result.ok else 1
 
 
+def _run_strategy_evolution_shadow_promotion_review_request(
+    args: argparse.Namespace,
+    stdout: TextIO,
+    services: CommandServices,
+) -> int:
+    db_path = _normalized_db_path(args.db_path)
+    reports_dir = _normalized_db_path(args.reports_dir)
+    command = "strategy-evolution shadow-promotion-review-request"
+
+    service = ShadowObservationService(db_path, reports_dir=reports_dir)
+    request = BuildShadowPromotionReviewRequest(
+        as_of_date=args.date,
+        output_path=str(args.output) if args.output is not None else None,
+    )
+    ctx = RequestContext(
+        request_id="cli-strategy-evolution-shadow-promotion-review-request",
+        idempotency_key=args.idempotency_key,
+        dry_run=not args.apply,
+        operator=args.operator,
+        source="cli",
+    )
+    try:
+        result = service.build_promotion_review_request(request, ctx)
+    except sqlite3.OperationalError as exc:
+        stdout.write("shadow_promotion_review_request_status=failed\n")
+        stdout.write(f"database_error={exc}\n")
+        return 1
+
+    _write_strategy_evolution_shadow_promotion_review_request_result(
+        stdout,
+        command,
+        db_path,
+        reports_dir,
+        result,
+        compact=args.compact,
+    )
+    if not result.ok:
+        return 1
+
+    data = result.data
+    if data is not None and data.wrote_artifact and data.artifact_path:
+        review = review_shadow_promotion_review_request_artifact(Path(data.artifact_path))
+        if not review.valid:
+            stdout.write("shadow_promotion_review_request_status=failed\n")
+            stdout.write(f"validation_error={review.error or 'unknown'}\n")
+            return 1
+
+    return 0
+
+
 def _run_strategy_evolution_list(
     args: argparse.Namespace,
     stdout: TextIO,
@@ -2521,6 +2651,27 @@ def _run_ops_shadow_observation(args: argparse.Namespace, stdout: TextIO, servic
         return 1
 
     _write_shadow_observation_scorecard_result(stdout, command, db_path, reports_dir, result, compact=args.compact)
+    return 0 if result.ok else 1
+
+
+def _run_ops_shadow_observation_history(args: argparse.Namespace, stdout: TextIO, services: CommandServices) -> int:
+    db_path = _normalized_db_path(args.db_path)
+    reports_dir = _normalized_db_path(args.reports_dir)
+    command = "ops shadow-observation-history"
+
+    try:
+        result = run_shadow_observation_history(
+            db_path,
+            as_of_date=args.date,
+            window=args.window,
+            reports_dir=reports_dir,
+        )
+    except sqlite3.OperationalError as exc:
+        stdout.write("shadow_observation_history_status=failed\n")
+        stdout.write(f"database_error={exc}\n")
+        return 1
+
+    _write_shadow_observation_history_result(stdout, command, db_path, reports_dir, result, compact=args.compact)
     return 0 if result.ok else 1
 
 
@@ -3254,6 +3405,86 @@ def _write_shadow_observation_scorecard_result(
     stdout.write(f"shadow_observation_rows_json={_json_compact(rows)}\n")
 
 
+def _write_shadow_observation_history_result(
+    stdout: TextIO,
+    command: str,
+    db_path: Path,
+    reports_dir: Path,
+    result: ServiceResult[object],
+    *,
+    compact: bool = False,
+) -> None:
+    data = result.data
+    as_of_date = getattr(data, "as_of_date", None) if data is not None else None
+    _write_routed_message(
+        stdout,
+        command,
+        as_of_date or "latest",
+        db_path,
+        f"service returned {result.status}",
+    )
+    _write_warnings_and_errors(stdout, result)
+    if data is None:
+        return
+
+    counts = getattr(data, "counts", {})
+    summary = getattr(data, "summary", {})
+    candidates = getattr(data, "candidates", [])
+    dates = getattr(data, "dates", [])
+    safety = getattr(data, "safety", {})
+    stdout.write(f"shadow_observation_history_status={result.status}\n")
+    stdout.write(f"history_contract={getattr(data, 'history_contract', 'shadow_observation_history_v1')}\n")
+    stdout.write(f"as_of_date={as_of_date or 'latest'}\n")
+    stdout.write(f"window={getattr(data, 'window', 20)}\n")
+    stdout.write(f"reports_dir={reports_dir}\n")
+    stdout.write(f"history_feed_status={getattr(data, 'status', 'unknown')}\n")
+    stdout.write(f"date_count={counts.get('date_count', 0)}\n")
+    stdout.write(f"candidate_count={counts.get('candidate_count', 0)}\n")
+    stdout.write(f"history_row_count={counts.get('history_row_count', counts.get('row_count', 0))}\n")
+    stdout.write(f"missing_artifact_date_count={counts.get('missing_artifact_date_count', 0)}\n")
+    stdout.write(
+        "shadow_observation_history_summary="
+        f"status={getattr(data, 'status', 'unknown')} "
+        f"dates={counts.get('date_count', 0)} "
+        f"candidates={counts.get('candidate_count', 0)} "
+        f"top={summary.get('top_candidate_key') or 'none'} "
+        f"read_only={_display_bool(bool(getattr(data, 'read_only', True)))} "
+        f"research_only={_display_bool(bool(getattr(data, 'research_only', True)))} "
+        f"promotion_allowed={_display_bool(bool(safety.get('promotion_allowed', False)))}\n"
+    )
+    stdout.write(f"shadow_observation_history_candidates={_shadow_observation_history_compact_candidates(candidates)}\n")
+    stdout.write(
+        "shadow_observation_history_notice=read-only observation history; not paper trading; no promote/trade/plan/timer mutation\n"
+    )
+    if compact:
+        return
+    stdout.write(f"shadow_observation_history_counts_json={_json_compact(counts)}\n")
+    stdout.write(f"shadow_observation_history_dates_json={_json_compact(dates)}\n")
+    stdout.write(f"shadow_observation_history_safety_json={_json_compact(safety)}\n")
+    stdout.write(f"shadow_observation_history_candidates_json={_json_compact(candidates)}\n")
+    stdout.write(f"shadow_observation_history_rows_json={_json_compact(getattr(data, 'rows', []))}\n")
+
+
+def _shadow_observation_history_compact_candidates(candidates: object) -> str:
+    if not isinstance(candidates, list) or not candidates:
+        return "none"
+    parts = []
+    for candidate in candidates[:3]:
+        if not isinstance(candidate, dict):
+            continue
+        parts.append(
+            f"{candidate.get('candidate_key', 'unknown')}"
+            f"[dates={candidate.get('dates_observed', 0)},"
+            f"rank={candidate.get('latest_rank', '-')},"
+            f"score={candidate.get('latest_score', '-')},"
+            f"score_delta={candidate.get('score_delta', '-')},"
+            f"review={candidate.get('latest_review_status', 'unknown')},"
+            f"delta={candidate.get('latest_frozen_cpb_delta_pct', '-')}]"
+        )
+    suffix = f";+{len(candidates) - 3}" if len(candidates) > 3 else ""
+    return ";".join(parts) + suffix if parts else "none"
+
+
 def _shadow_observation_compact_rows(rows: object) -> str:
     if not isinstance(rows, list) or not rows:
         return "none"
@@ -3762,6 +3993,103 @@ def _write_strategy_evolution_register_shadow_result(
                 f"type={getattr(item, 'hypothesis_type', 'n/a')} "
                 f"title={getattr(item, 'title', 'n/a')}\n"
             )
+
+
+def _write_strategy_evolution_shadow_promotion_review_request_result(
+    stdout: TextIO,
+    command: str,
+    db_path: Path,
+    reports_dir: Path,
+    result: ServiceResult[object],
+    *,
+    compact: bool = False,
+) -> None:
+    data = result.data
+    as_of_date = getattr(data, "as_of_date", None) if data is not None else None
+    _write_routed_message(
+        stdout,
+        command,
+        as_of_date or "latest",
+        db_path,
+        f"service returned {result.status}",
+    )
+    _write_warnings_and_errors(stdout, result)
+    if data is None:
+        return
+
+    artifact = getattr(data, "artifact", {})
+    if not isinstance(artifact, dict):
+        artifact = {}
+    summary = artifact.get("summary", {}) if isinstance(artifact.get("summary"), dict) else {}
+    review_request = artifact.get("review_request", {}) if isinstance(artifact.get("review_request"), dict) else {}
+    source_dossier_review = (
+        artifact.get("source_dossier_review", {})
+        if isinstance(artifact.get("source_dossier_review"), dict)
+        else {}
+    )
+    replay = artifact.get("replay_backtest_evidence", {})
+    if not isinstance(replay, dict):
+        replay = {}
+    replay_summary = replay.get("summary", {}) if isinstance(replay.get("summary"), dict) else {}
+    review_ready_candidates = summary.get("review_ready_candidate_keys", [])
+    if not isinstance(review_ready_candidates, list):
+        review_ready_candidates = []
+    required_human_decisions = review_request.get("required_human_decisions", [])
+    if not isinstance(required_human_decisions, list):
+        required_human_decisions = []
+    required_replay_backtest_evidence = review_request.get("required_replay_backtest_evidence", [])
+    if not isinstance(required_replay_backtest_evidence, list):
+        required_replay_backtest_evidence = []
+    rollback_notes = review_request.get("rollback_notes", [])
+    if not isinstance(rollback_notes, list):
+        rollback_notes = []
+    stdout.write(f"shadow_promotion_review_request_status={result.status}\n")
+    stdout.write(
+        f"review_request_contract={getattr(data, 'review_request_contract', 'shadow_promotion_review_request_v1')}\n"
+    )
+    stdout.write(f"as_of_date={as_of_date or 'latest'}\n")
+    stdout.write(f"reports_dir={reports_dir}\n")
+    stdout.write(f"source_dossier_status={getattr(data, 'source_dossier_status', 'unknown')}\n")
+    stdout.write(f"source_dossier_path={getattr(data, 'source_dossier_path', None) or 'none'}\n")
+    stdout.write(
+        "review_request_summary="
+        f"status={summary.get('status', 'unknown')} "
+        f"candidates={summary.get('candidate_count', 0)} "
+        f"review_ready={summary.get('review_ready_count', 0)} "
+        f"blocked={summary.get('blocked_count', 0)} "
+        f"source_dossier={summary.get('source_dossier_status', 'unknown')} "
+        f"blocking_reason={review_request.get('blocking_reason') or 'none'} "
+        f"replay_evidence={replay_summary.get('accepted_count', 0)}/"
+        f"{replay_summary.get('rejected_count', 0)}/"
+        f"{replay_summary.get('missing_count', 0)}\n"
+    )
+    human_decision_summary = _display_list(
+        [
+            f"{item.get('decision_key', 'decision')}:{item.get('status', 'unknown')}"
+            for item in required_human_decisions
+            if isinstance(item, dict)
+        ]
+    )
+    replay_evidence_summary = _display_list(
+        [
+            f"{item.get('candidate_key') or 'source'}:{item.get('status', 'unknown')}"
+            for item in required_replay_backtest_evidence
+            if isinstance(item, dict)
+        ]
+    )
+    rollback_notes_summary = _display_list([str(note) for note in rollback_notes if note])
+    stdout.write(f"review_ready_candidates={_display_list(review_ready_candidates)}\n")
+    stdout.write(f"required_human_decisions={human_decision_summary}\n")
+    stdout.write(f"required_replay_backtest_evidence={replay_evidence_summary}\n")
+    stdout.write(f"rollback_notes={rollback_notes_summary}\n")
+    stdout.write("shadow_promotion_review_request_notice=manual review package only; no promote/trade/plan/timer mutation\n")
+    if compact:
+        return
+    stdout.write(f"source_dossier_json={_json_compact(artifact.get('source_dossier', {}))}\n")
+    stdout.write(f"source_dossier_review_json={_json_compact(source_dossier_review)}\n")
+    stdout.write(f"review_request_json={_json_compact(review_request)}\n")
+    stdout.write(f"replay_backtest_evidence_json={_json_compact(replay)}\n")
+    stdout.write(f"safety_json={_json_compact(artifact.get('safety', {}))}\n")
 
 
 def _write_strategy_evolution_list_result(

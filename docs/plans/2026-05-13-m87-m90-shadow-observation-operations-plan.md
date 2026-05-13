@@ -20,10 +20,10 @@
 
 | Track | Task | Status | Can Run In Parallel? | Depends On | Suggested Session |
 | --- | --- | --- | --- | --- | --- |
-| M87 | Shadow observation history index and API | Next | First | M83-M86 artifacts | Session A |
-| M88 | Dashboard observation timeline and comparison UX | Next | After M87 contract | M87 history payload | Session B |
-| M89 | Promotion review request package | Next | Parallel with M87/M90 | M86 dossiers | Session C |
-| M90 | Replay/backtest evidence bridge for shadow candidates | Next | Parallel with M87/M89 | M86 dossier checks, M50 validation concepts | Session D |
+| M87 | Shadow observation history index and API | Done, Verified | First | M83-M86 artifacts | Session A |
+| M88 | Dashboard observation timeline and comparison UX | Done, Verified | After M87 contract | M87 history payload | Session B |
+| M89 | Promotion review request package | Done, Verified | Parallel with M87/M90 | M86 dossiers | Session C |
+| M90 | Replay/backtest evidence bridge for shadow candidates | Done, Verified | Parallel with M87/M89 | M86 dossier checks, M50 validation concepts | Session D |
 
 ## M87: Shadow Observation History Index And API
 

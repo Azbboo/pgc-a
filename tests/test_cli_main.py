@@ -526,6 +526,49 @@ class CliMainTest(unittest.TestCase):
         ]:
             self.assertIn(command, output)
 
+    def test_strategy_evolution_shadow_promotion_review_request_writes_blocked_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "pgc.db"
+            reports_dir = root / "reports"
+            reports_dir.mkdir()
+            run_migrations(db_path)
+            _write_cli_shadow_promotion_dossier_artifact(reports_dir / "shadow_promotion_dossier_20260512.json")
+            before_counts = _cli_state_counts(db_path)
+            stdout = io.StringIO()
+
+            code = main(
+                [
+                    "strategy-evolution",
+                    "shadow-promotion-review-request",
+                    "--date",
+                    "20260512",
+                    "--db-path",
+                    str(db_path),
+                    "--reports-dir",
+                    str(reports_dir),
+                    "--apply",
+                    "--compact",
+                ],
+                stdout=stdout,
+            )
+
+            self.assertEqual(code, 0, stdout.getvalue())
+            self.assertEqual(_cli_state_counts(db_path), before_counts)
+            output = stdout.getvalue()
+            self.assertIn("shadow_promotion_review_request_status=success", output)
+            self.assertIn("review_request_contract=shadow_promotion_review_request_v1", output)
+            self.assertIn("source_dossier_status=valid", output)
+            self.assertIn("review_request_summary=status=blocked", output)
+            self.assertIn("blocking_reason=no_review_ready_candidates", output)
+            self.assertIn("required_human_decisions=manual_promotion_approval_required:required", output)
+            self.assertIn("future_strategy_version_task_required:required", output)
+            self.assertIn("candidate_selection:blocked", output)
+            self.assertIn("required_replay_backtest_evidence=trend_extension_shadow:missing", output)
+            self.assertIn("shadow_promotion_review_request_notice=manual review package only", output)
+            self.assertTrue((reports_dir / "shadow_promotion_review_request_20260512.json").exists())
+            self.assertTrue((reports_dir / "shadow_promotion_review_request_20260512.md").exists())
+
     def test_review_routes_to_service_with_normalized_date_and_db_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "pgc_cli.db"
@@ -1447,6 +1490,44 @@ class CliMainTest(unittest.TestCase):
             self.assertIn("not paper trading; no promote/trade/plan/timer mutation", output)
             self.assertIn("shadow_observation_rows_json=", output)
 
+    def test_ops_shadow_observation_history_reads_history_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "pgc_shadow_observation_history.db"
+            reports_dir = root / "reports"
+            reports_dir.mkdir()
+            run_migrations(db_path)
+            _seed_cli_shadow_history_artifacts(reports_dir)
+            stdout = io.StringIO()
+
+            code = main(
+                [
+                    "ops",
+                    "shadow-observation-history",
+                    "--date",
+                    "20260513",
+                    "--window",
+                    "2",
+                    "--db-path",
+                    str(db_path),
+                    "--reports-dir",
+                    str(reports_dir),
+                ],
+                stdout=stdout,
+            )
+
+            self.assertEqual(code, 0, stdout.getvalue())
+            output = stdout.getvalue()
+            self.assertIn("ops shadow-observation-history command routed", output)
+            self.assertIn("shadow_observation_history_status=success", output)
+            self.assertIn("history_contract=shadow_observation_history_v1", output)
+            self.assertIn("date_count=2", output)
+            self.assertIn("candidate_count=1", output)
+            self.assertIn("shadow_observation_history_candidates=trend_extension_shadow", output)
+            self.assertIn("score_delta=4.0", output)
+            self.assertIn("not paper trading; no promote/trade/plan/timer mutation", output)
+            self.assertIn("shadow_observation_history_rows_json=", output)
+
     def test_ops_open_execution_routes_to_service_and_prints_market_context(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "pgc_open_execution.db"
@@ -1794,6 +1875,129 @@ def _seed_cli_shadow_snapshot_artifacts(reports_dir: Path) -> None:
         json.dumps(preflight),
         encoding="utf-8",
     )
+
+
+def _seed_cli_shadow_history_artifacts(reports_dir: Path) -> None:
+    for date, score, delta in (("20260512", 41.0, -1.5), ("20260513", 45.0, -0.5)):
+        scorecard = {
+            "artifact_type": "shadow_observation_scorecard",
+            "review_date": date,
+            "status": "blocked",
+            "candidate_count": 1,
+            "blocked_candidate_count": 1,
+            "top_candidates": [
+                {
+                    "candidate_key": "trend_extension_shadow",
+                    "candidate_family": "shadow_bucket",
+                    "score": score,
+                    "sample_size": 20,
+                    "required_sample": 20,
+                    "sample_coverage_status": "complete",
+                    "blocker_count": 1,
+                    "blockers": ["operator_review_required"],
+                    "frozen_cpb_delta_pct": delta,
+                }
+            ],
+        }
+        dossier = {
+            "artifact_type": "shadow_promotion_dossier",
+            "as_of_date": date,
+            "summary": {"candidate_count": 1, "review_ready_count": 0, "blocked_count": 1},
+            "candidates": [
+                {
+                    "candidate_key": "trend_extension_shadow",
+                    "candidate_family": "shadow_bucket",
+                    "review_status": "blocked",
+                    "sample_size": 20,
+                    "frozen_cpb_delta_pct": delta,
+                    "blocked_reasons": ["candidate_blockers_not_cleared"],
+                }
+            ],
+        }
+        (reports_dir / f"shadow_observation_scorecard_{date}.json").write_text(
+            json.dumps(scorecard),
+            encoding="utf-8",
+        )
+        (reports_dir / f"shadow_promotion_dossier_{date}.json").write_text(
+            json.dumps(dossier),
+            encoding="utf-8",
+        )
+
+
+def _write_cli_shadow_promotion_dossier_artifact(path: Path) -> None:
+    payload = {
+        "artifact_type": "shadow_promotion_dossier",
+        "dossier_contract": "shadow_promotion_dossier_v1",
+        "generated_at": "2026-05-12T15:00:00Z",
+        "as_of_date": "20260512",
+        "threshold_metadata": {
+            "minimum_sample": {"required_days": 20},
+            "replay_backtest_evidence": {
+                "required": True,
+                "evidence_contract": "shadow_replay_backtest_evidence_v1",
+            },
+        },
+        "summary": {
+            "status": "blocked",
+            "candidate_count": 1,
+            "review_ready_count": 0,
+            "blocked_count": 1,
+            "review_ready_is_not_approval": True,
+            "manual_review_required": True,
+            "promotion_allowed": False,
+        },
+        "release_gate": {
+            "status": "blocked",
+            "promotion_allowed": False,
+            "blocked_mutation_targets": [
+                "strategy_versions",
+                "trade_plans",
+                "trades",
+                "positions",
+            ],
+        },
+        "candidates": [
+            {
+                "candidate_key": "trend_extension_shadow",
+                "candidate_family": "shadow_bucket",
+                "review_status": "blocked",
+                "blocked_reasons": ["replay_backtest_result_artifact_required"],
+                "walk_forward": {"sample_size": 20, "required_days": 20},
+                "readiness_checks": {
+                    "blocker_clearance": {
+                        "passed": False,
+                        "blockers": ["replay_backtest_result_artifact_required"],
+                    }
+                },
+                "replay_backtest_evidence": {
+                    "status": "missing",
+                    "blockers": ["replay_backtest_result_artifact_required"],
+                    "promotion_allowed": False,
+                    "paper_observation_allowed": False,
+                    "advisory_only": True,
+                },
+                "promotion_gate": {"promotion_allowed": False},
+            }
+        ],
+        "safety": {
+            "active_params_mutated": False,
+            "wrote_strategy_version": False,
+            "wrote_strategy_versions": False,
+            "writes_trade_state": False,
+            "writes_paper_live_behavior": False,
+            "timer_mutated": False,
+            "promotion_allowed": False,
+        },
+    }
+    path.write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+
+
+def _cli_state_counts(db_path: Path) -> dict[str, int]:
+    with connect(db_path) as conn:
+        return {
+            table: int(conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+            for table in ("strategy_versions", "trade_plans", "trades", "positions")
+        }
 
 
 if __name__ == "__main__":

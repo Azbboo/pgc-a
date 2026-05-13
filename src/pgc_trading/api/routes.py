@@ -47,7 +47,10 @@ from pgc_trading.services.portfolio_planning_service import (
     PublishTradePlanRequest,
 )
 from pgc_trading.services.position_lifecycle_service import EvaluateExitsRequest, ListPositionsRequest
-from pgc_trading.services.shadow_observation_service import GetShadowObservationScorecardRequest
+from pgc_trading.services.shadow_observation_service import (
+    GetShadowObservationScorecardRequest,
+    ListShadowObservationHistoryRequest,
+)
 from pgc_trading.services.shadow_strategy_service import GetShadowStrategySnapshotRequest
 from pgc_trading.services.strategy_evolution_service import (
     CreateStrategyVersionProposalReviewRequest,
@@ -290,6 +293,22 @@ def register_routes(app: Any) -> None:
             app.state.services,
             response,
             as_of_date=_normalize_optional_date(as_of_date),
+            request_id=request_id,
+        )
+
+    @app.get("/api/shadow-observation-history", tags=["strategy-evolution"])
+    def shadow_observation_history(
+        response: Response,
+        as_of_date: str | None = None,
+        window: int = 20,
+        request_id: str | None = None,
+    ) -> dict[str, object]:
+        return list_shadow_observation_history(
+            app.state.settings,
+            app.state.services,
+            response,
+            as_of_date=_normalize_optional_date(as_of_date),
+            window=window,
             request_id=request_id,
         )
 
@@ -761,6 +780,23 @@ def get_shadow_observation_scorecard(
     service = services.shadow_observation_service_factory(settings.db_path)
     result = service.get_scorecard(
         GetShadowObservationScorecardRequest(as_of_date=_normalize_optional_date(as_of_date)),
+        RequestContext(request_id=request_id, dry_run=True, source="api"),
+    )
+    return _service_response(result, response)
+
+
+def list_shadow_observation_history(
+    settings: ApiSettings,
+    services: ApiServices,
+    response: Any,
+    *,
+    as_of_date: str | None = None,
+    window: int = 20,
+    request_id: str | None = None,
+) -> dict[str, object]:
+    service = services.shadow_observation_service_factory(settings.db_path)
+    result = service.list_history(
+        ListShadowObservationHistoryRequest(as_of_date=_normalize_optional_date(as_of_date), window=window),
         RequestContext(request_id=request_id, dry_run=True, source="api"),
     )
     return _service_response(result, response)

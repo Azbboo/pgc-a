@@ -39,6 +39,7 @@ from pgc_trading.services.operational_readiness_service import (
     summarize_next_day_decision,
 )
 from pgc_trading.services.open_execution_service import OpenExecutionRequest, OpenExecutionService
+from pgc_trading.services.shadow_observation_service import load_shadow_replay_backtest_evidence_index
 from pgc_trading.services.shadow_strategy_service import GetShadowStrategySnapshotRequest, ShadowStrategyService
 from pgc_trading.portfolio.state_machines import BUY_PLAN_ACTION, OPEN_POSITION_STATUSES, SELL_PLAN_ACTIONS
 from pgc_trading.storage.database import connect
@@ -588,6 +589,7 @@ class ShadowCandidateReport:
     walk_forward_status: str
     blocker_count: int
     blockers: list[str] = field(default_factory=list)
+    replay_backtest_evidence: dict[str, Any] = field(default_factory=dict)
     promotion_allowed: bool = False
     paper_observation_allowed: bool = False
 
@@ -608,6 +610,7 @@ class ShadowStrategyReport:
     blocker_counts: dict[str, int]
     candidate_families: dict[str, int]
     top_candidates: list[ShadowCandidateReport] = field(default_factory=list)
+    replay_backtest_evidence: dict[str, Any] = field(default_factory=dict)
     source_artifacts: dict[str, str | None] = field(default_factory=dict)
     safety: dict[str, Any] = field(default_factory=dict)
     read_only: bool = True
@@ -1602,6 +1605,12 @@ def _shadow_strategy_report(
     counts = snapshot.counts
     errors = [error.code for error in result.errors]
     candidates = sorted(snapshot.candidates, key=_shadow_candidate_sort_key)[:5]
+    replay_evidence_index = load_shadow_replay_backtest_evidence_index(
+        reports_dir,
+        as_of_date=snapshot.as_of_date,
+        candidate_required_samples=_shadow_candidate_required_samples(snapshot.candidates, snapshot.walk_forward),
+    )
+    replay_evidence_by_candidate = replay_evidence_index.get("by_candidate", {})
     return ShadowStrategyReport(
         status=snapshot.status,
         as_of_date=snapshot.as_of_date,
@@ -1622,7 +1631,11 @@ def _shadow_strategy_report(
             str(key): _optional_int_from_any(value) or 0
             for key, value in sorted(snapshot.candidate_families.items())
         },
-        top_candidates=[_shadow_candidate_report(candidate) for candidate in candidates],
+        top_candidates=[
+            _shadow_candidate_report(candidate, replay_evidence_by_candidate)
+            for candidate in candidates
+        ],
+        replay_backtest_evidence=replay_evidence_index.get("summary", {}),
         source_artifacts=snapshot.source_artifacts,
         safety=snapshot.safety,
         read_only=bool(snapshot.read_only),
@@ -1646,6 +1659,7 @@ def _unavailable_shadow_strategy_report(error_codes: list[str]) -> ShadowStrateg
         shadow_hypothesis_count=0,
         blocker_counts={},
         candidate_families={},
+        replay_backtest_evidence={},
         safety={
             "read_only": True,
             "artifact_only": True,
@@ -1657,9 +1671,16 @@ def _unavailable_shadow_strategy_report(error_codes: list[str]) -> ShadowStrateg
     )
 
 
-def _shadow_candidate_report(candidate: dict[str, Any]) -> ShadowCandidateReport:
+def _shadow_candidate_report(
+    candidate: dict[str, Any],
+    replay_evidence_by_candidate: dict[str, Any] | None = None,
+) -> ShadowCandidateReport:
+    candidate_key = str(candidate.get("candidate_key") or "unknown")
+    replay_evidence = _dict_value(candidate.get("replay_backtest_evidence")) or _dict_value(
+        (replay_evidence_by_candidate or {}).get(candidate_key)
+    ) or {}
     return ShadowCandidateReport(
-        candidate_key=str(candidate.get("candidate_key") or "unknown"),
+        candidate_key=candidate_key,
         candidate_family=str(candidate.get("candidate_family") or "unknown"),
         status=str(candidate.get("status") or "unknown"),
         today_candidate_count=_optional_int_from_any(candidate.get("today_candidate_count")),
@@ -1667,9 +1688,25 @@ def _shadow_candidate_report(candidate: dict[str, Any]) -> ShadowCandidateReport
         walk_forward_status=str(candidate.get("walk_forward_status") or "unknown"),
         blocker_count=_optional_int_from_any(candidate.get("blocker_count")) or 0,
         blockers=_shadow_text_list(candidate.get("blockers")),
+        replay_backtest_evidence=replay_evidence,
         promotion_allowed=bool(candidate.get("promotion_allowed")),
         paper_observation_allowed=bool(candidate.get("paper_observation_allowed")),
     )
+
+
+def _shadow_candidate_required_samples(
+    candidates: list[dict[str, Any]],
+    walk_forward: dict[str, Any],
+) -> dict[str, int]:
+    fallback = _optional_int_from_any(walk_forward.get("required_days")) or 20
+    required: dict[str, int] = {}
+    for candidate in candidates:
+        candidate_key = str(candidate.get("candidate_key") or "").strip()
+        if not candidate_key:
+            continue
+        walk = _dict_value(candidate.get("walk_forward")) or {}
+        required[candidate_key] = _optional_int_from_any(walk.get("required_days")) or fallback
+    return required
 
 
 def _shadow_text_list(value: Any) -> list[str]:
@@ -4809,6 +4846,12 @@ def _shadow_strategy_lines(shadow: ShadowStrategyReport) -> list[str]:
                 f"hypotheses {shadow.shadow_hypothesis_count}"
             ),
             f"- blocker counts：{_shadow_blocker_counts_text(shadow.blocker_counts)}",
+            (
+                "- replay/backtest evidence："
+                f"accepted {shadow.replay_backtest_evidence.get('accepted_count', 0)} / "
+                f"rejected {shadow.replay_backtest_evidence.get('rejected_count', 0)} / "
+                f"missing {shadow.replay_backtest_evidence.get('missing_count', 0)}"
+            ),
             f"- top candidates：{_shadow_top_candidates_text(shadow.top_candidates)}",
             (
                 "- 安全边界："
@@ -4839,10 +4882,11 @@ def _shadow_top_candidates_text(candidates: list[ShadowCandidateReport]) -> str:
         top = _shadow_today_top_text(candidate.today_top)
         today_count = candidate.today_candidate_count if candidate.today_candidate_count is not None else "-"
         blockers = "/".join(candidate.blockers[:2]) if candidate.blockers else "none"
+        replay_status = candidate.replay_backtest_evidence.get("status", "missing")
         parts.append(
             f"{candidate.candidate_key}（{candidate.candidate_family}，"
             f"today {today_count}，walk {candidate.walk_forward_status}，"
-            f"blockers {candidate.blocker_count}:{blockers}，top {top}）"
+            f"replay {replay_status}，blockers {candidate.blocker_count}:{blockers}，top {top}）"
         )
     suffix = f"；另有 {len(candidates) - 3} 条" if len(candidates) > 3 else ""
     return "；".join(parts) + suffix

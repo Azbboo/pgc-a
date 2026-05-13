@@ -335,6 +335,43 @@ class OperationalRunbookStaticTest(unittest.TestCase):
         ]:
             self.assertIn(text, source)
 
+    def test_m89_runbook_documents_shadow_promotion_review_request_package(self) -> None:
+        source = RUNBOOK.read_text(encoding="utf-8")
+
+        for text in [
+            "M89 影子策略 promotion review request package",
+            "shadow_promotion_review_request_YYYYMMDD.json",
+            "shadow_promotion_review_request_v1",
+            "source_dossier",
+            "required_human_decisions",
+            "required_replay_backtest_evidence",
+            "no_review_ready_candidates",
+            "promotion_allowed=false",
+            "strategy_versions, trade_plans, trades, positions",
+            "PYTHONPATH=src:. pytest -q tests/test_shadow_observation_service.py tests/test_strategy_evolution_service.py tests/test_operational_runbook_static.py",
+        ]:
+            self.assertIn(text, source)
+
+    def test_m90_runbook_documents_shadow_replay_backtest_evidence_bridge(self) -> None:
+        source = RUNBOOK.read_text(encoding="utf-8")
+
+        for text in [
+            "M90 影子策略 replay/backtest evidence bridge",
+            "shadow_replay_backtest_evidence_v1",
+            "artifact_type=shadow_replay_backtest_evidence",
+            "replay_backtest_result_artifact_required",
+            "candidate_key",
+            "date_range.start_date",
+            "source_hash",
+            "no_future_boundary",
+            "t1_close_mean_pct",
+            "max_drawdown_pct",
+            "promotion_allowed=false",
+            "rejected 或 missing evidence 必须保留",
+            "PYTHONPATH=src:. pytest -q tests/test_shadow_observation_service.py tests/test_strategy_evolution_service.py tests/test_daily_report.py tests/test_shadow_strategy_monitor_script.py",
+        ]:
+            self.assertIn(text, source)
+
     def test_m20_deploy_script_is_guarded_and_parseable(self) -> None:
         self.assertTrue(DEPLOY_SCRIPT.exists(), f"missing {DEPLOY_SCRIPT}")
         source = DEPLOY_SCRIPT.read_text(encoding="utf-8")

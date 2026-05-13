@@ -4,8 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>PGC 操作台</title>
-    <link rel="stylesheet" href="/dashboard/assets/styles.css?v=20260513-m84-shadow-observation-1" />
-    <script defer src="/dashboard/assets/app.js?v=20260513-m84-shadow-observation-1"></script>
+    <link rel="stylesheet" href="/dashboard/assets/styles.css?v=20260513-m88-shadow-history-1" />
+    <script defer src="/dashboard/assets/app.js?v=20260513-m88-shadow-history-1"></script>
   </head>
   <body>
     <div class="app-shell">
@@ -670,12 +670,40 @@
               <p>Shadow strategy lab：只读展示候选族群、walk-forward、promotion blocker 和 frozen CPB 对照；研究-only，不发布策略、不写交易计划。</p>
             </div>
             <div class="toolbar">
+              <div class="shadow-history-control" aria-label="影子观察历史筛选">
+                <label class="review-date-field">
+                  <span>观察截止日</span>
+                  <input id="shadowHistoryDateInput" type="date" autocomplete="off" />
+                </label>
+                <label class="review-date-field review-date-field--compact">
+                  <span>窗口</span>
+                  <select id="shadowHistoryWindowSelect" aria-label="观察历史窗口">
+                    <option value="5">5 日</option>
+                    <option value="10">10 日</option>
+                    <option value="20">20 日</option>
+                    <option value="40">40 日</option>
+                  </select>
+                </label>
+                <button type="button" id="shadowHistoryApplyButton">查看历史</button>
+              </div>
               <span id="shadowSnapshotDateLabel" class="review-scope-chip">Shadow snapshot -</span>
               <button type="button" id="reloadShadowStrategyButton">刷新影子快照</button>
             </div>
           </div>
 
           <section class="shadow-summary-panel" id="shadowSummaryPanel" aria-live="polite"></section>
+
+          <section class="panel shadow-history-panel">
+            <div class="panel-heading">
+              <h2>观察历史</h2>
+              <div class="panel-heading-actions">
+                <span id="shadowObservationHistoryState" class="muted">-</span>
+                <span class="chip chip-neutral">research-only</span>
+              </div>
+            </div>
+            <div id="shadowObservationHistoryStrip" class="shadow-history-strip" aria-label="影子观察日期时间线"></div>
+            <div id="shadowObservationHistoryList" class="shadow-history-list"></div>
+          </section>
 
           <section class="panel shadow-observation-panel">
             <div class="panel-heading">

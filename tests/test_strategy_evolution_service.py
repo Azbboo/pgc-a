@@ -17,6 +17,7 @@ from pgc_trading.services.strategy_evolution_service import (
     RegisterShadowStrategyCandidatesRequest,
     StrategyEvolutionService,
     review_shadow_promotion_dossier_artifact,
+    review_shadow_promotion_review_request_artifact,
     review_strategy_version_proposal_review_artifact,
     review_strategy_version_proposal_artifact,
 )
@@ -650,6 +651,9 @@ class StrategyEvolutionServiceTest(unittest.TestCase):
             self.assertEqual(review.dossier_contract, "shadow_promotion_dossier_v1")
             self.assertEqual(review.review_ready_count, 1)
             self.assertEqual(review.blocked_count, 1)
+            self.assertEqual(review.replay_backtest_evidence_accepted_count, 1)
+            self.assertEqual(review.replay_backtest_evidence_rejected_count, 1)
+            self.assertTrue(review.replay_backtest_evidence_advisory_only)
             self.assertFalse(review.active_params_mutated)
             self.assertFalse(review.wrote_strategy_version)
             self.assertFalse(review.writes_trade_state)
@@ -665,6 +669,42 @@ class StrategyEvolutionServiceTest(unittest.TestCase):
 
             self.assertFalse(unsafe_review.valid)
             self.assertEqual(unsafe_review.error, "shadow promotion dossier reports mutation or promotion permission.")
+
+    def test_reviews_shadow_promotion_review_request_artifact_as_evidence_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            request_path = Path(tmp) / "shadow_promotion_review_request_20260512.json"
+            _write_shadow_promotion_review_request_artifact(request_path)
+
+            review = review_shadow_promotion_review_request_artifact(request_path)
+
+            self.assertTrue(review.exists)
+            self.assertTrue(review.valid)
+            self.assertEqual(review.artifact_type, "shadow_promotion_review_request")
+            self.assertEqual(review.review_request_contract, "shadow_promotion_review_request_v1")
+            self.assertEqual(review.source_dossier_contract, "shadow_promotion_dossier_v1")
+            self.assertEqual(review.candidate_count, 2)
+            self.assertEqual(review.review_ready_count, 0)
+            self.assertEqual(review.blocked_count, 2)
+            self.assertEqual(review.blocking_reason, "no_review_ready_candidates")
+            self.assertEqual(review.required_human_decisions_count, 2)
+            self.assertEqual(review.required_replay_backtest_evidence_count, 2)
+            self.assertFalse(review.active_params_mutated)
+            self.assertFalse(review.wrote_strategy_version)
+            self.assertFalse(review.writes_trade_state)
+            self.assertFalse(review.writes_paper_live_behavior)
+            self.assertFalse(review.timer_mutated)
+            self.assertFalse(review.promotion_allowed)
+
+            unsafe = json.loads(request_path.read_text(encoding="utf-8"))
+            unsafe["safety"]["promotion_allowed"] = True
+            request_path.write_text(json.dumps(unsafe), encoding="utf-8")
+            unsafe_review = review_shadow_promotion_review_request_artifact(request_path)
+
+            self.assertFalse(unsafe_review.valid)
+            self.assertEqual(
+                unsafe_review.error,
+                "shadow promotion review request artifact reports mutation or promotion permission.",
+            )
 
     def test_strategy_version_proposal_review_requires_accepted_hypothesis_and_valid_proposal_for_approval(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1007,11 +1047,24 @@ def _write_shadow_promotion_dossier_artifact(path: Path) -> None:
                     {
                         "candidate_key": "review_ready_shadow",
                         "review_status": "review_ready",
+                        "replay_backtest_evidence": {
+                            "status": "accepted",
+                            "advisory_only": True,
+                            "promotion_allowed": False,
+                            "paper_observation_allowed": False,
+                        },
                         "promotion_gate": {"promotion_allowed": False},
                     },
                     {
                         "candidate_key": "blocked_shadow",
                         "review_status": "blocked",
+                        "replay_backtest_evidence": {
+                            "status": "rejected",
+                            "blockers": ["shadow_replay_backtest_source_hash_mismatch"],
+                            "advisory_only": True,
+                            "promotion_allowed": False,
+                            "paper_observation_allowed": False,
+                        },
                         "promotion_gate": {"promotion_allowed": False},
                     },
                 ],
@@ -1035,6 +1088,120 @@ def _write_shadow_promotion_dossier_artifact(path: Path) -> None:
         ),
         encoding="utf-8",
     )
+
+
+def _write_shadow_promotion_review_request_artifact(path: Path) -> None:
+    payload = {
+        "artifact_type": "shadow_promotion_review_request",
+        "review_request_contract": "shadow_promotion_review_request_v1",
+        "as_of_date": "20260512",
+        "source_dossier_path": "reports/shadow_promotion_dossier_20260512.json",
+        "source_dossier_contract": "shadow_promotion_dossier_v1",
+        "source_dossier_review": {
+            "path": "reports/shadow_promotion_dossier_20260512.json",
+            "exists": True,
+            "valid": True,
+            "artifact_type": "shadow_promotion_dossier",
+            "dossier_contract": "shadow_promotion_dossier_v1",
+            "candidate_count": 2,
+            "review_ready_count": 0,
+            "blocked_count": 2,
+            "review_ready_candidates": [],
+            "promotion_allowed": False,
+        },
+        "source_dossier": {
+            "artifact_type": "shadow_promotion_dossier",
+            "dossier_contract": "shadow_promotion_dossier_v1",
+            "as_of_date": "20260512",
+            "summary": {
+                "status": "blocked",
+                "candidate_count": 2,
+                "review_ready_count": 0,
+                "blocked_count": 2,
+                "promotion_allowed": False,
+            },
+            "candidates": [
+                {
+                    "candidate_key": "blocked_shadow_a",
+                    "review_status": "blocked",
+                    "readiness_checks": {
+                        "blocker_clearance": {
+                            "blockers": ["replay_backtest_result_artifact_required"],
+                            "passed": False,
+                        }
+                    },
+                },
+                {
+                    "candidate_key": "blocked_shadow_b",
+                    "review_status": "blocked",
+                    "readiness_checks": {
+                        "blocker_clearance": {
+                            "blockers": ["replay_backtest_result_artifact_required"],
+                            "passed": False,
+                        }
+                    },
+                },
+            ],
+            "release_gate": {"status": "blocked", "promotion_allowed": False},
+            "safety": {
+                "active_params_mutated": False,
+                "wrote_strategy_version": False,
+                "wrote_strategy_versions": False,
+                "writes_trade_state": False,
+                "writes_paper_live_behavior": False,
+                "timer_mutated": False,
+                "promotion_allowed": False,
+            },
+        },
+        "summary": {
+            "status": "blocked",
+            "candidate_count": 2,
+            "review_ready_count": 0,
+            "blocked_count": 2,
+            "review_ready_candidate_keys": [],
+            "blocked_candidate_keys": ["blocked_shadow_a", "blocked_shadow_b"],
+            "review_ready_is_not_approval": True,
+            "manual_review_required": True,
+            "promotion_allowed": False,
+        },
+        "review_request": {
+            "request_key": "shadow-promotion-review-request:20260512",
+            "request_status": "blocked",
+            "blocking_reason": "no_review_ready_candidates",
+            "required_human_decisions": [
+                {"decision_key": "manual_promotion_approval_required", "status": "required"},
+                {"decision_key": "future_strategy_version_task_required", "status": "required"},
+            ],
+            "required_replay_backtest_evidence": [
+                {
+                    "candidate_key": "blocked_shadow_a",
+                    "status": "missing",
+                    "blockers": ["replay_backtest_result_artifact_required"],
+                },
+                {
+                    "candidate_key": "blocked_shadow_b",
+                    "status": "missing",
+                    "blockers": ["replay_backtest_result_artifact_required"],
+                },
+            ],
+            "rollback_notes": ["review_ready is not approval"],
+            "safety_notes": ["promotion_allowed=false"],
+        },
+        "safety": {
+            "read_only": True,
+            "artifact_only": True,
+            "review_request_is_not_approval": True,
+            "manual_review_required": True,
+            "promotion_allowed": False,
+            "active_params_mutated": False,
+            "wrote_strategy_version": False,
+            "wrote_strategy_versions": False,
+            "writes_trade_state": False,
+            "writes_paper_live_behavior": False,
+            "timer_mutated": False,
+        },
+    }
+    path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
 
 
 def _write_shadow_artifacts(reports_dir: Path) -> None:

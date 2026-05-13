@@ -16,7 +16,9 @@ from pgc_trading import __version__
 from pgc_trading.services.common import RequestContext, ServiceResult
 from pgc_trading.services.shadow_observation_service import (
     GetShadowObservationScorecardRequest,
+    ListShadowObservationHistoryRequest,
     ShadowObservationScorecardResult,
+    ShadowObservationHistoryResult,
     ShadowObservationService,
 )
 from pgc_trading.services.shadow_strategy_service import (
@@ -395,6 +397,22 @@ def run_shadow_observation_scorecard(
     return service.get_scorecard(
         GetShadowObservationScorecardRequest(as_of_date=as_of_date),
         RequestContext(request_id="ops-shadow-observation-scorecard", dry_run=True, operator="cli", source="ops"),
+    )
+
+
+def run_shadow_observation_history(
+    db_path: Path,
+    *,
+    as_of_date: str | None = None,
+    window: int = 20,
+    reports_dir: Path | None = None,
+) -> ServiceResult[ShadowObservationHistoryResult]:
+    """Build the read-only cross-date shadow observation history used by ops/API/Dashboard views."""
+
+    service = ShadowObservationService(Path(db_path), reports_dir=reports_dir)
+    return service.list_history(
+        ListShadowObservationHistoryRequest(as_of_date=as_of_date, window=window),
+        RequestContext(request_id="ops-shadow-observation-history", dry_run=True, operator="cli", source="ops"),
     )
 
 

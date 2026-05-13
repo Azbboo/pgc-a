@@ -11,6 +11,7 @@ from pgc_trading.ops import (
     run_market_review_parity_check,
     run_ops_health_check,
     run_ops_migration_step,
+    run_shadow_observation_history,
     run_shadow_observation_scorecard,
     run_shadow_strategy_snapshot,
 )
@@ -189,6 +190,35 @@ class OpsTest(unittest.TestCase):
             self.assertFalse(result.data.safety["timer_mutated"])
             self.assertEqual(result.data.rows[0]["candidate_key"], "trend_extension_shadow")
 
+    def test_shadow_observation_history_helper_routes_read_only_history(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "pgc.db"
+            reports_dir = root / "reports"
+            reports_dir.mkdir()
+            run_migrations(db_path)
+            _seed_shadow_history_artifacts(reports_dir)
+
+            result = run_shadow_observation_history(
+                db_path,
+                as_of_date="20260513",
+                window=2,
+                reports_dir=reports_dir,
+            )
+
+            self.assertTrue(result.ok, result.errors)
+            self.assertEqual(result.request_id, "ops-shadow-observation-history")
+            assert result.data is not None
+            self.assertEqual(result.data.history_contract, "shadow_observation_history_v1")
+            self.assertEqual(result.data.as_of_date, "20260513")
+            self.assertEqual(result.data.counts["date_count"], 2)
+            self.assertEqual(result.data.counts["candidate_count"], 1)
+            self.assertTrue(result.data.safety["observation_history_is_research_only"])
+            self.assertFalse(result.data.safety["writes_trade_state"])
+            self.assertFalse(result.data.safety["timer_mutated"])
+            self.assertEqual(result.data.candidates[0]["candidate_key"], "trend_extension_shadow")
+            self.assertEqual(result.data.candidates[0]["score_delta"], 4.0)
+
     def test_market_review_parity_detects_matching_and_mismatched_tables(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             local_db = Path(tmp) / "local.db"
@@ -340,6 +370,53 @@ def _seed_shadow_snapshot_artifacts(reports_dir: Path) -> None:
         json.dumps(preflight),
         encoding="utf-8",
     )
+
+
+def _seed_shadow_history_artifacts(reports_dir: Path) -> None:
+    for date, score, delta in (("20260512", 41.0, -1.5), ("20260513", 45.0, -0.5)):
+        scorecard = {
+            "artifact_type": "shadow_observation_scorecard",
+            "review_date": date,
+            "status": "blocked",
+            "candidate_count": 1,
+            "blocked_candidate_count": 1,
+            "top_candidates": [
+                {
+                    "candidate_key": "trend_extension_shadow",
+                    "candidate_family": "shadow_bucket",
+                    "score": score,
+                    "sample_size": 20,
+                    "required_sample": 20,
+                    "sample_coverage_status": "complete",
+                    "blocker_count": 1,
+                    "blockers": ["operator_review_required"],
+                    "frozen_cpb_delta_pct": delta,
+                }
+            ],
+        }
+        dossier = {
+            "artifact_type": "shadow_promotion_dossier",
+            "as_of_date": date,
+            "summary": {"candidate_count": 1, "review_ready_count": 0, "blocked_count": 1},
+            "candidates": [
+                {
+                    "candidate_key": "trend_extension_shadow",
+                    "candidate_family": "shadow_bucket",
+                    "review_status": "blocked",
+                    "sample_size": 20,
+                    "frozen_cpb_delta_pct": delta,
+                    "blocked_reasons": ["candidate_blockers_not_cleared"],
+                }
+            ],
+        }
+        (reports_dir / f"shadow_observation_scorecard_{date}.json").write_text(
+            json.dumps(scorecard),
+            encoding="utf-8",
+        )
+        (reports_dir / f"shadow_promotion_dossier_{date}.json").write_text(
+            json.dumps(dossier),
+            encoding="utf-8",
+        )
 
 
 def _step_status(result, step: str) -> str | None:

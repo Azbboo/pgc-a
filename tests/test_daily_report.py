@@ -28,6 +28,7 @@ from pgc_trading.services.execution_recording_service import (
     ExecutionRecordingService,
     RecordTradeRequest,
 )
+from pgc_trading.services.shadow_observation_service import build_shadow_replay_backtest_source_hash
 from pgc_trading.storage.migrate import run_migrations
 from pgc_trading.storage.seed import seed_reference_data
 
@@ -212,6 +213,7 @@ class DailyReportTest(unittest.TestCase):
             reports_dir = Path(tmp) / "reports"
             reports_dir.mkdir()
             self._write_shadow_strategy_artifacts(reports_dir)
+            self._write_shadow_replay_backtest_evidence(reports_dir, "trend_extension_shadow")
 
             result = ReportingQueryService(db_path, reports_dir=reports_dir).get_daily_report(
                 DailyReportRequest(as_of_date=AS_OF_DATE, account_key=ACCOUNT_KEY),
@@ -229,6 +231,9 @@ class DailyReportTest(unittest.TestCase):
             self.assertEqual(shadow.blocker_counts["operator_review_required"], 2)
             self.assertEqual(shadow.top_candidates[0].candidate_key, "trend_extension_shadow")
             self.assertEqual(shadow.top_candidates[0].today_top["name"], "Shadow Top")
+            self.assertEqual(shadow.top_candidates[0].replay_backtest_evidence["status"], "accepted")
+            self.assertEqual(shadow.replay_backtest_evidence["accepted_count"], 1)
+            self.assertEqual(shadow.replay_backtest_evidence["missing_count"], 1)
             self.assertFalse(shadow.top_candidates[0].promotion_allowed)
             self.assertEqual(result.data.candidate.name, "Report Pick")
 
@@ -237,6 +242,7 @@ class DailyReportTest(unittest.TestCase):
             self.assertIn("shadow_observation", markdown)
             self.assertIn("monitor 2026-05-04 / preflight 2026-05-04", markdown)
             self.assertIn("operator_review_required 2", markdown)
+            self.assertIn("replay/backtest evidence：accepted 1 / rejected 0 / missing 1", markdown)
             self.assertIn("trend_extension_shadow", markdown)
             self.assertIn("| candidate | family | status | today | walk_forward | blockers | top |", markdown)
             self.assertIn("source_refs", markdown)
@@ -246,6 +252,10 @@ class DailyReportTest(unittest.TestCase):
             payload = json.loads(render_daily_report_json(result.data))
             self.assertEqual(payload["shadow_observation"]["status"], "blocked")
             self.assertEqual(payload["shadow_observation"]["top_candidates"][0]["today_top"]["name"], "Shadow Top")
+            self.assertEqual(
+                payload["shadow_observation"]["top_candidates"][0]["replay_backtest_evidence"]["status"],
+                "accepted",
+            )
             self.assertEqual(payload["shadow_strategy"]["status"], "blocked")
             self.assertEqual(payload["shadow_strategy"]["top_candidates"][0]["today_top"]["name"], "Shadow Top")
             self.assertEqual(payload["candidate"]["name"], "Report Pick")
@@ -1203,6 +1213,57 @@ class DailyReportTest(unittest.TestCase):
         )
         (reports_dir / f"strategy_shadow_promotion_preflight_{AS_OF_DATE}.json").write_text(
             json.dumps(preflight, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+    def _write_shadow_replay_backtest_evidence(self, reports_dir: Path, candidate_key: str) -> None:
+        metrics = {
+            "t1_close_mean_pct": 2.4,
+            "t1_close_win_rate_pct": 65.0,
+            "t5_close_mean_pct": 4.0,
+            "max_drawdown_pct": -5.0,
+        }
+        provider = "daily_report_test"
+        start_date = "20260409"
+        source_hash = build_shadow_replay_backtest_source_hash(
+            provider=provider,
+            candidate_key=candidate_key,
+            start_date=start_date,
+            end_date=AS_OF_DATE,
+            sample_size=20,
+            metrics=metrics,
+        )
+        payload = {
+            "artifact_type": "shadow_replay_backtest_evidence",
+            "evidence_contract": "shadow_replay_backtest_evidence_v1",
+            "provider": provider,
+            "as_of_date": AS_OF_DATE,
+            "results": [
+                {
+                    "candidate_key": candidate_key,
+                    "date_range": {"start_date": start_date, "end_date": AS_OF_DATE},
+                    "sample_size": 20,
+                    "metrics": metrics,
+                    "source_hash": source_hash,
+                    "no_future_boundary": {
+                        "passed": True,
+                        "max_input_date": AS_OF_DATE,
+                        "data_cutoff_date": AS_OF_DATE,
+                    },
+                }
+            ],
+            "safety": {
+                "active_params_mutated": False,
+                "wrote_strategy_versions": False,
+                "writes_trade_state": False,
+                "writes_paper_live_behavior": False,
+                "timer_mutated": False,
+                "promotion_allowed": False,
+                "paper_observation_allowed": False,
+            },
+        }
+        (reports_dir / f"shadow_replay_backtest_evidence_{AS_OF_DATE}_{candidate_key}.json").write_text(
+            json.dumps(payload, ensure_ascii=False, sort_keys=True),
             encoding="utf-8",
         )
 

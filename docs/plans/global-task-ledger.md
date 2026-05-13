@@ -9,12 +9,12 @@ This ledger is the single index for historical and active project work. Detailed
 | Field | Value |
 | --- | --- |
 | Branch | `codex/m84-shadow-observation-dashboard` |
-| Latest deployed commit | See release tag `pgc-v0.1.0-20260513-m83-m86-r2` |
-| Latest release tag | `pgc-v0.1.0-20260513-m83-m86-r2` |
+| Latest deployed commit | See release tag `pgc-v0.1.0-20260513-m87-m90-r1` |
+| Latest release tag | `pgc-v0.1.0-20260513-m87-m90-r1` |
 | Remote API | `http://150.158.121.150:8020` |
 | Remote migration state | `013_decision_action_log`, `pending_migrations=none` |
 | Latest release health | `api_health_ok=true`, HTTP `200` |
-| Latest full verification | `439 passed, 3 skipped, 10 subtests passed` locally on 2026-05-13 after M83-M86 Codex review; focused M83-M86 checks passed (`103 passed, 1 skipped, 1 subtests passed`), `node --check web/dashboard/app.js`, `python3 -m py_compile src/pgc_trading/services/shadow_observation_service.py scripts/monitor_shadow_strategies.py`, regenerated 20260512/20260513 shadow observation artifacts, `git diff --check` passed, and remote `ops health --require-current-migrations` returned `status=ok` on release `pgc-v0.1.0-20260513-m83-m86-r2`. |
+| Latest full verification | `453 passed, 3 skipped, 10 subtests passed` locally on 2026-05-13 after M87-M90 Codex review; focused M87-M90 checks passed (`173 passed, 3 skipped, 1 subtests passed`), `node --check web/dashboard/app.js`, `python3 -m py_compile src/pgc_trading/services/shadow_observation_service.py src/pgc_trading/services/strategy_evolution_service.py scripts/monitor_shadow_strategies.py src/pgc_trading/cli/main.py src/pgc_trading/ops.py`, and `git diff --check` passed before release. |
 
 ## Status Legend
 
@@ -51,6 +51,7 @@ This ledger is the single index for historical and active project work. Detailed
 | M79-M82 shadow strategy visibility | `docs/plans/2026-05-12-m79-m82-shadow-strategy-visibility-plan.md` |
 | M83-M86 shadow observation loop | `docs/plans/2026-05-13-m83-m86-shadow-observation-loop-plan.md` |
 | M87-M90 shadow observation operations | `docs/plans/2026-05-13-m87-m90-shadow-observation-operations-plan.md` |
+| M91-M94 shadow promotion evidence | `docs/plans/2026-05-13-m91-m94-shadow-promotion-evidence-plan.md` |
 | External stock project integration assessment | `docs/plans/2026-05-12-stock-instock-integration-plan.md` |
 | OPS-20260511 daily review and stock pool intake | `docs/plans/2026-05-11-ops-daily-review-stock-pool-plan.md` |
 
@@ -167,20 +168,24 @@ This ledger is the single index for historical and active project work. Detailed
 | M84 | Dashboard observation queue and attribution view | Done, Deployed | release `pgc-v0.1.0-20260513-m83-m86-r2` | Extended Shadow Lab with read-only observation queue, outcome attribution drawer, score/coverage/blocker display, and explicit no promote/trade/plan/timer controls. Verification: `node --check web/dashboard/app.js`, Dashboard static tests, and full suite passed. |
 | M85 | Daily report, CLI, and pipeline observation artifacts | Done, Deployed | release `pgc-v0.1.0-20260513-m83-m86-r2` | Added `shadow_observation` daily report JSON/Markdown alongside the legacy `shadow_strategy` block, compact observation status/top-candidate/blocker CLI lines for `ops shadow-snapshot` and `ops daily-pipeline`, and date-scoped `shadow_observation_scorecard_YYYYMMDD` artifacts from the monitor script without active pick/trade/timer mutation. Regenerated 20260512/20260513 artifacts. |
 | M86 | Promotion dossier, guardrails, and release gate | Done, Deployed | release `pgc-v0.1.0-20260513-m83-m86-r2` | Added review-only `shadow_promotion_dossier_YYYYMMDD` artifacts with threshold metadata, blocked/readiness states, strategy-evolution artifact review, runbook release gate wording, portable source paths, and regression coverage proving no active CPB/trade/paper-live/timer mutation. |
-| M87 | Shadow observation history index and API | Next | `docs/plans/2026-05-13-m87-m90-shadow-observation-operations-plan.md` | Build read-only cross-date scorecard/dossier history for candidate trend, rank, coverage, blockers, and review status. |
-| M88 | Dashboard observation timeline and comparison UX | Next | `docs/plans/2026-05-13-m87-m90-shadow-observation-operations-plan.md` | Add Shadow Lab timeline/window selector and candidate comparison drawer over the M87 history API; no write controls. |
-| M89 | Promotion review request package | Next | `docs/plans/2026-05-13-m87-m90-shadow-observation-operations-plan.md` | Generate blocked/manual review-request artifacts from promotion dossiers without creating strategy versions or changing trading state. |
-| M90 | Replay/backtest evidence bridge for shadow candidates | Next | `docs/plans/2026-05-13-m87-m90-shadow-observation-operations-plan.md` | Validate replay/backtest evidence artifacts for shadow candidates and surface accepted/rejected evidence in scorecards/dossiers while keeping all promotion gates manual. |
+| M87 | Shadow observation history index and API | Done, Deployed | release `pgc-v0.1.0-20260513-m87-m90-r1` | Added read-only `shadow_observation_history_v1` over scorecard/dossier artifacts with `/api/shadow-observation-history`, `ops shadow-observation-history`, candidate trend/rank/coverage/blocker/review history, explicit missing-artifact blockers, and no strategy/trade/paper-live/timer mutation. Verification: focused M87-M90 pytest `173 passed, 3 skipped, 1 subtests passed`; full `PYTHONPATH=src:. pytest -q` (`453 passed, 3 skipped, 10 subtests passed`); `git diff --check`. |
+| M88 | Dashboard observation timeline and comparison UX | Done, Deployed | release `pgc-v0.1.0-20260513-m87-m90-r1` | Added Shadow Lab observation history date/window selector, history timeline strip, candidate trend cards, and comparison drawer over `shadow_observation_history_v1`; no promote/trade/plan/timer controls. Verification: `node --check web/dashboard/app.js`, Dashboard static tests, and full suite passed. |
+| M89 | Promotion review request package | Done, Deployed | release `pgc-v0.1.0-20260513-m87-m90-r1` | Added `shadow_promotion_review_request_v1` JSON/Markdown artifacts from promotion dossiers, CLI generation/validation, blocked no-review-ready handling, required human decisions/replay evidence/rollback notes, and regression coverage proving no strategy-version or trading-state writes. Generated `reports/shadow_promotion_review_request_20260513.{json,md}` with `no_review_ready_candidates`. |
+| M90 | Replay/backtest evidence bridge for shadow candidates | Done, Deployed | release `pgc-v0.1.0-20260513-m87-m90-r1` | Added `shadow_replay_backtest_evidence_v1` provider-file validation for candidate key/date range/sample/source-hash/no-future/metric completeness, surfaced accepted/rejected/missing evidence in scorecards, promotion dossiers, monitor artifacts, strategy-evolution reviews, and daily reports, and kept accepted evidence advisory-only with manual promotion blockers intact. |
+| M91 | Shadow replay/backtest evidence producer | Next | `docs/plans/2026-05-13-m91-m94-shadow-promotion-evidence-plan.md` | Generate validated replay/backtest evidence artifacts for each shadow candidate family using local market data and M90 source-hash rules; no strategy/trade/timer mutation. |
+| M92 | Dashboard promotion review workbench | Next | `docs/plans/2026-05-13-m91-m94-shadow-promotion-evidence-plan.md` | Surface promotion review requests, replay evidence status, required decisions, rollback notes, and release blockers in the Dashboard as read-only review context. |
+| M93 | Daily pipeline shadow evidence closure | Next | `docs/plans/2026-05-13-m91-m94-shadow-promotion-evidence-plan.md` | Add daily refresh/parity checks for scorecard, dossier, review request, and replay evidence artifacts with explicit missing blockers. |
+| M94 | Shadow threshold calibration sandbox | Next | `docs/plans/2026-05-13-m91-m94-shadow-promotion-evidence-plan.md` | Compare candidate threshold variants and produce calibration artifacts without editing active CPB params or publishing strategy versions. |
 | OPS-20260511 | Daily review and new stock pool intake | Done, Applied | `reports/daily_review_20260511.md`; `data/daily_review_20260511_ops_summary.json` | Remote `paper-main` ops sync completed with `operator=azboo`: backed up remote DB to `/opt/pgc/backups/pgc_trading-20260511-170517-before-ops-20260511-sync.db` and `/opt/pgc/backups/pgc_trading_20260511_171526_905184_before_daily_pipeline_20260511.db`; ingested 6 screenshot-sourced 黑马集中营 events; refreshed remote `market_bars`/`daily_basic_snapshots` for 247 symbols on `20260511`; dry-run then remote apply pipeline passed; no new daily pick/trade plan because `no_strategy_signals`; server already had one manual executed buy for `301188.SZ` on `20260511`, now reflected in pulled local DB/report; evidence gaps remain explicit (`MARKET_EVIDENCE_MISSING`, `AGENT_EXTERNAL_EVIDENCE_MISSING`, `AGENT_REVIEW_NOT_RUN`, market-review shallow history warning). |
 
 ## Active Parallel Plan
 
 | Lane | Task | Status | Depends On | Review Focus |
 | --- | --- | --- | --- | --- |
-| A | M87 Shadow observation history index and API | Next | M83-M86 artifacts | Define a read-only cross-date history payload before Dashboard timeline work starts. |
-| B | M88 Dashboard observation timeline and comparison UX | Next | M87 history payload | Add Shadow Lab history, trends, and comparison drawer without promote/trade/plan/timer controls. |
-| C | M89 Promotion review request package | Next | M86 promotion dossiers | Produce manual review-request artifacts; no strategy-version or trade-state writes. |
-| D | M90 Replay/backtest evidence bridge for shadow candidates | Next | M86 dossier checks, M50 validation concepts | Validate candidate evidence artifacts and keep rejected/missing evidence as explicit blockers. |
+| A | M91 Shadow replay/backtest evidence producer | Next | M90 evidence contract, market bars, shadow monitor artifacts | Produce validated evidence artifacts and keep failures as explicit blockers. |
+| B | M92 Dashboard promotion review workbench | Next | M89 review request, M90 evidence status | Read-only review package UI; no approve/promote/trade/plan/timer controls. |
+| C | M93 Daily pipeline shadow evidence closure | Next | M87 history, M89 review request, M91 evidence artifacts | Refresh/verify shadow evidence artifacts and parity in the daily operating loop. |
+| D | M94 Shadow threshold calibration sandbox | Next | M91 evidence metrics, M87 history | Artifact-only threshold experiments and recommended next tests; no active strategy mutation. |
 
 ## Review Rules For Future Sessions
 

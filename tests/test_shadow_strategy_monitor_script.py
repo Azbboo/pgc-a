@@ -10,6 +10,7 @@ from pathlib import Path
 
 from pgc_trading.storage.migrate import run_migrations
 from pgc_trading.storage.seed import seed_reference_data
+from pgc_trading.services.shadow_observation_service import build_shadow_replay_backtest_source_hash
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -38,6 +39,7 @@ class ShadowStrategyMonitorScriptTest(unittest.TestCase):
             seed_reference_data(db_path)
             _seed_shadow_market(db_path)
             _write_research_artifacts(reports_dir)
+            _write_shadow_replay_backtest_evidence(reports_dir, "trend_extension_shadow", "20260514")
             before_counts = _state_counts(db_path)
 
             summary = monitor.generate_shadow_monitor(
@@ -106,6 +108,11 @@ class ShadowStrategyMonitorScriptTest(unittest.TestCase):
             self.assertTrue(scorecard["artifact_only"])
             self.assertFalse(scorecard["safety"]["writes_trade_state"])
             self.assertEqual(scorecard["candidate_count"], 5)
+            self.assertEqual(scorecard["replay_backtest_evidence_summary"]["accepted_count"], 1)
+            self.assertEqual(scorecard["replay_backtest_evidence_summary"]["missing_count"], 4)
+            trend = next(item for item in scorecard["candidates"] if item["candidate_key"] == "trend_extension_shadow")
+            self.assertEqual(trend["replay_backtest_evidence"]["status"], "accepted")
+            self.assertNotIn("replay_backtest_result_artifact_required", trend["blockers"])
             self.assertGreaterEqual(len(scorecard["coverage_blockers"]), 1)
             self.assertIn("strategy_shadow_monitor_json", scorecard["source_artifacts"])
             self.assertIn("trade plans", scorecard["notice"])
@@ -218,6 +225,58 @@ def _write_research_artifacts(reports_dir: Path) -> None:
             },
             ensure_ascii=False,
         ),
+        encoding="utf-8",
+    )
+
+
+def _write_shadow_replay_backtest_evidence(reports_dir: Path, candidate_key: str, as_of_date: str) -> None:
+    metrics = {
+        "t1_close_mean_pct": 2.8,
+        "t1_close_win_rate_pct": 66.0,
+        "t5_close_mean_pct": 4.5,
+        "max_drawdown_pct": -5.2,
+    }
+    provider = "monitor_test"
+    start_date = "20260501"
+    source_hash = build_shadow_replay_backtest_source_hash(
+        provider=provider,
+        candidate_key=candidate_key,
+        start_date=start_date,
+        end_date=as_of_date,
+        sample_size=3,
+        metrics=metrics,
+    )
+    payload = {
+        "artifact_type": "shadow_replay_backtest_evidence",
+        "evidence_contract": "shadow_replay_backtest_evidence_v1",
+        "provider": provider,
+        "as_of_date": as_of_date,
+        "results": [
+            {
+                "candidate_key": candidate_key,
+                "date_range": {"start_date": start_date, "end_date": as_of_date},
+                "sample_size": 3,
+                "metrics": metrics,
+                "source_hash": source_hash,
+                "no_future_boundary": {
+                    "passed": True,
+                    "max_input_date": as_of_date,
+                    "data_cutoff_date": as_of_date,
+                },
+            }
+        ],
+        "safety": {
+            "active_params_mutated": False,
+            "wrote_strategy_versions": False,
+            "writes_trade_state": False,
+            "writes_paper_live_behavior": False,
+            "timer_mutated": False,
+            "promotion_allowed": False,
+            "paper_observation_allowed": False,
+        },
+    }
+    (reports_dir / f"shadow_replay_backtest_evidence_{as_of_date}_{candidate_key}.json").write_text(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True),
         encoding="utf-8",
     )
 

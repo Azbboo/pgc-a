@@ -48,6 +48,7 @@ class DashboardStaticTest(unittest.TestCase):
             "/api/ops-history",
             "/api/shadow-strategy-snapshot",
             "/api/shadow-observation-scorecard",
+            "/api/shadow-observation-history",
             "/api/review-timeline",
             "/api/trade-plans",
             "/api/open-execution",
@@ -912,6 +913,57 @@ class DashboardStaticTest(unittest.TestCase):
         self.assertIn("observation_is_not_paper_trading", source)
         self.assertIn("trade_plan_allowed", source)
         self.assertNotIn('apiRequest("/api/shadow-observation-scorecard", { method: "POST"', script)
+        self.assertNotIn("data-shadow-promote", source)
+        self.assertNotIn("data-shadow-trade", source)
+        self.assertNotIn("data-shadow-timer", source)
+
+    def test_dashboard_m88_shadow_observation_history_timeline_is_visible_and_read_only(self) -> None:
+        source = "\n".join(
+            [
+                (DASHBOARD_DIR / "index.html").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "styles.css").read_text(encoding="utf-8"),
+            ]
+        )
+        script = (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8")
+
+        for label in [
+            "观察历史",
+            "影子观察历史筛选",
+            "观察截止日",
+            "窗口",
+            "shadow_observation_history_v1",
+            "research-only",
+            "不是 paper trading",
+            "打开候选对比",
+            "observation_history_is_research_only",
+            "/api/shadow-observation-history",
+        ]:
+            self.assertIn(label, source)
+        for html_id in [
+            'id="shadowHistoryDateInput" type="date"',
+            'id="shadowHistoryWindowSelect"',
+            'id="shadowHistoryApplyButton"',
+            'id="shadowObservationHistoryState"',
+            'id="shadowObservationHistoryStrip"',
+            'id="shadowObservationHistoryList"',
+        ]:
+            self.assertIn(html_id, source)
+        for fn_name in [
+            "function loadShadowObservationHistory",
+            "function renderShadowObservationHistory",
+            "function shadowObservationHistoryCard",
+            "function openShadowObservationHistoryDrawer",
+            "function findShadowObservationHistoryCandidate",
+            "function onShadowObservationHistoryClick",
+            "function shadowHistoryDate",
+        ]:
+            self.assertIn(fn_name, source)
+        self.assertIn("data-shadow-history-key", source)
+        self.assertIn("data-shadow-history-date", source)
+        self.assertIn("promotion_allowed", source)
+        self.assertIn("trade_plan_allowed", source)
+        self.assertNotIn('apiRequest("/api/shadow-observation-history", { method: "POST"', script)
         self.assertNotIn("data-shadow-promote", source)
         self.assertNotIn("data-shadow-trade", source)
         self.assertNotIn("data-shadow-timer", source)

@@ -73,6 +73,10 @@ const state = {
   shadowStrategySnapshotEnvelope: null,
   shadowObservationScorecard: null,
   shadowObservationScorecardEnvelope: null,
+  shadowObservationHistory: null,
+  shadowObservationHistoryEnvelope: null,
+  shadowHistoryAsOfDate: localStorage.getItem("pgc.dashboard.shadowHistoryAsOfDate") || "",
+  shadowHistoryWindow: localStorage.getItem("pgc.dashboard.shadowHistoryWindow") || "20",
   tradePlans: [],
   positions: [],
   qualityEvents: [],
@@ -184,8 +188,14 @@ function cacheElements() {
     "strategyHypothesisWorkbenchList",
     "shadowBadge",
     "reloadShadowStrategyButton",
+    "shadowHistoryDateInput",
+    "shadowHistoryWindowSelect",
+    "shadowHistoryApplyButton",
     "shadowSnapshotDateLabel",
     "shadowSummaryPanel",
+    "shadowObservationHistoryState",
+    "shadowObservationHistoryStrip",
+    "shadowObservationHistoryList",
     "shadowFamilyGrid",
     "shadowWalkForwardPanel",
     "shadowBlockerPanel",
@@ -335,6 +345,11 @@ function bindEvents() {
   els.strategyHypothesisWorkbenchList.addEventListener("click", onStrategyHypothesisWorkbenchClick);
   els.strategyHypothesisQueue.addEventListener("click", onStrategyHypothesisWorkbenchClick);
   els.reloadShadowStrategyButton.addEventListener("click", loadShadowStrategySnapshotAndRender);
+  els.shadowHistoryApplyButton.addEventListener("click", applyShadowHistoryControls);
+  els.shadowHistoryDateInput.addEventListener("change", applyShadowHistoryControls);
+  els.shadowHistoryWindowSelect.addEventListener("change", applyShadowHistoryControls);
+  els.shadowObservationHistoryStrip.addEventListener("click", onShadowObservationHistoryClick);
+  els.shadowObservationHistoryList.addEventListener("click", onShadowObservationHistoryClick);
   els.shadowObservationQueue.addEventListener("click", onShadowObservationClick);
   els.shadowCandidateList.addEventListener("click", onShadowCandidateClick);
   els.reloadExecutionButton.addEventListener("click", refreshAll);
@@ -384,6 +399,8 @@ function syncFormFromState() {
   els.reviewDateInput.value = dateInputValue(state.asOfDate);
   els.marketReviewDateInput.value = dateInputValue(marketReviewDate());
   els.strategyHypothesisDateInput.value = dateInputValue(state.strategyHypothesisAsOfDate);
+  els.shadowHistoryDateInput.value = dateInputValue(shadowHistoryDate());
+  els.shadowHistoryWindowSelect.value = String(state.shadowHistoryWindow || "20");
   els.strategyInput.value = state.strategyVersion;
   els.operatorInput.value = state.operator;
   els.writeTokenInput.value = state.writeToken;
@@ -431,6 +448,16 @@ function persistContext() {
   } else {
     localStorage.removeItem("pgc.dashboard.strategyHypothesisAsOfDate");
   }
+  persistShadowHistoryContext();
+}
+
+function persistShadowHistoryContext() {
+  if (state.shadowHistoryAsOfDate) {
+    localStorage.setItem("pgc.dashboard.shadowHistoryAsOfDate", state.shadowHistoryAsOfDate);
+  } else {
+    localStorage.removeItem("pgc.dashboard.shadowHistoryAsOfDate");
+  }
+  localStorage.setItem("pgc.dashboard.shadowHistoryWindow", String(state.shadowHistoryWindow || "20"));
 }
 
 async function applyReviewDateInput() {
@@ -478,6 +505,19 @@ async function clearStrategyHypothesisDateFilter() {
   persistContext();
   syncFormFromState();
   await loadStrategyHypothesisWorkbenchAndRender();
+}
+
+async function applyShadowHistoryControls() {
+  const nextDate = normalizeDate(els.shadowHistoryDateInput.value);
+  if (nextDate && !/^\d{8}$/.test(nextDate)) {
+    showNotice("影子观察历史日期需要选择有效日期。");
+    syncFormFromState();
+    return;
+  }
+  state.shadowHistoryAsOfDate = nextDate;
+  state.shadowHistoryWindow = String(els.shadowHistoryWindowSelect.value || "20");
+  persistContext();
+  await loadShadowStrategySnapshotAndRender();
 }
 
 async function shiftMarketReviewDate(offset) {
@@ -574,6 +614,7 @@ async function refreshAll(options = {}) {
       loadStrategyHypothesisWorkbench(),
       loadShadowStrategySnapshot(),
       loadShadowObservationScorecard(),
+      loadShadowObservationHistory(),
     ]);
     renderAll();
   } catch (error) {
@@ -804,7 +845,7 @@ async function loadStrategyHypothesisWorkbench() {
 async function loadShadowStrategySnapshot() {
   const params = new URLSearchParams();
   params.set("request_id", requestId("shadow-strategy"));
-  const asOfDate = normalizeDate(state.asOfDate);
+  const asOfDate = shadowHistoryDate();
   if (/^\d{8}$/.test(asOfDate)) params.set("as_of_date", asOfDate);
   const envelope = await apiRequest(`/api/shadow-strategy-snapshot?${params.toString()}`);
   state.shadowStrategySnapshotEnvelope = envelope;
@@ -814,11 +855,22 @@ async function loadShadowStrategySnapshot() {
 async function loadShadowObservationScorecard() {
   const params = new URLSearchParams();
   params.set("request_id", requestId("shadow-observation"));
-  const asOfDate = normalizeDate(state.asOfDate);
+  const asOfDate = shadowHistoryDate();
   if (/^\d{8}$/.test(asOfDate)) params.set("as_of_date", asOfDate);
   const envelope = await apiRequest(`/api/shadow-observation-scorecard?${params.toString()}`);
   state.shadowObservationScorecardEnvelope = envelope;
   state.shadowObservationScorecard = envelope.data || null;
+}
+
+async function loadShadowObservationHistory() {
+  const params = new URLSearchParams();
+  params.set("request_id", requestId("shadow-observation-history"));
+  params.set("window", String(state.shadowHistoryWindow || "20"));
+  const asOfDate = shadowHistoryDate();
+  if (/^\d{8}$/.test(asOfDate)) params.set("as_of_date", asOfDate);
+  const envelope = await apiRequest(`/api/shadow-observation-history?${params.toString()}`);
+  state.shadowObservationHistoryEnvelope = envelope;
+  state.shadowObservationHistory = envelope.data || null;
 }
 
 function latestReviewHistoryDate() {
@@ -963,7 +1015,7 @@ async function loadStrategyHypothesisWorkbenchAndRender() {
 
 async function loadShadowStrategySnapshotAndRender() {
   await runWithNotice(async () => {
-    await Promise.all([loadShadowStrategySnapshot(), loadShadowObservationScorecard()]);
+    await Promise.all([loadShadowStrategySnapshot(), loadShadowObservationScorecard(), loadShadowObservationHistory()]);
     renderShadowStrategyLab();
     renderBadges();
   });
@@ -2922,8 +2974,11 @@ function renderShadowStrategyLab() {
   const latest = snapshot.latest || {};
   const monitorDate = latest.monitor_review_date ? `monitor ${displayDate(latest.monitor_review_date)}` : "monitor -";
   const preflightDate = latest.promotion_preflight_review_date ? `preflight ${displayDate(latest.promotion_preflight_review_date)}` : "preflight -";
-  els.shadowSnapshotDateLabel.textContent = `${snapshot.as_of_date ? `Shadow snapshot ${displayDate(snapshot.as_of_date)}` : "Shadow snapshot -"} · ${monitorDate} · ${preflightDate}`;
+  const history = shadowObservationHistoryData();
+  els.shadowSnapshotDateLabel.textContent = `${snapshot.as_of_date ? `Shadow snapshot ${displayDate(snapshot.as_of_date)}` : "Shadow snapshot -"} · history ${integerText(history.window || state.shadowHistoryWindow)} 日 · ${monitorDate} · ${preflightDate}`;
+  renderShadowHistoryControls();
   renderShadowSummaryPanel(snapshot, candidates);
+  renderShadowObservationHistory(history);
   renderShadowObservationQueue(shadowObservationData());
   renderShadowFamilies(snapshot.candidate_families || {});
   renderShadowWalkForward(snapshot.walk_forward || {}, candidates);
@@ -2953,6 +3008,103 @@ function renderShadowSummaryPanel(snapshot, candidates) {
       ["active CPB", snapshot.active_cpb_integrity?.status || summary.active_cpb_integrity_status || "-"],
       ["API", "/api/shadow-strategy-snapshot"],
     ])}
+  `;
+}
+
+function renderShadowHistoryControls() {
+  els.shadowHistoryDateInput.value = dateInputValue(shadowHistoryDate());
+  els.shadowHistoryWindowSelect.value = String(state.shadowHistoryWindow || "20");
+}
+
+function renderShadowObservationHistory(history) {
+  const candidates = shadowObservationHistoryCandidates();
+  const dates = Array.isArray(history.dates) ? history.dates : [];
+  const counts = history.counts || {};
+  const errors = errorMessages(state.shadowObservationHistoryEnvelope || {});
+  els.shadowObservationHistoryState.textContent = candidates.length
+    ? `${candidates.length} 个候选 · ${integerText(counts.date_count || dates.length)} 日`
+    : history.status
+      ? shadowStatusText(history.status)
+      : "-";
+  if (errors.length) {
+    els.shadowObservationHistoryStrip.innerHTML = "";
+    els.shadowObservationHistoryList.innerHTML = `
+      <p class="market-readonly-note">观察历史读取到异常：${escapeHtml(errors.join("；"))}。该区域仍只读，不创建 trade plan、不记录 trade、不发布 strategy version、不改 timer。</p>
+    `;
+    return;
+  }
+  els.shadowObservationHistoryStrip.innerHTML = dates.length
+    ? dates.map(shadowObservationHistoryDatePill).join("")
+    : emptyState("暂无 shadow observation history artifact；promotion 仍保持阻断。");
+  els.shadowObservationHistoryList.innerHTML = `
+    <p class="shadow-observation-note">观察历史来自 shadow_observation_history_v1；用于比较 score、rank、coverage/blocker 和 frozen-CPB delta，research-only，不是 paper trading。</p>
+    ${actionMetrics([
+      ["API", "/api/shadow-observation-history"],
+      ["状态", shadowStatusText(history.status)],
+      ["日期数", integerText(counts.date_count || dates.length)],
+      ["候选数", integerText(counts.candidate_count || candidates.length)],
+      ["missing artifacts", integerText(counts.missing_artifact_date_count || 0)],
+      ["observation_history_is_research_only", history.safety?.observation_history_is_research_only ? "是" : "否"],
+      ["promotion_allowed", history.safety?.promotion_allowed ? "是" : "否"],
+      ["trade_plan_allowed", history.safety?.trade_plan_allowed ? "是" : "否"],
+    ])}
+    ${candidates.length ? candidates.map(shadowObservationHistoryCard).join("") : emptyState("暂无候选历史；观察仍保持只读。")}
+  `;
+}
+
+function shadowObservationHistoryDatePill(item) {
+  const date = normalizeDate(item.date);
+  const selected = date && date === shadowHistoryDate();
+  const blockers = Array.isArray(item.artifact_blockers) ? item.artifact_blockers.length : 0;
+  return `
+    <button type="button" class="shadow-history-pill ${selected ? "active" : ""}" data-shadow-history-date="${escapeHtml(date)}">
+      <strong>${displayDate(date)}</strong>
+      <span>${integerText(item.candidate_count || 0)} candidates · ${blockers ? `${blockers} artifact gaps` : shadowStatusText(item.status)}</span>
+    </button>
+  `;
+}
+
+function shadowObservationHistoryCard(candidate) {
+  const history = Array.isArray(candidate.history) ? candidate.history : [];
+  const latest = history.length ? history[history.length - 1] : {};
+  const recent = history.slice(-5);
+  return `
+    <article class="shadow-history-card">
+      <div class="shadow-history-card__head">
+        <div>
+          <span class="market-regime-kicker">${escapeHtml(candidate.candidate_family || "shadow_candidate")}</span>
+          <strong>${escapeHtml(candidate.candidate_key || "-")}</strong>
+        </div>
+        <div class="hypothesis-chip-stack">
+          ${chipHtml(`rank ${integerText(candidate.latest_rank)}`, "chip-blue")}
+          ${chipHtml(shadowObservationStatusText(candidate.latest_status), shadowObservationStatusClass(candidate.latest_status))}
+          ${chipHtml(shadowReviewStatusText(candidate.latest_review_status), shadowReviewStatusClass(candidate.latest_review_status))}
+        </div>
+      </div>
+      <div class="hypothesis-gate-strip">
+        ${chipHtml(`score ${numberText(candidate.latest_score, 1)} (${shadowPlainDeltaText(candidate.score_delta)})`, "chip-neutral")}
+        ${chipHtml(`rank Δ ${shadowPlainDeltaText(candidate.rank_delta)}`, "chip-neutral")}
+        ${chipHtml(`blockers Δ ${shadowPlainDeltaText(candidate.blocker_count_delta)}`, candidate.blocker_count_delta > 0 ? "chip-red" : "chip-neutral")}
+        ${chipHtml(`frozen Δ ${shadowDeltaText(candidate.latest_frozen_cpb_delta_pct)}`, "chip-neutral")}
+        ${chipHtml(`${integerText(candidate.dates_observed)} dates`, "chip-agent")}
+      </div>
+      <div class="shadow-history-points">
+        ${recent.map(shadowObservationHistoryPoint).join("")}
+      </div>
+      <div class="row-actions">
+        <button type="button" data-shadow-history-key="${escapeHtml(candidate.candidate_key)}">打开候选对比</button>
+      </div>
+    </article>
+  `;
+}
+
+function shadowObservationHistoryPoint(row) {
+  return `
+    <span class="shadow-history-point">
+      <b>${displayDate(row.date)}</b>
+      <span>#${integerText(row.rank)} · score ${numberText(row.score, 1)} · ${sampleCoverageText(row.coverage_status)}</span>
+      <span>${integerText(row.blocker_count || 0)} blockers · ${shadowDeltaText(row.frozen_cpb_delta_pct)}</span>
+    </span>
   `;
 }
 
@@ -3291,6 +3443,80 @@ function openShadowObservationDrawer(row) {
       detailSection("Source artifacts", shadowArtifactRows(listValue(row.source_artifacts))),
     ],
   });
+}
+
+function openShadowObservationHistoryDrawer(candidate) {
+  const history = Array.isArray(candidate.history) ? candidate.history : [];
+  const latest = history.length ? history[history.length - 1] : {};
+  openDetailDrawer({
+    kicker: "影子候选对比",
+    title: candidate.candidate_key || "-",
+    subtitle: "候选对比来自 shadow_observation_history_v1；跨日期观察 score、rank、coverage/blocker 和 frozen-CPB delta，不是 paper trading，也不授权 promote、trade、plan 或 timer。",
+    meta: [
+      [`${integerText(candidate.dates_observed)} dates`, "chip-agent"],
+      [shadowObservationStatusText(candidate.latest_status), shadowObservationStatusClass(candidate.latest_status)],
+      [shadowReviewStatusText(candidate.latest_review_status), shadowReviewStatusClass(candidate.latest_review_status)],
+    ],
+    actions: [
+      { label: "影子实验室", action: "page", page: "shadow" },
+    ],
+    sections: [
+      detailSection("趋势摘要", detailMetrics([
+        ["latest_date", displayDate(candidate.latest_date)],
+        ["latest_rank", integerText(candidate.latest_rank)],
+        ["latest_score", numberText(candidate.latest_score, 1)],
+        ["score_delta", shadowPlainDeltaText(candidate.score_delta)],
+        ["rank_delta", shadowPlainDeltaText(candidate.rank_delta)],
+        ["blocker_count_delta", shadowPlainDeltaText(candidate.blocker_count_delta)],
+        ["latest frozen-CPB delta", shadowDeltaText(candidate.latest_frozen_cpb_delta_pct)],
+        ["frozen-CPB delta change", shadowDeltaText(candidate.frozen_cpb_delta_change_pct)],
+      ])),
+      detailSection("日期对比", shadowObservationHistoryTable(history)),
+      detailSection("最新 blockers", shadowBlockerListHtml(listValue(latest.blockers))),
+      detailSection("Source artifacts", shadowArtifactRows(listValue(latest.source_artifacts))),
+      detailSection("Safety", detailRows([
+        ["research-only", "是"],
+        ["not paper trading", "是"],
+        ["promotion_allowed", "否"],
+        ["trade_plan_allowed", "否"],
+        ["timer_mutated", "否"],
+      ])),
+    ],
+  });
+}
+
+function shadowObservationHistoryTable(rows) {
+  if (!rows.length) return emptyState("暂无候选历史。");
+  return `
+    <div class="table-wrap market-leadership-table">
+      <table>
+        <thead>
+          <tr>
+            <th>日期</th>
+            <th>Rank</th>
+            <th>Score</th>
+            <th>Coverage</th>
+            <th>Blockers</th>
+            <th>Frozen delta</th>
+            <th>Review</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map((row) => `
+            <tr>
+              <td>${displayDate(row.date)}</td>
+              <td>${integerText(row.rank)}</td>
+              <td>${numberText(row.score, 1)}</td>
+              <td>${sampleCoverageText(row.coverage_status)}</td>
+              <td>${integerText(row.blocker_count || 0)}</td>
+              <td>${shadowDeltaText(row.frozen_cpb_delta_pct)}</td>
+              <td>${shadowReviewStatusText(row.review_status)}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
 }
 
 function renderMarketScopeMarkers() {
@@ -4417,6 +4643,21 @@ function onShadowObservationClick(event) {
   if (!button) return;
   const row = findShadowObservationRow(button.dataset.shadowObservationKey);
   if (row) openShadowObservationDrawer(row);
+}
+
+async function onShadowObservationHistoryClick(event) {
+  const dateButton = event.target.closest("button[data-shadow-history-date]");
+  if (dateButton) {
+    state.shadowHistoryAsOfDate = normalizeDate(dateButton.dataset.shadowHistoryDate);
+    persistContext();
+    syncFormFromState();
+    await loadShadowStrategySnapshotAndRender();
+    return;
+  }
+  const button = event.target.closest("button[data-shadow-history-key]");
+  if (!button) return;
+  const candidate = findShadowObservationHistoryCandidate(button.dataset.shadowHistoryKey);
+  if (candidate) openShadowObservationHistoryDrawer(candidate);
 }
 
 function onDrawerActionClick(event) {
@@ -5547,9 +5788,20 @@ function shadowObservationData() {
     : {};
 }
 
+function shadowObservationHistoryData() {
+  return state.shadowObservationHistory && typeof state.shadowObservationHistory === "object"
+    ? state.shadowObservationHistory
+    : {};
+}
+
 function shadowObservationRows() {
   const rows = shadowObservationData().rows;
   return Array.isArray(rows) ? rows : [];
+}
+
+function shadowObservationHistoryCandidates() {
+  const candidates = shadowObservationHistoryData().candidates;
+  return Array.isArray(candidates) ? candidates : [];
 }
 
 function shadowCandidates() {
@@ -5561,8 +5813,16 @@ function findShadowObservationRow(candidateKey) {
   return shadowObservationRows().find((item) => String(item.candidate_key) === String(candidateKey));
 }
 
+function findShadowObservationHistoryCandidate(candidateKey) {
+  return shadowObservationHistoryCandidates().find((item) => String(item.candidate_key) === String(candidateKey));
+}
+
 function findShadowCandidate(candidateKey) {
   return shadowCandidates().find((item) => String(item.candidate_key) === String(candidateKey));
+}
+
+function shadowHistoryDate() {
+  return normalizeDate(state.shadowHistoryAsOfDate) || normalizeDate(state.asOfDate);
 }
 
 function shadowCandidateSort(a, b) {
@@ -5621,6 +5881,14 @@ function shadowDeltaText(value) {
   if (!Number.isFinite(number)) return "-";
   const sign = number > 0 ? "+" : "";
   return `${sign}${number.toFixed(2)}pp`;
+}
+
+function shadowPlainDeltaText(value) {
+  if (value == null || value === "") return "-";
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "-";
+  const sign = number > 0 ? "+" : "";
+  return `${sign}${number.toFixed(1)}`;
 }
 
 function shadowBlockerListHtml(blockers) {
@@ -6239,6 +6507,24 @@ function shadowObservationStatusClass(value) {
     insufficient_sample: "chip-amber",
     missing: "chip-amber",
     complete: "chip-green",
+  }[value] || shadowStatusClass(value);
+}
+
+function shadowReviewStatusText(value) {
+  return {
+    review_ready: "可人工复核",
+    blocked: "复核阻断",
+    missing: "缺 dossier",
+    unknown: "未知",
+  }[value] || shadowStatusText(value);
+}
+
+function shadowReviewStatusClass(value) {
+  return {
+    review_ready: "chip-green",
+    blocked: "chip-red",
+    missing: "chip-amber",
+    unknown: "chip-neutral",
   }[value] || shadowStatusClass(value);
 }
 

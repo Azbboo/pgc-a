@@ -1480,6 +1480,75 @@ PYTHONPATH=src:. pytest -q
 git diff --check
 ```
 
+## 28. M89 影子策略 promotion review request package
+
+M89 生成的 `shadow_promotion_review_request_YYYYMMDD.json` 使用 `shadow_promotion_review_request_v1` 合同；它只是人工复核请求包，不是批准，也不会让 active strategy 进入 paper/live。
+
+固定内容：
+
+- `source_dossier` linkage
+- candidate readiness checks 和 unresolved blockers
+- `required_human_decisions`
+- `required_replay_backtest_evidence`
+- `rollback_notes` 和 `safety_notes`
+
+如果最新 dossier 里没有任何 `review_ready` 候选，`review_request_status` 必须是 `blocked`，并且明确写出 `no_review_ready_candidates`，不应继续任何 promotion review。
+
+标准命令：
+
+```bash
+pgc strategy-evolution shadow-promotion-review-request --reports-dir reports --apply
+```
+
+发布门禁：
+
+1. `manual_promotion_approval_required` 和 `future_strategy_version_task_required` 必须保留。
+2. `promotion_allowed=false` 必须保持。
+3. active CPB params/hash 不得变化。
+4. `strategy_versions, trade_plans, trades, positions` 不得因 review request 生成而新增、删除或改状态。
+5. `paper/live behavior` 和 `pgc-daily-pipeline.timer` 不得变化。
+
+最小验证：
+
+```bash
+PYTHONPATH=src:. pytest -q tests/test_shadow_observation_service.py tests/test_strategy_evolution_service.py tests/test_operational_runbook_static.py
+PYTHONPATH=src:. pytest -q tests/test_cli_main.py
+git diff --check
+```
+
+## 29. M90 影子策略 replay/backtest evidence bridge
+
+M90 使用 `shadow_replay_backtest_evidence_v1` provider-file 合同承接影子候选的 replay/backtest 结果。该 evidence 只用于清理 `replay_backtest_result_artifact_required` 这一类证据 blocker；即便 evidence 为 `accepted`，仍不代表 promotion approval，也不能创建 strategy version、paper/live plan、trade、position 或 timer。
+
+provider-file 必须包含：
+
+- `artifact_type=shadow_replay_backtest_evidence`
+- `evidence_contract=shadow_replay_backtest_evidence_v1`
+- `candidate_key`
+- `date_range.start_date` 和 `date_range.end_date`
+- `sample_size`
+- `source_hash`
+- `no_future_boundary`
+- metrics：`t1_close_mean_pct`、`t1_close_win_rate_pct`、`t5_close_mean_pct`、`max_drawdown_pct`
+- safety flags：`active_params_mutated=false`、`writes_trade_state=false`、`writes_paper_live_behavior=false`、`timer_mutated=false`、`promotion_allowed=false`
+
+校验规则：
+
+1. candidate key 必须匹配观察候选。
+2. date range 必须是合法 `YYYYMMDD`，且 `end_date` 不得晚于 scorecard/dossier 的 `as_of_date`。
+3. sample size 必须达到候选要求的 walk-forward 样本数。
+4. `source_hash` 必须匹配 provider、candidate key、date range、sample size 和 metrics 的确定性指纹。
+5. 缺失 metric、未来边界失败、安全标志显示 mutation/promotion permission，均为 rejected evidence。
+6. rejected 或 missing evidence 必须保留 `replay_backtest_result_artifact_required` 或更具体 blocker。
+
+最小验证：
+
+```bash
+PYTHONPATH=src:. pytest -q tests/test_shadow_observation_service.py tests/test_strategy_evolution_service.py tests/test_daily_report.py tests/test_shadow_strategy_monitor_script.py
+PYTHONPATH=src:. pytest -q
+git diff --check
+```
+
 ## 24. M46 收盘后定时流水线
 
 M46 把 M42 的全市场复盘流水线固化为远端 systemd timer。只在 M42 已验收、远端 API write token 由部署脚本保留、并且手工 dry-run 通过后启用 apply 定时任务。

@@ -12,7 +12,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from pgc_trading.config import Paths
 from pgc_trading.market.calendar import is_yyyymmdd
@@ -225,6 +225,10 @@ class ShadowPromotionDossierArtifactReview:
     review_ready_count: int = 0
     blocked_count: int = 0
     review_ready_candidates: list[str] = field(default_factory=list)
+    replay_backtest_evidence_accepted_count: int = 0
+    replay_backtest_evidence_rejected_count: int = 0
+    replay_backtest_evidence_missing_count: int = 0
+    replay_backtest_evidence_advisory_only: bool = True
     active_params_mutated: bool | None = None
     wrote_strategy_version: bool | None = None
     wrote_strategy_versions: bool | None = None
@@ -232,6 +236,34 @@ class ShadowPromotionDossierArtifactReview:
     writes_paper_live_behavior: bool | None = None
     timer_mutated: bool | None = None
     promotion_allowed: bool | None = None
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class ShadowPromotionReviewRequestArtifactReview:
+    path: str
+    exists: bool
+    valid: bool
+    artifact_type: str | None = None
+    review_request_contract: str | None = None
+    source_dossier_contract: str | None = None
+    candidate_count: int = 0
+    review_ready_count: int = 0
+    blocked_count: int = 0
+    review_ready_candidates: list[str] = field(default_factory=list)
+    blocked_candidate_keys: list[str] = field(default_factory=list)
+    blocking_reason: str | None = None
+    required_human_decisions_count: int = 0
+    required_replay_backtest_evidence_count: int = 0
+    review_ready_is_not_approval: bool | None = None
+    manual_review_required: bool | None = None
+    promotion_allowed: bool | None = None
+    active_params_mutated: bool | None = None
+    wrote_strategy_version: bool | None = None
+    wrote_strategy_versions: bool | None = None
+    writes_trade_state: bool | None = None
+    writes_paper_live_behavior: bool | None = None
+    timer_mutated: bool | None = None
     error: str | None = None
 
 
@@ -1645,6 +1677,19 @@ def review_shadow_promotion_dossier_artifact(
         for item in candidate_dicts
         if item.get("review_status") == "review_ready" and item.get("candidate_key") is not None
     ]
+    replay_status_counts: dict[str, int] = {}
+    replay_evidence_promotes = False
+    for item in candidate_dicts:
+        replay_evidence = item.get("replay_backtest_evidence")
+        if not isinstance(replay_evidence, dict):
+            replay_status_counts["missing"] = replay_status_counts.get("missing", 0) + 1
+            continue
+        status = str(replay_evidence.get("status") or "missing")
+        replay_status_counts[status] = replay_status_counts.get(status, 0) + 1
+        replay_evidence_promotes = replay_evidence_promotes or any(
+            bool(replay_evidence.get(key))
+            for key in ("promotion_allowed", "paper_observation_allowed")
+        )
     candidate_promotion_allowed = any(
         bool(item.get("promotion_allowed"))
         or (
@@ -1666,6 +1711,7 @@ def review_shadow_promotion_dossier_artifact(
             summary.get("promotion_allowed"),
             release_gate.get("promotion_allowed"),
             candidate_promotion_allowed,
+            replay_evidence_promotes,
         )
     )
     valid_type = artifact_type == "shadow_promotion_dossier"
@@ -1700,6 +1746,10 @@ def review_shadow_promotion_dossier_artifact(
         blocked_count=_optional_int(summary.get("blocked_count"))
         or sum(1 for item in candidate_dicts if item.get("review_status") == "blocked"),
         review_ready_candidates=review_ready_candidates,
+        replay_backtest_evidence_accepted_count=replay_status_counts.get("accepted", 0),
+        replay_backtest_evidence_rejected_count=replay_status_counts.get("rejected", 0),
+        replay_backtest_evidence_missing_count=replay_status_counts.get("missing", 0),
+        replay_backtest_evidence_advisory_only=True,
         active_params_mutated=active_params_mutated,
         wrote_strategy_version=wrote_strategy_version,
         wrote_strategy_versions=wrote_strategy_versions,
@@ -1707,6 +1757,174 @@ def review_shadow_promotion_dossier_artifact(
         writes_paper_live_behavior=writes_paper_live_behavior,
         timer_mutated=timer_mutated,
         promotion_allowed=promotion_allowed,
+        error=error,
+    )
+
+
+def review_shadow_promotion_review_request_artifact(
+    artifact_path: str | Path,
+) -> ShadowPromotionReviewRequestArtifactReview:
+    path = Path(artifact_path).expanduser()
+    if not path.exists():
+        return ShadowPromotionReviewRequestArtifactReview(
+            path=str(path),
+            exists=False,
+            valid=False,
+            error="shadow promotion review request artifact was not found.",
+        )
+    try:
+        artifact = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return ShadowPromotionReviewRequestArtifactReview(
+            path=str(path),
+            exists=True,
+            valid=False,
+            error=f"shadow promotion review request artifact is not valid JSON: {exc}",
+        )
+    if not isinstance(artifact, dict):
+        return ShadowPromotionReviewRequestArtifactReview(
+            path=str(path),
+            exists=True,
+            valid=False,
+            error="shadow promotion review request artifact must be a JSON object.",
+        )
+
+    artifact_type = artifact.get("artifact_type")
+    review_request_contract = artifact.get("review_request_contract")
+    summary = artifact.get("summary") if isinstance(artifact.get("summary"), dict) else {}
+    review_request = artifact.get("review_request") if isinstance(artifact.get("review_request"), dict) else {}
+    source_dossier = artifact.get("source_dossier") if isinstance(artifact.get("source_dossier"), dict) else {}
+    source_dossier_review = (
+        artifact.get("source_dossier_review") if isinstance(artifact.get("source_dossier_review"), dict) else {}
+    )
+    safety = artifact.get("safety") if isinstance(artifact.get("safety"), dict) else {}
+    source_dossier_summary = (
+        source_dossier.get("summary") if isinstance(source_dossier.get("summary"), dict) else {}
+    )
+    candidate_dicts = [
+        dict(item)
+        for item in source_dossier.get("candidates", [])
+        if isinstance(item, dict)
+    ]
+    review_ready_candidates = [
+        str(item.get("candidate_key"))
+        for item in candidate_dicts
+        if item.get("review_status") == "review_ready" and item.get("candidate_key") is not None
+    ]
+    blocked_candidate_keys = [
+        str(item.get("candidate_key"))
+        for item in candidate_dicts
+        if item.get("review_status") != "review_ready" and item.get("candidate_key") is not None
+    ]
+    candidate_count = _optional_int(summary.get("candidate_count")) or len(candidate_dicts)
+    review_ready_count = _optional_int(summary.get("review_ready_count")) or len(review_ready_candidates)
+    blocked_count = _optional_int(summary.get("blocked_count")) or len(blocked_candidate_keys)
+    blocking_reason = _optional_text(review_request.get("blocking_reason"))
+    required_human_decisions = _list_mapping(review_request.get("required_human_decisions"))
+    required_replay_backtest_evidence = _list_mapping(review_request.get("required_replay_backtest_evidence"))
+    rollback_notes = _list_text(review_request.get("rollback_notes"))
+    safety_notes = _list_text(review_request.get("safety_notes"))
+    review_ready_is_not_approval = bool(summary.get("review_ready_is_not_approval"))
+    manual_review_required = bool(summary.get("manual_review_required"))
+    promotion_allowed = any(
+        bool(value)
+        for value in (
+            summary.get("promotion_allowed"),
+            safety.get("promotion_allowed"),
+            source_dossier_review.get("promotion_allowed"),
+        )
+    )
+    active_params_mutated = bool(safety.get("active_params_mutated"))
+    wrote_strategy_version = bool(safety.get("wrote_strategy_version"))
+    wrote_strategy_versions = bool(safety.get("wrote_strategy_versions"))
+    writes_trade_state = bool(safety.get("writes_trade_state"))
+    writes_paper_live_behavior = bool(safety.get("writes_paper_live_behavior"))
+    timer_mutated = bool(safety.get("timer_mutated"))
+    valid_type = artifact_type == "shadow_promotion_review_request"
+    valid_contract = review_request_contract == "shadow_promotion_review_request_v1"
+    valid_safety = not any(
+        [
+            active_params_mutated,
+            wrote_strategy_version,
+            wrote_strategy_versions,
+            writes_trade_state,
+            writes_paper_live_behavior,
+            timer_mutated,
+            promotion_allowed,
+            not review_ready_is_not_approval,
+            not manual_review_required,
+        ]
+    )
+    error = None
+    if not valid_type:
+        error = (
+            "shadow promotion review request artifact must use "
+            "artifact_type=shadow_promotion_review_request."
+        )
+    elif not valid_contract:
+        error = (
+            "shadow promotion review request artifact must use "
+            "review_request_contract=shadow_promotion_review_request_v1."
+        )
+    elif not summary:
+        error = "shadow promotion review request artifact must include a summary object."
+    elif summary.get("status") not in {"blocked", "review_ready"}:
+        error = "shadow promotion review request summary status must be blocked or review_ready."
+    elif summary.get("status") == "blocked" and not blocking_reason:
+        error = "blocked shadow promotion review request artifact must include a blocking reason."
+    elif summary.get("status") == "review_ready" and not review_ready_candidates:
+        error = "review-ready shadow promotion review request artifact must include a review-ready candidate."
+    elif not required_human_decisions:
+        error = "shadow promotion review request artifact must include required human decisions."
+    elif not required_replay_backtest_evidence:
+        error = "shadow promotion review request artifact must include required replay/backtest evidence."
+    elif not rollback_notes:
+        error = "shadow promotion review request artifact must include rollback notes."
+    elif not safety_notes:
+        error = "shadow promotion review request artifact must include safety notes."
+    elif not valid_safety:
+        error = "shadow promotion review request artifact reports mutation or promotion permission."
+    elif source_dossier.get("artifact_type") != "shadow_promotion_dossier":
+        error = "shadow promotion review request artifact must include a source shadow promotion dossier."
+    elif source_dossier.get("dossier_contract") != "shadow_promotion_dossier_v1":
+        error = "shadow promotion review request artifact must reference shadow_promotion_dossier_v1."
+    elif bool(source_dossier_summary.get("promotion_allowed")):
+        error = "source shadow promotion dossier must remain blocked."
+    elif summary.get("candidate_count") is not None and int(summary.get("candidate_count") or 0) != candidate_count:
+        error = "shadow promotion review request candidate count does not match the source dossier."
+    elif summary.get("review_ready_count") is not None and int(summary.get("review_ready_count") or 0) != review_ready_count:
+        error = "shadow promotion review request review-ready count does not match the source dossier."
+    elif summary.get("blocked_count") is not None and int(summary.get("blocked_count") or 0) != blocked_count:
+        error = "shadow promotion review request blocked count does not match the source dossier."
+
+    return ShadowPromotionReviewRequestArtifactReview(
+        path=str(path),
+        exists=True,
+        valid=error is None,
+        artifact_type=str(artifact_type) if artifact_type is not None else None,
+        review_request_contract=(
+            str(review_request_contract) if review_request_contract is not None else None
+        ),
+        source_dossier_contract=(
+            str(source_dossier.get("dossier_contract")) if source_dossier.get("dossier_contract") is not None else None
+        ),
+        candidate_count=candidate_count,
+        review_ready_count=review_ready_count,
+        blocked_count=blocked_count,
+        review_ready_candidates=review_ready_candidates,
+        blocked_candidate_keys=blocked_candidate_keys,
+        blocking_reason=blocking_reason,
+        required_human_decisions_count=len(required_human_decisions),
+        required_replay_backtest_evidence_count=len(required_replay_backtest_evidence),
+        review_ready_is_not_approval=review_ready_is_not_approval,
+        manual_review_required=manual_review_required,
+        promotion_allowed=promotion_allowed,
+        active_params_mutated=active_params_mutated,
+        wrote_strategy_version=wrote_strategy_version,
+        wrote_strategy_versions=wrote_strategy_versions,
+        writes_trade_state=writes_trade_state,
+        writes_paper_live_behavior=writes_paper_live_behavior,
+        timer_mutated=timer_mutated,
         error=error,
     )
 
@@ -2397,6 +2615,26 @@ def _optional_int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _optional_text(value: object) -> str | None:
+    if value in (None, ""):
+        return None
+    return str(value)
+
+
+def _list_mapping(value: object) -> list[dict[str, Any]]:
+    return [dict(item) for item in value if isinstance(item, Mapping)] if isinstance(value, list) else []
+
+
+def _list_text(value: object) -> list[str]:
+    if isinstance(value, Mapping):
+        return [str(item) for item in value.values() if item not in (None, "")]
+    if isinstance(value, (list, tuple, set)):
+        return [str(item) for item in value if item not in (None, "")]
+    if value in (None, ""):
+        return []
+    return [str(value)]
 
 
 def _load_current_strategy(conn: sqlite3.Connection, strategy_id: str) -> sqlite3.Row | None:
