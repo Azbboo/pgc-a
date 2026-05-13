@@ -1,6 +1,6 @@
 # PGC 每日复盘报告
 
-生成时间：2026-05-12T12:42:58.852238+00:00
+生成时间：2026-05-13T08:26:02.930736+00:00
 复盘日：2026-05-12
 最新行情日：2026-05-12
 下一交易日：2026-05-13
@@ -72,7 +72,7 @@ readiness gates：
 决策清单：
 - paper acceptance：阻断；纸盘每日运营验收阻断：1 项 blocker 需要先处理。；blocker MIN_PAPER_TRADES_NOT_MET；warning MARKET_EVIDENCE_MISSING, AGENT_EXTERNAL_EVIDENCE_MISSING, AGENT_REVIEW_NOT_RUN, AGENT_EVIDENCE_MISSING；下一步：处理 paper acceptance 未处理 blocker。
 - 证据 freshness / coverage：警告；全市场证据 0 条；Agent 覆盖 0 项；warning MARKET_EVIDENCE_MISSING, AGENT_EXTERNAL_EVIDENCE_MISSING；下一步：补齐或确认 cached provider evidence，再重新运行只读验收。
-- 全市场复盘 / 计划关系：警告；neutral；Market regime neutral: breadth=0.29 trend=0.47 volume=0.37 persistence=0.18 coverage=1.00.；计划建议 missing；warning MARKET_PLAN_CONTEXT_MISSING；下一步：补齐全市场复盘与明日计划关系，或人工确认该计划无需市场上下文。
+- 全市场复盘 / 计划关系：警告；neutral / insufficient_evidence；Market regime neutral: breadth=0.29 trend=0.47 volume=0.37 persistence=0.18 coverage=1.00.；计划关系 missing；warning MARKET_PLAN_CONTEXT_MISSING；下一步：补齐全市场复盘与明日计划关系，或人工确认该计划无需市场上下文。
 - open-execution 下一步：通过；ready / evaluate_exit；下一步：人工评估到期持仓并按显式流程生成退出动作。
 - 策略 proposal / hypothesis：警告；5 项策略假设或 proposal 需要人工审阅；accepted=0 testing=0 proposed=5；warning STRATEGY_PROPOSAL_REVIEW_REQUIRED；下一步：审阅策略假设和 proposal artifact；不要直接改 active params 或 paper/live 行为。
 
@@ -106,15 +106,34 @@ readiness gates：
 ## 全市场复盘
 
 - 状态：已完成；中性（宽度0.29 / 趋势0.47 / 持续0.18）：Market regime neutral: breadth=0.29 trend=0.47 volume=0.37 persistence=0.18 coverage=1.00.
+- 连续性判断：证据不足；缺少板块轮动、新闻/情绪证据，连续性不能当作安全信号。
 - Top 5 板块：未找到板块轮动数据
+- 代表个股：未找到代表个股
 - 板块持续性：未找到持续性板块数据
-- 外部证据覆盖：未找到全市场新闻/情绪证据
+- 外部证据覆盖：未找到全市场新闻/情绪证据；freshness market missing / sector missing / stock missing
 - 策略假设：5 条；shadow 5 条（paper/proposal blocker 5 条）；Shadow candidate: trend-extension continuation bucket.（proposed）；Shadow candidate: breakout-pressure bucket.（proposed）；Shadow candidate: low-price momentum micro-sleeve.（proposed）；另有 2 条
+- 来源：market_review_runs:4 / market_regime_snapshots:4
 
 ## 全市场复盘与明日计划关系
 
 - 状态：未生成全市场复盘与计划关系。
 - 提醒：该部分只提供管理建议，不会自动创建、取消或执行交易计划。
+
+## 外部证据覆盖台账
+
+- 覆盖状态：entries=10；blocking=10；ready_dates=无；blocking_dates=20260512
+- 状态计数：missing=10 / unavailable=0 / partial=0 / stale=0 / duplicate=0 / source_hash_mismatch=0
+- Provider pack：manifest_count=1；discovered=1
+- 安全边界：read_only=true；live_fetches=false；writes_trade_state=false
+
+## Shadow 策略观察
+
+- 最新 artifact：monitor 2026-05-12 / preflight 2026-05-12；next_trade_date 2026-05-13
+- 状态：blocked；candidate 5；blocked 5；distinct blockers 23；hypotheses 5
+- blocker counts：active_cpb_db_params_hash_mismatch 1 / chase_gap_guard_required 1 / close_return_stability_required 1 / dip_buy_stop_and_sizing_required 1 / falling_knife_guard_required 1 / liquidity_slippage_review_required 1 / micro_sleeve_risk_model_required 1 / next_day_confirmation_rule_required 1 / operator_promotion_approval_required 5 / operator_review_required 5 / paper_observation_not_authorized 5 / proposal_review_required 5 / replay_backtest_result_artifact_required 5 / sector_evidence_confirmation_required 1 / separate_breakout_pressure_candidate_required 1 / separate_dip_buy_candidate_required 1 / separate_low_price_micro_sleeve_required 1 / separate_trend_extension_candidate_required 1 / strategy_version_proposal_not_authorized 5 / volume_overheat_guard_required 1 / walk_forward_shadow_monitor_20_trading_days_required 5 / watchlist_only_ui_lane_required 1 / watchlist_to_signal_contract_required 1
+- top candidates：low_price_momentum_shadow（shadow_bucket，today 72，walk complete，blockers 10:liquidity_slippage_review_required/micro_sleeve_risk_model_required，top 600719.SH 大连热电）；breakout_pressure_shadow（shadow_bucket，today 69，walk complete，blockers 10:close_return_stability_required/operator_promotion_approval_required，top 603042.SH 华脉科技）；trend_extension_shadow（shadow_bucket，today 47，walk complete，blockers 10:chase_gap_guard_required/operator_promotion_approval_required，top 002428.SZ 云南锗业）；另有 2 条
+- 安全边界：read_only=true；artifact_only=true；writes_trade_state=false；promotion_allowed=false
+- 提醒：Shadow 候选是 research-only，仅展示监控/预检 artifact，不会进入今日候选、生成交易计划或开启 timer。
 
 ## Agent 复核
 

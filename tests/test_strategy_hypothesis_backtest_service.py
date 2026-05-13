@@ -31,6 +31,7 @@ class StrategyHypothesisBacktestServiceTest(unittest.TestCase):
             hypothesis_id = _insert_hypothesis(db_path, status="proposed")
             params_before = _strategy_param_file_contents()
             strategy_versions_before = _count_rows(db_path, "strategy_versions")
+            state_counts_before = _state_counts(db_path)
 
             service = StrategyHypothesisBacktestService(db_path, reports_dir=reports_dir)
             result = service.create_backtest_request(
@@ -45,10 +46,14 @@ class StrategyHypothesisBacktestServiceTest(unittest.TestCase):
             self.assertFalse(result.data.wrote_artifact)
             self.assertIsNone(result.data.artifact_path)
             self.assertFalse(result.data.active_params_mutated)
+            self.assertFalse(result.data.writes_trade_state)
+            self.assertFalse(result.data.writes_paper_live_behavior)
+            self.assertFalse(result.data.timer_mutated)
             self.assertFalse(result.data.recorded_hypothesis_validation)
             self.assertFalse((reports_dir / "strategy_hypothesis_backtests").exists())
             self.assertEqual(_strategy_param_file_contents(), params_before)
             self.assertEqual(_count_rows(db_path, "strategy_versions"), strategy_versions_before)
+            self.assertEqual(_state_counts(db_path), state_counts_before)
             self.assertEqual([warning.code for warning in result.warnings], ["BACKTEST_REQUEST_DRY_RUN"])
 
             artifact = result.data.artifact
@@ -62,6 +67,9 @@ class StrategyHypothesisBacktestServiceTest(unittest.TestCase):
                 ["validation_evidence_ids", "backtest_request_artifact"],
             )
             self.assertFalse(artifact["safety"]["active_params_mutated"])
+            self.assertFalse(artifact["safety"]["writes_trade_state"])
+            self.assertFalse(artifact["safety"]["writes_paper_live_behavior"])
+            self.assertFalse(artifact["safety"]["timer_mutated"])
             self.assertTrue(artifact["safety"]["requires_replay_before_param_change"])
 
     def test_apply_writes_request_artifact_but_not_strategy_version_or_params(self) -> None:
@@ -73,6 +81,7 @@ class StrategyHypothesisBacktestServiceTest(unittest.TestCase):
             hypothesis_id = _insert_hypothesis(db_path, status="proposed")
             params_before = _strategy_param_file_contents()
             strategy_versions_before = _count_rows(db_path, "strategy_versions")
+            state_counts_before = _state_counts(db_path)
 
             service = StrategyHypothesisBacktestService(db_path, reports_dir=reports_dir)
             result = service.create_backtest_request(
@@ -96,6 +105,7 @@ class StrategyHypothesisBacktestServiceTest(unittest.TestCase):
             self.assertEqual(validation["backtest_task_key"], f"strategy-hypothesis:{hypothesis_id}:backtest")
             self.assertEqual(_strategy_param_file_contents(), params_before)
             self.assertEqual(_count_rows(db_path, "strategy_versions"), strategy_versions_before)
+            self.assertEqual(_state_counts(db_path), state_counts_before)
 
     def test_shadow_hypothesis_backtest_artifact_carries_comparison_and_blockers(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -149,6 +159,9 @@ class StrategyHypothesisBacktestServiceTest(unittest.TestCase):
             self.assertTrue(artifact["safety"]["shadow_candidate"])
             self.assertFalse(artifact["safety"]["paper_observation_allowed"])
             self.assertFalse(artifact["safety"]["strategy_version_proposal_allowed"])
+            self.assertFalse(artifact["safety"]["writes_trade_state"])
+            self.assertFalse(artifact["safety"]["writes_paper_live_behavior"])
+            self.assertFalse(artifact["safety"]["timer_mutated"])
             self.assertIn(
                 "strategy_version_proposal_not_authorized",
                 artifact["validation_gate"]["shadow_candidate_blockers"]["strategy_version_proposal"],
@@ -226,6 +239,15 @@ class StrategyHypothesisBacktestServiceTest(unittest.TestCase):
             self.assertFalse(missing.exists)
             self.assertFalse(missing.valid)
 
+            unsafe_path = Path(tmp) / "unsafe_backtest_request.json"
+            _write_backtest_artifact(unsafe_path, hypothesis_id=7)
+            unsafe = json.loads(unsafe_path.read_text(encoding="utf-8"))
+            unsafe["safety"]["timer_mutated"] = True
+            unsafe_path.write_text(json.dumps(unsafe), encoding="utf-8")
+            unsafe_review = review_strategy_hypothesis_backtest_artifact(unsafe_path, expected_hypothesis_id=7)
+            self.assertFalse(unsafe_review.valid)
+            self.assertTrue(unsafe_review.timer_mutated)
+
 
 def _insert_hypothesis(
     db_path: Path,
@@ -272,6 +294,14 @@ def _count_rows(db_path: Path, table: str) -> int:
         return int(conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
 
 
+def _state_counts(db_path: Path) -> dict[str, int]:
+    with sqlite3.connect(db_path) as conn:
+        return {
+            table: int(conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+            for table in ("strategy_versions", "trade_plans", "trades", "positions")
+        }
+
+
 def _hypothesis_validation(db_path: Path, hypothesis_id: int) -> dict[str, Any]:
     with sqlite3.connect(db_path) as conn:
         row = conn.execute(
@@ -293,7 +323,12 @@ def _write_backtest_artifact(path: Path, hypothesis_id: int) -> None:
                 "hypothesis": {"id": hypothesis_id},
                 "backtest_request": {"task_key": f"strategy-hypothesis:{hypothesis_id}:backtest"},
                 "validation_gate": {"accepted_is_research_outcome_only": True},
-                "safety": {"active_params_mutated": False},
+                "safety": {
+                    "active_params_mutated": False,
+                    "writes_trade_state": False,
+                    "writes_paper_live_behavior": False,
+                    "timer_mutated": False,
+                },
             },
             sort_keys=True,
         ),

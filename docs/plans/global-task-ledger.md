@@ -1,6 +1,6 @@
 # Global Task Ledger
 
-Last updated: 2026-05-12
+Last updated: 2026-05-13
 
 This ledger is the single index for historical and active project work. Detailed specs remain in the linked plan and design documents; this file tracks the global status, release anchors, and next dependencies.
 
@@ -9,12 +9,12 @@ This ledger is the single index for historical and active project work. Detailed
 | Field | Value |
 | --- | --- |
 | Branch | `codex/m60-strategy-version-proposal` |
-| Latest deployed commit | See release tag `pgc-v0.1.0-20260512-m71-m74` |
-| Latest release tag | `pgc-v0.1.0-20260512-m71-m74` |
+| Latest deployed commit | See release tag `pgc-v0.1.0-20260513-m75-m82` |
+| Latest release tag | `pgc-v0.1.0-20260513-m75-m82` |
 | Remote API | `http://150.158.121.150:8020` |
 | Remote migration state | `013_decision_action_log`, `pending_migrations=none` |
 | Latest release health | `api_health_ok=true`, HTTP `200` |
-| Latest full verification | `407 passed, 3 skipped, 10 subtests passed` locally on 2026-05-12 after M71-M74 Codex review; targeted M71-M74 tests passed (`141 passed, 1 skipped`), `node --check web/dashboard/app.js`, `python3 -m py_compile scripts/monitor_shadow_strategies.py`, and `git diff --check` passed before release. |
+| Latest full verification | `430 passed, 3 skipped, 10 subtests passed` locally on 2026-05-13 after M75-M82 Codex review; focused M79-M82 tests passed (`152 passed, 1 skipped, 1 subtests passed`), `node --check web/dashboard/app.js`, `python3 -m py_compile scripts/monitor_shadow_strategies.py src/pgc_trading/services/shadow_strategy_service.py src/pgc_trading/services/evidence_coverage_ledger_service.py`, and `git diff --check` passed before release. |
 
 ## Status Legend
 
@@ -48,6 +48,9 @@ This ledger is the single index for historical and active project work. Detailed
 | M67-M70 pool, evidence, strategy, and decision follow-up | `docs/plans/2026-05-11-m67-m70-pool-evidence-strategy-followup-plan.md` |
 | M71-M74 market intelligence operationalization | `docs/plans/2026-05-12-m71-m74-market-intelligence-operationalization-plan.md` |
 | M75-M78 market intelligence daily ops | `docs/plans/2026-05-12-m75-m78-market-intelligence-daily-ops-plan.md` |
+| M79-M82 shadow strategy visibility | `docs/plans/2026-05-12-m79-m82-shadow-strategy-visibility-plan.md` |
+| M83-M86 shadow observation loop | `docs/plans/2026-05-13-m83-m86-shadow-observation-loop-plan.md` |
+| External stock project integration assessment | `docs/plans/2026-05-12-stock-instock-integration-plan.md` |
 | OPS-20260511 daily review and stock pool intake | `docs/plans/2026-05-11-ops-daily-review-stock-pool-plan.md` |
 
 ## DEV Work Packages
@@ -151,20 +154,28 @@ This ledger is the single index for historical and active project work. Detailed
 | M72 | Market review data sync and empty-state diagnostics | Done, Deployed | release `pgc-v0.1.0-20260512-m71-m74` | Added market-review detail diagnostics, Dashboard empty-state/root-cause strip, read-only local/remote parity ops check, and runbook coverage. Verified with `node --check web/dashboard/app.js`, targeted M72 pytest, full `PYTHONPATH=src:. pytest -q`, and `git diff --check`. |
 | M73 | Shadow strategy promotion workbench | Done, Deployed | release `pgc-v0.1.0-20260512-m71-m74` | Added `strategy-evolution register-shadow` and workbench shadow comparison gates for trend-extension, breakout-pressure, low-price momentum, pre-confirm watchlist, and dip-buy candidates; Codex review restored active CPB `min_entry_price=10.0`/params hash and added regression coverage so candidates remain artifact-only. |
 | M74 | Decision action outcome review and ops audit hardening | Done, Deployed | release `pgc-v0.1.0-20260512-m71-m74` | Added normalized action-log outcome buckets/counts, stricter execution-date trade matching, unexpected-trade audit detection, ops-history action-log details, and Dashboard outcome drill-down while preserving advisory-only/no trade-state/no timer boundaries. Verification: `node --check web/dashboard/app.js`, targeted M74 pytest, full `PYTHONPATH=src:. pytest -q` (`407 passed, 3 skipped, 10 subtests passed`), and `git diff --check`. |
-| M75 | Daily review and stock-pool intake closure for 20260512+ | Next | `docs/plans/2026-05-12-m75-m78-market-intelligence-daily-ops-plan.md` | Make the next daily ops session ingest stock-pool data, refresh market/daily review outputs, and leave an auditable run record without duplicate apply writes. |
-| M76 | Full-market review hierarchy and plan linkage UX | Next | `docs/plans/2026-05-12-m75-m78-market-intelligence-daily-ops-plan.md` | Build a market regime -> sector -> stock -> evidence -> continuity -> next-day plan explanation layer for Dashboard/report/API. |
-| M77 | External evidence provider QA and coverage ledger | Next | `docs/plans/2026-05-12-m75-m78-market-intelligence-daily-ops-plan.md` | Track evidence coverage across dates/providers/entity types and surface stale/missing/unavailable/partial/duplicate/source-hash states. |
-| M78 | Shadow strategy monitor and promotion preflight | Next | `docs/plans/2026-05-12-m75-m78-market-intelligence-daily-ops-plan.md` | Formalize daily shadow monitor outputs and promotion preflight blockers while keeping active CPB params, trade plans, paper/live behavior, and timers unchanged. |
+| M75 | Daily review and stock-pool intake closure for 20260512+ | Done, Deployed | release `pgc-v0.1.0-20260513-m75-m82` | Added `ops daily-preflight` read-only apply checklist, 20260512+ runbook closure for pool intake -> market refresh -> preflight -> dry-run/apply, and duplicate apply detection. Local 20260512 preflight correctly blocks rerun with `duplicate_apply_count=2`; no timer, trade, strategy, or broker writes were enabled. |
+| M76 | Full-market review hierarchy and plan linkage UX | Done, Deployed | release `pgc-v0.1.0-20260513-m75-m82` | Added read-only hierarchy payload and Dashboard/report UX for market regime -> sector -> representative stocks -> evidence freshness/source_refs -> continuity -> next-day plan relationship, with aligned/cautious/blocked/missing labels and explicit missing evidence states. Verification: `node --check web/dashboard/app.js`, targeted M76 pytest, full `PYTHONPATH=src:. pytest -q`, and `git diff --check`. |
+| M77 | External evidence provider QA and coverage ledger | Done, Deployed | release `pgc-v0.1.0-20260513-m75-m82` | Added read-only evidence coverage ledger service, `ops evidence-ledger`, `/api/evidence-coverage-ledger`, and daily report JSON/Markdown summary; compares provider-pack manifest rows with imported market/Agent evidence and surfaces stale/missing/unavailable/partial/duplicate/source-hash-mismatch states without live fetches or trading writes. Verification: targeted M77 pytest `42 passed`, full `PYTHONPATH=src:. pytest -q` (`420 passed, 3 skipped, 10 subtests passed`), and `git diff --check`. |
+| M78 | Shadow strategy monitor and promotion preflight | Done, Deployed | release `pgc-v0.1.0-20260513-m75-m82` | Added artifact-only shadow monitor/preflight outputs for 5 candidate lanes, 20-trading-day walk-forward progress, frozen CPB comparison, API-ready JSON summary, and regression coverage proving no strategy/trade/position/paper-live/timer mutation. |
+| M79 | Shadow snapshot feed and API contract | Done, Deployed | release `pgc-v0.1.0-20260513-m75-m82` | Added `shadow_strategy_snapshot_v1` read-only feed over latest shadow monitor/preflight artifacts plus artifact-only strategy hypothesis rows, with `/api/shadow-strategy-snapshot`, `ops shadow-snapshot`, blocker/family/walk-forward/frozen-CPB normalization, and explicit no strategy/trade/paper-live/timer write safety. Verification: targeted M79 pytest `33 passed`, CLI/API focused set `71 passed, 1 subtests passed`, full `PYTHONPATH=src:. pytest -q` (`425 passed, 3 skipped, 10 subtests passed`). |
+| M80 | Dashboard shadow lab view | Done, Deployed | release `pgc-v0.1.0-20260513-m75-m82` | Added read-only Dashboard Shadow Lab over `/api/shadow-strategy-snapshot` with candidate family counts, walk-forward progress, promotion blocker totals, frozen-CPB comparison, safety boundary metrics, candidate detail drawer, and M82 cache-bust assets. Verification: `node --check web/dashboard/app.js`; `PYTHONPATH=src:. pytest -q tests/test_dashboard_static.py tests/test_api_read_routes.py`. |
+| M81 | Daily report and CLI shadow summary | Done, Deployed | release `pgc-v0.1.0-20260513-m75-m82` | Added `shadow_strategy` to daily review JSON/Markdown plus compact `ops shadow-snapshot --compact` summary lines for latest monitor/preflight dates, candidate/blocker counts, top candidates, and artifact-only safety; refreshed `reports/daily_review_20260512.*` and `reports/daily_review_20260513.*`. Verification: focused report/CLI pytest (`52 passed, 1 subtests passed`) and full `PYTHONPATH=src:. pytest -q` (`428 passed, 3 skipped, 10 subtests passed`). |
+| M82 | Guardrails, tests, and release gate | Done, Deployed | release `pgc-v0.1.0-20260513-m75-m82` | Added mutation-risk rejection for shadow snapshot artifacts, read-only/release-gate metadata for monitor/preflight outputs, and regression coverage proving no active CPB/trade/paper-live/timer mutation. Verification: focused M82 pytest `45 passed`; full `PYTHONPATH=src:. pytest -q` (`430 passed, 3 skipped, 10 subtests passed`); `git diff --check`. |
+| M83 | Shadow observation scorecard service and API | Next | `docs/plans/2026-05-13-m83-m86-shadow-observation-loop-plan.md` | Build a read-only `shadow_observation_scorecard_v1` service/API/CLI over shadow snapshot, monitor artifacts, market bars, and hypotheses with explicit missing/insufficient-sample blockers. |
+| M84 | Dashboard observation queue and attribution view | Next | `docs/plans/2026-05-13-m83-m86-shadow-observation-loop-plan.md` | Extend Shadow Lab with read-only observation queue, outcome attribution drawer, score/coverage/blocker display, and no promote/trade/timer controls. |
+| M85 | Daily report, CLI, and pipeline observation artifacts | Next | `docs/plans/2026-05-13-m83-m86-shadow-observation-loop-plan.md` | Add `shadow_observation` report/CLI/artifact output so the daily loop tracks observed candidates without turning them into active picks. |
+| M86 | Promotion dossier, guardrails, and release gate | Next | `docs/plans/2026-05-13-m83-m86-shadow-observation-loop-plan.md` | Generate review-only promotion dossiers with threshold metadata and regression coverage proving no active CPB/trade/paper-live/timer mutation. |
 | OPS-20260511 | Daily review and new stock pool intake | Done, Applied | `reports/daily_review_20260511.md`; `data/daily_review_20260511_ops_summary.json` | Remote `paper-main` ops sync completed with `operator=azboo`: backed up remote DB to `/opt/pgc/backups/pgc_trading-20260511-170517-before-ops-20260511-sync.db` and `/opt/pgc/backups/pgc_trading_20260511_171526_905184_before_daily_pipeline_20260511.db`; ingested 6 screenshot-sourced 黑马集中营 events; refreshed remote `market_bars`/`daily_basic_snapshots` for 247 symbols on `20260511`; dry-run then remote apply pipeline passed; no new daily pick/trade plan because `no_strategy_signals`; server already had one manual executed buy for `301188.SZ` on `20260511`, now reflected in pulled local DB/report; evidence gaps remain explicit (`MARKET_EVIDENCE_MISSING`, `AGENT_EXTERNAL_EVIDENCE_MISSING`, `AGENT_REVIEW_NOT_RUN`, market-review shallow history warning). |
 
 ## Active Parallel Plan
 
 | Lane | Task | Status | Depends On | Review Focus |
 | --- | --- | --- | --- | --- |
-| A | M75 Daily review and stock-pool intake closure for 20260512+ | Next | OPS-20260511, M67 pool intake, M71 evidence closure | Make daily ops repeatable and auditable; no duplicate apply writes or timer activation. |
-| B | M76 Full-market review hierarchy and plan linkage UX | Next | M72 diagnostics, M48 market Dashboard, M66 decision cockpit | Explain market -> sector -> stock -> evidence -> continuity -> next-day plan relationship without fabricated evidence. |
-| C | M77 External evidence provider QA and coverage ledger | Next | M68 provider packs, M71 evidence import, M72 diagnostics | Track coverage quality across dates/providers and keep missing/unavailable states explicit. |
-| D | M78 Shadow strategy monitor and promotion preflight | Next | M73 shadow workbench, M50 validation gates, M64 promotion gate | Monitor shadow candidates and promotion blockers without changing active strategy params or trading behavior. |
+| A | M83 Shadow observation scorecard service and API | Next | M79 snapshot, M78 monitor artifacts, market bars | Define `shadow_observation_scorecard_v1` as the shared read-only scorecard contract before UI/report work starts. |
+| B | M84 Dashboard observation queue and attribution view | Next | M83 scorecard payload | Extend Shadow Lab with observation queue and attribution drawer; no promote/trade/plan/timer controls. |
+| C | M85 Daily report, CLI, and pipeline observation artifacts | Next | M83 scorecard payload, M81 report plumbing | Surface observed shadow status in daily report/CLI/artifacts without converting candidates into active daily picks. |
+| D | M86 Promotion dossier, guardrails, and release gate | Next | M83-M85 outputs, M82 guardrails | Produce review-only promotion dossiers and prove no active CPB/trade/paper-live/timer mutation. |
 
 ## Review Rules For Future Sessions
 

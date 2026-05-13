@@ -100,6 +100,7 @@ class StrategyEvolutionServiceTest(unittest.TestCase):
             _write_shadow_artifacts(reports_dir)
             params_before = _strategy_param_file_contents()
             strategy_versions_before = _count_strategy_versions(db_path)
+            state_counts_before = _state_counts(db_path)
             service = StrategyEvolutionService(db_path, reports_dir=reports_dir)
 
             preview = service.register_shadow_candidates(
@@ -114,6 +115,10 @@ class StrategyEvolutionServiceTest(unittest.TestCase):
             self.assertEqual(preview.data.would_insert_count, 5)
             self.assertEqual(preview.data.inserted_count, 0)
             self.assertEqual(preview.data.comparison_summary["paper_observation_blocked_count"], 5)
+            self.assertFalse(preview.data.comparison_summary["safety"]["active_params_mutated"])
+            self.assertFalse(preview.data.comparison_summary["safety"]["writes_trade_state"])
+            self.assertFalse(preview.data.comparison_summary["safety"]["writes_paper_live_behavior"])
+            self.assertFalse(preview.data.comparison_summary["safety"]["timer_mutated"])
             self.assertEqual(_count_hypotheses(db_path), 0)
 
             applied = service.register_shadow_candidates(
@@ -134,6 +139,7 @@ class StrategyEvolutionServiceTest(unittest.TestCase):
             self.assertEqual(_count_hypotheses(db_path), 5)
             self.assertEqual(_strategy_param_file_contents(), params_before)
             self.assertEqual(_count_strategy_versions(db_path), strategy_versions_before)
+            self.assertEqual(_state_counts(db_path), state_counts_before)
 
             evaluation = service.evaluate_hypotheses(
                 EvaluateStrategyHypothesesRequest(as_of_date="20260511", limit=10),
@@ -152,6 +158,8 @@ class StrategyEvolutionServiceTest(unittest.TestCase):
             self.assertEqual(first.strategy_version_gate["status"], "blocked")
             self.assertTrue(first.safety["shadow_candidate"])
             self.assertFalse(first.safety["active_params_mutated"])
+            self.assertFalse(first.safety["writes_trade_state"])
+            self.assertFalse(first.safety["timer_mutated"])
 
     def test_shadow_accepted_hypothesis_blocks_strategy_version_proposal_until_clearance(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -213,6 +221,8 @@ class StrategyEvolutionServiceTest(unittest.TestCase):
             self.assertIsNotNone(evaluation.data)
             assert evaluation.data is not None
             self.assertEqual(evaluation.data.hypotheses[0].next_action, "shadow_gate_blocked")
+            self.assertFalse(evaluation.data.hypotheses[0].safety["writes_trade_state"])
+            self.assertFalse(evaluation.data.hypotheses[0].safety["timer_mutated"])
 
     def test_list_and_mark_review_status(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -833,6 +843,14 @@ def _count_hypotheses(db_path: Path) -> int:
 def _count_strategy_versions(db_path: Path) -> int:
     with sqlite3.connect(db_path) as conn:
         return int(conn.execute("SELECT COUNT(*) FROM strategy_versions").fetchone()[0])
+
+
+def _state_counts(db_path: Path) -> dict[str, int]:
+    with sqlite3.connect(db_path) as conn:
+        return {
+            table: int(conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+            for table in ("strategy_versions", "trade_plans", "trades", "positions")
+        }
 
 
 def _strategy_param_file_contents() -> dict[Path, str]:

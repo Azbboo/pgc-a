@@ -21,10 +21,10 @@
 
 | Track | Task | Status | Can Run In Parallel? | Depends On | Suggested Session |
 | --- | --- | --- | --- | --- | --- |
-| M75 | Daily review and stock-pool intake closure for 20260512+ | Next | Yes | OPS-20260511, M67, M71 | Session A |
-| M76 | Full-market review hierarchy and plan linkage UX | Next | Yes | M72, M48, M66 | Session B |
-| M77 | External evidence provider QA and coverage ledger | Next | Yes | M68, M71, M72 | Session C |
-| M78 | Shadow strategy monitor and promotion preflight | Next | Yes | M73, M50, M64 | Session D |
+| M75 | Daily review and stock-pool intake closure for 20260512+ | Done, Deployed | Yes | OPS-20260511, M67, M71 | Session A |
+| M76 | Full-market review hierarchy and plan linkage UX | Done, Deployed | Yes | M72, M48, M66 | Session B |
+| M77 | External evidence provider QA and coverage ledger | Done, Deployed | Yes | M68, M71, M72 | Session C |
+| M78 | Shadow strategy monitor and promotion preflight | Done, Deployed | Yes | M73, M50, M64 | Session D |
 
 ## M75: Daily Review And Stock-Pool Intake Closure For 20260512+
 
@@ -45,6 +45,8 @@ git diff --check
 ```
 
 **Review focus:** daily ops must be repeatable, auditable, and should not silently rerun apply writes.
+
+**M75 completion note:** Added a read-only `ops daily-preflight` CLI and ops helper that checks database/migration state, account, trading day, valid raw events, market bars, market refresh audit rows, dry-run audit presence, market-review/report state, required pool-intake apply summaries, and duplicate non-dry daily apply writes before the operator runs `daily-pipeline --apply`. Updated the operational runbook with the exact `20260512+` sequence: reviewed pool-intake source -> dry-run/apply intake summaries -> market refresh output -> `ops daily-preflight` -> full dry-run -> guarded apply, with all artifacts kept in the run record and no production timer/broker/strategy writes enabled. Local `20260512` preflight passes intake/data/report checks and correctly blocks a rerun with `duplicate_apply_count=2`. Verification: targeted M75 pytest, full `PYTHONPATH=src:. pytest -q`, and `git diff --check`.
 
 ## M76: Full-Market Review Hierarchy And Plan Linkage UX
 
@@ -67,6 +69,8 @@ git diff --check
 
 **Review focus:** no fabricated news/sentiment; UI must explain missing data instead of hiding it.
 
+**M76 completion note:** Added a read-only market-review hierarchy payload and Dashboard/report layer that explains market regime -> sector rotation -> representative stocks -> evidence freshness/source_refs -> continuity label -> next-day plan relationship. Plan context now carries aligned/cautious/blocked/missing relationship labels without mutating trade plans, and missing market/sector/stock evidence remains explicit. Verification: `node --check web/dashboard/app.js`, targeted M76 pytest, full `PYTHONPATH=src:. pytest -q`, and `git diff --check`.
+
 ## M77: External Evidence Provider QA And Coverage Ledger
 
 **Goal:** Make evidence quality trackable across dates and providers, not just visible inside one daily report.
@@ -86,6 +90,8 @@ git diff --check
 ```
 
 **Review focus:** evidence coverage should be auditable without inventing unavailable external data.
+
+**M77 completion note:** Added a read-only `EvidenceCoverageLedgerService`, `pgc ops evidence-ledger`, `/api/evidence-coverage-ledger`, and daily report JSON/Markdown coverage-ledger summary. The ledger compares `evidence_provider_pack_v1` manifest rows against imported `market_external_items` and `agent_external_items`, preserves provider/date/entity/source-state detail, and explicitly surfaces stale, missing, unavailable, partial, duplicate, and source-hash-mismatch states without live fetches, strategy mutation, trading writes, broker actions, or timer enablement. Verification: targeted M77 pytest `42 passed`, full `PYTHONPATH=src:. pytest -q` (`420 passed, 3 skipped, 10 subtests passed`), and `git diff --check`.
 
 ## M78: Shadow Strategy Monitor And Promotion Preflight
 
@@ -107,6 +113,8 @@ git diff --check
 ```
 
 **Review focus:** shadow research can inform future proposals but cannot directly change active strategy, trades, positions, timers, or broker behavior.
+
+**M78 completion note:** Extended `scripts/monitor_shadow_strategies.py` into a daily artifact-only shadow monitor with 20-trading-day walk-forward progress, API-ready JSON summary, frozen CPB comparison, active CPB integrity snapshot, and blocked promotion preflight artifacts for trend-extension, breakout-pressure, low-price momentum, pre-confirm watchlist, and dip-buy candidates. Generated `reports/strategy_shadow_monitor_20260512.*`, `reports/strategy_shadow_promotion_preflight_20260512.*`, and `data/strategy_shadow_walk_forward_20260512.csv`; active params, strategy versions, trade plans, trades, positions, paper/live behavior, timers, and broker paths remain unchanged. Verification: `python3 -m py_compile scripts/monitor_shadow_strategies.py`, targeted M78 pytest, full `PYTHONPATH=src:. pytest -q`, and `git diff --check`.
 
 ## Parallelization Notes
 

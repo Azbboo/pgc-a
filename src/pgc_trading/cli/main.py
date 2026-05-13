@@ -15,9 +15,11 @@ from pgc_trading import __version__
 from pgc_trading.config import Paths
 from pgc_trading.ops import (
     build_release_tag,
+    run_daily_ops_preflight,
     run_market_review_parity_check,
     run_ops_health_check,
     run_ops_migration_step,
+    run_shadow_strategy_snapshot,
 )
 from pgc_trading.reporting.daily_report import (
     DailyReportRequest,
@@ -61,6 +63,10 @@ from pgc_trading.services.market_external_data_service import (
 from pgc_trading.services.evidence_provider_pack_service import (
     BuildEvidenceProviderPackRequest,
     EvidenceProviderPackService,
+)
+from pgc_trading.services.evidence_coverage_ledger_service import (
+    BuildEvidenceCoverageLedgerRequest,
+    EvidenceCoverageLedgerService,
 )
 from pgc_trading.services.market_plan_context_service import (
     LinkMarketPlanContextRequest,
@@ -111,6 +117,7 @@ MarketExternalDataServiceFactory = Callable[[Path], MarketExternalDataService]
 MarketPlanContextServiceFactory = Callable[[Path], MarketPlanContextService]
 MarketReviewServiceFactory = Callable[[Path], MarketReviewService]
 EvidenceProviderPackServiceFactory = Callable[[Path], EvidenceProviderPackService]
+EvidenceCoverageLedgerServiceFactory = Callable[[Path], EvidenceCoverageLedgerService]
 OpenExecutionServiceFactory = Callable[[Path], OpenExecutionService]
 PoolIntakeServiceFactory = Callable[[], PoolIntakeService]
 StrategyEvolutionServiceFactory = Callable[[Path], StrategyEvolutionService]
@@ -133,6 +140,7 @@ class CommandServices:
     market_plan_context_service_factory: MarketPlanContextServiceFactory = MarketPlanContextService
     market_review_service_factory: MarketReviewServiceFactory = MarketReviewService
     evidence_provider_pack_service_factory: EvidenceProviderPackServiceFactory = EvidenceProviderPackService
+    evidence_coverage_ledger_service_factory: EvidenceCoverageLedgerServiceFactory = EvidenceCoverageLedgerService
     open_execution_service_factory: OpenExecutionServiceFactory = OpenExecutionService
     pool_intake_service_factory: PoolIntakeServiceFactory = PoolIntakeService
     strategy_evolution_service_factory: StrategyEvolutionServiceFactory = StrategyEvolutionService
@@ -848,6 +856,43 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
     )
     ops_health.set_defaults(handler=_run_ops_health)
 
+    ops_daily_preflight = ops_subparsers.add_parser(
+        "daily-preflight",
+        help="show missing daily ops steps before running daily-pipeline apply",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    _add_report_date_argument(ops_daily_preflight)
+    _add_account_arguments(ops_daily_preflight)
+    _add_db_path_argument(ops_daily_preflight)
+    ops_daily_preflight.add_argument(
+        "--include-market-review",
+        action="store_true",
+        help="include market-review readiness and report context checks",
+    )
+    ops_daily_preflight.add_argument(
+        "--pool-intake-summary",
+        type=Path,
+        help="JSON summary from ops pool-intake --output for this review date",
+    )
+    ops_daily_preflight.add_argument(
+        "--require-pool-intake",
+        action="store_true",
+        help="block apply unless the pool-intake summary exists and is from apply mode",
+    )
+    ops_daily_preflight.add_argument(
+        "--allow-rerun",
+        action="store_true",
+        help="downgrade duplicate apply writes to a warning after operator review",
+    )
+    ops_daily_preflight.add_argument(
+        "--reports-dir",
+        type=Path,
+        default=Paths().reports_dir,
+        help="reports directory used to check daily_review_YYYYMMDD files",
+    )
+    ops_daily_preflight.set_defaults(handler=_run_ops_daily_preflight)
+
     ops_market_review_parity = ops_subparsers.add_parser(
         "market-review-parity",
         help="compare local and remote market-review rows without writing",
@@ -1025,6 +1070,64 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
     _add_lifecycle_context_arguments(ops_evidence_pack)
     _add_db_path_argument(ops_evidence_pack)
     ops_evidence_pack.set_defaults(handler=_run_ops_evidence_pack)
+
+    ops_evidence_ledger = ops_subparsers.add_parser(
+        "evidence-ledger",
+        help="build a read-only evidence coverage ledger from manifests and imported rows",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    ops_evidence_ledger.add_argument(
+        "--manifest",
+        dest="manifest_files",
+        type=Path,
+        action="append",
+        default=[],
+        help="provider pack manifest.json to compare with imported evidence rows; repeatable",
+    )
+    ops_evidence_ledger.add_argument(
+        "--discover-manifests",
+        action="store_true",
+        help="discover matching .pgc-runs/**/manifest.json files for the requested date",
+    )
+    ops_evidence_ledger.add_argument(
+        "--date",
+        "--as-of-date",
+        dest="date",
+        type=_parse_report_date,
+        help="optional review date in ISO or YYYYMMDD format",
+    )
+    _add_lifecycle_context_arguments(ops_evidence_ledger)
+    _add_db_path_argument(ops_evidence_ledger)
+    ops_evidence_ledger.set_defaults(handler=_run_ops_evidence_ledger)
+
+    ops_shadow_snapshot = ops_subparsers.add_parser(
+        "shadow-snapshot",
+        help="show the read-only shadow strategy visibility snapshot",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    ops_shadow_snapshot.add_argument(
+        "--date",
+        "--as-of-date",
+        dest="date",
+        type=_parse_report_date,
+        help="optional shadow monitor date in ISO or YYYYMMDD format; defaults to latest artifact",
+    )
+    ops_shadow_snapshot.add_argument(
+        "--reports-dir",
+        type=Path,
+        default=Paths().reports_dir,
+        help="reports directory containing strategy_shadow_monitor/preflight artifacts",
+    )
+    ops_shadow_snapshot.add_argument(
+        "--compact",
+        action="store_true",
+        help="print only the compact shadow summary and omit full JSON payloads",
+    )
+    _add_lifecycle_context_arguments(ops_shadow_snapshot)
+    _add_db_path_argument(ops_shadow_snapshot)
+    ops_shadow_snapshot.set_defaults(handler=_run_ops_shadow_snapshot)
 
     return parser
 
@@ -2085,6 +2188,25 @@ def _run_ops_health(args: argparse.Namespace, stdout: TextIO, services: CommandS
     return 0
 
 
+def _run_ops_daily_preflight(args: argparse.Namespace, stdout: TextIO, services: CommandServices) -> int:
+    db_path = _normalized_db_path(args.db_path)
+    result = run_daily_ops_preflight(
+        db_path,
+        as_of_date=args.date,
+        account_key=args.account_key,
+        account_id=args.account_id,
+        include_market_review=args.include_market_review,
+        pool_intake_summary_path=(
+            _normalized_db_path(args.pool_intake_summary) if args.pool_intake_summary is not None else None
+        ),
+        require_pool_intake=args.require_pool_intake,
+        allow_rerun=args.allow_rerun,
+        reports_dir=_normalized_db_path(args.reports_dir),
+    )
+    _write_daily_ops_preflight_result(stdout, result)
+    return 0 if result.ok else 1
+
+
 def _run_ops_market_review_parity(args: argparse.Namespace, stdout: TextIO, services: CommandServices) -> int:
     db_path = _normalized_db_path(args.db_path)
     remote_db_path = _normalized_db_path(args.remote_db_path)
@@ -2293,6 +2415,67 @@ def _run_ops_evidence_pack(args: argparse.Namespace, stdout: TextIO, services: C
         return 1
 
     _write_evidence_provider_pack_result(stdout, command, db_path, result)
+    return 0 if result.ok else 1
+
+
+def _run_ops_evidence_ledger(args: argparse.Namespace, stdout: TextIO, services: CommandServices) -> int:
+    db_path = _normalized_db_path(args.db_path)
+    manifest_files = [_normalized_db_path(path) for path in args.manifest_files]
+    command = "ops evidence-ledger"
+
+    if not db_path.exists():
+        _write_routed_message(
+            stdout,
+            command,
+            args.date or "all-dates",
+            db_path,
+            "database not found; evidence coverage ledger service was not run and no writes were performed",
+        )
+        return 1
+
+    if not manifest_files and not args.discover_manifests and args.date is None:
+        stdout.write("evidence_ledger_status=validation_failed\n")
+        stdout.write("errors:\n")
+        stdout.write("- VALIDATION_ERROR: provide --date, --manifest, or --discover-manifests.\n")
+        return 1
+
+    service = services.evidence_coverage_ledger_service_factory(db_path)
+    request = BuildEvidenceCoverageLedgerRequest(
+        as_of_date=args.date,
+        manifest_files=manifest_files,
+        discover_manifests=bool(args.discover_manifests),
+    )
+    ctx = RequestContext(
+        request_id="cli-ops-evidence-ledger",
+        idempotency_key=args.idempotency_key,
+        dry_run=True,
+        operator=args.operator,
+        source="cli",
+    )
+    try:
+        result = service.build_coverage_ledger(request, ctx)
+    except sqlite3.OperationalError as exc:
+        stdout.write("evidence_ledger_status=failed\n")
+        stdout.write(f"database_error={exc}\n")
+        return 1
+
+    _write_evidence_coverage_ledger_result(stdout, command, db_path, result)
+    return 0 if result.ok else 1
+
+
+def _run_ops_shadow_snapshot(args: argparse.Namespace, stdout: TextIO, services: CommandServices) -> int:
+    db_path = _normalized_db_path(args.db_path)
+    reports_dir = _normalized_db_path(args.reports_dir)
+    command = "ops shadow-snapshot"
+
+    try:
+        result = run_shadow_strategy_snapshot(db_path, as_of_date=args.date, reports_dir=reports_dir)
+    except sqlite3.OperationalError as exc:
+        stdout.write("shadow_snapshot_status=failed\n")
+        stdout.write(f"database_error={exc}\n")
+        return 1
+
+    _write_shadow_strategy_snapshot_result(stdout, command, db_path, reports_dir, result, compact=args.compact)
     return 0 if result.ok else 1
 
 
@@ -2857,6 +3040,156 @@ def _write_evidence_provider_pack_result(
     copied_files = getattr(data, "copied_files", [])
     if copied_files:
         stdout.write(f"copied_files={_json_compact(copied_files)}\n")
+
+
+def _write_evidence_coverage_ledger_result(
+    stdout: TextIO,
+    command: str,
+    db_path: Path,
+    result: ServiceResult[object],
+) -> None:
+    data = result.data
+    as_of_date = getattr(data, "as_of_date", None) if data is not None else None
+    _write_routed_message(
+        stdout,
+        command,
+        as_of_date or "all-dates",
+        db_path,
+        f"service returned {result.status}",
+    )
+    _write_warnings_and_errors(stdout, result)
+    if data is None:
+        return
+
+    summary = getattr(data, "summary", {})
+    entries = getattr(data, "entries", [])
+    stdout.write(f"evidence_ledger_status={result.status}\n")
+    stdout.write(f"ledger_contract={getattr(data, 'ledger_contract', 'evidence_coverage_ledger_v1')}\n")
+    stdout.write(f"as_of_date={as_of_date or 'all'}\n")
+    stdout.write(f"manifest_files={_json_compact(getattr(data, 'manifest_files', []))}\n")
+    stdout.write(f"discovered_manifest_count={getattr(data, 'discovered_manifest_count', 0)}\n")
+    stdout.write(f"entry_count={getattr(data, 'entry_count', 0)}\n")
+    stdout.write(f"blocking_entry_count={getattr(data, 'blocking_entry_count', 0)}\n")
+    stdout.write(f"ready_dates={_json_compact(getattr(data, 'ready_dates', []))}\n")
+    stdout.write(f"blocking_dates={_json_compact(getattr(data, 'blocking_dates', []))}\n")
+    stdout.write(f"state_counts_json={_json_compact(getattr(data, 'state_counts', {}))}\n")
+    stdout.write(f"provider_counts_json={_json_compact(getattr(data, 'provider_counts', {}))}\n")
+    stdout.write(f"summary_json={_json_compact(summary)}\n")
+    stdout.write(f"safety_json={_json_compact(getattr(data, 'safety', {}))}\n")
+    if entries:
+        stdout.write(f"ledger_entries_json={_json_compact(entries)}\n")
+
+
+def _write_shadow_strategy_snapshot_result(
+    stdout: TextIO,
+    command: str,
+    db_path: Path,
+    reports_dir: Path,
+    result: ServiceResult[object],
+    *,
+    compact: bool = False,
+) -> None:
+    data = result.data
+    as_of_date = getattr(data, "as_of_date", None) if data is not None else None
+    _write_routed_message(
+        stdout,
+        command,
+        as_of_date or "latest",
+        db_path,
+        f"service returned {result.status}",
+    )
+    _write_warnings_and_errors(stdout, result)
+    if data is None:
+        return
+
+    counts = getattr(data, "counts", {})
+    walk_forward = getattr(data, "walk_forward", {})
+    latest = getattr(data, "latest", {})
+    safety = getattr(data, "safety", {})
+    candidates = getattr(data, "candidates", [])
+    stdout.write(f"shadow_snapshot_status={result.status}\n")
+    stdout.write(f"snapshot_contract={getattr(data, 'snapshot_contract', 'shadow_strategy_snapshot_v1')}\n")
+    stdout.write(f"as_of_date={as_of_date or 'latest'}\n")
+    stdout.write(f"next_trade_date={getattr(data, 'next_trade_date', None) or 'none'}\n")
+    stdout.write(f"latest_monitor_date={latest.get('monitor_review_date') or 'none'}\n")
+    stdout.write(f"latest_preflight_date={latest.get('promotion_preflight_review_date') or 'none'}\n")
+    stdout.write(f"reports_dir={reports_dir}\n")
+    stdout.write(f"snapshot_feed_status={getattr(data, 'status', 'unknown')}\n")
+    stdout.write(f"candidate_count={counts.get('candidate_count', 0)}\n")
+    stdout.write(f"blocked_candidate_count={counts.get('blocked_candidate_count', 0)}\n")
+    stdout.write(f"shadow_hypothesis_count={counts.get('shadow_hypothesis_count', 0)}\n")
+    stdout.write(f"distinct_blocker_count={counts.get('distinct_blocker_count', 0)}\n")
+    stdout.write(f"walk_forward_status={walk_forward.get('status', 'unknown')}\n")
+    stdout.write(
+        "shadow_summary="
+        f"status={getattr(data, 'status', 'unknown')} "
+        f"candidates={counts.get('candidate_count', 0)} "
+        f"blocked={counts.get('blocked_candidate_count', 0)} "
+        f"blockers={counts.get('distinct_blocker_count', 0)} "
+        f"monitor={latest.get('monitor_review_date') or 'none'} "
+        f"preflight={latest.get('promotion_preflight_review_date') or 'none'} "
+        f"read_only={_display_bool(bool(getattr(data, 'read_only', True)))} "
+        f"artifact_only={_display_bool(bool(getattr(data, 'artifact_only', True)))} "
+        f"promotion_allowed={_display_bool(bool(safety.get('promotion_allowed', False)))}\n"
+    )
+    stdout.write(f"shadow_top_candidates={_shadow_compact_candidates(candidates)}\n")
+    stdout.write(
+        "shadow_artifact_notice=research-only artifact feed; no active strategy, trade, or timer mutation\n"
+    )
+    if compact:
+        return
+    stdout.write(f"candidate_families_json={_json_compact(getattr(data, 'candidate_families', {}))}\n")
+    stdout.write(f"blocker_counts_json={_json_compact(getattr(data, 'blocker_counts', {}))}\n")
+    stdout.write(f"source_artifacts_json={_json_compact(getattr(data, 'source_artifacts', {}))}\n")
+    stdout.write(f"safety_json={_json_compact(safety)}\n")
+    if candidates:
+        stdout.write(f"shadow_candidates_json={_json_compact(candidates)}\n")
+
+
+def _shadow_compact_candidates(candidates: object) -> str:
+    if not isinstance(candidates, list) or not candidates:
+        return "none"
+    ordered = sorted(
+        [candidate for candidate in candidates if isinstance(candidate, dict)],
+        key=_shadow_compact_candidate_sort_key,
+    )
+    parts = [_shadow_compact_candidate(candidate) for candidate in ordered[:3]]
+    suffix = f";+{len(ordered) - 3}" if len(ordered) > 3 else ""
+    return ";".join(parts) + suffix if parts else "none"
+
+
+def _shadow_compact_candidate(candidate: dict[str, object]) -> str:
+    top = candidate.get("today_top")
+    top_text = "none"
+    if isinstance(top, dict):
+        top_stock = " ".join(str(part) for part in [top.get("ts_code"), top.get("name")] if part)
+        top_text = top_stock or "none"
+    blockers = candidate.get("blockers")
+    blocker_items = [str(item) for item in blockers if item] if isinstance(blockers, list) else []
+    blocker_text = "/".join(blocker_items[:2]) if blocker_items else "none"
+    return (
+        f"{candidate.get('candidate_key', 'unknown')}"
+        f"[status={candidate.get('status', 'unknown')},"
+        f"today={candidate.get('today_candidate_count', 'none')},"
+        f"walk={candidate.get('walk_forward_status', 'unknown')},"
+        f"blockers={candidate.get('blocker_count', 0)}:{blocker_text},"
+        f"top={top_text}]"
+    )
+
+
+def _shadow_compact_candidate_sort_key(candidate: dict[str, object]) -> tuple[int, int, str]:
+    return (
+        -_optional_int(candidate.get("today_candidate_count")),
+        -_optional_int(candidate.get("blocker_count")),
+        str(candidate.get("candidate_key") or ""),
+    )
+
+
+def _optional_int(value: object) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _json_compact(payload: object) -> str:
@@ -3491,6 +3824,27 @@ def _write_daily_pipeline_result(stdout: TextIO, result: ServiceResult[object]) 
         f"{str(bool(getattr(data, 'market_plan_context_would_write', False))).lower()}\n"
     )
     _write_warnings_and_errors(stdout, result)
+
+
+def _write_daily_ops_preflight_result(stdout: TextIO, result: object) -> None:
+    stdout.write(f"daily_preflight_status={getattr(result, 'status', 'unknown')}\n")
+    stdout.write(f"review_date={getattr(result, 'as_of_date', 'n/a')}\n")
+    stdout.write(f"database={getattr(result, 'db_path', 'n/a')}\n")
+    stdout.write(f"account_key={getattr(result, 'account_key', None) or 'none'}\n")
+    stdout.write(f"account_id={_display_optional_int(getattr(result, 'account_id', None))}\n")
+    stdout.write(f"include_market_review={_display_bool(bool(getattr(result, 'include_market_review', False)))}\n")
+    stdout.write(f"duplicate_apply_count={getattr(result, 'duplicate_apply_count', 0)}\n")
+    stdout.write(f"missing_steps={_display_list(getattr(result, 'missing_steps', []))}\n")
+    stdout.write(f"warning_steps={_display_list(getattr(result, 'warning_steps', []))}\n")
+    for check in getattr(result, "checks", []):
+        stdout.write(
+            "daily_step="
+            f"{getattr(check, 'step', 'unknown')} "
+            f"status={getattr(check, 'status', 'unknown')} "
+            f"required_for_apply={_display_bool(bool(getattr(check, 'required_for_apply', False)))} "
+            f"count={_display_optional_int(getattr(check, 'count', None))} "
+            f"detail={_shell_value(getattr(check, 'detail', ''))}\n"
+        )
 
 
 def _write_pool_intake_result(stdout: TextIO, result: ServiceResult[object]) -> None:

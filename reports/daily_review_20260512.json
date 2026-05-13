@@ -51,7 +51,213 @@
     "warning_count": 0
   },
   "due_positions": [],
-  "generated_at": "2026-05-12T12:42:58.852425+00:00",
+  "evidence_coverage_ledger": {
+    "as_of_date": "20260512",
+    "blocking_dates": [
+      "20260512"
+    ],
+    "blocking_entry_count": 10,
+    "db_path": "data/pgc_trading.db",
+    "discovered_manifest_count": 1,
+    "entries": [
+      {
+        "as_of_date": "20260512",
+        "entity_key": "market",
+        "entity_type": "market",
+        "item_type": "market",
+        "kind": "market_external",
+        "manifest_file": null,
+        "provider": "coverage_summary",
+        "published_date": null,
+        "reason": null,
+        "source_file": null,
+        "source_hash": null,
+        "source_kind": "coverage_status",
+        "source_state": "missing"
+      },
+      {
+        "as_of_date": "20260512",
+        "entity_key": "sector",
+        "entity_type": "sector",
+        "item_type": "sector",
+        "kind": "market_external",
+        "manifest_file": null,
+        "provider": "coverage_summary",
+        "published_date": null,
+        "reason": null,
+        "source_file": null,
+        "source_hash": null,
+        "source_kind": "coverage_status",
+        "source_state": "missing"
+      },
+      {
+        "as_of_date": "20260512",
+        "entity_key": "stock",
+        "entity_type": "stock",
+        "item_type": "stock",
+        "kind": "market_external",
+        "manifest_file": null,
+        "provider": "coverage_summary",
+        "published_date": null,
+        "reason": null,
+        "source_file": null,
+        "source_hash": null,
+        "source_kind": "coverage_status",
+        "source_state": "missing"
+      },
+      {
+        "as_of_date": "20260512",
+        "entity_key": "news",
+        "entity_type": "coverage",
+        "item_type": "news",
+        "kind": "market_external",
+        "manifest_file": null,
+        "provider": "coverage_summary",
+        "published_date": null,
+        "reason": null,
+        "source_file": null,
+        "source_hash": null,
+        "source_kind": "coverage_status",
+        "source_state": "missing"
+      },
+      {
+        "as_of_date": "20260512",
+        "entity_key": "sentiment",
+        "entity_type": "coverage",
+        "item_type": "sentiment",
+        "kind": "market_external",
+        "manifest_file": null,
+        "provider": "coverage_summary",
+        "published_date": null,
+        "reason": null,
+        "source_file": null,
+        "source_hash": null,
+        "source_kind": "coverage_status",
+        "source_state": "missing"
+      },
+      {
+        "as_of_date": "20260512",
+        "entity_key": "fundamental",
+        "entity_type": "coverage",
+        "item_type": "fundamental",
+        "kind": "agent_external",
+        "manifest_file": null,
+        "provider": "coverage_summary",
+        "published_date": null,
+        "reason": null,
+        "source_file": null,
+        "source_hash": null,
+        "source_kind": "coverage_status",
+        "source_state": "missing"
+      },
+      {
+        "as_of_date": "20260512",
+        "entity_key": "announcement",
+        "entity_type": "coverage",
+        "item_type": "announcement",
+        "kind": "agent_external",
+        "manifest_file": null,
+        "provider": "coverage_summary",
+        "published_date": null,
+        "reason": null,
+        "source_file": null,
+        "source_hash": null,
+        "source_kind": "coverage_status",
+        "source_state": "missing"
+      },
+      {
+        "as_of_date": "20260512",
+        "entity_key": "news",
+        "entity_type": "coverage",
+        "item_type": "news",
+        "kind": "agent_external",
+        "manifest_file": null,
+        "provider": "coverage_summary",
+        "published_date": null,
+        "reason": null,
+        "source_file": null,
+        "source_hash": null,
+        "source_kind": "coverage_status",
+        "source_state": "missing"
+      },
+      {
+        "as_of_date": "20260512",
+        "entity_key": "sentiment",
+        "entity_type": "coverage",
+        "item_type": "sentiment",
+        "kind": "agent_external",
+        "manifest_file": null,
+        "provider": "coverage_summary",
+        "published_date": null,
+        "reason": null,
+        "source_file": null,
+        "source_hash": null,
+        "source_kind": "coverage_status",
+        "source_state": "missing"
+      },
+      {
+        "as_of_date": "20260512",
+        "entity_key": "risk_or_research",
+        "entity_type": "coverage",
+        "item_type": "risk_or_research",
+        "kind": "agent_external",
+        "manifest_file": null,
+        "provider": "coverage_summary",
+        "published_date": null,
+        "reason": null,
+        "source_file": null,
+        "source_hash": null,
+        "source_kind": "coverage_status",
+        "source_state": "missing"
+      }
+    ],
+    "entry_count": 10,
+    "generated_at": "2026-05-13T08:26:24+00:00",
+    "ledger_contract": "evidence_coverage_ledger_v1",
+    "manifest_files": [
+      "/Users/azboo/Desktop/Person/pgc/.pgc-runs/m71-evidence-pack-20260512/pack/manifest.json"
+    ],
+    "provider_counts": {
+      "coverage_summary": 10
+    },
+    "ready_dates": [],
+    "safety": {
+      "enables_timer": false,
+      "live_fetches": false,
+      "read_only": true,
+      "writes_strategy_state": false,
+      "writes_trade_state": false
+    },
+    "state_counts": {
+      "missing": 10
+    },
+    "summary": {
+      "blocking_states": [
+        "duplicate",
+        "missing",
+        "partial",
+        "source-hash-mismatch",
+        "stale"
+      ],
+      "dates": [
+        "20260512"
+      ],
+      "duplicate_count": 0,
+      "manifest_count": 1,
+      "missing_count": 10,
+      "partial_count": 0,
+      "provider_counts": {
+        "coverage_summary": 10
+      },
+      "source_hash_mismatch_count": 0,
+      "stale_count": 0,
+      "state_counts": {
+        "missing": 10
+      },
+      "unavailable_count": 0
+    }
+  },
+  "generated_at": "2026-05-13T08:26:24.232897+00:00",
   "latest_market_date": "20260512",
   "lineage": {
     "agent_decision_id": null,
@@ -68,6 +274,13 @@
   "market_plan_context": null,
   "market_review": {
     "breadth_score": 0.2915,
+    "continuity_label": "insufficient_evidence",
+    "continuity_reason": "缺少板块轮动、新闻/情绪证据，连续性不能当作安全信号。",
+    "evidence_freshness": {
+      "market": "missing",
+      "sector": "missing",
+      "stock": "missing"
+    },
     "external_evidence_coverage": {
       "by_importance": {},
       "by_item_type": {},
@@ -76,6 +289,11 @@
       "by_sentiment": {},
       "coverage": "missing",
       "fresh_count": 0,
+      "freshness_by_scope": {
+        "market": "missing",
+        "sector": "missing",
+        "stock": "missing"
+      },
       "market": "missing",
       "missing_scopes": [
         "market",
@@ -85,6 +303,7 @@
       "news": "missing",
       "sector": "missing",
       "sentiment": "missing",
+      "source_refs": [],
       "stale_count": 0,
       "stock": "missing",
       "total_count": 0
@@ -94,6 +313,10 @@
     "regime": "neutral",
     "sector_persistence": [],
     "sentiment_score": null,
+    "source_refs": [
+      "market_review_runs:4",
+      "market_regime_snapshots:4"
+    ],
     "status": "completed",
     "strategy_hypotheses": [
       {
@@ -646,6 +869,7 @@
         "manual_action": "处理 paper acceptance 未处理 blocker。",
         "source_refs": [
           "market_review_runs:4",
+          "market_regime_snapshots:4",
           "positions:2"
         ],
         "status": "blocked",
@@ -664,7 +888,9 @@
         "label": "证据 freshness / coverage",
         "manual_action": "补齐或确认 cached provider evidence，再重新运行只读验收。",
         "source_refs": [
-          "market_review_runs:4"
+          "market_review_runs:4",
+          "market_review_runs:4",
+          "market_regime_snapshots:4"
         ],
         "status": "warning",
         "summary": "全市场证据 0 条；Agent 覆盖 0 项",
@@ -683,7 +909,7 @@
           "market_review_runs:4"
         ],
         "status": "warning",
-        "summary": "neutral；Market regime neutral: breadth=0.29 trend=0.47 volume=0.37 persistence=0.18 coverage=1.00.；计划建议 missing",
+        "summary": "neutral / insufficient_evidence；Market regime neutral: breadth=0.29 trend=0.47 volume=0.37 persistence=0.18 coverage=1.00.；计划关系 missing",
         "warning_codes": [
           "MARKET_PLAN_CONTEXT_MISSING"
         ]
@@ -726,6 +952,13 @@
     "market_plan_context": null,
     "market_review": {
       "breadth_score": 0.2915,
+      "continuity_label": "insufficient_evidence",
+      "continuity_reason": "缺少板块轮动、新闻/情绪证据，连续性不能当作安全信号。",
+      "evidence_freshness": {
+        "market": "missing",
+        "sector": "missing",
+        "stock": "missing"
+      },
       "external_evidence_coverage": {
         "by_importance": {},
         "by_item_type": {},
@@ -734,6 +967,11 @@
         "by_sentiment": {},
         "coverage": "missing",
         "fresh_count": 0,
+        "freshness_by_scope": {
+          "market": "missing",
+          "sector": "missing",
+          "stock": "missing"
+        },
         "market": "missing",
         "missing_scopes": [
           "market",
@@ -743,6 +981,7 @@
         "news": "missing",
         "sector": "missing",
         "sentiment": "missing",
+        "source_refs": [],
         "stale_count": 0,
         "stock": "missing",
         "total_count": 0
@@ -752,6 +991,10 @@
       "regime": "neutral",
       "sector_persistence": [],
       "sentiment_score": null,
+      "source_refs": [
+        "market_review_runs:4",
+        "market_regime_snapshots:4"
+      ],
       "status": "completed",
       "strategy_hypotheses": [
         {
@@ -1874,7 +2117,9 @@
       "key": "evidence_coverage",
       "label": "证据覆盖",
       "source_refs": [
-        "market_review_runs:4"
+        "market_review_runs:4",
+        "market_review_runs:4",
+        "market_regime_snapshots:4"
       ],
       "status": "warning",
       "summary": "全市场证据 0 条；Agent 覆盖 0 项",
@@ -2094,5 +2339,248 @@
       "ts_code": "301188.SZ"
     }
   ],
+  "shadow_strategy": {
+    "artifact_only": true,
+    "as_of_date": "20260512",
+    "blocked_candidate_count": 5,
+    "blocker_counts": {
+      "active_cpb_db_params_hash_mismatch": 1,
+      "chase_gap_guard_required": 1,
+      "close_return_stability_required": 1,
+      "dip_buy_stop_and_sizing_required": 1,
+      "falling_knife_guard_required": 1,
+      "liquidity_slippage_review_required": 1,
+      "micro_sleeve_risk_model_required": 1,
+      "next_day_confirmation_rule_required": 1,
+      "operator_promotion_approval_required": 5,
+      "operator_review_required": 5,
+      "paper_observation_not_authorized": 5,
+      "proposal_review_required": 5,
+      "replay_backtest_result_artifact_required": 5,
+      "sector_evidence_confirmation_required": 1,
+      "separate_breakout_pressure_candidate_required": 1,
+      "separate_dip_buy_candidate_required": 1,
+      "separate_low_price_micro_sleeve_required": 1,
+      "separate_trend_extension_candidate_required": 1,
+      "strategy_version_proposal_not_authorized": 5,
+      "volume_overheat_guard_required": 1,
+      "walk_forward_shadow_monitor_20_trading_days_required": 5,
+      "watchlist_only_ui_lane_required": 1,
+      "watchlist_to_signal_contract_required": 1
+    },
+    "candidate_count": 5,
+    "candidate_families": {
+      "dip_buy": 1,
+      "preconfirm_watchlist": 1,
+      "shadow_bucket": 3
+    },
+    "distinct_blocker_count": 23,
+    "latest_monitor_date": "20260512",
+    "latest_monitor_generated_at": "2026-05-12T14:44:02+00:00",
+    "latest_preflight_date": "20260512",
+    "latest_preflight_generated_at": "2026-05-12T14:44:02+00:00",
+    "next_trade_date": "20260513",
+    "read_only": true,
+    "safety": {
+      "active_params_mutated": false,
+      "artifact_only": true,
+      "paper_observation_allowed": false,
+      "promotion_allowed": false,
+      "read_only": true,
+      "requires_explicit_blocker_clearance": true,
+      "timer_mutated": false,
+      "visibility_layer_writes": false,
+      "writes_paper_live_behavior": false,
+      "writes_trade_state": false,
+      "wrote_strategy_version": false
+    },
+    "shadow_hypothesis_count": 5,
+    "source_artifacts": {
+      "monitor_json": "/Users/azboo/Desktop/Person/pgc/reports/strategy_shadow_monitor_20260512.json",
+      "monitor_markdown": "/Users/azboo/Desktop/Person/pgc/reports/strategy_shadow_monitor_20260512.md",
+      "promotion_preflight_json": "/Users/azboo/Desktop/Person/pgc/reports/strategy_shadow_promotion_preflight_20260512.json",
+      "promotion_preflight_markdown": "/Users/azboo/Desktop/Person/pgc/reports/strategy_shadow_promotion_preflight_20260512.md"
+    },
+    "status": "blocked",
+    "top_candidates": [
+      {
+        "blocker_count": 10,
+        "blockers": [
+          "liquidity_slippage_review_required",
+          "micro_sleeve_risk_model_required",
+          "operator_promotion_approval_required",
+          "operator_review_required",
+          "paper_observation_not_authorized",
+          "proposal_review_required",
+          "replay_backtest_result_artifact_required",
+          "separate_low_price_micro_sleeve_required",
+          "strategy_version_proposal_not_authorized",
+          "walk_forward_shadow_monitor_20_trading_days_required"
+        ],
+        "candidate_family": "shadow_bucket",
+        "candidate_key": "low_price_momentum_shadow",
+        "paper_observation_allowed": false,
+        "promotion_allowed": false,
+        "status": "blocked",
+        "today_candidate_count": 72,
+        "today_top": {
+          "amount_to_ma10": 2.151,
+          "amount_to_ma20": 3.2646,
+          "bucket": "low_price_momentum_shadow",
+          "close_pos20": 1.0,
+          "day_pct_chg": 10.05,
+          "dist20_high_pct": 0.0,
+          "dist5_high_pct": 0.0,
+          "entry_date": "20260326",
+          "entry_price": 7.53,
+          "entry_runup_pct": 41.04,
+          "industry": "供气供热",
+          "name": "大连热电",
+          "ret10_pct": 44.29,
+          "ret3_pct": 13.22,
+          "ret5_pct": 37.03,
+          "review_close": 10.62,
+          "review_date": "20260512",
+          "score": 117.9918,
+          "ts_code": "600719.SH"
+        },
+        "walk_forward_status": "complete"
+      },
+      {
+        "blocker_count": 10,
+        "blockers": [
+          "close_return_stability_required",
+          "operator_promotion_approval_required",
+          "operator_review_required",
+          "paper_observation_not_authorized",
+          "proposal_review_required",
+          "replay_backtest_result_artifact_required",
+          "separate_breakout_pressure_candidate_required",
+          "strategy_version_proposal_not_authorized",
+          "volume_overheat_guard_required",
+          "walk_forward_shadow_monitor_20_trading_days_required"
+        ],
+        "candidate_family": "shadow_bucket",
+        "candidate_key": "breakout_pressure_shadow",
+        "paper_observation_allowed": false,
+        "promotion_allowed": false,
+        "status": "blocked",
+        "today_candidate_count": 69,
+        "today_top": {
+          "amount_to_ma10": 1.9328,
+          "amount_to_ma20": 1.5798,
+          "bucket": "breakout_pressure_shadow",
+          "close_pos20": 0.9637,
+          "day_pct_chg": 2.78,
+          "dist20_high_pct": -0.71,
+          "dist5_high_pct": -0.71,
+          "entry_date": "20260319",
+          "entry_price": 20.82,
+          "entry_runup_pct": 13.54,
+          "industry": "通信设备",
+          "name": "华脉科技",
+          "ret10_pct": 17.15,
+          "ret3_pct": 10.93,
+          "ret5_pct": 22.49,
+          "review_close": 23.64,
+          "review_date": "20260512",
+          "score": 107.9674,
+          "ts_code": "603042.SH"
+        },
+        "walk_forward_status": "complete"
+      },
+      {
+        "blocker_count": 10,
+        "blockers": [
+          "chase_gap_guard_required",
+          "operator_promotion_approval_required",
+          "operator_review_required",
+          "paper_observation_not_authorized",
+          "proposal_review_required",
+          "replay_backtest_result_artifact_required",
+          "sector_evidence_confirmation_required",
+          "separate_trend_extension_candidate_required",
+          "strategy_version_proposal_not_authorized",
+          "walk_forward_shadow_monitor_20_trading_days_required"
+        ],
+        "candidate_family": "shadow_bucket",
+        "candidate_key": "trend_extension_shadow",
+        "paper_observation_allowed": false,
+        "promotion_allowed": false,
+        "status": "blocked",
+        "today_candidate_count": 47,
+        "today_top": {
+          "amount_to_ma10": 1.2552,
+          "amount_to_ma20": 1.4139,
+          "bucket": "trend_extension_shadow",
+          "close_pos20": 1.0,
+          "day_pct_chg": 10.0,
+          "dist20_high_pct": 0.0,
+          "dist5_high_pct": 0.0,
+          "entry_date": "20251127",
+          "entry_price": 26.52,
+          "entry_runup_pct": 282.43,
+          "industry": "小金属",
+          "name": "云南锗业",
+          "ret10_pct": 31.92,
+          "ret3_pct": 26.46,
+          "ret5_pct": 44.87,
+          "review_close": 101.42,
+          "review_date": "20260512",
+          "score": 124.8948,
+          "ts_code": "002428.SZ"
+        },
+        "walk_forward_status": "complete"
+      },
+      {
+        "blocker_count": 11,
+        "blockers": [
+          "daily_walk_forward_monitor_required_for_dip_buy",
+          "dip_buy_stop_and_sizing_required",
+          "falling_knife_guard_required",
+          "operator_promotion_approval_required",
+          "operator_review_required",
+          "paper_observation_not_authorized",
+          "proposal_review_required",
+          "replay_backtest_result_artifact_required",
+          "separate_dip_buy_candidate_required",
+          "strategy_version_proposal_not_authorized",
+          "walk_forward_shadow_monitor_20_trading_days_required"
+        ],
+        "candidate_family": "dip_buy",
+        "candidate_key": "pullback_dip_buy",
+        "paper_observation_allowed": false,
+        "promotion_allowed": false,
+        "status": "blocked",
+        "today_candidate_count": null,
+        "today_top": {},
+        "walk_forward_status": "artifact_summary_only"
+      },
+      {
+        "blocker_count": 10,
+        "blockers": [
+          "next_day_confirmation_rule_required",
+          "operator_promotion_approval_required",
+          "operator_review_required",
+          "paper_observation_not_authorized",
+          "proposal_review_required",
+          "replay_backtest_result_artifact_required",
+          "strategy_version_proposal_not_authorized",
+          "walk_forward_shadow_monitor_20_trading_days_required",
+          "watchlist_only_ui_lane_required",
+          "watchlist_to_signal_contract_required"
+        ],
+        "candidate_family": "preconfirm_watchlist",
+        "candidate_key": "preconfirm_watchlist",
+        "paper_observation_allowed": false,
+        "promotion_allowed": false,
+        "status": "blocked",
+        "today_candidate_count": null,
+        "today_top": {},
+        "walk_forward_status": "complete"
+      }
+    ],
+    "unavailable_reason": null
+  },
   "strategy_version": "cpb_6157@2026-05-03"
 }

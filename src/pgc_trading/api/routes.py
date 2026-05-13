@@ -2,6 +2,7 @@
 
 import hmac
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from pgc_trading.api.errors import service_result_http_status
@@ -29,6 +30,7 @@ from pgc_trading.services.execution_recording_service import (
     RecordPositionSellRequest,
     RecordTradeRequest,
 )
+from pgc_trading.services.evidence_coverage_ledger_service import BuildEvidenceCoverageLedgerRequest
 from pgc_trading.services.market_review_service import (
     GetMarketReviewPlanContextRequest,
     GetMarketReviewRequest,
@@ -45,6 +47,7 @@ from pgc_trading.services.portfolio_planning_service import (
     PublishTradePlanRequest,
 )
 from pgc_trading.services.position_lifecycle_service import EvaluateExitsRequest, ListPositionsRequest
+from pgc_trading.services.shadow_strategy_service import GetShadowStrategySnapshotRequest
 from pgc_trading.services.strategy_evolution_service import (
     CreateStrategyVersionProposalReviewRequest,
     EvaluateStrategyHypothesesRequest,
@@ -240,6 +243,38 @@ def register_routes(app: Any) -> None:
             strategy_version=strategy_version,
             before_date=_normalize_optional_date(before_date),
             limit=limit,
+            request_id=request_id,
+        )
+
+    @app.get("/api/evidence-coverage-ledger", tags=["system"])
+    def evidence_coverage_ledger(
+        response: Response,
+        as_of_date: str | None = None,
+        manifest_path: list[str] | None = None,
+        discover_manifests: bool = True,
+        request_id: str | None = None,
+    ) -> dict[str, object]:
+        return get_evidence_coverage_ledger(
+            app.state.settings,
+            app.state.services,
+            response,
+            as_of_date=_normalize_optional_date(as_of_date),
+            manifest_paths=manifest_path or [],
+            discover_manifests=discover_manifests,
+            request_id=request_id,
+        )
+
+    @app.get("/api/shadow-strategy-snapshot", tags=["strategy-evolution"])
+    def shadow_strategy_snapshot(
+        response: Response,
+        as_of_date: str | None = None,
+        request_id: str | None = None,
+    ) -> dict[str, object]:
+        return get_shadow_strategy_snapshot(
+            app.state.settings,
+            app.state.services,
+            response,
+            as_of_date=_normalize_optional_date(as_of_date),
             request_id=request_id,
         )
 
@@ -657,6 +692,44 @@ def list_ops_history(
             before_date=_normalize_optional_date(before_date),
             limit=limit,
         ),
+        RequestContext(request_id=request_id, dry_run=True, source="api"),
+    )
+    return _service_response(result, response)
+
+
+def get_evidence_coverage_ledger(
+    settings: ApiSettings,
+    services: ApiServices,
+    response: Any,
+    *,
+    as_of_date: str | None = None,
+    manifest_paths: list[str] | None = None,
+    discover_manifests: bool = True,
+    request_id: str | None = None,
+) -> dict[str, object]:
+    service = services.evidence_coverage_ledger_service_factory(settings.db_path)
+    result = service.build_coverage_ledger(
+        BuildEvidenceCoverageLedgerRequest(
+            as_of_date=_normalize_optional_date(as_of_date),
+            manifest_files=[Path(path) for path in (manifest_paths or [])],
+            discover_manifests=discover_manifests,
+        ),
+        RequestContext(request_id=request_id, dry_run=True, source="api"),
+    )
+    return _service_response(result, response)
+
+
+def get_shadow_strategy_snapshot(
+    settings: ApiSettings,
+    services: ApiServices,
+    response: Any,
+    *,
+    as_of_date: str | None = None,
+    request_id: str | None = None,
+) -> dict[str, object]:
+    service = services.shadow_strategy_service_factory(settings.db_path)
+    result = service.get_snapshot(
+        GetShadowStrategySnapshotRequest(as_of_date=_normalize_optional_date(as_of_date)),
         RequestContext(request_id=request_id, dry_run=True, source="api"),
     )
     return _service_response(result, response)

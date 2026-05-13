@@ -260,6 +260,57 @@ class OperationalRunbookStaticTest(unittest.TestCase):
         ]:
             self.assertIn(text, source)
 
+    def test_m75_runbook_documents_daily_ops_preflight_and_pool_intake_closure(self) -> None:
+        source = RUNBOOK.read_text(encoding="utf-8")
+
+        for text in [
+            "M75 20260512+ 日常复盘与股票池摄入闭环",
+            "ops pool-intake",
+            "data/daily_review_S_intake_dry_run.json",
+            "data/daily_review_S_intake_apply.json",
+            "invalid_count=0",
+            "ops daily-preflight",
+            "--pool-intake-summary data/daily_review_S_intake_apply.json",
+            "--require-pool-intake",
+            "daily_preflight_status",
+            "missing_steps",
+            "duplicate_apply_count",
+            "daily_step=... status=...",
+            "missing_steps=none",
+            "duplicate_apply",
+            "./scripts/run_daily_pipeline.sh --date S --account paper-main --operator azboo --include-market-review --dry-run",
+            "./scripts/run_daily_pipeline.sh --date S --account paper-main --operator azboo --include-market-review --apply",
+            "duplicate_write_guard=dry_run",
+            "market_review_would_write=true",
+            "report_would_write=true",
+            "backup_path",
+            "M75 不启用生产 timer",
+            "scripts/install_remote_daily_pipeline_timer.sh --enable",
+        ]:
+            self.assertIn(text, source)
+
+    def test_m82_runbook_documents_shadow_visibility_release_gate(self) -> None:
+        source = RUNBOOK.read_text(encoding="utf-8")
+
+        for text in [
+            "M82 影子策略可视化发布门禁",
+            "shadow visibility remains artifact-only",
+            "strategy_shadow_monitor_YYYYMMDD.json",
+            "strategy_shadow_promotion_preflight_YYYYMMDD.json",
+            "read_only_guard",
+            "release_gate",
+            "shadow_strategy_snapshot API/CLI",
+            "Dashboard Shadow Lab",
+            "daily review shadow_strategy section",
+            "active CPB params/hash must remain unchanged",
+            "trade_plans, trades, positions",
+            "pgc-daily-pipeline.timer",
+            "promotion_allowed=false",
+            "timer_mutated=false",
+            "PYTHONPATH=src:. pytest -q tests/test_strategy_evolution_service.py tests/test_strategy_hypothesis_backtest_service.py tests/test_shadow_strategy_service.py tests/test_operational_runbook_static.py",
+        ]:
+            self.assertIn(text, source)
+
     def test_m20_deploy_script_is_guarded_and_parseable(self) -> None:
         self.assertTrue(DEPLOY_SCRIPT.exists(), f"missing {DEPLOY_SCRIPT}")
         source = DEPLOY_SCRIPT.read_text(encoding="utf-8")

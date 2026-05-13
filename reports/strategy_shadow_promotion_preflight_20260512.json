@@ -1,0 +1,421 @@
+{
+  "artifact_type": "shadow_strategy_promotion_preflight",
+  "generated_at": "2026-05-12T14:44:02+00:00",
+  "review_date": "20260512",
+  "next_trade_date": "20260513",
+  "status": "blocked",
+  "required_walk_forward_days": 20,
+  "candidate_count": 5,
+  "candidate_gates": [
+    {
+      "candidate_key": "trend_extension_shadow",
+      "candidate_family": "shadow_bucket",
+      "walk_forward_progress": {
+        "bucket": "trend_extension_shadow",
+        "n": 20,
+        "t1_close_mean_pct": 1.46,
+        "t1_close_median_pct": -0.34,
+        "t1_close_win_rate_pct": 45.0,
+        "t1_high_mean_pct": 4.25,
+        "t1_high_ge3_rate_pct": 45.0,
+        "candidate_key": "trend_extension_shadow",
+        "required_days": 20,
+        "days": 20,
+        "start_signal_date": "20260409",
+        "latest_signal_date": "20260511",
+        "status": "complete"
+      },
+      "comparison_vs_frozen_cpb": {
+        "status": "compared",
+        "baseline_label": "active_cpb_persisted_picks",
+        "baseline_days": 2,
+        "candidate_days": 20,
+        "t1_close_mean_delta_pct": -8.11,
+        "t1_close_win_rate_delta_pct": -5.0,
+        "t5_close_mean_delta_pct": null,
+        "sample_warning": "baseline_sample_lt_20"
+      },
+      "paper_observation_gate": {
+        "gate_type": "paper_observation",
+        "status": "blocked",
+        "allowed": false,
+        "artifact_only": true,
+        "clearance_required": true,
+        "blockers": [
+          "paper_observation_not_authorized",
+          "walk_forward_shadow_monitor_20_trading_days_required",
+          "operator_review_required",
+          "sector_evidence_confirmation_required",
+          "chase_gap_guard_required"
+        ]
+      },
+      "strategy_version_gate": {
+        "gate_type": "strategy_version_proposal",
+        "status": "blocked",
+        "allowed": false,
+        "artifact_only": true,
+        "clearance_required": true,
+        "blockers": [
+          "strategy_version_proposal_not_authorized",
+          "replay_backtest_result_artifact_required",
+          "proposal_review_required",
+          "operator_promotion_approval_required",
+          "separate_trend_extension_candidate_required"
+        ]
+      },
+      "status": "blocked"
+    },
+    {
+      "candidate_key": "breakout_pressure_shadow",
+      "candidate_family": "shadow_bucket",
+      "walk_forward_progress": {
+        "bucket": "breakout_pressure_shadow",
+        "n": 20,
+        "t1_close_mean_pct": 0.56,
+        "t1_close_median_pct": 0.53,
+        "t1_close_win_rate_pct": 65.0,
+        "t1_high_mean_pct": 3.2,
+        "t1_high_ge3_rate_pct": 50.0,
+        "candidate_key": "breakout_pressure_shadow",
+        "required_days": 20,
+        "days": 20,
+        "start_signal_date": "20260409",
+        "latest_signal_date": "20260511",
+        "status": "complete"
+      },
+      "comparison_vs_frozen_cpb": {
+        "status": "compared",
+        "baseline_label": "active_cpb_persisted_picks",
+        "baseline_days": 2,
+        "candidate_days": 20,
+        "t1_close_mean_delta_pct": -9.01,
+        "t1_close_win_rate_delta_pct": 15.0,
+        "t5_close_mean_delta_pct": null,
+        "sample_warning": "baseline_sample_lt_20"
+      },
+      "paper_observation_gate": {
+        "gate_type": "paper_observation",
+        "status": "blocked",
+        "allowed": false,
+        "artifact_only": true,
+        "clearance_required": true,
+        "blockers": [
+          "paper_observation_not_authorized",
+          "walk_forward_shadow_monitor_20_trading_days_required",
+          "operator_review_required",
+          "volume_overheat_guard_required",
+          "close_return_stability_required"
+        ]
+      },
+      "strategy_version_gate": {
+        "gate_type": "strategy_version_proposal",
+        "status": "blocked",
+        "allowed": false,
+        "artifact_only": true,
+        "clearance_required": true,
+        "blockers": [
+          "strategy_version_proposal_not_authorized",
+          "replay_backtest_result_artifact_required",
+          "proposal_review_required",
+          "operator_promotion_approval_required",
+          "separate_breakout_pressure_candidate_required"
+        ]
+      },
+      "status": "blocked"
+    },
+    {
+      "candidate_key": "low_price_momentum_shadow",
+      "candidate_family": "shadow_bucket",
+      "walk_forward_progress": {
+        "bucket": "low_price_momentum_shadow",
+        "n": 20,
+        "t1_close_mean_pct": 2.09,
+        "t1_close_median_pct": 2.96,
+        "t1_close_win_rate_pct": 60.0,
+        "t1_high_mean_pct": 5.66,
+        "t1_high_ge3_rate_pct": 70.0,
+        "candidate_key": "low_price_momentum_shadow",
+        "required_days": 20,
+        "days": 20,
+        "start_signal_date": "20260409",
+        "latest_signal_date": "20260511",
+        "status": "complete"
+      },
+      "comparison_vs_frozen_cpb": {
+        "status": "compared",
+        "baseline_label": "active_cpb_persisted_picks",
+        "baseline_days": 2,
+        "candidate_days": 20,
+        "t1_close_mean_delta_pct": -7.48,
+        "t1_close_win_rate_delta_pct": 10.0,
+        "t5_close_mean_delta_pct": null,
+        "sample_warning": "baseline_sample_lt_20"
+      },
+      "paper_observation_gate": {
+        "gate_type": "paper_observation",
+        "status": "blocked",
+        "allowed": false,
+        "artifact_only": true,
+        "clearance_required": true,
+        "blockers": [
+          "paper_observation_not_authorized",
+          "walk_forward_shadow_monitor_20_trading_days_required",
+          "operator_review_required",
+          "micro_sleeve_risk_model_required",
+          "liquidity_slippage_review_required"
+        ]
+      },
+      "strategy_version_gate": {
+        "gate_type": "strategy_version_proposal",
+        "status": "blocked",
+        "allowed": false,
+        "artifact_only": true,
+        "clearance_required": true,
+        "blockers": [
+          "strategy_version_proposal_not_authorized",
+          "replay_backtest_result_artifact_required",
+          "proposal_review_required",
+          "operator_promotion_approval_required",
+          "separate_low_price_micro_sleeve_required"
+        ]
+      },
+      "status": "blocked"
+    },
+    {
+      "candidate_key": "preconfirm_watchlist",
+      "candidate_family": "preconfirm_watchlist",
+      "walk_forward_progress": {
+        "candidate_key": "preconfirm_watchlist",
+        "status": "complete",
+        "required_days": 20,
+        "days": 27,
+        "signals": 38,
+        "stocks": 16,
+        "confirm_next_day_rate_pct": 24.32,
+        "next_open_ret_1d_mean_pct": 2.78,
+        "next_open_ret_5d_mean_pct": 7.57,
+        "watch_mfe_5d_mean_pct": 13.03,
+        "all_watchlist_signals": 426,
+        "source_artifact": "/Users/azboo/Desktop/Person/pgc/reports/preconfirm_watchlist_backtest.json"
+      },
+      "comparison_vs_frozen_cpb": {
+        "status": "compared",
+        "baseline_label": "active_cpb_persisted_picks",
+        "baseline_days": 2,
+        "candidate_days": 27,
+        "t1_close_mean_delta_pct": -6.79,
+        "t1_close_win_rate_delta_pct": 17.57,
+        "t5_close_mean_delta_pct": null,
+        "sample_warning": "baseline_sample_lt_20"
+      },
+      "paper_observation_gate": {
+        "gate_type": "paper_observation",
+        "status": "blocked",
+        "allowed": false,
+        "artifact_only": true,
+        "clearance_required": true,
+        "blockers": [
+          "paper_observation_not_authorized",
+          "walk_forward_shadow_monitor_20_trading_days_required",
+          "operator_review_required",
+          "next_day_confirmation_rule_required",
+          "watchlist_only_ui_lane_required"
+        ]
+      },
+      "strategy_version_gate": {
+        "gate_type": "strategy_version_proposal",
+        "status": "blocked",
+        "allowed": false,
+        "artifact_only": true,
+        "clearance_required": true,
+        "blockers": [
+          "strategy_version_proposal_not_authorized",
+          "replay_backtest_result_artifact_required",
+          "proposal_review_required",
+          "operator_promotion_approval_required",
+          "watchlist_to_signal_contract_required"
+        ]
+      },
+      "status": "blocked"
+    },
+    {
+      "candidate_key": "pullback_dip_buy",
+      "candidate_family": "dip_buy",
+      "walk_forward_progress": {
+        "candidate_key": "pullback_dip_buy",
+        "status": "artifact_summary_only",
+        "required_days": 20,
+        "days": null,
+        "observed_trades": 99,
+        "fill_rate_pct": 45.15,
+        "ret_5d_mean_pct": 1.23,
+        "ret_5d_win_rate_pct": 53.54,
+        "mfe_10d_median_pct": 8.39,
+        "mae_10d_median_pct": -7.86,
+        "high_score_ret_5d_mean_pct": 5.27,
+        "source_artifact": "/Users/azboo/Desktop/Person/pgc/reports/pgc_pullback_dip_buy.json",
+        "blockers": [
+          "daily_walk_forward_monitor_required_for_dip_buy"
+        ]
+      },
+      "comparison_vs_frozen_cpb": {
+        "status": "compared",
+        "baseline_label": "active_cpb_persisted_picks",
+        "baseline_days": 2,
+        "candidate_days": null,
+        "t1_close_mean_delta_pct": null,
+        "t1_close_win_rate_delta_pct": null,
+        "t5_close_mean_delta_pct": null,
+        "sample_warning": "baseline_sample_lt_20"
+      },
+      "paper_observation_gate": {
+        "gate_type": "paper_observation",
+        "status": "blocked",
+        "allowed": false,
+        "artifact_only": true,
+        "clearance_required": true,
+        "blockers": [
+          "paper_observation_not_authorized",
+          "walk_forward_shadow_monitor_20_trading_days_required",
+          "operator_review_required",
+          "dip_buy_stop_and_sizing_required",
+          "falling_knife_guard_required"
+        ]
+      },
+      "strategy_version_gate": {
+        "gate_type": "strategy_version_proposal",
+        "status": "blocked",
+        "allowed": false,
+        "artifact_only": true,
+        "clearance_required": true,
+        "blockers": [
+          "strategy_version_proposal_not_authorized",
+          "replay_backtest_result_artifact_required",
+          "proposal_review_required",
+          "operator_promotion_approval_required",
+          "separate_dip_buy_candidate_required"
+        ]
+      },
+      "status": "blocked"
+    }
+  ],
+  "blockers": [
+    "active_cpb_db_params_hash_mismatch",
+    "chase_gap_guard_required",
+    "close_return_stability_required",
+    "dip_buy_stop_and_sizing_required",
+    "falling_knife_guard_required",
+    "liquidity_slippage_review_required",
+    "micro_sleeve_risk_model_required",
+    "next_day_confirmation_rule_required",
+    "operator_promotion_approval_required",
+    "operator_review_required",
+    "paper_observation_not_authorized",
+    "proposal_review_required",
+    "replay_backtest_result_artifact_required",
+    "sector_evidence_confirmation_required",
+    "separate_breakout_pressure_candidate_required",
+    "separate_dip_buy_candidate_required",
+    "separate_low_price_micro_sleeve_required",
+    "separate_trend_extension_candidate_required",
+    "strategy_version_proposal_not_authorized",
+    "volume_overheat_guard_required",
+    "walk_forward_shadow_monitor_20_trading_days_required",
+    "watchlist_only_ui_lane_required",
+    "watchlist_to_signal_contract_required"
+  ],
+  "blocker_counts": {
+    "active_cpb_db_params_hash_mismatch": 1,
+    "chase_gap_guard_required": 1,
+    "close_return_stability_required": 1,
+    "dip_buy_stop_and_sizing_required": 1,
+    "falling_knife_guard_required": 1,
+    "liquidity_slippage_review_required": 1,
+    "micro_sleeve_risk_model_required": 1,
+    "next_day_confirmation_rule_required": 1,
+    "operator_promotion_approval_required": 5,
+    "operator_review_required": 5,
+    "paper_observation_not_authorized": 5,
+    "proposal_review_required": 5,
+    "replay_backtest_result_artifact_required": 5,
+    "sector_evidence_confirmation_required": 1,
+    "separate_breakout_pressure_candidate_required": 1,
+    "separate_dip_buy_candidate_required": 1,
+    "separate_low_price_micro_sleeve_required": 1,
+    "separate_trend_extension_candidate_required": 1,
+    "strategy_version_proposal_not_authorized": 5,
+    "volume_overheat_guard_required": 1,
+    "walk_forward_shadow_monitor_20_trading_days_required": 5,
+    "watchlist_only_ui_lane_required": 1,
+    "watchlist_to_signal_contract_required": 1
+  },
+  "frozen_cpb_baseline": {
+    "status": "available",
+    "source_artifact": "/Users/azboo/Desktop/Person/pgc/reports/strategy_shadow_backtest_20260401_20260508.json",
+    "metrics": {
+      "label": "active_cpb_persisted_picks",
+      "n": 2,
+      "days": 2,
+      "t1_close_mean_pct": 9.57,
+      "t1_close_median_pct": 9.57,
+      "t1_close_win_rate_pct": 50.0,
+      "t1_high_mean_pct": 10.29,
+      "t1_high_ge3_rate_pct": 50.0,
+      "t5_close_mean_pct": null,
+      "t5_close_win_rate_pct": null,
+      "max_t1_loss_pct": -0.86,
+      "max_t1_gain_pct": 20.0
+    },
+    "sample_warning": "small_frozen_cpb_sample",
+    "active_pick_count": 2,
+    "blockers": []
+  },
+  "active_cpb_integrity": {
+    "expected": {
+      "strategy_key": "cpb_6157",
+      "strategy_version": "cpb_6157@2026-05-03",
+      "params_hash": "c4908f5cabe061f4d58fcbdd740f0c255c7c4830f467a9ed1602726688367ddc",
+      "min_entry_price": 10.0
+    },
+    "db_strategy_version": {
+      "exists": true,
+      "strategy_key": "cpb_6157",
+      "strategy_version": "cpb_6157@2026-05-03",
+      "params_hash": "b6c87c0069678eed26f790c98304aa142dfd96dd2e5fc3ad188d9e2fc17cf803",
+      "status": "paper",
+      "params_hash_matches_expected": false
+    },
+    "params_file": {
+      "path": "/Users/azboo/Desktop/Person/pgc/src/pgc_trading/strategies/params/cpb_6157_2026_05_03.json",
+      "params_hash": "c4908f5cabe061f4d58fcbdd740f0c255c7c4830f467a9ed1602726688367ddc",
+      "params_hash_matches_expected": true
+    },
+    "trade_state_counts": {
+      "strategy_versions": 2,
+      "trade_plans": 4,
+      "trades": 3,
+      "positions": 2
+    },
+    "blockers": [
+      "active_cpb_db_params_hash_mismatch"
+    ],
+    "safety": {
+      "active_params_mutated": false,
+      "wrote_strategy_version": false,
+      "writes_trade_state": false,
+      "writes_paper_live_behavior": false,
+      "timer_mutated": false
+    }
+  },
+  "safety": {
+    "active_params_mutated": false,
+    "wrote_strategy_version": false,
+    "writes_trade_state": false,
+    "writes_paper_live_behavior": false,
+    "timer_mutated": false,
+    "artifact_only": true,
+    "promotion_allowed": false,
+    "paper_observation_allowed": false,
+    "requires_explicit_blocker_clearance": true
+  }
+}

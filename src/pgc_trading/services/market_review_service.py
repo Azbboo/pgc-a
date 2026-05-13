@@ -172,7 +172,10 @@ class MarketReviewService:
                 data = _empty_market_review_detail(request.as_of_date)
             else:
                 regime = _load_market_regime_snapshot(conn, int(run["id"]))
-                data = _market_review_detail_payload(run, regime)
+                sectors = _load_market_review_sector_payloads(conn, int(run["id"]))
+                external_items = _load_market_external_item_payloads(conn, request.as_of_date)
+                contexts = _load_market_plan_context_payloads(conn, int(run["id"]), trade_plan_id=None)
+                data = _market_review_detail_payload(run, regime, sectors, external_items, contexts)
             data["diagnostics"] = _market_review_diagnostics(
                 conn,
                 self.db_path,
@@ -592,10 +595,19 @@ def _market_review_summary_payload(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
-def _market_review_detail_payload(run: sqlite3.Row, regime: sqlite3.Row | None) -> dict[str, Any]:
+def _market_review_detail_payload(
+    run: sqlite3.Row,
+    regime: sqlite3.Row | None,
+    sectors: list[dict[str, Any]] | None = None,
+    external_items: list[dict[str, Any]] | None = None,
+    contexts: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     provider_manifest = _json_loads(run["provider_manifest_json"])
     coverage = _json_loads(run["coverage_json"])
     summary = _json_loads(run["summary_json"])
+    sector_payloads = sectors or []
+    external_payloads = external_items or []
+    context_payloads = contexts or []
     missing_data: list[str] = []
     if not provider_manifest:
         missing_data.append("provider_manifest_json")
@@ -603,6 +615,21 @@ def _market_review_detail_payload(run: sqlite3.Row, regime: sqlite3.Row | None) 
         missing_data.append("coverage_json")
     if regime is None:
         missing_data.append("market_regime_snapshots")
+    if not sector_payloads:
+        missing_data.append("sector_daily_snapshots")
+    if not external_payloads:
+        missing_data.append("market_external_items")
+    if not context_payloads:
+        missing_data.append("market_plan_contexts")
+    regime_payload = _regime_payload(regime) if regime is not None else None
+    hierarchy = _market_review_hierarchy_payload(
+        as_of_date=run["as_of_date"],
+        run_id=int(run["id"]),
+        regime=regime_payload,
+        sectors=sector_payloads,
+        external_items=external_payloads,
+        contexts=context_payloads,
+    )
     return {
         "market_review_run_id": int(run["id"]),
         "as_of_date": run["as_of_date"],
@@ -612,9 +639,10 @@ def _market_review_detail_payload(run: sqlite3.Row, regime: sqlite3.Row | None) 
         "completed_at": run["completed_at"],
         "provider_manifest": provider_manifest,
         "summary": summary,
-        "regime": _regime_payload(regime) if regime is not None else None,
+        "regime": regime_payload,
+        "hierarchy": hierarchy,
         "source": _source_payload(["market_review_runs", "market_regime_snapshots"], provider_manifest),
-        "coverage": {"has_review": True, **coverage},
+        "coverage": {"has_review": True, **coverage, "hierarchy": hierarchy["coverage"]},
         "missing_data": missing_data,
     }
 
@@ -630,6 +658,7 @@ def _empty_market_review_detail(as_of_date: str) -> dict[str, Any]:
         "provider_manifest": {},
         "summary": {},
         "regime": None,
+        "hierarchy": _empty_market_review_hierarchy(as_of_date),
         "source": _source_payload(["market_review_runs", "market_regime_snapshots"], {}),
         "coverage": {"has_review": False},
         "missing_data": [
@@ -641,6 +670,296 @@ def _empty_market_review_detail(as_of_date: str) -> dict[str, Any]:
             "market_plan_contexts",
         ],
     }
+
+
+def _empty_market_review_hierarchy(as_of_date: str) -> dict[str, Any]:
+    return {
+        "as_of_date": as_of_date,
+        "market_review_run_id": None,
+        "chain": ["regime", "sectors", "representative_stocks", "evidence", "continuity", "next_day_plan"],
+        "regime": None,
+        "sectors": [],
+        "evidence_freshness": {"market": "missing", "sector": "missing", "stock": "missing"},
+        "continuity": {
+            "label": "insufficient_evidence",
+            "reason": "缺少 market_review_runs，无法建立全市场复盘解释链。",
+            "inputs": {},
+        },
+        "plan_relationships": [],
+        "source_refs": [],
+        "coverage": {
+            "sector_count": 0,
+            "representative_stock_count": 0,
+            "external_item_count": 0,
+            "plan_context_count": 0,
+            "has_complete_chain": False,
+        },
+    }
+
+
+def _market_review_hierarchy_payload(
+    *,
+    as_of_date: str,
+    run_id: int,
+    regime: dict[str, Any] | None,
+    sectors: list[dict[str, Any]],
+    external_items: list[dict[str, Any]],
+    contexts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    sector_nodes = [_sector_hierarchy_payload(sector, external_items) for sector in sectors[:8]]
+    representative_stock_count = sum(len(sector["representative_stocks"]) for sector in sector_nodes)
+    continuity = _continuity_payload(regime, sectors, external_items)
+    plan_relationships = [_plan_relationship_payload(context, continuity["label"]) for context in contexts]
+    return {
+        "as_of_date": as_of_date,
+        "market_review_run_id": run_id,
+        "chain": ["regime", "sectors", "representative_stocks", "evidence", "continuity", "next_day_plan"],
+        "regime": regime,
+        "sectors": sector_nodes,
+        "evidence_freshness": _external_freshness_coverage(external_items, as_of_date),
+        "continuity": continuity,
+        "plan_relationships": plan_relationships,
+        "source_refs": _market_hierarchy_source_refs(run_id, sector_nodes, external_items, contexts),
+        "coverage": {
+            "sector_count": len(sectors),
+            "representative_stock_count": representative_stock_count,
+            "external_item_count": len(external_items),
+            "plan_context_count": len(contexts),
+            "has_complete_chain": bool(regime and sectors and external_items and contexts),
+        },
+    }
+
+
+def _sector_hierarchy_payload(
+    sector: dict[str, Any],
+    external_items: list[dict[str, Any]],
+) -> dict[str, Any]:
+    sector_code = str(sector.get("sector_code") or "")
+    sector_name = str(sector.get("sector_name") or sector_code)
+    sector_items = _external_items_for_sector(external_items, sector_code, sector_name)
+    representative_stocks = [
+        _representative_stock_payload(stock, external_items)
+        for stock in (sector.get("constituents") or [])[:3]
+        if isinstance(stock, dict)
+    ]
+    return {
+        "sector_code": sector_code,
+        "sector_name": sector_name,
+        "rank_overall": sector.get("rank_overall"),
+        "persistence_score": sector.get("persistence_score"),
+        "breadth_score": sector.get("breadth_score"),
+        "volume_score": sector.get("volume_score"),
+        "leader_count": sector.get("leader_count"),
+        "continuity_hint": _sector_continuity_hint(sector),
+        "representative_stocks": representative_stocks,
+        "evidence": _evidence_summary(sector_items),
+        "source_refs": [f"sector_daily_snapshots:{sector_code}"] + [
+            f"sector_constituents:{sector_code}:{stock['ts_code']}"
+            for stock in representative_stocks
+            if stock.get("ts_code")
+        ],
+    }
+
+
+def _representative_stock_payload(
+    stock: dict[str, Any],
+    external_items: list[dict[str, Any]],
+) -> dict[str, Any]:
+    ts_code = str(stock.get("ts_code") or "")
+    stock_items = _external_items_for_stock(external_items, ts_code)
+    return {
+        "ts_code": ts_code,
+        "name": stock.get("name"),
+        "rank_in_sector": stock.get("rank_in_sector"),
+        "role": stock.get("role"),
+        "score": stock.get("score"),
+        "evidence": _evidence_summary(stock_items),
+        "source_refs": [f"sector_constituents:{stock.get('sector_code')}:{ts_code}"] if ts_code else [],
+    }
+
+
+def _sector_continuity_hint(sector: dict[str, Any]) -> str:
+    persistence = _optional_float(sector.get("persistence_score"))
+    breadth = _optional_float(sector.get("breadth_score"))
+    volume = _optional_float(sector.get("volume_score"))
+    if persistence is None and breadth is None and volume is None:
+        return "insufficient_evidence"
+    if volume is not None and volume >= 0.75 and (breadth is None or breadth < 0.45):
+        return "crowded"
+    if persistence is not None and persistence >= 0.65 and (breadth is None or breadth >= 0.5):
+        return "improving"
+    if persistence is not None and persistence < 0.35:
+        return "fading"
+    return "divergent"
+
+
+def _evidence_summary(items: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "item_count": len(items),
+        "freshness": (
+            "missing"
+            if not items
+            else "fresh"
+            if all(item.get("published_date") == item.get("as_of_date") for item in items)
+            else "partial"
+        ),
+        "by_type": _count_by(items, "item_type"),
+        "by_sentiment": _count_by(items, "sentiment"),
+        "source_refs": [f"market_external_items:{item.get('market_external_item_id')}" for item in items],
+    }
+
+
+def _external_items_for_sector(
+    items: list[dict[str, Any]],
+    sector_code: str,
+    sector_name: str,
+) -> list[dict[str, Any]]:
+    keys = {sector_code, sector_name}
+    return [
+        item
+        for item in items
+        if item.get("scope_type") == "sector" and str(item.get("scope_key") or "") in keys
+    ]
+
+
+def _external_items_for_stock(items: list[dict[str, Any]], ts_code: str) -> list[dict[str, Any]]:
+    return [
+        item
+        for item in items
+        if item.get("scope_type") == "stock" and str(item.get("scope_key") or "") == ts_code
+    ]
+
+
+def _continuity_payload(
+    regime: dict[str, Any] | None,
+    sectors: list[dict[str, Any]],
+    external_items: list[dict[str, Any]],
+) -> dict[str, Any]:
+    if regime is None or not sectors or not external_items:
+        missing: list[str] = []
+        if regime is None:
+            missing.append("market_regime_snapshots")
+        if not sectors:
+            missing.append("sector_daily_snapshots")
+        if not external_items:
+            missing.append("market_external_items")
+        return {
+            "label": "insufficient_evidence",
+            "reason": f"缺少 {', '.join(missing)}，连续性判断保持证据不足。",
+            "inputs": {"missing": missing},
+        }
+
+    scores = [
+        _optional_float(regime.get("breadth_score")),
+        _optional_float(regime.get("trend_score")),
+        _optional_float(regime.get("volume_score")),
+        _optional_float(regime.get("persistence_score")),
+    ]
+    known_scores = [score for score in scores if score is not None]
+    top_sector = sectors[0] if sectors else {}
+    top_persistence = _optional_float(top_sector.get("persistence_score"))
+    breadth, trend, volume, persistence = scores
+
+    if volume is not None and volume >= 0.75 and (breadth is None or breadth < 0.45):
+        label = "crowded"
+        reason = "量能较强但市场宽度不足，需防止拥挤交易。"
+    elif known_scores and max(known_scores) - min(known_scores) >= 0.4:
+        label = "divergent"
+        reason = "市场宽度、趋势、量能或持续性分化较大。"
+    elif (trend is not None and trend < 0.45) or (persistence is not None and persistence < 0.45):
+        label = "fading"
+        reason = "趋势或持续性偏弱，强势延续正在转弱。"
+    elif (
+        breadth is not None
+        and breadth >= 0.55
+        and trend is not None
+        and trend >= 0.55
+        and persistence is not None
+        and persistence >= 0.55
+        and (top_persistence is None or top_persistence >= 0.5)
+    ):
+        label = "improving"
+        reason = "市场宽度、趋势和持续性同步改善，且前排板块未明显走弱。"
+    else:
+        label = "divergent"
+        reason = "证据可用但尚未形成一致的改善或转弱信号。"
+
+    return {
+        "label": label,
+        "reason": reason,
+        "inputs": {
+            "breadth_score": breadth,
+            "trend_score": trend,
+            "volume_score": volume,
+            "persistence_score": persistence,
+            "top_sector_persistence_score": top_persistence,
+            "external_item_count": len(external_items),
+        },
+    }
+
+
+def _plan_relationship_payload(context: dict[str, Any], continuity_label: str) -> dict[str, Any]:
+    label = _plan_relationship_label(context)
+    evidence = context.get("evidence") if isinstance(context.get("evidence"), dict) else {}
+    candidate = evidence.get("candidate") if isinstance(evidence.get("candidate"), dict) else {}
+    return {
+        "trade_plan_id": context.get("trade_plan_id"),
+        "market_plan_context_id": context.get("market_plan_context_id"),
+        "relationship_label": label,
+        "relationship_reason": _plan_relationship_reason(context, label, continuity_label),
+        "alignment": context.get("alignment"),
+        "risk_level": context.get("risk_level"),
+        "management_action": context.get("management_action"),
+        "rationale": context.get("rationale"),
+        "candidate": candidate,
+        "source_refs": [
+            f"market_plan_contexts:{context.get('market_review_run_id')}:{context.get('trade_plan_id')}"
+        ],
+    }
+
+
+def _plan_relationship_label(context: dict[str, Any]) -> str:
+    alignment = str(context.get("alignment") or "unknown")
+    risk_level = str(context.get("risk_level") or "unknown")
+    management_action = str(context.get("management_action") or "unknown")
+    if management_action == "consider_cancel" or risk_level == "high" or alignment == "conflict":
+        return "blocked"
+    if alignment == "aligned" and risk_level == "low" and management_action == "proceed":
+        return "aligned"
+    if alignment == "unknown" or risk_level == "unknown" or management_action == "unknown":
+        return "missing"
+    return "cautious"
+
+
+def _plan_relationship_reason(context: dict[str, Any], label: str, continuity_label: str) -> str:
+    if label == "aligned":
+        return f"计划与前排板块和证据方向一致；连续性为 {continuity_label}，仍需人工开盘检查。"
+    if label == "blocked":
+        return "计划存在冲突、高风险或考虑取消信号；系统只提示，不会自动取消或执行。"
+    if label == "missing":
+        return "计划关系缺少可用市场、板块或证据输入，不能当作安全信号。"
+    return f"计划有部分支持但仍需谨慎；连续性为 {continuity_label}。"
+
+
+def _market_hierarchy_source_refs(
+    run_id: int,
+    sector_nodes: list[dict[str, Any]],
+    external_items: list[dict[str, Any]],
+    contexts: list[dict[str, Any]],
+) -> list[str]:
+    refs = [f"market_review_runs:{run_id}", f"market_regime_snapshots:{run_id}"]
+    for sector in sector_nodes:
+        refs.extend(str(ref) for ref in sector.get("source_refs", []))
+    refs.extend(f"market_external_items:{item.get('market_external_item_id')}" for item in external_items)
+    refs.extend(
+        f"market_plan_contexts:{context.get('market_review_run_id')}:{context.get('trade_plan_id')}"
+        for context in contexts
+    )
+    deduped: list[str] = []
+    for ref in refs:
+        if ref and ref not in deduped:
+            deduped.append(ref)
+    return deduped
 
 
 def _market_review_diagnostics(
@@ -1199,8 +1518,9 @@ def _load_market_plan_context_payloads(
         """,
         params,
     ).fetchall()
-    return [
-        {
+    contexts: list[dict[str, Any]] = []
+    for row in rows:
+        context = {
             "market_plan_context_id": int(row["id"]),
             "market_review_run_id": int(row["market_review_run_id"]),
             "trade_plan_id": int(row["trade_plan_id"]),
@@ -1211,8 +1531,14 @@ def _load_market_plan_context_payloads(
             "evidence": _json_loads(row["evidence_json"]),
             "created_at": row["created_at"],
         }
-        for row in rows
-    ]
+        label = _plan_relationship_label(context)
+        context["relationship_label"] = label
+        context["relationship_reason"] = _plan_relationship_reason(context, label, "unknown")
+        context["source_refs"] = [
+            f"market_plan_contexts:{context['market_review_run_id']}:{context['trade_plan_id']}"
+        ]
+        contexts.append(context)
+    return contexts
 
 
 def _plan_context_payload(
@@ -1231,6 +1557,7 @@ def _plan_context_payload(
             "has_review": True,
             "context_count": len(contexts),
             "trade_plan_id": trade_plan_id,
+            "by_relationship": _count_by(contexts, "relationship_label"),
         },
         "missing_data": [] if contexts else ["market_plan_contexts"],
     }
@@ -1251,7 +1578,12 @@ def _empty_plan_context_payload(
         "trade_plan_id": trade_plan_id,
         "contexts": [],
         "source": _source_payload(["market_review_runs", "market_plan_contexts"]),
-        "coverage": {"has_review": has_review, "context_count": 0, "trade_plan_id": trade_plan_id},
+        "coverage": {
+            "has_review": has_review,
+            "context_count": 0,
+            "trade_plan_id": trade_plan_id,
+            "by_relationship": {},
+        },
         "missing_data": missing_data,
     }
 

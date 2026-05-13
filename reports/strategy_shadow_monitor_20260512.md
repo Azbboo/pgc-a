@@ -6,7 +6,9 @@
 
 - 今日 >=5% 池内上涨票 18 只，影子三桶覆盖 14 只，覆盖率 77.8%。
 - 今日收盘影子候选共 188 只；趋势/突破/低价分别为 47/69/72。
-- 这说明方向判断有效，但还需要把“研究桶”升级成可观测策略账本，再谈 paper 小仓。
+- 20 日 walk-forward 状态：complete，20260409 至 20260511 共 20 个可验算信号日。
+- Promotion preflight：blocked；候选 5 类，blocker 23 项，全部仍为 artifact-only。
+- 方向判断可以继续观察，但 paper/proposal/promotion 都必须等 evidence gate 显式清空。
 
 ## 昨日影子候选今日表现
 
@@ -15,6 +17,32 @@
 | breakout_pressure_shadow | 71 | -0.63 | 31 | 2.29 | 28.2 |
 | low_price_momentum_shadow | 72 | -1 | 22.2 | 1.85 | 22.2 |
 | trend_extension_shadow | 50 | -1.15 | 30 | 2.99 | 34 |
+
+## 20 日 Walk-forward
+
+| 候选 | 状态 | 天数 | T+1收盘均值% | T+1胜率% | T+1最高均值% | 冻结CPB T+1均值差% |
+| --- | --- | --- | --- | --- | --- | --- |
+| trend_extension_shadow | complete | 20 | 1.46 | 45 | 4.25 | -8.11 |
+| breakout_pressure_shadow | complete | 20 | 0.56 | 65 | 3.2 | -9.01 |
+| low_price_momentum_shadow | complete | 20 | 2.09 | 60 | 5.66 | -7.48 |
+| preconfirm_watchlist | complete | 27 | 2.78 | - | 13.03 | -6.79 |
+| pullback_dip_buy | artifact_summary_only | - | - | 53.54 | - | - |
+
+## 冻结 CPB 对照
+
+- 来源：`/Users/azboo/Desktop/Person/pgc/reports/strategy_shadow_backtest_20260401_20260508.json`
+- 状态：available；样本提示：small_frozen_cpb_sample
+- DB/参数完整性：db_hash_match=False；params_file_hash_match=True。
+
+## Promotion Preflight
+
+| 候选 | Paper gate | Proposal gate | 主要 blockers |
+| --- | --- | --- | --- |
+| trend_extension_shadow | blocked | blocked | paper_observation_not_authorized, walk_forward_shadow_monitor_20_trading_days_required, operator_review_required... |
+| breakout_pressure_shadow | blocked | blocked | paper_observation_not_authorized, walk_forward_shadow_monitor_20_trading_days_required, operator_review_required... |
+| low_price_momentum_shadow | blocked | blocked | paper_observation_not_authorized, walk_forward_shadow_monitor_20_trading_days_required, operator_review_required... |
+| preconfirm_watchlist | blocked | blocked | paper_observation_not_authorized, walk_forward_shadow_monitor_20_trading_days_required, operator_review_required... |
+| pullback_dip_buy | blocked | blocked | paper_observation_not_authorized, walk_forward_shadow_monitor_20_trading_days_required, operator_review_required... |
 
 ## 昨日各桶 Top1
 
@@ -44,5 +72,5 @@
 ## 操作建议
 
 - 明天先按观察名单盯盘，不把它直接混进 CPB 正式候选。
-- 若要 paper 试跑，建议新建独立 `shadow_momentum_v1` 小仓规则：只买一只、开盘高开超过 4% 不追、低价桶减半仓位。
-- 继续累计至少 20 个交易日 walk-forward，再决定是否进入 paper observation gate。
+- 若要 paper 试跑，先补独立 observation lane 规则和 gap/liquidity/stop/sizing guard。
+- 即便 walk-forward 样本已满 20 日，也只代表 preflight 输入具备；promotion blocker 仍需人工 artifact 审核后逐项清除。

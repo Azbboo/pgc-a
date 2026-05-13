@@ -11,6 +11,15 @@ from pgc_trading.services.evidence_provider_pack_service import (
     BuildEvidenceProviderPackRequest,
     EvidenceProviderPackService,
 )
+from pgc_trading.services.evidence_coverage_ledger_service import (
+    BuildEvidenceCoverageLedgerRequest,
+    EvidenceCoverageLedgerService,
+)
+from pgc_trading.services.market_external_data_service import (
+    ImportMarketExternalDataRequest,
+    MarketExternalDataService,
+    build_market_external_source_hash,
+)
 from pgc_trading.storage.migrate import run_migrations
 
 
@@ -100,6 +109,138 @@ class EvidenceProviderPackServiceTest(unittest.TestCase):
             self.assertEqual(result.status, "validation_failed")
             self.assertEqual(result.errors[0].code, "VALIDATION_ERROR")
             self.assertIn("at least one market_source_file or agent_source_file is required", result.errors[0].message)
+
+    def test_coverage_ledger_surfaces_provider_pack_source_states(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc_trading.db"
+            run_migrations(db_path)
+            provider_dir = Path(tmp) / "providers"
+            provider_dir.mkdir()
+            source_hash = build_market_external_source_hash(
+                provider="ledger_fixture",
+                scope_type="market",
+                scope_key="A_SHARE",
+                published_date="20260507",
+                title="stale market note",
+                summary="Reviewed cache for stale state.",
+            )
+            stale_record = {
+                "as_of_date": "20260508",
+                "scope_type": "market",
+                "scope_key": "A_SHARE",
+                "item_type": "news",
+                "provider": "ledger_fixture",
+                "published_date": "20260507",
+                "source_hash": source_hash,
+                "title": "stale market note",
+                "summary": "Reviewed cache for stale state.",
+                "sentiment": "neutral",
+                "importance": "medium",
+                "metadata": {},
+            }
+            import_result = MarketExternalDataService(db_path).import_external_data(
+                ImportMarketExternalDataRequest(as_of_date="20260508", records=[stale_record]),
+                RequestContext(request_id="test-ledger-import-stale", dry_run=False, operator="tester"),
+            )
+            self.assertTrue(import_result.ok)
+
+            stale_file = provider_dir / "market_stale_duplicate.json"
+            stale_file.write_text(
+                json.dumps(
+                    {
+                        "provider_file_contract": "market_external_v1",
+                        "as_of_date": "20260508",
+                        "provider": "ledger_fixture",
+                        "items": [stale_record, stale_record],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            mismatch_record = {
+                **stale_record,
+                "source_hash": "bad-hash",
+                "title": "hash mismatch note",
+                "summary": "This provider row carries an invalid source hash.",
+            }
+            mismatch_file = provider_dir / "market_mismatch.json"
+            mismatch_file.write_text(
+                json.dumps(
+                    {
+                        "provider_file_contract": "market_external_v1",
+                        "as_of_date": "20260508",
+                        "provider": "ledger_fixture",
+                        "items": [mismatch_record],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            manifest = provider_dir / "manifest.json"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "pack_contract": "evidence_provider_pack_v1",
+                        "groups": [
+                            {
+                                "kind": "market_external",
+                                "provider_file_contract": "market_external_v1",
+                                "date_results": [
+                                    {
+                                        "as_of_date": "20260508",
+                                        "source_files": [
+                                            {
+                                                "source_file": str(stale_file),
+                                                "source_file_sha256": self._sha256(stale_file),
+                                            },
+                                            {
+                                                "source_file": str(mismatch_file),
+                                                "source_file_sha256": self._sha256(mismatch_file),
+                                            },
+                                        ],
+                                        "coverage_summary": {
+                                            "market": "partial",
+                                            "sector": "missing",
+                                            "stock": "missing",
+                                            "sentiment": "unavailable",
+                                            "news": "available",
+                                            "duplicates": "duplicate",
+                                            "freshness": {"market": "stale"},
+                                        },
+                                        "unavailable_sources": [
+                                            {
+                                                "scope_type": "market",
+                                                "item_type": "sentiment",
+                                                "provider": "reviewed_sentiment_cache",
+                                                "reason": "provider_file_absent",
+                                            }
+                                        ],
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            result = EvidenceCoverageLedgerService(db_path).build_coverage_ledger(
+                BuildEvidenceCoverageLedgerRequest(as_of_date="20260508", manifest_files=[manifest]),
+                RequestContext(request_id="test-ledger", dry_run=True, operator="tester"),
+            )
+
+            self.assertTrue(result.ok)
+            self.assertTrue(result.data.safety["read_only"])
+            self.assertFalse(result.data.safety["live_fetches"])
+            self.assertFalse(result.data.safety["writes_trade_state"])
+            for state in ("stale", "duplicate", "source-hash-mismatch", "partial", "missing", "unavailable"):
+                self.assertGreater(result.data.state_counts.get(state, 0), 0, state)
+            provider_rows = [entry for entry in result.data.entries if entry["source_kind"] == "provider_pack_row"]
+            self.assertEqual(
+                sorted(entry["source_state"] for entry in provider_rows),
+                ["duplicate", "source-hash-mismatch", "stale"],
+            )
 
     def _sha256(self, path: Path) -> str:
         digest = hashlib.sha256()

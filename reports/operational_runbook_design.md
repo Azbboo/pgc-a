@@ -1365,6 +1365,90 @@ pgc ops market-review-parity \
 
 检查范围固定为 `market_review_runs`、`sector_daily_snapshots`、`market_external_items`、`market_plan_contexts` 和 `strategy_hypotheses`。输出 `parity_status=match` 才表示全市场复盘核心链路本地/远端一致；任何 `mismatch` 都必须先定位是日期选择、API base、DB 同步还是下游 producer 缺口。
 
+## 25. M75 20260512+ 日常复盘与股票池摄入闭环
+
+M75 之后，每个 `20260512+` 收盘后运营日都先形成可审计输入，再进入 `daily-pipeline --apply`。标准顺序如下：
+
+1. 保存已审核的新股票池来源文件，例如 `data/daily_review_S_intake_source.json`，必须包含 `source`、`reason`、`entry_date`、股票代码、名称、入池时间和入池价。
+2. 先 dry-run 股票池摄入，输出审计摘要：
+
+```bash
+PYTHONPATH=src:. python3 -m pgc_trading.cli.main ops pool-intake \
+  --file data/daily_review_S_intake_source.json \
+  --pool-file data/pgc_pool.json \
+  --raw-events-file data/pgc_raw_events.json \
+  --output data/daily_review_S_intake_dry_run.json \
+  --dry-run
+```
+
+3. 确认 `invalid_count=0`、`added_count` 和 `duplicate_count` 可解释后，才 apply：
+
+```bash
+PYTHONPATH=src:. python3 -m pgc_trading.cli.main ops pool-intake \
+  --file data/daily_review_S_intake_source.json \
+  --pool-file data/pgc_pool.json \
+  --raw-events-file data/pgc_raw_events.json \
+  --output data/daily_review_S_intake_apply.json \
+  --apply \
+  --operator azboo
+```
+
+4. 刷新行情和交易日历到复盘日 `S`，保存 market refresh 输出，例如 `data/daily_review_S_market_refresh_apply.json`；缺行情或交易日历时不得继续 apply。
+5. 进入 apply 前运行只读预检：
+
+```bash
+PYTHONPATH=src:. python3 -m pgc_trading.cli.main ops daily-preflight \
+  --date S \
+  --account paper-main \
+  --db-path data/pgc_trading.db \
+  --include-market-review \
+  --pool-intake-summary data/daily_review_S_intake_apply.json \
+  --require-pool-intake
+```
+
+`ops daily-preflight` 必须输出 `daily_preflight_status`、`missing_steps`、`duplicate_apply_count` 和逐项 `daily_step=... status=...`。`missing_steps=none` 才能进入 apply；如果出现 `pool_intake`、`raw_events`、`market_data`、`trading_day`、`account`、`migrations` 或 `duplicate_apply`，先修复对应步骤。若当日没有新股票池来源文件，只能在操作者运行记录中说明“无新增 intake”，并不传 `--require-pool-intake`；不能伪造空 apply 摘要。
+
+6. 先跑完整 dry-run：
+
+```bash
+./scripts/run_daily_pipeline.sh --date S --account paper-main --operator azboo --include-market-review --dry-run
+```
+
+7. dry-run 确认 `pipeline_status=pass`、`duplicate_write_guard=dry_run`、`market_review_would_write=true` 和 `report_would_write=true` 后，才执行 apply：
+
+```bash
+./scripts/run_daily_pipeline.sh --date S --account paper-main --operator azboo --include-market-review --apply
+```
+
+运行记录必须保存：intake source、intake dry-run/apply summary、market refresh 输出、`ops daily-preflight` 输出、`.pgc-runs/daily-pipeline-S.log`、`backup_path`、`reports/daily_review_S.md` 和 `reports/daily_review_S.json`。Agent 和外部 evidence 状态必须在日报中显示为 available、missing、partial、unavailable 或 skipped；不得把缺失新闻、情绪、公告或 Agent review 渲染成安全通过。
+
+重复 apply 保护规则：
+
+- `duplicate_apply_count=0` 是默认 apply 前置条件；
+- 出现 `duplicate_apply` 时不得静默重跑；
+- 只有人工核对日报、operation history、备份路径和失败原因后，才允许在脚本侧显式使用 `--allow-rerun`；
+- M75 不启用生产 timer，不调用 `scripts/install_remote_daily_pipeline_timer.sh --enable`，也不执行 broker 下单或修改活跃策略参数。
+
+## 26. M82 影子策略可视化发布门禁
+
+M82 的发布结论是：shadow visibility remains artifact-only。Shadow Lab、日报和 CLI 只能展示已有研究 artifact，不能把影子候选转成 active CPB 参数、strategy_version、trade plan、成交、持仓、paper/live 行为或 timer 操作。
+
+发布前固定检查：
+
+1. `reports/strategy_shadow_monitor_YYYYMMDD.json` 必须包含 `read_only_guard`，且 `trade_state_counts_unchanged=true`、`active_params_mutated=false`、`writes_trade_state=false`、`writes_paper_live_behavior=false`、`timer_mutated=false`。
+2. `reports/strategy_shadow_promotion_preflight_YYYYMMDD.json` 必须包含 `release_gate`，且 `status=blocked`、`promotion_allowed=false`、`paper_observation_allowed=false`、`timer_mutated=false`。
+3. 对外只允许展示 `strategy_shadow_monitor_YYYYMMDD.json`、`strategy_shadow_promotion_preflight_YYYYMMDD.json`、`shadow_strategy_snapshot API/CLI`、`Dashboard Shadow Lab` 和 `daily review shadow_strategy section`。
+4. active CPB params/hash must remain unchanged；`trade_plans, trades, positions` 不得因 shadow visibility 增减或改状态；`pgc-daily-pipeline.timer` 不得启用、重载或修改。
+5. 即使 20 日 walk-forward 已完整，promotion 仍保持 blocked；解除 blocker 必须由后续独立任务写明 operator approval、proposal review、paper observation lane 和回滚方案。
+
+最小发布验证：
+
+```bash
+PYTHONPATH=src:. pytest -q tests/test_strategy_evolution_service.py tests/test_strategy_hypothesis_backtest_service.py tests/test_shadow_strategy_service.py tests/test_operational_runbook_static.py
+PYTHONPATH=src:. pytest -q
+git diff --check
+```
+
 ## 24. M46 收盘后定时流水线
 
 M46 把 M42 的全市场复盘流水线固化为远端 systemd timer。只在 M42 已验收、远端 API write token 由部署脚本保留、并且手工 dry-run 通过后启用 apply 定时任务。

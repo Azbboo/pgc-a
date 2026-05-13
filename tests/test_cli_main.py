@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import tempfile
 import unittest
 from dataclasses import dataclass, field
@@ -8,6 +9,9 @@ from pathlib import Path
 
 from pgc_trading.cli.main import CommandServices, main
 from pgc_trading.services.common import RequestContext, ServiceResult
+from pgc_trading.storage.database import connect
+from pgc_trading.storage.migrate import run_migrations
+from pgc_trading.storage.seed import seed_reference_data
 
 
 @dataclass(frozen=True)
@@ -355,6 +359,65 @@ class _UnexpectedEvidenceProviderPackService:
         raise AssertionError(f"evidence provider pack service should not be built for missing db: {db_path}")
 
 
+@dataclass(frozen=True)
+class _FakeEvidenceCoverageLedgerData:
+    ledger_contract: str = "evidence_coverage_ledger_v1"
+    generated_at: str = "2026-05-12T12:00:00Z"
+    db_path: str = ""
+    as_of_date: str | None = "20260508"
+    manifest_files: list[str] = field(default_factory=lambda: ["/tmp/manifest.json"])
+    discovered_manifest_count: int = 0
+    entry_count: int = 3
+    blocking_entry_count: int = 2
+    ready_dates: list[str] = field(default_factory=list)
+    blocking_dates: list[str] = field(default_factory=lambda: ["20260508"])
+    state_counts: dict[str, int] = field(default_factory=lambda: {"missing": 1, "unavailable": 1, "imported": 1})
+    provider_counts: dict[str, int] = field(default_factory=lambda: {"manual": 1, "coverage_summary": 2})
+    entries: list[dict[str, object]] = field(
+        default_factory=lambda: [
+            {
+                "as_of_date": "20260508",
+                "kind": "market_external",
+                "provider": "manual",
+                "entity_type": "market",
+                "entity_key": "A_SHARE",
+                "item_type": "news",
+                "source_state": "missing",
+                "source_kind": "provider_pack_row",
+            }
+        ]
+    )
+    summary: dict[str, object] = field(default_factory=lambda: {"manifest_count": 1, "missing_count": 1})
+    safety: dict[str, object] = field(
+        default_factory=lambda: {"read_only": True, "live_fetches": False, "writes_trade_state": False}
+    )
+
+
+class _FakeEvidenceCoverageLedgerService:
+    calls: list[tuple[Path, object, RequestContext]] = []
+
+    def __init__(self, db_path: Path):
+        self.db_path = db_path
+
+    def build_coverage_ledger(self, request, ctx: RequestContext) -> ServiceResult[_FakeEvidenceCoverageLedgerData]:
+        self.calls.append((self.db_path, request, ctx))
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data=_FakeEvidenceCoverageLedgerData(
+                db_path=str(self.db_path),
+                as_of_date=request.as_of_date,
+                manifest_files=[str(path) for path in request.manifest_files],
+                discovered_manifest_count=1 if request.discover_manifests else 0,
+            ),
+        )
+
+
+class _UnexpectedEvidenceCoverageLedgerService:
+    def __init__(self, db_path: Path):
+        raise AssertionError(f"evidence coverage ledger service should not be built for missing db: {db_path}")
+
+
 class _FakeAgentExternalDataService:
     calls: list[tuple[Path, object, RequestContext]] = []
 
@@ -435,6 +498,7 @@ class CliMainTest(unittest.TestCase):
         _FakeAgentReviewService.calls = []
         _FakeAgentExternalDataService.calls = []
         _FakeEvidenceProviderPackService.calls = []
+        _FakeEvidenceCoverageLedgerService.calls = []
         _FakeOpenExecutionService.calls = []
 
     def test_help_lists_command_surface(self) -> None:
@@ -1195,6 +1259,153 @@ class CliMainTest(unittest.TestCase):
             self.assertIn("database not found", stdout.getvalue())
             self.assertIn("evidence provider pack service was not run", stdout.getvalue())
 
+    def test_ops_evidence_ledger_routes_to_service_with_read_only_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc_evidence_ledger.db"
+            db_path.touch()
+            manifest = Path(tmp) / "manifest.json"
+            manifest.write_text("{}", encoding="utf-8")
+            stdout = io.StringIO()
+            code = main(
+                [
+                    "ops",
+                    "evidence-ledger",
+                    "--date",
+                    "2026-05-08",
+                    "--manifest",
+                    str(manifest),
+                    "--discover-manifests",
+                    "--db-path",
+                    str(db_path),
+                    "--operator",
+                    "azboo",
+                ],
+                stdout=stdout,
+                services=CommandServices(
+                    evidence_coverage_ledger_service_factory=_FakeEvidenceCoverageLedgerService,
+                ),
+            )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(len(_FakeEvidenceCoverageLedgerService.calls), 1)
+        called_db_path, request, ctx = _FakeEvidenceCoverageLedgerService.calls[0]
+        self.assertEqual(called_db_path, db_path)
+        self.assertEqual(request.as_of_date, "20260508")
+        self.assertEqual(request.manifest_files, [manifest])
+        self.assertTrue(request.discover_manifests)
+        self.assertTrue(ctx.dry_run)
+        self.assertEqual(ctx.request_id, "cli-ops-evidence-ledger")
+        self.assertEqual(ctx.operator, "azboo")
+        output = stdout.getvalue()
+        self.assertIn("ops evidence-ledger command routed", output)
+        self.assertIn("evidence_ledger_status=success", output)
+        self.assertIn("ledger_contract=evidence_coverage_ledger_v1", output)
+        self.assertIn('state_counts_json={"imported":1,"missing":1,"unavailable":1}', output)
+        self.assertIn("safety_json=", output)
+        self.assertIn("ledger_entries_json=", output)
+
+    def test_ops_evidence_ledger_missing_db_fails_without_creating_database(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "missing-ledger.db"
+            stdout = io.StringIO()
+            code = main(
+                [
+                    "ops",
+                    "evidence-ledger",
+                    "--date",
+                    "20260508",
+                    "--db-path",
+                    str(db_path),
+                ],
+                stdout=stdout,
+                services=CommandServices(
+                    evidence_coverage_ledger_service_factory=_UnexpectedEvidenceCoverageLedgerService,
+                ),
+            )
+
+            self.assertEqual(code, 1)
+            self.assertFalse(db_path.exists())
+            self.assertIn("database not found", stdout.getvalue())
+            self.assertIn("evidence coverage ledger service was not run", stdout.getvalue())
+
+    def test_ops_shadow_snapshot_reads_artifact_feed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "pgc_shadow.db"
+            reports_dir = root / "reports"
+            reports_dir.mkdir()
+            run_migrations(db_path)
+            _seed_cli_shadow_snapshot_artifacts(reports_dir)
+            stdout = io.StringIO()
+
+            code = main(
+                [
+                    "ops",
+                    "shadow-snapshot",
+                    "--date",
+                    "2026-05-12",
+                    "--db-path",
+                    str(db_path),
+                    "--reports-dir",
+                    str(reports_dir),
+                ],
+                stdout=stdout,
+            )
+
+            self.assertEqual(code, 0, stdout.getvalue())
+            output = stdout.getvalue()
+            self.assertIn("ops shadow-snapshot command routed", output)
+            self.assertIn("shadow_snapshot_status=success", output)
+            self.assertIn("snapshot_feed_status=blocked", output)
+            self.assertIn("candidate_count=1", output)
+            self.assertIn("blocked_candidate_count=1", output)
+            self.assertIn("shadow_hypothesis_count=0", output)
+            self.assertIn("latest_monitor_date=20260512", output)
+            self.assertIn("latest_preflight_date=20260512", output)
+            self.assertIn("walk_forward_status=partial", output)
+            self.assertIn(
+                "shadow_summary=status=blocked candidates=1 blocked=1 blockers=2 monitor=20260512 preflight=20260512",
+                output,
+            )
+            self.assertIn("promotion_allowed=false", output)
+            self.assertIn("shadow_top_candidates=trend_extension_shadow", output)
+            self.assertIn("research-only artifact feed", output)
+            self.assertIn("safety_json=", output)
+
+    def test_ops_shadow_snapshot_compact_omits_full_json_payloads(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "pgc_shadow_compact.db"
+            reports_dir = root / "reports"
+            reports_dir.mkdir()
+            run_migrations(db_path)
+            _seed_cli_shadow_snapshot_artifacts(reports_dir)
+            stdout = io.StringIO()
+
+            code = main(
+                [
+                    "ops",
+                    "shadow-snapshot",
+                    "--date",
+                    "20260512",
+                    "--db-path",
+                    str(db_path),
+                    "--reports-dir",
+                    str(reports_dir),
+                    "--compact",
+                ],
+                stdout=stdout,
+            )
+
+            self.assertEqual(code, 0, stdout.getvalue())
+            output = stdout.getvalue()
+            self.assertIn("shadow_summary=status=blocked candidates=1 blocked=1 blockers=2", output)
+            self.assertIn("shadow_top_candidates=trend_extension_shadow", output)
+            self.assertIn("research-only artifact feed", output)
+            self.assertNotIn("shadow_candidates_json=", output)
+            self.assertNotIn("candidate_families_json=", output)
+            self.assertNotIn("safety_json=", output)
+
     def test_ops_open_execution_routes_to_service_and_prints_market_context(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "pgc_open_execution.db"
@@ -1305,6 +1516,88 @@ class CliMainTest(unittest.TestCase):
             self.assertIn("status=missing_database", output)
             self.assertIn("database_exists=false", output)
 
+    def test_ops_daily_preflight_prints_missing_steps_before_apply(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "pgc.db"
+            summary = root / "missing-intake.json"
+            run_migrations(db_path)
+            seed_reference_data(db_path)
+            with connect(db_path) as conn:
+                conn.execute(
+                    """
+                    INSERT INTO trade_calendar (exchange, cal_date, is_open, pretrade_date)
+                    VALUES ('SSE', '20260512', 1, '20260511')
+                    """
+                )
+            stdout = io.StringIO()
+            code = main(
+                [
+                    "ops",
+                    "daily-preflight",
+                    "--date",
+                    "20260512",
+                    "--account",
+                    "paper-main",
+                    "--db-path",
+                    str(db_path),
+                    "--include-market-review",
+                    "--pool-intake-summary",
+                    str(summary),
+                    "--require-pool-intake",
+                ],
+                stdout=stdout,
+            )
+
+            self.assertEqual(code, 1)
+            output = stdout.getvalue()
+            self.assertIn("daily_preflight_status=blocked", output)
+            self.assertIn("missing_steps=raw_events,market_data,pool_intake", output)
+            self.assertIn("daily_step=market_data status=blocker", output)
+            self.assertIn("daily_step=pool_intake status=blocker", output)
+            self.assertIn("duplicate_apply_count=0", output)
+
+    def test_ops_daily_preflight_passes_when_required_apply_inputs_exist(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "pgc.db"
+            summary = root / "intake.json"
+            reports_dir = root / "reports"
+            reports_dir.mkdir()
+            (reports_dir / "daily_review_20260512.md").write_text("# Daily\n", encoding="utf-8")
+            (reports_dir / "daily_review_20260512.json").write_text("{}\n", encoding="utf-8")
+            run_migrations(db_path)
+            seed_reference_data(db_path)
+            _seed_cli_daily_preflight_ready_rows(db_path)
+            summary.write_text(
+                '{"mode":"apply","added_count":1,"duplicate_count":0,"invalid_count":0}\n',
+                encoding="utf-8",
+            )
+            stdout = io.StringIO()
+            code = main(
+                [
+                    "ops",
+                    "daily-preflight",
+                    "--date",
+                    "20260512",
+                    "--db-path",
+                    str(db_path),
+                    "--pool-intake-summary",
+                    str(summary),
+                    "--require-pool-intake",
+                    "--reports-dir",
+                    str(reports_dir),
+                ],
+                stdout=stdout,
+            )
+
+            self.assertEqual(code, 0, stdout.getvalue())
+            output = stdout.getvalue()
+            self.assertIn("daily_preflight_status=pass", output)
+            self.assertIn("missing_steps=none", output)
+            self.assertIn("daily_step=pool_intake status=pass", output)
+            self.assertIn("daily_step=report_refresh status=pass", output)
+
     def test_report_command_routes_as_noop(self) -> None:
         stdout = io.StringIO()
         code = main(
@@ -1369,6 +1662,97 @@ class CliMainTest(unittest.TestCase):
 
         self.assertNotEqual(raised.exception.code, 0)
         self.assertIn("invalid date '2026-99-99': expected YYYY-MM-DD", stderr.getvalue())
+
+
+def _seed_cli_daily_preflight_ready_rows(db_path: Path) -> None:
+    with connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO trade_calendar (exchange, cal_date, is_open, pretrade_date)
+            VALUES ('SSE', '20260512', 1, '20260511')
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO raw_events
+              (ts_code, code, name, entry_date, entry_time, entry_price, source)
+            VALUES
+              ('000001.SZ', '000001', 'CLI Ready', '20260512', '09:30', 10.0, 'operator_screenshot')
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO market_bars
+              (ts_code, trade_date, open, high, low, close, vol, amount)
+            VALUES
+              ('000001.SZ', '20260512', 10.0, 10.5, 9.9, 10.2, 100000, 1000.0)
+            """
+        )
+
+
+def _seed_cli_shadow_snapshot_artifacts(reports_dir: Path) -> None:
+    monitor = {
+        "review_date": "20260512",
+        "next_trade_date": "20260513",
+        "today_candidate_count": 1,
+        "walk_forward_progress": {"status": "partial", "required_days": 20, "evaluable_signal_days": 6},
+        "candidate_monitors": [
+            {
+                "candidate_key": "trend_extension_shadow",
+                "candidate_family": "shadow_bucket",
+                "today_candidate_count": 1,
+                "today_top": {"ts_code": "300001.SZ", "name": "CLI Shadow"},
+                "walk_forward_progress": {"status": "partial", "required_days": 20, "days": 6},
+                "comparison_vs_frozen_cpb": {"status": "compared", "candidate_days": 6},
+                "promotion_gates": {
+                    "paper_observation_gate": {
+                        "status": "blocked",
+                        "allowed": False,
+                        "artifact_only": True,
+                        "blockers": ["operator_review_required"],
+                    },
+                    "strategy_version_gate": {
+                        "status": "blocked",
+                        "allowed": False,
+                        "artifact_only": True,
+                        "blockers": ["proposal_review_required"],
+                    },
+                },
+            }
+        ],
+    }
+    preflight = {
+        "review_date": "20260512",
+        "next_trade_date": "20260513",
+        "status": "blocked",
+        "candidate_count": 1,
+        "candidate_gates": [
+            {
+                "candidate_key": "trend_extension_shadow",
+                "candidate_family": "shadow_bucket",
+                "status": "blocked",
+                "paper_observation_gate": {
+                    "status": "blocked",
+                    "allowed": False,
+                    "artifact_only": True,
+                    "blockers": ["operator_review_required"],
+                },
+                "strategy_version_gate": {
+                    "status": "blocked",
+                    "allowed": False,
+                    "artifact_only": True,
+                    "blockers": ["proposal_review_required"],
+                },
+            }
+        ],
+        "blocker_counts": {"operator_review_required": 1, "proposal_review_required": 1},
+        "safety": {"artifact_only": True, "writes_trade_state": False, "promotion_allowed": False},
+    }
+    (reports_dir / "strategy_shadow_monitor_20260512.json").write_text(json.dumps(monitor), encoding="utf-8")
+    (reports_dir / "strategy_shadow_promotion_preflight_20260512.json").write_text(
+        json.dumps(preflight),
+        encoding="utf-8",
+    )
 
 
 if __name__ == "__main__":

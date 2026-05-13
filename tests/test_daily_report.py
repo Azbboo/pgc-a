@@ -6,6 +6,7 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from pgc_trading.cli.main import main
 from pgc_trading.reporting.daily_report import (
@@ -141,25 +142,36 @@ class DailyReportTest(unittest.TestCase):
             markdown = render_daily_report_markdown(result.data)
             self.assertIn("## 全市场复盘", markdown)
             self.assertIn("Top 5 板块", markdown)
+            self.assertIn("连续性判断", markdown)
+            self.assertIn("代表个股", markdown)
             self.assertIn("板块持续性", markdown)
             self.assertIn("外部证据覆盖", markdown)
             self.assertIn("策略假设", markdown)
             self.assertIn("## 全市场复盘与明日计划关系", markdown)
+            self.assertIn("## 外部证据覆盖台账", markdown)
             self.assertIn("市场状态", markdown)
             self.assertIn("强势板块", markdown)
             self.assertIn("候选板块匹配", markdown)
             self.assertIn("新闻/情绪匹配", markdown)
+            self.assertIn("计划关系", markdown)
             self.assertIn("不会自动创建、取消或执行交易计划", markdown)
 
             payload = json.loads(render_daily_report_json(result.data))
             self.assertEqual(payload["market_review"]["market_review_run_id"], market_review_run_id)
+            self.assertEqual(payload["market_review"]["continuity_label"], "improving")
             self.assertEqual(payload["market_review"]["top_sectors"][0]["sector_name"], "人工智能")
+            self.assertEqual(payload["market_review"]["top_sectors"][0]["representative_stocks"][0]["ts_code"], "000001.SZ")
+            self.assertEqual(payload["market_review"]["evidence_freshness"]["sector"], "fresh")
             self.assertEqual(payload["market_review"]["external_evidence_coverage"]["total_count"], 1)
             self.assertEqual(payload["market_review"]["external_evidence_coverage"]["sector"], "partial")
             self.assertEqual(payload["market_review"]["external_evidence_coverage"]["market"], "missing")
             self.assertIn("market", payload["market_review"]["external_evidence_coverage"]["missing_scopes"])
             self.assertEqual(payload["market_review"]["strategy_hypotheses"][0]["status"], "proposed")
             self.assertEqual(payload["market_plan_context"]["management_action"], "proceed")
+            self.assertEqual(payload["market_plan_context"]["relationship_label"], "aligned")
+            self.assertTrue(payload["evidence_coverage_ledger"]["safety"]["read_only"])
+            self.assertFalse(payload["evidence_coverage_ledger"]["safety"]["live_fetches"])
+            self.assertIn("missing", payload["evidence_coverage_ledger"]["state_counts"])
             self.assertEqual(payload["lineage"]["market_review_run_id"], market_review_run_id)
             self.assertEqual(payload["market_plan_context"]["evidence"]["top_sectors"][0]["sector_name"], "人工智能")
             self.assertEqual(payload["next_day_decision"]["strategy_proposals"]["proposed_count"], 1)
@@ -191,6 +203,46 @@ class DailyReportTest(unittest.TestCase):
             self.assertEqual(shadow["shadow_comparison"]["candidate_key"], "trend_extension_shadow")
             self.assertEqual(shadow["paper_observation_gate"]["status"], "blocked")
             self.assertIn("strategy_version_proposal_not_authorized", shadow["strategy_version_gate"]["blockers"])
+
+    def test_report_includes_shadow_strategy_snapshot_block_from_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._plan_ready_db(tmp)
+            reports_dir = Path(tmp) / "reports"
+            reports_dir.mkdir()
+            self._write_shadow_strategy_artifacts(reports_dir)
+
+            result = ReportingQueryService(db_path, reports_dir=reports_dir).get_daily_report(
+                DailyReportRequest(as_of_date=AS_OF_DATE, account_key=ACCOUNT_KEY),
+                RequestContext(request_id="req-report-shadow-snapshot"),
+            )
+
+            self.assertEqual(result.status, "success")
+            shadow = result.data.shadow_strategy
+            self.assertEqual(shadow.status, "blocked")
+            self.assertEqual(shadow.latest_monitor_date, "20260512")
+            self.assertEqual(shadow.latest_preflight_date, "20260512")
+            self.assertEqual(shadow.candidate_count, 2)
+            self.assertEqual(shadow.blocked_candidate_count, 2)
+            self.assertEqual(shadow.distinct_blocker_count, 3)
+            self.assertEqual(shadow.blocker_counts["operator_review_required"], 2)
+            self.assertEqual(shadow.top_candidates[0].candidate_key, "trend_extension_shadow")
+            self.assertEqual(shadow.top_candidates[0].today_top["name"], "Shadow Top")
+            self.assertFalse(shadow.top_candidates[0].promotion_allowed)
+            self.assertEqual(result.data.candidate.name, "Report Pick")
+
+            markdown = render_daily_report_markdown(result.data)
+            self.assertIn("## Shadow 策略观察", markdown)
+            self.assertIn("monitor 2026-05-12 / preflight 2026-05-12", markdown)
+            self.assertIn("operator_review_required 2", markdown)
+            self.assertIn("trend_extension_shadow", markdown)
+            self.assertIn("research-only", markdown)
+            self.assertIn("不会进入今日候选、生成交易计划或开启 timer", markdown)
+
+            payload = json.loads(render_daily_report_json(result.data))
+            self.assertEqual(payload["shadow_strategy"]["status"], "blocked")
+            self.assertEqual(payload["shadow_strategy"]["top_candidates"][0]["today_top"]["name"], "Shadow Top")
+            self.assertEqual(payload["candidate"]["name"], "Report Pick")
+            self.assertFalse(payload["shadow_strategy"]["safety"]["promotion_allowed"])
 
     def test_report_includes_decision_action_log_review_loop(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -386,10 +438,24 @@ class DailyReportTest(unittest.TestCase):
                     ),
                 )
 
-            result = ReportingQueryService(db_path).list_ops_history(
-                OpsHistoryRequest(account_key=ACCOUNT_KEY, limit=20),
-                RequestContext(request_id="req-ops-history"),
-            )
+            log_dir = Path(tmp) / "empty-ops-logs"
+            timer_dir = Path(tmp) / "empty-timer-logs"
+            release_dir = Path(tmp) / "empty-release"
+            log_dir.mkdir()
+            timer_dir.mkdir()
+            release_dir.mkdir()
+            with patch.dict(
+                "os.environ",
+                {
+                    "PGC_DAILY_PIPELINE_LOG_DIR": str(log_dir),
+                    "PGC_TIMER_EVIDENCE_DIR": str(timer_dir),
+                    "PGC_ARTIFACT_DIR": str(release_dir),
+                },
+            ):
+                result = ReportingQueryService(db_path).list_ops_history(
+                    OpsHistoryRequest(account_key=ACCOUNT_KEY, limit=20),
+                    RequestContext(request_id="req-ops-history"),
+                )
 
             self.assertEqual(result.status, "success")
             self.assertIsNotNone(result.data)
@@ -915,6 +981,15 @@ class DailyReportTest(unittest.TestCase):
         )
         conn.execute(
             """
+            INSERT INTO sector_constituents
+              (market_review_run_id, sector_code, sector_name, ts_code, name, rank_in_sector, role, score)
+            VALUES
+              (?, 'AI', '人工智能', '000001.SZ', 'Report Pick', 1, 'leader', 0.91)
+            """,
+            (run_id,),
+        )
+        conn.execute(
+            """
             INSERT INTO market_external_items
               (
                 as_of_date,
@@ -1023,6 +1098,105 @@ class DailyReportTest(unittest.TestCase):
                 json.dumps(evidence, ensure_ascii=False, sort_keys=True),
                 json.dumps(proposed_change, ensure_ascii=False, sort_keys=True),
             ),
+        )
+
+    def _write_shadow_strategy_artifacts(self, reports_dir: Path) -> None:
+        gates = [
+            {
+                "candidate_key": "trend_extension_shadow",
+                "candidate_family": "shadow_bucket",
+                "status": "blocked",
+                "walk_forward_progress": {"status": "partial", "required_days": 20, "days": 12},
+                "paper_observation_gate": {
+                    "status": "blocked",
+                    "allowed": False,
+                    "artifact_only": True,
+                    "blockers": ["operator_review_required", "paper_observation_not_authorized"],
+                },
+                "strategy_version_gate": {
+                    "status": "blocked",
+                    "allowed": False,
+                    "artifact_only": True,
+                    "blockers": ["strategy_version_proposal_not_authorized"],
+                },
+            },
+            {
+                "candidate_key": "preconfirm_watchlist",
+                "candidate_family": "preconfirm_watchlist",
+                "status": "blocked",
+                "walk_forward_progress": {"status": "complete", "required_days": 20, "days": 21},
+                "paper_observation_gate": {
+                    "status": "blocked",
+                    "allowed": False,
+                    "artifact_only": True,
+                    "blockers": ["operator_review_required"],
+                },
+                "strategy_version_gate": {
+                    "status": "blocked",
+                    "allowed": False,
+                    "artifact_only": True,
+                    "blockers": ["strategy_version_proposal_not_authorized"],
+                },
+            },
+        ]
+        monitor = {
+            "generated_at": "2026-05-12T00:00:00+00:00",
+            "review_date": "20260512",
+            "next_trade_date": "20260513",
+            "today_candidate_count": 11,
+            "walk_forward_progress": {"status": "partial", "required_days": 20, "evaluable_signal_days": 12},
+            "candidate_monitors": [
+                {
+                    "candidate_key": "trend_extension_shadow",
+                    "candidate_family": "shadow_bucket",
+                    "today_candidate_count": 6,
+                    "today_top": {"ts_code": "300001.SZ", "name": "Shadow Top"},
+                    "walk_forward_progress": gates[0]["walk_forward_progress"],
+                    "promotion_gates": {
+                        "paper_observation_gate": gates[0]["paper_observation_gate"],
+                        "strategy_version_gate": gates[0]["strategy_version_gate"],
+                    },
+                },
+                {
+                    "candidate_key": "preconfirm_watchlist",
+                    "candidate_family": "preconfirm_watchlist",
+                    "today_candidate_count": 5,
+                    "today_top": {"ts_code": "300002.SZ", "name": "Shadow Second"},
+                    "walk_forward_progress": gates[1]["walk_forward_progress"],
+                    "promotion_gates": {
+                        "paper_observation_gate": gates[1]["paper_observation_gate"],
+                        "strategy_version_gate": gates[1]["strategy_version_gate"],
+                    },
+                },
+            ],
+        }
+        preflight = {
+            "generated_at": "2026-05-12T00:00:01+00:00",
+            "review_date": "20260512",
+            "next_trade_date": "20260513",
+            "status": "blocked",
+            "candidate_count": 2,
+            "candidate_gates": gates,
+            "blocker_counts": {
+                "operator_review_required": 2,
+                "paper_observation_not_authorized": 1,
+                "strategy_version_proposal_not_authorized": 2,
+            },
+            "safety": {
+                "artifact_only": True,
+                "promotion_allowed": False,
+                "paper_observation_allowed": False,
+                "writes_trade_state": False,
+                "timer_mutated": False,
+            },
+        }
+        (reports_dir / "strategy_shadow_monitor_20260512.json").write_text(
+            json.dumps(monitor, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        (reports_dir / "strategy_shadow_promotion_preflight_20260512.json").write_text(
+            json.dumps(preflight, ensure_ascii=False),
+            encoding="utf-8",
         )
 
     def _insert_no_candidate_review_run(self, conn: sqlite3.Connection, review_date: str) -> None:

@@ -189,6 +189,7 @@ class StrategyVersionProposalArtifactReview:
     wrote_strategy_versions: bool | None = None
     writes_trade_state: bool | None = None
     writes_paper_live_behavior: bool | None = None
+    timer_mutated: bool | None = None
     error: str | None = None
 
 
@@ -209,6 +210,7 @@ class StrategyVersionProposalReviewArtifactReview:
     wrote_strategy_versions: bool | None = None
     writes_trade_state: bool | None = None
     writes_paper_live_behavior: bool | None = None
+    timer_mutated: bool | None = None
     error: str | None = None
 
 
@@ -225,6 +227,7 @@ class CreateStrategyVersionProposalResult:
     wrote_strategy_version: bool = False
     writes_trade_state: bool = False
     writes_paper_live_behavior: bool = False
+    timer_mutated: bool = False
     recorded_hypothesis_validation: bool = False
     validation_evidence_ids: list[str] = field(default_factory=list)
     backtest_artifact_paths: list[str] = field(default_factory=list)
@@ -247,6 +250,7 @@ class CreateStrategyVersionProposalReviewResult:
     wrote_strategy_version: bool = False
     writes_trade_state: bool = False
     writes_paper_live_behavior: bool = False
+    timer_mutated: bool = False
     recorded_hypothesis_validation: bool = False
     artifact: dict[str, Any] = field(default_factory=dict)
 
@@ -540,6 +544,7 @@ class StrategyEvolutionService:
                     "active_params_mutated": False,
                     "writes_trade_state": False,
                     "writes_paper_live_behavior": False,
+                    "timer_mutated": False,
                     "accepted_creates_separate_strategy_version_task": True,
                     "proposal_artifacts_only": True,
                     "proposal_review_artifacts_only": True,
@@ -758,6 +763,7 @@ class StrategyEvolutionService:
                     wrote_strategy_version=False,
                     writes_trade_state=False,
                     writes_paper_live_behavior=False,
+                    timer_mutated=False,
                     recorded_hypothesis_validation=False,
                     validation_evidence_ids=evidence_ids,
                     backtest_artifact_paths=backtest_artifact_paths,
@@ -804,6 +810,7 @@ class StrategyEvolutionService:
                 wrote_strategy_version=False,
                 writes_trade_state=False,
                 writes_paper_live_behavior=False,
+                timer_mutated=False,
                 recorded_hypothesis_validation=True,
                 validation_evidence_ids=evidence_ids,
                 backtest_artifact_paths=backtest_artifact_paths,
@@ -923,6 +930,7 @@ class StrategyEvolutionService:
                     wrote_strategy_version=False,
                     writes_trade_state=False,
                     writes_paper_live_behavior=False,
+                    timer_mutated=False,
                     recorded_hypothesis_validation=False,
                     artifact=artifact,
                 ),
@@ -969,6 +977,7 @@ class StrategyEvolutionService:
                 wrote_strategy_version=False,
                 writes_trade_state=False,
                 writes_paper_live_behavior=False,
+                timer_mutated=False,
                 recorded_hypothesis_validation=True,
                 artifact=artifact,
             ),
@@ -1350,6 +1359,7 @@ def _future_strategy_version_task_payload(
             "Create a new draft or candidate strategy_version row rather than mutating the active version.",
             "Attach replay/backtest evidence to the promotion review.",
             "Keep paper/live deployments on the current version until explicit promotion approval.",
+            "Do not write trade plans, trades, positions, or timer state from this task.",
         ],
     }
 
@@ -1399,6 +1409,7 @@ def review_strategy_version_proposal_artifact(
     wrote_strategy_versions = safety.get("wrote_strategy_versions") if isinstance(safety, dict) else None
     writes_trade_state = safety.get("writes_trade_state") if isinstance(safety, dict) else None
     writes_paper_live_behavior = safety.get("writes_paper_live_behavior") if isinstance(safety, dict) else None
+    timer_mutated = safety.get("timer_mutated") if isinstance(safety, dict) else None
     valid_type = artifact_type == "strategy_version_proposal"
     valid_safety = not any(
         value is True
@@ -1407,6 +1418,7 @@ def review_strategy_version_proposal_artifact(
             wrote_strategy_versions,
             writes_trade_state,
             writes_paper_live_behavior,
+            timer_mutated,
         ]
     )
     error = None
@@ -1445,6 +1457,7 @@ def review_strategy_version_proposal_artifact(
         writes_paper_live_behavior=(
             bool(writes_paper_live_behavior) if writes_paper_live_behavior is not None else None
         ),
+        timer_mutated=bool(timer_mutated) if timer_mutated is not None else None,
         error=error,
     )
 
@@ -1507,6 +1520,7 @@ def review_strategy_version_proposal_review_artifact(
     wrote_strategy_versions = safety.get("wrote_strategy_versions") if isinstance(safety, dict) else None
     writes_trade_state = safety.get("writes_trade_state") if isinstance(safety, dict) else None
     writes_paper_live_behavior = safety.get("writes_paper_live_behavior") if isinstance(safety, dict) else None
+    timer_mutated = safety.get("timer_mutated") if isinstance(safety, dict) else None
     valid_safety = not any(
         value is True
         for value in [
@@ -1514,6 +1528,7 @@ def review_strategy_version_proposal_review_artifact(
             wrote_strategy_versions,
             writes_trade_state,
             writes_paper_live_behavior,
+            timer_mutated,
         ]
     )
     valid_type = artifact_type in {"strategy_version_proposal_review", "strategy_version_promotion_request"}
@@ -1564,6 +1579,7 @@ def review_strategy_version_proposal_review_artifact(
         writes_paper_live_behavior=(
             bool(writes_paper_live_behavior) if writes_paper_live_behavior is not None else None
         ),
+        timer_mutated=bool(timer_mutated) if timer_mutated is not None else None,
         error=error,
     )
 
@@ -1639,6 +1655,7 @@ def _build_strategy_version_proposal_review_artifact(
             "wrote_strategy_versions": False,
             "writes_trade_state": False,
             "writes_paper_live_behavior": False,
+            "timer_mutated": False,
             "paper_live_deployment_changed": False,
         },
     }
@@ -1730,6 +1747,7 @@ def _build_strategy_version_proposal_artifact(
             "wrote_strategy_versions": False,
             "writes_trade_state": False,
             "writes_paper_live_behavior": False,
+            "timer_mutated": False,
             "paper_live_deployment_changed": False,
         },
     }
@@ -2002,6 +2020,8 @@ def _hypothesis_safety_payload(
     review_wrote_strategy_versions = any(
         review.wrote_strategy_versions is True for review in proposal_review_artifacts
     )
+    proposal_timer_mutated = any(proposal.timer_mutated is True for proposal in proposal_reviews)
+    review_timer_mutated = any(review.timer_mutated is True for review in proposal_review_artifacts)
     paper_blockers = _shadow_paper_observation_blockers(hypothesis)
     strategy_version_blockers = _shadow_strategy_version_blockers(hypothesis)
     return {
@@ -2011,12 +2031,19 @@ def _hypothesis_safety_payload(
             artifact_reports_mutation or proposal_reports_mutation or review_reports_mutation
         ),
         "proposal_wrote_strategy_versions": proposal_wrote_strategy_versions or review_wrote_strategy_versions,
-        "proposal_artifacts_only": not (proposal_wrote_strategy_versions or review_wrote_strategy_versions),
+        "proposal_timer_mutated": proposal_timer_mutated or review_timer_mutated,
+        "proposal_artifacts_only": not (
+            proposal_wrote_strategy_versions
+            or review_wrote_strategy_versions
+            or proposal_timer_mutated
+            or review_timer_mutated
+        ),
         "active_params_mutated": False,
         "writes_trade_state": False,
         "writes_paper_live_behavior": False,
+        "timer_mutated": False,
         "accepted_creates_separate_strategy_version_task": hypothesis.status == "accepted",
-        "proposal_review_artifacts_only": not review_wrote_strategy_versions,
+        "proposal_review_artifacts_only": not (review_wrote_strategy_versions or review_timer_mutated),
         "shadow_candidate": _is_shadow_candidate(hypothesis),
         "paper_observation_blocked": bool(paper_blockers),
         "strategy_version_proposal_blocked": bool(strategy_version_blockers),
@@ -2036,8 +2063,9 @@ def _evaluation_next_action(
         safety["proposed_change_mutates_active_params"]
         or safety["artifact_reports_active_param_mutation"]
         or safety["proposal_wrote_strategy_versions"]
+        or safety["proposal_timer_mutated"]
     ):
-        return "reject_or_rewrite", "Rewrite or reject; active parameter mutation is forbidden."
+        return "reject_or_rewrite", "Rewrite or reject; active parameter, strategy-version, or timer mutation is forbidden."
     if hypothesis.status == "proposed":
         return "move_to_testing", "Move to testing before acceptance review."
     if hypothesis.status == "testing" and acceptance_gate["can_accept"]:
@@ -2774,6 +2802,14 @@ def _shadow_register_summary(hypotheses: list[StrategyHypothesis]) -> dict[str, 
         ),
         "top_strategy_version_blockers": blockers,
         "artifact_only": True,
+        "safety": {
+            "active_params_mutated": False,
+            "wrote_strategy_versions": False,
+            "writes_trade_state": False,
+            "writes_paper_live_behavior": False,
+            "timer_mutated": False,
+            "shadow_candidates_artifact_only": True,
+        },
     }
 
 

@@ -1,0 +1,1363 @@
+{
+  "account": {
+    "account_id": 1,
+    "account_key": "paper-main",
+    "account_type": "paper",
+    "cash": 135214.0,
+    "equity_as_of_date": "20260512",
+    "free_position_slots": 2,
+    "market_value": 63250.0,
+    "max_positions": 3,
+    "name": "Paper Main",
+    "open_positions": 1,
+    "total_equity": 198464.0
+  },
+  "agent_advice": {
+    "action": "no_opinion",
+    "agent_decision_id": 7,
+    "agent_run_id": 7,
+    "analyst_reports": [],
+    "artifacts": [
+      {
+        "artifact_id": 15,
+        "artifact_type": "decision_json",
+        "content_hash": "1eee372d731ff8b724e9cd1c6ead237504890c6ef700eb183f2edab5d4227185"
+      },
+      {
+        "artifact_id": 16,
+        "artifact_type": "final_report",
+        "content_hash": "60b88d15b2f77fcb33799589bc696d75e6cb3773c37a969c146ad3354fa264f0"
+      }
+    ],
+    "confidence": null,
+    "execution_mode": "unavailable_fallback",
+    "external_data_coverage": {
+      "fundamental": "partial",
+      "news": "unavailable",
+      "sector": "available",
+      "sentiment": "partial",
+      "technical": "available"
+    },
+    "external_evidence": [
+      {
+        "category": "sector",
+        "importance": null,
+        "published_date": "20260511",
+        "sentiment": null,
+        "source": "pgc_pool_industry",
+        "source_ref": "sector_constituents:PGC_U4E13_U7528_U673A_U68B0:20260511",
+        "summary": "sector=专用机械；rank_overall=13；rank_in_sector=6；role=follower",
+        "title": "板块位置缓存"
+      }
+    ],
+    "missing_data_warnings": [
+      "基本面仅部分接入：当前仅有估值、市值、换手率等 daily_basic 字段。",
+      "新闻/公告未接入/数据不足：600397.SH 江钨装备 截至 20260513 的新闻/公告数据源尚未接入本地库；Agent 不得编造新闻。",
+      "情绪面仅部分接入：当前情绪面只由价格、成交额、换手率等市场行为推断。"
+    ],
+    "note": "Agent 复核仅作参考。",
+    "report_markdown": "# TradingAgents 中文结构化复核\n\n来源：TradingAgents 不可用 fallback\n运行模式：unavailable_fallback\n\n## 结论摘要\n\noptional package 'tradingagents' is not installed; install TauricResearch/TradingAgents to run external advisory\n\n## 基本面\n\n来源：TradingAgents 不可用 fallback\n\n基本面数据源未接入/数据不足。\n\n风险提示：\n- 基本面缺少真实输入，不能编造相关证据。\n\n## 新闻\n\n来源：TradingAgents 不可用 fallback\n\n新闻面数据源未接入/数据不足。\n\n风险提示：\n- 新闻面缺少真实输入，不能编造相关证据。\n\n## 情绪\n\n来源：TradingAgents 不可用 fallback\n\n情绪面数据源未接入/数据不足。\n\n风险提示：\n- 情绪面缺少真实输入，不能编造相关证据。\n\n## 技术/量价\n\n来源：TradingAgents 不可用 fallback\n\n技术面数据源未接入/数据不足。\n\n风险提示：\n- 技术面缺少真实输入，不能编造相关证据。\n\n## 板块位置\n\n来源：TradingAgents 不可用 fallback\n\n板块位置数据源未接入/数据不足。\n\n风险提示：\n- 板块位置缺少真实输入，不能编造相关证据。\n\n## 风险\n\n来源：TradingAgents 不可用 fallback\n\noptional package 'tradingagents' is not installed; install TauricResearch/TradingAgents to run external advisory\n\n风险提示：\n- optional package 'tradingagents' is not installed; install TauricResearch/TradingAgents to run external advisory\n\n## 结论\n\n来源：TradingAgents 不可用 fallback\n\noptional package 'tradingagents' is not installed; install TauricResearch/TradingAgents to run external advisory\n\n风险提示：\n- optional package 'tradingagents' is not installed; install TauricResearch/TradingAgents to run external advisory\n\n## 综合风险提示\n- optional package 'tradingagents' is not installed; install TauricResearch/TradingAgents to run external advisory\n",
+    "report_sections": [
+      {
+        "risk_points": [
+          "基本面缺少真实输入，不能编造相关证据。"
+        ],
+        "section_key": "fundamental",
+        "section_name": "基本面",
+        "source_label": "TradingAgents 不可用 fallback",
+        "source_refs": [],
+        "status": "unavailable",
+        "summary": "基本面数据源未接入/数据不足。",
+        "supporting_points": []
+      },
+      {
+        "risk_points": [
+          "新闻面缺少真实输入，不能编造相关证据。"
+        ],
+        "section_key": "news",
+        "section_name": "新闻",
+        "source_label": "TradingAgents 不可用 fallback",
+        "source_refs": [],
+        "status": "unavailable",
+        "summary": "新闻面数据源未接入/数据不足。",
+        "supporting_points": []
+      },
+      {
+        "risk_points": [
+          "情绪面缺少真实输入，不能编造相关证据。"
+        ],
+        "section_key": "sentiment",
+        "section_name": "情绪",
+        "source_label": "TradingAgents 不可用 fallback",
+        "source_refs": [],
+        "status": "unavailable",
+        "summary": "情绪面数据源未接入/数据不足。",
+        "supporting_points": []
+      },
+      {
+        "risk_points": [
+          "技术面缺少真实输入，不能编造相关证据。"
+        ],
+        "section_key": "technical",
+        "section_name": "技术/量价",
+        "source_label": "TradingAgents 不可用 fallback",
+        "source_refs": [],
+        "status": "unavailable",
+        "summary": "技术面数据源未接入/数据不足。",
+        "supporting_points": []
+      },
+      {
+        "risk_points": [
+          "板块位置缺少真实输入，不能编造相关证据。"
+        ],
+        "section_key": "sector",
+        "section_name": "板块位置",
+        "source_label": "TradingAgents 不可用 fallback",
+        "source_refs": [],
+        "status": "unavailable",
+        "summary": "板块位置数据源未接入/数据不足。",
+        "supporting_points": []
+      },
+      {
+        "risk_points": [
+          "optional package 'tradingagents' is not installed; install TauricResearch/TradingAgents to run external advisory"
+        ],
+        "section_key": "risk",
+        "section_name": "风险",
+        "source_label": "TradingAgents 不可用 fallback",
+        "source_refs": [],
+        "status": "available",
+        "summary": "optional package 'tradingagents' is not installed; install TauricResearch/TradingAgents to run external advisory",
+        "supporting_points": []
+      },
+      {
+        "risk_points": [
+          "optional package 'tradingagents' is not installed; install TauricResearch/TradingAgents to run external advisory"
+        ],
+        "section_key": "conclusion",
+        "section_name": "结论",
+        "source_label": "TradingAgents 不可用 fallback",
+        "source_refs": [],
+        "status": "available",
+        "summary": "optional package 'tradingagents' is not installed; install TauricResearch/TradingAgents to run external advisory",
+        "supporting_points": []
+      }
+    ],
+    "risk_level": "unknown",
+    "risk_points": [
+      "optional package 'tradingagents' is not installed; install TauricResearch/TradingAgents to run external advisory"
+    ],
+    "source_label": "TradingAgents 不可用 fallback",
+    "source_refs": [
+      "daily_picks:3",
+      "strategy_signals:6",
+      "market_bars:600397.SH:20260513",
+      "daily_basic_snapshots:600397.SH:20260513",
+      "market_review_runs:3",
+      "sector_daily_snapshots:PGC_U4E13_U7528_U673A_U68B0:20260511",
+      "sector_constituents:PGC_U4E13_U7528_U673A_U68B0:20260511"
+    ],
+    "status": "skipped",
+    "summary": "optional package 'tradingagents' is not installed; install TauricResearch/TradingAgents to run external advisory",
+    "supporting_points": []
+  },
+  "as_of_date": "20260513",
+  "buy_plan": {
+    "action": "buy_next_open",
+    "free_position_slots": 2,
+    "planned_buy_date": "20260514",
+    "planned_cash": 67607.0,
+    "planned_shares": 4400,
+    "planned_trade_date": "20260514",
+    "price_reference": 15.09,
+    "price_reference_date": "20260513",
+    "reason": "daily_pick",
+    "status": "active",
+    "trade_plan_id": 5
+  },
+  "candidate": {
+    "daily_pick_id": 3,
+    "feature_run_id": 6,
+    "feature_snapshot_id": 1371,
+    "features": {
+      "amount_contract_ratio": 0.659929,
+      "amount_ma10": 675016.1911,
+      "avg_amount_to_ma10": 0.800019,
+      "bars_used": 200,
+      "bull_body": 0.014795,
+      "close_recover": 0.012752,
+      "drawdown_from_peak": -0.088685,
+      "entry_date": "20260326",
+      "entry_price": 16.0,
+      "entry_runup": 0.02444,
+      "feature_name": "contracting_pullback_bullish",
+      "invalid_reason": null,
+      "latest_bar_date": "20260513",
+      "min_entry_price": 10.0,
+      "pullback_close_ret": -0.019092,
+      "pullback_days": 2,
+      "raw_event_id": 128,
+      "review_date": "20260513",
+      "score": 121.2435,
+      "signal_passed": true,
+      "trigger_amount": 539940.143,
+      "trigger_amount_to_ma10": 0.799892,
+      "trigger_close": 15.09,
+      "trigger_pct_chg": 0.012752,
+      "ts_code": "600397.SH"
+    },
+    "market_fetch_run_id": 7,
+    "name": "江钨装备",
+    "planned_buy_date": "20260514",
+    "ranked_signals": [
+      {
+        "name": "江钨装备",
+        "score": 121.2435,
+        "signal_id": 6,
+        "signal_rank": 1,
+        "ts_code": "600397.SH"
+      }
+    ],
+    "review_date": "20260513",
+    "score": 121.2435,
+    "selected_over_signal_count": 0,
+    "selection_reason": "highest_score_rank_1: 121.2435",
+    "signal_id": 6,
+    "signal_rank": 1,
+    "strategy_run_id": 6,
+    "ts_code": "600397.SH"
+  },
+  "data_quality": {
+    "account_ok": true,
+    "blocker_count": 0,
+    "can_trade": true,
+    "event_ids": [],
+    "market_coverage_ok": true,
+    "missing_market_bar_count": 0,
+    "readiness": "pass",
+    "strategy_version_ok": true,
+    "trade_calendar_ok": true,
+    "valid_raw_count": 262,
+    "warning_count": 0
+  },
+  "due_positions": [
+    {
+      "action_due": "sell_plan_exists",
+      "buy_date": "20260511",
+      "buy_price": 27.5,
+      "latest_close": 34.94,
+      "latest_trade_date": "20260513",
+      "name": "力诺药包",
+      "planned_t2_date": "20260513",
+      "planned_t5_date": "20260518",
+      "position_id": 2,
+      "shares": 2300,
+      "status": "planned_exit",
+      "ts_code": "301188.SZ"
+    }
+  ],
+  "evidence_coverage_ledger": {
+    "as_of_date": "20260513",
+    "blocking_dates": [
+      "20260513"
+    ],
+    "blocking_entry_count": 10,
+    "db_path": "data/pgc_trading.db",
+    "discovered_manifest_count": 0,
+    "entries": [
+      {
+        "as_of_date": "20260513",
+        "entity_key": "market",
+        "entity_type": "market",
+        "item_type": "market",
+        "kind": "market_external",
+        "manifest_file": null,
+        "provider": "coverage_summary",
+        "published_date": null,
+        "reason": null,
+        "source_file": null,
+        "source_hash": null,
+        "source_kind": "coverage_status",
+        "source_state": "missing"
+      },
+      {
+        "as_of_date": "20260513",
+        "entity_key": "sector",
+        "entity_type": "sector",
+        "item_type": "sector",
+        "kind": "market_external",
+        "manifest_file": null,
+        "provider": "coverage_summary",
+        "published_date": null,
+        "reason": null,
+        "source_file": null,
+        "source_hash": null,
+        "source_kind": "coverage_status",
+        "source_state": "missing"
+      },
+      {
+        "as_of_date": "20260513",
+        "entity_key": "stock",
+        "entity_type": "stock",
+        "item_type": "stock",
+        "kind": "market_external",
+        "manifest_file": null,
+        "provider": "coverage_summary",
+        "published_date": null,
+        "reason": null,
+        "source_file": null,
+        "source_hash": null,
+        "source_kind": "coverage_status",
+        "source_state": "missing"
+      },
+      {
+        "as_of_date": "20260513",
+        "entity_key": "news",
+        "entity_type": "coverage",
+        "item_type": "news",
+        "kind": "market_external",
+        "manifest_file": null,
+        "provider": "coverage_summary",
+        "published_date": null,
+        "reason": null,
+        "source_file": null,
+        "source_hash": null,
+        "source_kind": "coverage_status",
+        "source_state": "missing"
+      },
+      {
+        "as_of_date": "20260513",
+        "entity_key": "sentiment",
+        "entity_type": "coverage",
+        "item_type": "sentiment",
+        "kind": "market_external",
+        "manifest_file": null,
+        "provider": "coverage_summary",
+        "published_date": null,
+        "reason": null,
+        "source_file": null,
+        "source_hash": null,
+        "source_kind": "coverage_status",
+        "source_state": "missing"
+      },
+      {
+        "as_of_date": "20260513",
+        "entity_key": "fundamental",
+        "entity_type": "coverage",
+        "item_type": "fundamental",
+        "kind": "agent_external",
+        "manifest_file": null,
+        "provider": "coverage_summary",
+        "published_date": null,
+        "reason": null,
+        "source_file": null,
+        "source_hash": null,
+        "source_kind": "coverage_status",
+        "source_state": "missing"
+      },
+      {
+        "as_of_date": "20260513",
+        "entity_key": "announcement",
+        "entity_type": "coverage",
+        "item_type": "announcement",
+        "kind": "agent_external",
+        "manifest_file": null,
+        "provider": "coverage_summary",
+        "published_date": null,
+        "reason": null,
+        "source_file": null,
+        "source_hash": null,
+        "source_kind": "coverage_status",
+        "source_state": "missing"
+      },
+      {
+        "as_of_date": "20260513",
+        "entity_key": "news",
+        "entity_type": "coverage",
+        "item_type": "news",
+        "kind": "agent_external",
+        "manifest_file": null,
+        "provider": "coverage_summary",
+        "published_date": null,
+        "reason": null,
+        "source_file": null,
+        "source_hash": null,
+        "source_kind": "coverage_status",
+        "source_state": "missing"
+      },
+      {
+        "as_of_date": "20260513",
+        "entity_key": "sentiment",
+        "entity_type": "coverage",
+        "item_type": "sentiment",
+        "kind": "agent_external",
+        "manifest_file": null,
+        "provider": "coverage_summary",
+        "published_date": null,
+        "reason": null,
+        "source_file": null,
+        "source_hash": null,
+        "source_kind": "coverage_status",
+        "source_state": "missing"
+      },
+      {
+        "as_of_date": "20260513",
+        "entity_key": "risk_or_research",
+        "entity_type": "coverage",
+        "item_type": "risk_or_research",
+        "kind": "agent_external",
+        "manifest_file": null,
+        "provider": "coverage_summary",
+        "published_date": null,
+        "reason": null,
+        "source_file": null,
+        "source_hash": null,
+        "source_kind": "coverage_status",
+        "source_state": "missing"
+      }
+    ],
+    "entry_count": 10,
+    "generated_at": "2026-05-13T08:50:26+00:00",
+    "ledger_contract": "evidence_coverage_ledger_v1",
+    "manifest_files": [],
+    "provider_counts": {
+      "coverage_summary": 10
+    },
+    "ready_dates": [],
+    "safety": {
+      "enables_timer": false,
+      "live_fetches": false,
+      "read_only": true,
+      "writes_strategy_state": false,
+      "writes_trade_state": false
+    },
+    "state_counts": {
+      "missing": 10
+    },
+    "summary": {
+      "blocking_states": [
+        "duplicate",
+        "missing",
+        "partial",
+        "source-hash-mismatch",
+        "stale"
+      ],
+      "dates": [
+        "20260513"
+      ],
+      "duplicate_count": 0,
+      "manifest_count": 0,
+      "missing_count": 10,
+      "partial_count": 0,
+      "provider_counts": {
+        "coverage_summary": 10
+      },
+      "source_hash_mismatch_count": 0,
+      "stale_count": 0,
+      "state_counts": {
+        "missing": 10
+      },
+      "unavailable_count": 0
+    }
+  },
+  "generated_at": "2026-05-13T08:50:26.105550+00:00",
+  "latest_market_date": "20260513",
+  "lineage": {
+    "agent_decision_id": 7,
+    "agent_run_id": 7,
+    "daily_pick_id": 3,
+    "data_quality_event_ids": [],
+    "feature_run_id": 6,
+    "market_fetch_run_id": 7,
+    "market_review_run_id": 5,
+    "signal_id": 6,
+    "strategy_run_id": 6,
+    "trade_plan_id": 5
+  },
+  "market_plan_context": {
+    "alignment": "unknown",
+    "evidence": {
+      "candidate": {
+        "name": "江钨装备",
+        "planned_trade_date": "20260514",
+        "score": 121.2435,
+        "signal_rank": 1,
+        "trade_plan_action": "buy_next_open",
+        "trade_plan_status": "active",
+        "ts_code": "600397.SH"
+      },
+      "candidate_sector": null,
+      "coverage": {
+        "external_evidence": "missing",
+        "sector": "missing"
+      },
+      "external_items": [],
+      "market_regime": {
+        "breadth_score": 0.6206,
+        "persistence_score": 0.1781,
+        "regime": "neutral",
+        "sentiment_score": null,
+        "summary": "Market regime neutral: breadth=0.62 trend=0.56 volume=0.36 persistence=0.18 coverage=1.00.",
+        "trend_score": 0.5645,
+        "volume_score": 0.3574
+      },
+      "top_sectors": []
+    },
+    "management_action": "manual_review",
+    "market_review_run_id": 5,
+    "rationale": "600397.SH lacks sector rotation and market-review external evidence for 20260513; manual review is required before acting on the plan.",
+    "relationship_label": "missing",
+    "relationship_reason": "计划关系缺少可用市场上下文，不能当作安全信号。",
+    "risk_level": "unknown",
+    "source_refs": [
+      "market_plan_contexts:5:5"
+    ],
+    "trade_plan_id": 5
+  },
+  "market_review": {
+    "breadth_score": 0.6206,
+    "continuity_label": "insufficient_evidence",
+    "continuity_reason": "缺少板块轮动、新闻/情绪证据，连续性不能当作安全信号。",
+    "evidence_freshness": {
+      "market": "missing",
+      "sector": "missing",
+      "stock": "missing"
+    },
+    "external_evidence_coverage": {
+      "by_importance": {},
+      "by_item_type": {},
+      "by_provider": {},
+      "by_scope": {},
+      "by_sentiment": {},
+      "coverage": "missing",
+      "fresh_count": 0,
+      "freshness_by_scope": {
+        "market": "missing",
+        "sector": "missing",
+        "stock": "missing"
+      },
+      "market": "missing",
+      "missing_scopes": [
+        "market",
+        "sector",
+        "stock"
+      ],
+      "news": "missing",
+      "sector": "missing",
+      "sentiment": "missing",
+      "source_refs": [],
+      "stale_count": 0,
+      "stock": "missing",
+      "total_count": 0
+    },
+    "market_review_run_id": 5,
+    "persistence_score": 0.1781,
+    "regime": "neutral",
+    "sector_persistence": [],
+    "sentiment_score": null,
+    "source_refs": [
+      "market_review_runs:5",
+      "market_regime_snapshots:5"
+    ],
+    "status": "completed",
+    "strategy_hypotheses": [],
+    "summary": "Market regime neutral: breadth=0.62 trend=0.56 volume=0.36 persistence=0.18 coverage=1.00.",
+    "top_sectors": [],
+    "trend_score": 0.5645,
+    "volume_score": 0.3574
+  },
+  "next_day_decision": {
+    "acceptance_status": "blocked",
+    "acceptance_summary": "纸盘每日运营验收阻断：1 项 blocker 需要先处理。",
+    "account_key": "paper-main",
+    "action_log": {
+      "account_id": 1,
+      "account_key": "paper-main",
+      "advisory_note": "Decision cockpit action logs are advisory audit records; they never execute trades, enable timers, or mutate strategy state.",
+      "deferred_count": 0,
+      "deferred_outcome_count": 0,
+      "followed_count": 0,
+      "items": [],
+      "matched_outcome_count": 0,
+      "outcome_counts": {},
+      "override_count": 0,
+      "override_outcome_count": 0,
+      "pending_outcome_count": 0,
+      "review_date": "20260513",
+      "review_only_outcome_count": 0,
+      "summary": "Decision action log has 0 entries: followed=0, deferred=0, overrode=0.",
+      "unexpected_trade_count": 0,
+      "unresolved_blocker_codes": []
+    },
+    "advisory_note": "Next-day decision cockpit is read-only; it explains blockers and next manual actions but never executes trades, enables timers, or mutates strategy parameters.",
+    "as_of_date": "20260513",
+    "blocker_count": 1,
+    "checklist": [
+      {
+        "blocker_codes": [
+          "MIN_PAPER_TRADES_NOT_MET"
+        ],
+        "detail": "汇总数据新鲜度、证据覆盖、Agent、open-execution 和 readiness gates。",
+        "key": "paper_acceptance",
+        "label": "paper acceptance",
+        "manual_action": "处理 paper acceptance 未处理 blocker。",
+        "source_refs": [
+          "market_review_runs:5",
+          "market_regime_snapshots:5",
+          "market_plan_contexts:5:5",
+          "daily_picks:3",
+          "strategy_signals:6",
+          "market_bars:600397.SH:20260513",
+          "daily_basic_snapshots:600397.SH:20260513",
+          "market_review_runs:3",
+          "sector_daily_snapshots:PGC_U4E13_U7528_U673A_U68B0:20260511",
+          "sector_constituents:PGC_U4E13_U7528_U673A_U68B0:20260511",
+          "agent_runs:7",
+          "trade_plans:6",
+          "positions:2"
+        ],
+        "status": "blocked",
+        "summary": "纸盘每日运营验收阻断：1 项 blocker 需要先处理。",
+        "warning_codes": [
+          "MARKET_EVIDENCE_MISSING",
+          "AGENT_REVIEW_NOT_RUN",
+          "AGENT_EVIDENCE_MISSING"
+        ]
+      },
+      {
+        "blocker_codes": [],
+        "detail": "Missing evidence is explicit and remains advisory; no cached evidence mutates strategy or trades.",
+        "key": "evidence_blockers",
+        "label": "证据 freshness / coverage",
+        "manual_action": "补齐或确认 cached provider evidence，再重新运行只读验收。",
+        "source_refs": [
+          "market_review_runs:5",
+          "market_review_runs:5",
+          "market_regime_snapshots:5",
+          "market_plan_contexts:5:5",
+          "daily_picks:3",
+          "strategy_signals:6",
+          "market_bars:600397.SH:20260513",
+          "daily_basic_snapshots:600397.SH:20260513",
+          "market_review_runs:3",
+          "sector_daily_snapshots:PGC_U4E13_U7528_U673A_U68B0:20260511",
+          "sector_constituents:PGC_U4E13_U7528_U673A_U68B0:20260511"
+        ],
+        "status": "warning",
+        "summary": "全市场证据 0 条；Agent 覆盖 5 项",
+        "warning_codes": [
+          "MARKET_EVIDENCE_MISSING"
+        ]
+      },
+      {
+        "blocker_codes": [],
+        "detail": "市场复盘只提供 advisory，不会创建、取消或执行交易计划。",
+        "key": "market_review",
+        "label": "全市场复盘 / 计划关系",
+        "manual_action": "人工复核全市场复盘给出的计划关系标签。",
+        "source_refs": [
+          "market_review_runs:5",
+          "market_plan_contexts:5:5"
+        ],
+        "status": "warning",
+        "summary": "neutral / insufficient_evidence；Market regime neutral: breadth=0.62 trend=0.56 volume=0.36 persistence=0.18 coverage=1.00.；计划关系 missing",
+        "warning_codes": [
+          "MARKET_PLAN_RELATIONSHIP_MISSING"
+        ]
+      },
+      {
+        "blocker_codes": [],
+        "detail": "执行日 2026-05-14；预期 2026-05-14；计划 6；持仓 2",
+        "key": "open_execution",
+        "label": "open-execution 下一步",
+        "manual_action": "人工核对卖出计划后录入卖出成交。",
+        "source_refs": [
+          "trade_plans:6",
+          "positions:2"
+        ],
+        "status": "pass",
+        "summary": "ready / record_sell",
+        "warning_codes": []
+      },
+      {
+        "blocker_codes": [],
+        "detail": "没有 active strategy 参数、trade plan、position 或 live 行为被修改。",
+        "key": "strategy_proposals",
+        "label": "策略 proposal / hypothesis",
+        "manual_action": "无需策略参数动作；继续保持策略 evolution 只读边界。",
+        "source_refs": [],
+        "status": "pass",
+        "summary": "没有待审阅策略假设或 proposal。",
+        "warning_codes": []
+      }
+    ],
+    "execution_date": "20260514",
+    "headline": "下一交易日决策被 1 项 blocker 阻断。",
+    "market_plan_context": {
+      "alignment": "unknown",
+      "evidence": {
+        "candidate": {
+          "name": "江钨装备",
+          "planned_trade_date": "20260514",
+          "score": 121.2435,
+          "signal_rank": 1,
+          "trade_plan_action": "buy_next_open",
+          "trade_plan_status": "active",
+          "ts_code": "600397.SH"
+        },
+        "candidate_sector": null,
+        "coverage": {
+          "external_evidence": "missing",
+          "sector": "missing"
+        },
+        "external_items": [],
+        "market_regime": {
+          "breadth_score": 0.6206,
+          "persistence_score": 0.1781,
+          "regime": "neutral",
+          "sentiment_score": null,
+          "summary": "Market regime neutral: breadth=0.62 trend=0.56 volume=0.36 persistence=0.18 coverage=1.00.",
+          "trend_score": 0.5645,
+          "volume_score": 0.3574
+        },
+        "top_sectors": []
+      },
+      "management_action": "manual_review",
+      "market_review_run_id": 5,
+      "rationale": "600397.SH lacks sector rotation and market-review external evidence for 20260513; manual review is required before acting on the plan.",
+      "relationship_label": "missing",
+      "relationship_reason": "计划关系缺少可用市场上下文，不能当作安全信号。",
+      "risk_level": "unknown",
+      "source_refs": [
+        "market_plan_contexts:5:5"
+      ],
+      "trade_plan_id": 5
+    },
+    "market_review": {
+      "breadth_score": 0.6206,
+      "continuity_label": "insufficient_evidence",
+      "continuity_reason": "缺少板块轮动、新闻/情绪证据，连续性不能当作安全信号。",
+      "evidence_freshness": {
+        "market": "missing",
+        "sector": "missing",
+        "stock": "missing"
+      },
+      "external_evidence_coverage": {
+        "by_importance": {},
+        "by_item_type": {},
+        "by_provider": {},
+        "by_scope": {},
+        "by_sentiment": {},
+        "coverage": "missing",
+        "fresh_count": 0,
+        "freshness_by_scope": {
+          "market": "missing",
+          "sector": "missing",
+          "stock": "missing"
+        },
+        "market": "missing",
+        "missing_scopes": [
+          "market",
+          "sector",
+          "stock"
+        ],
+        "news": "missing",
+        "sector": "missing",
+        "sentiment": "missing",
+        "source_refs": [],
+        "stale_count": 0,
+        "stock": "missing",
+        "total_count": 0
+      },
+      "market_review_run_id": 5,
+      "persistence_score": 0.1781,
+      "regime": "neutral",
+      "sector_persistence": [],
+      "sentiment_score": null,
+      "source_refs": [
+        "market_review_runs:5",
+        "market_regime_snapshots:5"
+      ],
+      "status": "completed",
+      "strategy_hypotheses": [],
+      "summary": "Market regime neutral: breadth=0.62 trend=0.56 volume=0.36 persistence=0.18 coverage=1.00.",
+      "top_sectors": [],
+      "trend_score": 0.5645,
+      "volume_score": 0.3574
+    },
+    "open_execution": {
+      "as_of_date": "20260514",
+      "blocked_reasons": [],
+      "next_action": "record_sell",
+      "operator_required": true,
+      "planned_shares": 2300,
+      "planned_trade_date": "20260514",
+      "primary_plan_id": 6,
+      "primary_position_id": 2,
+      "status": "ready",
+      "target_name": "力诺药包",
+      "target_stock": "301188.SZ"
+    },
+    "recommended_manual_action": "处理 paper acceptance 未处理 blocker。",
+    "status": "blocked",
+    "strategy_proposals": {
+      "accepted_count": 0,
+      "archived_count": 0,
+      "items": [],
+      "proposed_count": 0,
+      "rejected_count": 0,
+      "review_required_count": 0,
+      "testing_count": 0,
+      "total_count": 0
+    },
+    "system_proposal": {
+      "action": "record_sell",
+      "planned_shares": 2300,
+      "planned_trade_date": "20260514",
+      "position_id": 2,
+      "rationale": "人工核对卖出计划后录入卖出成交。",
+      "target": "301188.SZ 力诺药包",
+      "trade_plan_id": 6
+    },
+    "warning_count": 2
+  },
+  "next_trade_date": "20260514",
+  "no_candidate_reason": null,
+  "paper_acceptance": {
+    "account_key": "paper-main",
+    "advisory_note": "Acceptance is read-only; it does not execute trades, cancel plans, or mutate strategy parameters.",
+    "agent_status": {
+      "blocker_codes": [],
+      "detail": "optional package 'tradingagents' is not installed; install TauricResearch/TradingAgents to run external advisory",
+      "key": "agent_status",
+      "label": "Agent 状态",
+      "source_refs": [
+        "agent_runs:7"
+      ],
+      "status": "warning",
+      "summary": "skipped / no_opinion / risk unknown",
+      "warning_codes": [
+        "AGENT_REVIEW_NOT_RUN"
+      ]
+    },
+    "alerts": [
+      {
+        "action": "quality",
+        "as_of_date": "20260513",
+        "code": "UNRESOLVED_ACCEPTANCE_BLOCKERS",
+        "gate_key": "unresolved_blockers",
+        "severity": "blocker",
+        "summary": "1 项 blocker 仍未处理，paper acceptance 不能视为通过。",
+        "title": "未处理 blocker"
+      },
+      {
+        "action": "market",
+        "as_of_date": "20260513",
+        "code": "STALE_OR_MISSING_EVIDENCE",
+        "gate_key": "evidence_coverage",
+        "severity": "warning",
+        "summary": "2026-05-13 存在 MARKET_EVIDENCE_MISSING，需人工复核证据覆盖。",
+        "title": "证据或行情不新鲜"
+      },
+      {
+        "action": "agent",
+        "as_of_date": "20260513",
+        "code": "AGENT_REVIEW_MISSING",
+        "gate_key": "agent_status",
+        "severity": "warning",
+        "summary": "2026-05-13 的 Agent 状态为 skipped / no_opinion / risk unknown。",
+        "title": "Agent 复核缺失"
+      }
+    ],
+    "as_of_date": "20260513",
+    "data_freshness": {
+      "blocker_codes": [],
+      "detail": "有效入池 262；缺失行情 0；blocker/warning 0/0",
+      "key": "data_freshness",
+      "label": "数据新鲜度",
+      "source_refs": [],
+      "status": "pass",
+      "summary": "最新行情日 2026-05-13 / 复盘日 2026-05-13",
+      "warning_codes": []
+    },
+    "evidence_coverage": {
+      "blocker_codes": [],
+      "detail": "Missing evidence is explicit and remains advisory; no cached evidence mutates strategy or trades.",
+      "key": "evidence_coverage",
+      "label": "证据覆盖",
+      "source_refs": [
+        "market_review_runs:5",
+        "market_review_runs:5",
+        "market_regime_snapshots:5",
+        "market_plan_contexts:5:5",
+        "daily_picks:3",
+        "strategy_signals:6",
+        "market_bars:600397.SH:20260513",
+        "daily_basic_snapshots:600397.SH:20260513",
+        "market_review_runs:3",
+        "sector_daily_snapshots:PGC_U4E13_U7528_U673A_U68B0:20260511",
+        "sector_constituents:PGC_U4E13_U7528_U673A_U68B0:20260511"
+      ],
+      "status": "warning",
+      "summary": "全市场证据 0 条；Agent 覆盖 5 项",
+      "warning_codes": [
+        "MARKET_EVIDENCE_MISSING"
+      ]
+    },
+    "execution_date": "20260514",
+    "open_execution": {
+      "as_of_date": "20260514",
+      "blocked_reasons": [],
+      "next_action": "record_sell",
+      "operator_required": true,
+      "planned_shares": 2300,
+      "planned_trade_date": "20260514",
+      "primary_plan_id": 6,
+      "primary_position_id": 2,
+      "status": "ready",
+      "target_name": "力诺药包",
+      "target_stock": "301188.SZ"
+    },
+    "open_execution_gate": {
+      "blocker_codes": [],
+      "detail": "执行日 2026-05-14；预期 2026-05-14；计划 6；持仓 2",
+      "key": "open_execution",
+      "label": "open-execution 状态",
+      "source_refs": [
+        "trade_plans:6",
+        "positions:2"
+      ],
+      "status": "pass",
+      "summary": "ready / record_sell",
+      "warning_codes": []
+    },
+    "readiness_gates": [
+      {
+        "blocker_codes": [],
+        "detail": "可交易 是；质量事件 0 个",
+        "key": "daily_review_readiness",
+        "label": "daily review readiness gate",
+        "source_refs": [],
+        "status": "pass",
+        "summary": "readiness=pass",
+        "warning_codes": []
+      },
+      {
+        "blocker_codes": [],
+        "detail": "当前持仓 1；T+2/T+5 待处理 1",
+        "key": "account_capacity",
+        "label": "账户容量 gate",
+        "source_refs": [],
+        "status": "pass",
+        "summary": "持仓 1/3；空闲 2",
+        "warning_codes": []
+      },
+      {
+        "blocker_codes": [
+          "MIN_PAPER_TRADES_NOT_MET"
+        ],
+        "detail": "来自 paper-readiness；用于暴露晋级和账本 gate，不会自动执行任何交易动作。",
+        "key": "paper_paper_trade_sample",
+        "label": "Paper 样本交易",
+        "source_refs": [],
+        "status": "blocked",
+        "summary": "3/10 笔 executed paper trades",
+        "warning_codes": []
+      },
+      {
+        "blocker_codes": [],
+        "detail": "来自 paper-readiness；用于暴露晋级和账本 gate，不会自动执行任何交易动作。",
+        "key": "paper_ledger_invariants",
+        "label": "账本 invariant",
+        "source_refs": [],
+        "status": "pass",
+        "summary": "账本 invariant 通过",
+        "warning_codes": []
+      },
+      {
+        "blocker_codes": [],
+        "detail": "来自 paper-readiness；用于暴露晋级和账本 gate，不会自动执行任何交易动作。",
+        "key": "paper_data_quality_blockers",
+        "label": "数据质量 blocker",
+        "source_refs": [],
+        "status": "pass",
+        "summary": "0 个 open blocker",
+        "warning_codes": []
+      },
+      {
+        "blocker_codes": [],
+        "detail": "来自 paper-readiness；用于暴露晋级和账本 gate，不会自动执行任何交易动作。",
+        "key": "paper_exit_decisions",
+        "label": "T+2 / T+5 待处理",
+        "source_refs": [],
+        "status": "pass",
+        "summary": "0 个到期退出判断",
+        "warning_codes": []
+      },
+      {
+        "blocker_codes": [],
+        "detail": "来自 paper-readiness；用于暴露晋级和账本 gate，不会自动执行任何交易动作。",
+        "key": "paper_cash_equity_reconciliation",
+        "label": "现金 / 权益核对",
+        "source_refs": [],
+        "status": "pass",
+        "summary": "现金/权益核对未发现警告",
+        "warning_codes": []
+      },
+      {
+        "blocker_codes": [],
+        "detail": "来自 paper-readiness；用于暴露晋级和账本 gate，不会自动执行任何交易动作。",
+        "key": "paper_agent_evidence_linkage",
+        "label": "Agent 证据链路",
+        "source_refs": [],
+        "status": "warning",
+        "summary": "缺少账户级 Agent 证据链路",
+        "warning_codes": [
+          "AGENT_EVIDENCE_MISSING"
+        ]
+      }
+    ],
+    "status": "blocked",
+    "summary": "纸盘每日运营验收阻断：1 项 blocker 需要先处理。",
+    "unresolved_blockers": [
+      "Paper 样本交易: MIN_PAPER_TRADES_NOT_MET"
+    ]
+  },
+  "paper_promotion": {
+    "account_key": "paper-main",
+    "as_of_date": "20260513",
+    "avg_slippage": 0.0061818181818182,
+    "closed_trades_count": 1,
+    "due_exit_positions_count": 0,
+    "invariant_ok": true,
+    "invariant_violation_codes": [],
+    "last_pipeline_status": "skipped",
+    "ledger_blockers_count": 0,
+    "open_blockers_count": 0,
+    "open_positions_count": 1,
+    "promotion_blockers": [
+      "MIN_PAPER_TRADES_NOT_MET"
+    ],
+    "promotion_warnings": [
+      "AGENT_EVIDENCE_MISSING"
+    ],
+    "readiness": "blocked",
+    "readiness_gates": [
+      {
+        "blocker_codes": [
+          "MIN_PAPER_TRADES_NOT_MET"
+        ],
+        "gate": "paper_trade_sample",
+        "label": "Paper 样本交易",
+        "status": "blocked",
+        "summary": "3/10 笔 executed paper trades",
+        "warning_codes": []
+      },
+      {
+        "blocker_codes": [],
+        "gate": "ledger_invariants",
+        "label": "账本 invariant",
+        "status": "pass",
+        "summary": "账本 invariant 通过",
+        "warning_codes": []
+      },
+      {
+        "blocker_codes": [],
+        "gate": "data_quality_blockers",
+        "label": "数据质量 blocker",
+        "status": "pass",
+        "summary": "0 个 open blocker",
+        "warning_codes": []
+      },
+      {
+        "blocker_codes": [],
+        "gate": "exit_decisions",
+        "label": "T+2 / T+5 待处理",
+        "status": "pass",
+        "summary": "0 个到期退出判断",
+        "warning_codes": []
+      },
+      {
+        "blocker_codes": [],
+        "gate": "cash_equity_reconciliation",
+        "label": "现金 / 权益核对",
+        "status": "pass",
+        "summary": "现金/权益核对未发现警告",
+        "warning_codes": []
+      },
+      {
+        "blocker_codes": [],
+        "gate": "agent_evidence_linkage",
+        "label": "Agent 证据链路",
+        "status": "warning",
+        "summary": "缺少账户级 Agent 证据链路",
+        "warning_codes": [
+          "AGENT_EVIDENCE_MISSING"
+        ]
+      }
+    ],
+    "realized_pnl": -1536.0,
+    "trades_count": 3,
+    "win_rate": 0.0
+  },
+  "positions": [
+    {
+      "action_due": "sell_plan_exists",
+      "buy_date": "20260511",
+      "buy_price": 27.5,
+      "latest_close": 34.94,
+      "latest_trade_date": "20260513",
+      "name": "力诺药包",
+      "planned_t2_date": "20260513",
+      "planned_t5_date": "20260518",
+      "position_id": 2,
+      "shares": 2300,
+      "status": "planned_exit",
+      "ts_code": "301188.SZ"
+    }
+  ],
+  "shadow_strategy": {
+    "artifact_only": true,
+    "as_of_date": "20260512",
+    "blocked_candidate_count": 5,
+    "blocker_counts": {
+      "active_cpb_db_params_hash_mismatch": 1,
+      "chase_gap_guard_required": 1,
+      "close_return_stability_required": 1,
+      "dip_buy_stop_and_sizing_required": 1,
+      "falling_knife_guard_required": 1,
+      "liquidity_slippage_review_required": 1,
+      "micro_sleeve_risk_model_required": 1,
+      "next_day_confirmation_rule_required": 1,
+      "operator_promotion_approval_required": 5,
+      "operator_review_required": 5,
+      "paper_observation_not_authorized": 5,
+      "proposal_review_required": 5,
+      "replay_backtest_result_artifact_required": 5,
+      "sector_evidence_confirmation_required": 1,
+      "separate_breakout_pressure_candidate_required": 1,
+      "separate_dip_buy_candidate_required": 1,
+      "separate_low_price_micro_sleeve_required": 1,
+      "separate_trend_extension_candidate_required": 1,
+      "strategy_version_proposal_not_authorized": 5,
+      "volume_overheat_guard_required": 1,
+      "walk_forward_shadow_monitor_20_trading_days_required": 5,
+      "watchlist_only_ui_lane_required": 1,
+      "watchlist_to_signal_contract_required": 1
+    },
+    "candidate_count": 5,
+    "candidate_families": {
+      "dip_buy": 1,
+      "preconfirm_watchlist": 1,
+      "shadow_bucket": 3
+    },
+    "distinct_blocker_count": 23,
+    "latest_monitor_date": "20260512",
+    "latest_monitor_generated_at": "2026-05-12T14:44:02+00:00",
+    "latest_preflight_date": "20260512",
+    "latest_preflight_generated_at": "2026-05-12T14:44:02+00:00",
+    "next_trade_date": "20260513",
+    "read_only": true,
+    "safety": {
+      "active_params_mutated": false,
+      "artifact_only": true,
+      "paper_observation_allowed": false,
+      "promotion_allowed": false,
+      "read_only": true,
+      "requires_explicit_blocker_clearance": true,
+      "timer_mutated": false,
+      "visibility_layer_writes": false,
+      "writes_paper_live_behavior": false,
+      "writes_trade_state": false,
+      "wrote_strategy_version": false
+    },
+    "shadow_hypothesis_count": 5,
+    "source_artifacts": {
+      "monitor_json": "/Users/azboo/Desktop/Person/pgc/reports/strategy_shadow_monitor_20260512.json",
+      "monitor_markdown": "/Users/azboo/Desktop/Person/pgc/reports/strategy_shadow_monitor_20260512.md",
+      "promotion_preflight_json": "/Users/azboo/Desktop/Person/pgc/reports/strategy_shadow_promotion_preflight_20260512.json",
+      "promotion_preflight_markdown": "/Users/azboo/Desktop/Person/pgc/reports/strategy_shadow_promotion_preflight_20260512.md"
+    },
+    "status": "blocked",
+    "top_candidates": [
+      {
+        "blocker_count": 10,
+        "blockers": [
+          "liquidity_slippage_review_required",
+          "micro_sleeve_risk_model_required",
+          "operator_promotion_approval_required",
+          "operator_review_required",
+          "paper_observation_not_authorized",
+          "proposal_review_required",
+          "replay_backtest_result_artifact_required",
+          "separate_low_price_micro_sleeve_required",
+          "strategy_version_proposal_not_authorized",
+          "walk_forward_shadow_monitor_20_trading_days_required"
+        ],
+        "candidate_family": "shadow_bucket",
+        "candidate_key": "low_price_momentum_shadow",
+        "paper_observation_allowed": false,
+        "promotion_allowed": false,
+        "status": "blocked",
+        "today_candidate_count": 72,
+        "today_top": {
+          "amount_to_ma10": 2.151,
+          "amount_to_ma20": 3.2646,
+          "bucket": "low_price_momentum_shadow",
+          "close_pos20": 1.0,
+          "day_pct_chg": 10.05,
+          "dist20_high_pct": 0.0,
+          "dist5_high_pct": 0.0,
+          "entry_date": "20260326",
+          "entry_price": 7.53,
+          "entry_runup_pct": 41.04,
+          "industry": "供气供热",
+          "name": "大连热电",
+          "ret10_pct": 44.29,
+          "ret3_pct": 13.22,
+          "ret5_pct": 37.03,
+          "review_close": 10.62,
+          "review_date": "20260512",
+          "score": 117.9918,
+          "ts_code": "600719.SH"
+        },
+        "walk_forward_status": "complete"
+      },
+      {
+        "blocker_count": 10,
+        "blockers": [
+          "close_return_stability_required",
+          "operator_promotion_approval_required",
+          "operator_review_required",
+          "paper_observation_not_authorized",
+          "proposal_review_required",
+          "replay_backtest_result_artifact_required",
+          "separate_breakout_pressure_candidate_required",
+          "strategy_version_proposal_not_authorized",
+          "volume_overheat_guard_required",
+          "walk_forward_shadow_monitor_20_trading_days_required"
+        ],
+        "candidate_family": "shadow_bucket",
+        "candidate_key": "breakout_pressure_shadow",
+        "paper_observation_allowed": false,
+        "promotion_allowed": false,
+        "status": "blocked",
+        "today_candidate_count": 69,
+        "today_top": {
+          "amount_to_ma10": 1.9328,
+          "amount_to_ma20": 1.5798,
+          "bucket": "breakout_pressure_shadow",
+          "close_pos20": 0.9637,
+          "day_pct_chg": 2.78,
+          "dist20_high_pct": -0.71,
+          "dist5_high_pct": -0.71,
+          "entry_date": "20260319",
+          "entry_price": 20.82,
+          "entry_runup_pct": 13.54,
+          "industry": "通信设备",
+          "name": "华脉科技",
+          "ret10_pct": 17.15,
+          "ret3_pct": 10.93,
+          "ret5_pct": 22.49,
+          "review_close": 23.64,
+          "review_date": "20260512",
+          "score": 107.9674,
+          "ts_code": "603042.SH"
+        },
+        "walk_forward_status": "complete"
+      },
+      {
+        "blocker_count": 10,
+        "blockers": [
+          "chase_gap_guard_required",
+          "operator_promotion_approval_required",
+          "operator_review_required",
+          "paper_observation_not_authorized",
+          "proposal_review_required",
+          "replay_backtest_result_artifact_required",
+          "sector_evidence_confirmation_required",
+          "separate_trend_extension_candidate_required",
+          "strategy_version_proposal_not_authorized",
+          "walk_forward_shadow_monitor_20_trading_days_required"
+        ],
+        "candidate_family": "shadow_bucket",
+        "candidate_key": "trend_extension_shadow",
+        "paper_observation_allowed": false,
+        "promotion_allowed": false,
+        "status": "blocked",
+        "today_candidate_count": 47,
+        "today_top": {
+          "amount_to_ma10": 1.2552,
+          "amount_to_ma20": 1.4139,
+          "bucket": "trend_extension_shadow",
+          "close_pos20": 1.0,
+          "day_pct_chg": 10.0,
+          "dist20_high_pct": 0.0,
+          "dist5_high_pct": 0.0,
+          "entry_date": "20251127",
+          "entry_price": 26.52,
+          "entry_runup_pct": 282.43,
+          "industry": "小金属",
+          "name": "云南锗业",
+          "ret10_pct": 31.92,
+          "ret3_pct": 26.46,
+          "ret5_pct": 44.87,
+          "review_close": 101.42,
+          "review_date": "20260512",
+          "score": 124.8948,
+          "ts_code": "002428.SZ"
+        },
+        "walk_forward_status": "complete"
+      },
+      {
+        "blocker_count": 11,
+        "blockers": [
+          "daily_walk_forward_monitor_required_for_dip_buy",
+          "dip_buy_stop_and_sizing_required",
+          "falling_knife_guard_required",
+          "operator_promotion_approval_required",
+          "operator_review_required",
+          "paper_observation_not_authorized",
+          "proposal_review_required",
+          "replay_backtest_result_artifact_required",
+          "separate_dip_buy_candidate_required",
+          "strategy_version_proposal_not_authorized",
+          "walk_forward_shadow_monitor_20_trading_days_required"
+        ],
+        "candidate_family": "dip_buy",
+        "candidate_key": "pullback_dip_buy",
+        "paper_observation_allowed": false,
+        "promotion_allowed": false,
+        "status": "blocked",
+        "today_candidate_count": null,
+        "today_top": {},
+        "walk_forward_status": "artifact_summary_only"
+      },
+      {
+        "blocker_count": 10,
+        "blockers": [
+          "next_day_confirmation_rule_required",
+          "operator_promotion_approval_required",
+          "operator_review_required",
+          "paper_observation_not_authorized",
+          "proposal_review_required",
+          "replay_backtest_result_artifact_required",
+          "strategy_version_proposal_not_authorized",
+          "walk_forward_shadow_monitor_20_trading_days_required",
+          "watchlist_only_ui_lane_required",
+          "watchlist_to_signal_contract_required"
+        ],
+        "candidate_family": "preconfirm_watchlist",
+        "candidate_key": "preconfirm_watchlist",
+        "paper_observation_allowed": false,
+        "promotion_allowed": false,
+        "status": "blocked",
+        "today_candidate_count": null,
+        "today_top": {},
+        "walk_forward_status": "complete"
+      }
+    ],
+    "unavailable_reason": null
+  },
+  "strategy_version": "cpb_6157@2026-05-03"
+}

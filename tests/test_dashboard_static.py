@@ -46,6 +46,7 @@ class DashboardStaticTest(unittest.TestCase):
             "/api/next-day-decision-cockpit/",
             "/api/decision-action-log",
             "/api/ops-history",
+            "/api/shadow-strategy-snapshot",
             "/api/review-timeline",
             "/api/trade-plans",
             "/api/open-execution",
@@ -704,6 +705,42 @@ class DashboardStaticTest(unittest.TestCase):
             self.assertIn(fn_name, script)
         self.assertNotIn("POST /api/market-reviews", source)
 
+    def test_dashboard_m76_market_hierarchy_and_plan_relationship_are_visible(self) -> None:
+        source = "\n".join(
+            [
+                (DASHBOARD_DIR / "index.html").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "styles.css").read_text(encoding="utf-8"),
+            ]
+        )
+        script = (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8")
+
+        for label in [
+            'id="marketHierarchyPanel"',
+            "全市场复盘解释链",
+            "market regime -> sector -> stock -> evidence -> continuity -> next-day plan",
+            "证据 freshness",
+            "连续性判断",
+            "明日计划关系",
+            "aligned",
+            "cautious",
+            "blocked",
+            "missing",
+            "source_refs",
+        ]:
+            self.assertIn(label, source)
+        for fn_name in [
+            "function renderMarketReviewHierarchy",
+            "function marketReviewHierarchy",
+            "function marketHierarchyPlanRelationships",
+            "function marketPlanRelationshipLabel",
+            "function marketPlanRelationshipText",
+            "function continuityText",
+        ]:
+            self.assertIn(fn_name, script)
+        self.assertIn(".market-hierarchy-panel", source)
+        self.assertNotIn('apiRequest("/api/market-reviews", { method: "POST"', script)
+
     def test_dashboard_m56_strategy_hypothesis_workbench_is_read_only(self) -> None:
         source = "\n".join(
             [
@@ -777,6 +814,61 @@ class DashboardStaticTest(unittest.TestCase):
         self.assertIn("proposal_ready", source)
         self.assertNotIn("POST /api/strategy-hypotheses", source)
         self.assertNotIn('apiRequest("/api/strategy-hypotheses", { method: "POST"', script)
+
+    def test_dashboard_m80_shadow_lab_is_visible_and_read_only(self) -> None:
+        source = "\n".join(
+            [
+                (DASHBOARD_DIR / "index.html").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "styles.css").read_text(encoding="utf-8"),
+            ]
+        )
+        script = (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8")
+
+        for label in [
+            "影子实验室",
+            "Shadow strategy lab",
+            "Shadow snapshot",
+            "研究-only",
+            "候选 drill-down",
+            "Promotion blocker",
+            "Frozen CPB 对照",
+            "Walk-forward",
+            "shadow_strategy_snapshot_v1",
+            "不创建计划、不发布策略、不写 paper/live 或 timer",
+            "/api/shadow-strategy-snapshot",
+        ]:
+            self.assertIn(label, source)
+        for html_id in [
+            'id="shadowBadge"',
+            'id="shadowSnapshotDateLabel"',
+            'id="reloadShadowStrategyButton"',
+            'id="shadowSummaryPanel"',
+            'id="shadowFamilyGrid"',
+            'id="shadowWalkForwardPanel"',
+            'id="shadowBlockerPanel"',
+            'id="shadowFrozenCpbPanel"',
+            'id="shadowCandidateState"',
+            'id="shadowCandidateList"',
+            'id="shadowSafetyPanel"',
+        ]:
+            self.assertIn(html_id, source)
+        for fn_name in [
+            "function loadShadowStrategySnapshot",
+            "function renderShadowStrategyLab",
+            "function renderShadowCandidates",
+            "function openShadowCandidateDrawer",
+            "function onShadowCandidateClick",
+            "function shadowBadgeText",
+            "function findShadowCandidate",
+            "function shadowArtifactRows",
+        ]:
+            self.assertIn(fn_name, source)
+        self.assertIn("data-shadow-candidate-key", source)
+        self.assertIn("active_params_mutated", source)
+        self.assertIn("writes_trade_state", source)
+        self.assertIn("timer_mutated", source)
+        self.assertNotIn('apiRequest("/api/shadow-strategy-snapshot", { method: "POST"', script)
 
     def test_dashboard_p1_cancel_and_execution_guardrails_are_visible(self) -> None:
         source = "\n".join(

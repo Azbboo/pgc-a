@@ -13,6 +13,12 @@ from pathlib import Path
 from typing import Any
 
 from pgc_trading import __version__
+from pgc_trading.services.common import RequestContext, ServiceResult
+from pgc_trading.services.shadow_strategy_service import (
+    GetShadowStrategySnapshotRequest,
+    ShadowStrategySnapshotResult,
+    ShadowStrategyService,
+)
 from pgc_trading.storage.migrate import run_migrations
 from pgc_trading.storage.migrators.backup import backup_database
 
@@ -26,6 +32,13 @@ MARKET_REVIEW_PARITY_TABLES = [
     "market_plan_contexts",
     "strategy_hypotheses",
 ]
+DAILY_OPS_APPLY_OPERATION_TYPES = (
+    "daily_review",
+    "portfolio_generate_buy_plan",
+    "portfolio_generate_sell_plan",
+    "agent_review_daily_pick",
+    "position_exit_evaluate",
+)
 
 
 @dataclass(frozen=True)
@@ -151,6 +164,56 @@ class MarketReviewParityResult:
         }
 
 
+@dataclass(frozen=True)
+class DailyOpsStepCheck:
+    step: str
+    status: str
+    required_for_apply: bool
+    detail: str
+    count: int | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "step": self.step,
+            "status": self.status,
+            "required_for_apply": self.required_for_apply,
+            "detail": self.detail,
+            "count": self.count,
+        }
+
+
+@dataclass(frozen=True)
+class DailyOpsPreflightResult:
+    as_of_date: str
+    db_path: Path
+    account_key: str | None
+    account_id: int | None
+    include_market_review: bool
+    status: str
+    duplicate_apply_count: int
+    missing_steps: list[str] = field(default_factory=list)
+    warning_steps: list[str] = field(default_factory=list)
+    checks: list[DailyOpsStepCheck] = field(default_factory=list)
+
+    @property
+    def ok(self) -> bool:
+        return self.status == "pass"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "as_of_date": self.as_of_date,
+            "db_path": str(self.db_path),
+            "account_key": self.account_key,
+            "account_id": self.account_id,
+            "include_market_review": self.include_market_review,
+            "status": self.status,
+            "duplicate_apply_count": self.duplicate_apply_count,
+            "missing_steps": self.missing_steps,
+            "warning_steps": self.warning_steps,
+            "checks": [check.to_dict() for check in self.checks],
+        }
+
+
 def build_release_tag(
     *,
     version: str = __version__,
@@ -189,6 +252,129 @@ def run_ops_migration_step(
         applied=result.applied,
         skipped=result.skipped,
         dry_run=result.dry_run,
+    )
+
+
+def run_daily_ops_preflight(
+    db_path: Path,
+    *,
+    as_of_date: str,
+    account_key: str | None = "paper-main",
+    account_id: int | None = None,
+    include_market_review: bool = False,
+    pool_intake_summary_path: Path | None = None,
+    require_pool_intake: bool = False,
+    allow_rerun: bool = False,
+    reports_dir: Path | None = None,
+) -> DailyOpsPreflightResult:
+    """Read-only daily ops checklist for the next daily-pipeline apply run."""
+
+    path = Path(db_path)
+    checks: list[DailyOpsStepCheck] = []
+    duplicate_apply_count = 0
+    report_root = reports_dir or Path("reports")
+
+    if not path.exists():
+        checks.append(DailyOpsStepCheck("database", "blocker", True, f"database not found: {path}"))
+        return _daily_ops_result(
+            as_of_date=as_of_date,
+            db_path=path,
+            account_key=account_key,
+            account_id=account_id,
+            include_market_review=include_market_review,
+            duplicate_apply_count=0,
+            checks=checks,
+        )
+
+    checks.append(DailyOpsStepCheck("database", "pass", True, "database exists"))
+
+    try:
+        pending = _pending_migrations(path)
+    except sqlite3.Error as exc:
+        checks.append(DailyOpsStepCheck("migrations", "blocker", True, f"migration state unreadable: {exc}"))
+        return _daily_ops_result(
+            as_of_date=as_of_date,
+            db_path=path,
+            account_key=account_key,
+            account_id=account_id,
+            include_market_review=include_market_review,
+            duplicate_apply_count=0,
+            checks=checks,
+        )
+
+    if pending:
+        checks.append(
+            DailyOpsStepCheck(
+                "migrations",
+                "blocker",
+                True,
+                f"pending migrations: {','.join(pending)}",
+                count=len(pending),
+            )
+        )
+        return _daily_ops_result(
+            as_of_date=as_of_date,
+            db_path=path,
+            account_key=account_key,
+            account_id=account_id,
+            include_market_review=include_market_review,
+            duplicate_apply_count=0,
+            checks=checks,
+        )
+    checks.append(DailyOpsStepCheck("migrations", "pass", True, "migrations current", count=0))
+
+    try:
+        with sqlite3.connect(path) as conn:
+            conn.row_factory = sqlite3.Row
+            checks.extend(
+                [
+                    _daily_ops_account_check(conn, account_key=account_key, account_id=account_id),
+                    _daily_ops_trading_day_check(conn, as_of_date),
+                    _daily_ops_raw_events_check(conn, as_of_date),
+                    _daily_ops_market_data_check(conn, as_of_date),
+                    _daily_ops_market_refresh_audit_check(conn, as_of_date),
+                    _daily_ops_dry_run_audit_check(conn, as_of_date),
+                    _daily_ops_market_review_check(conn, as_of_date, include_market_review),
+                    _daily_ops_report_check(report_root, as_of_date),
+                ]
+            )
+            duplicate_apply_count = _daily_ops_duplicate_apply_count(conn, as_of_date)
+    except sqlite3.Error as exc:
+        checks.append(
+            DailyOpsStepCheck(
+                "database_read",
+                "blocker",
+                True,
+                f"daily ops preflight query failed: {exc}",
+            )
+        )
+
+    checks.append(_daily_ops_duplicate_apply_check(duplicate_apply_count, allow_rerun=allow_rerun))
+    checks.append(_daily_ops_pool_intake_check(pool_intake_summary_path, require_pool_intake=require_pool_intake))
+
+    return _daily_ops_result(
+        as_of_date=as_of_date,
+        db_path=path,
+        account_key=account_key,
+        account_id=account_id,
+        include_market_review=include_market_review,
+        duplicate_apply_count=duplicate_apply_count,
+        checks=checks,
+    )
+
+
+def run_shadow_strategy_snapshot(
+    db_path: Path,
+    *,
+    as_of_date: str | None = None,
+    reports_dir: Path | None = None,
+) -> ServiceResult[ShadowStrategySnapshotResult]:
+    """Build the read-only shadow strategy snapshot used by ops/API/CLI views."""
+
+    service = ShadowStrategyService(Path(db_path), reports_dir=reports_dir)
+    return service.get_snapshot(
+        GetShadowStrategySnapshotRequest(as_of_date=as_of_date),
+        RequestContext(request_id="ops-shadow-strategy-snapshot", dry_run=True, operator="cli", source="ops"),
     )
 
 
@@ -296,6 +482,270 @@ def run_market_review_parity_check(
         local_error=local.get("error"),
         remote_error=remote.get("error"),
     )
+
+
+def _daily_ops_result(
+    *,
+    as_of_date: str,
+    db_path: Path,
+    account_key: str | None,
+    account_id: int | None,
+    include_market_review: bool,
+    duplicate_apply_count: int,
+    checks: list[DailyOpsStepCheck],
+) -> DailyOpsPreflightResult:
+    missing_steps = [check.step for check in checks if check.required_for_apply and check.status == "blocker"]
+    warning_steps = [check.step for check in checks if check.status == "warning"]
+    return DailyOpsPreflightResult(
+        as_of_date=as_of_date,
+        db_path=db_path,
+        account_key=account_key,
+        account_id=account_id,
+        include_market_review=include_market_review,
+        status="blocked" if missing_steps else "pass",
+        duplicate_apply_count=duplicate_apply_count,
+        missing_steps=missing_steps,
+        warning_steps=warning_steps,
+        checks=checks,
+    )
+
+
+def _daily_ops_account_check(
+    conn: sqlite3.Connection,
+    *,
+    account_key: str | None,
+    account_id: int | None,
+) -> DailyOpsStepCheck:
+    if not _ops_table_exists(conn, "portfolio_accounts"):
+        return DailyOpsStepCheck("account", "blocker", True, "portfolio_accounts table missing")
+    if account_id is not None:
+        row = conn.execute(
+            "SELECT account_key, status FROM portfolio_accounts WHERE id = ?",
+            (account_id,),
+        ).fetchone()
+        ref = f"account_id={account_id}"
+    else:
+        row = conn.execute(
+            "SELECT account_key, status FROM portfolio_accounts WHERE account_key = ?",
+            (account_key,),
+        ).fetchone()
+        ref = f"account_key={account_key or 'none'}"
+    if row is None:
+        return DailyOpsStepCheck("account", "blocker", True, f"{ref} not found")
+    if row["status"] != "active":
+        return DailyOpsStepCheck("account", "blocker", True, f"{row['account_key']} status={row['status']}")
+    return DailyOpsStepCheck("account", "pass", True, f"{row['account_key']} active")
+
+
+def _daily_ops_trading_day_check(conn: sqlite3.Connection, as_of_date: str) -> DailyOpsStepCheck:
+    if not _ops_table_exists(conn, "trade_calendar"):
+        return DailyOpsStepCheck("trading_day", "blocker", True, "trade_calendar table missing")
+    row = conn.execute(
+        "SELECT is_open FROM trade_calendar WHERE cal_date = ? ORDER BY exchange LIMIT 1",
+        (as_of_date,),
+    ).fetchone()
+    if row is None:
+        return DailyOpsStepCheck("trading_day", "blocker", True, f"{as_of_date} missing from trade_calendar")
+    if int(row["is_open"]) != 1:
+        return DailyOpsStepCheck("trading_day", "blocker", True, f"{as_of_date} is not an open trading day")
+    return DailyOpsStepCheck("trading_day", "pass", True, f"{as_of_date} is an open trading day")
+
+
+def _daily_ops_raw_events_check(conn: sqlite3.Connection, as_of_date: str) -> DailyOpsStepCheck:
+    if not _ops_table_exists(conn, "raw_events"):
+        return DailyOpsStepCheck("raw_events", "blocker", True, "raw_events table missing")
+    count = int(
+        conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM raw_events
+            WHERE entry_date <= ?
+              AND COALESCE(is_valid, 1) = 1
+            """,
+            (as_of_date,),
+        ).fetchone()[0]
+    )
+    if count <= 0:
+        return DailyOpsStepCheck("raw_events", "blocker", True, "no valid raw events available", count=0)
+    return DailyOpsStepCheck("raw_events", "pass", True, f"{count} valid raw event(s) available", count=count)
+
+
+def _daily_ops_market_data_check(conn: sqlite3.Connection, as_of_date: str) -> DailyOpsStepCheck:
+    if not _ops_table_exists(conn, "market_bars"):
+        return DailyOpsStepCheck("market_data", "blocker", True, "market_bars table missing")
+    count = int(conn.execute("SELECT COUNT(*) FROM market_bars WHERE trade_date = ?", (as_of_date,)).fetchone()[0])
+    if count <= 0:
+        return DailyOpsStepCheck("market_data", "blocker", True, f"market_bars missing for {as_of_date}", count=0)
+    return DailyOpsStepCheck("market_data", "pass", True, f"{count} market_bars row(s) for {as_of_date}", count=count)
+
+
+def _daily_ops_market_refresh_audit_check(conn: sqlite3.Connection, as_of_date: str) -> DailyOpsStepCheck:
+    if not _ops_table_exists(conn, "market_fetch_runs"):
+        return DailyOpsStepCheck("market_refresh_audit", "warning", False, "market_fetch_runs table missing")
+    row = conn.execute(
+        """
+        SELECT status, ts_code_count
+        FROM market_fetch_runs
+        WHERE end_date >= ?
+        ORDER BY end_date DESC, id DESC
+        LIMIT 1
+        """,
+        (as_of_date,),
+    ).fetchone()
+    if row is None:
+        return DailyOpsStepCheck(
+            "market_refresh_audit",
+            "warning",
+            False,
+            f"no market_fetch_runs audit row covers {as_of_date}",
+        )
+    status = row["status"]
+    count = int(row["ts_code_count"] or 0)
+    if status not in {"completed", "partial_success"}:
+        return DailyOpsStepCheck("market_refresh_audit", "warning", False, f"latest market refresh status={status}", count=count)
+    return DailyOpsStepCheck("market_refresh_audit", "pass", False, f"latest market refresh status={status}", count=count)
+
+
+def _daily_ops_dry_run_audit_check(conn: sqlite3.Connection, as_of_date: str) -> DailyOpsStepCheck:
+    count = _daily_ops_pipeline_dry_run_count(conn, as_of_date)
+    if count <= 0:
+        return DailyOpsStepCheck(
+            "daily_pipeline_dry_run",
+            "warning",
+            False,
+            f"no previous daily-pipeline dry-run audit found for {as_of_date}",
+            count=0,
+        )
+    return DailyOpsStepCheck("daily_pipeline_dry_run", "pass", False, f"{count} daily-pipeline dry-run audit row(s) found", count=count)
+
+
+def _daily_ops_market_review_check(
+    conn: sqlite3.Connection,
+    as_of_date: str,
+    include_market_review: bool,
+) -> DailyOpsStepCheck:
+    if not include_market_review:
+        return DailyOpsStepCheck("market_review", "pass", False, "not requested")
+    if not _ops_table_exists(conn, "market_review_runs"):
+        return DailyOpsStepCheck("market_review", "warning", False, "market_review_runs table missing")
+    row = conn.execute(
+        "SELECT status FROM market_review_runs WHERE as_of_date = ? ORDER BY id DESC LIMIT 1",
+        (as_of_date,),
+    ).fetchone()
+    if row is None:
+        return DailyOpsStepCheck(
+            "market_review",
+            "warning",
+            False,
+            f"no completed market review yet for {as_of_date}; daily-pipeline apply can create it",
+        )
+    status = "pass" if row["status"] == "completed" else "warning"
+    return DailyOpsStepCheck("market_review", status, False, f"market_review_runs status={row['status']}")
+
+
+def _daily_ops_report_check(reports_dir: Path, as_of_date: str) -> DailyOpsStepCheck:
+    markdown = reports_dir / f"daily_review_{as_of_date}.md"
+    payload = reports_dir / f"daily_review_{as_of_date}.json"
+    if markdown.exists() and payload.exists():
+        return DailyOpsStepCheck("report_refresh", "pass", False, "daily report markdown/json already exist")
+    missing = [str(path) for path in (markdown, payload) if not path.exists()]
+    return DailyOpsStepCheck("report_refresh", "warning", False, f"report file(s) pending refresh: {','.join(missing)}")
+
+
+def _daily_ops_duplicate_apply_check(duplicate_apply_count: int, *, allow_rerun: bool) -> DailyOpsStepCheck:
+    if duplicate_apply_count <= 0:
+        return DailyOpsStepCheck("duplicate_apply", "pass", True, "no completed non-dry daily apply writes found", count=0)
+    if allow_rerun:
+        return DailyOpsStepCheck(
+            "duplicate_apply",
+            "warning",
+            False,
+            "completed non-dry daily apply writes found; allow_rerun acknowledged",
+            count=duplicate_apply_count,
+        )
+    return DailyOpsStepCheck(
+        "duplicate_apply",
+        "blocker",
+        True,
+        "completed non-dry daily apply writes already exist; review before rerun",
+        count=duplicate_apply_count,
+    )
+
+
+def _daily_ops_pool_intake_check(
+    pool_intake_summary_path: Path | None,
+    *,
+    require_pool_intake: bool,
+) -> DailyOpsStepCheck:
+    if pool_intake_summary_path is None:
+        status = "blocker" if require_pool_intake else "warning"
+        return DailyOpsStepCheck("pool_intake", status, require_pool_intake, "pool intake summary not provided")
+    path = Path(pool_intake_summary_path)
+    if not path.exists():
+        status = "blocker" if require_pool_intake else "warning"
+        return DailyOpsStepCheck("pool_intake", status, require_pool_intake, f"pool intake summary not found: {path}")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return DailyOpsStepCheck("pool_intake", "blocker", True, f"pool intake summary unreadable: {exc}")
+    invalid_count = int(payload.get("invalid_count") or 0)
+    added_count = int(payload.get("added_count") or 0)
+    duplicate_count = int(payload.get("duplicate_count") or 0)
+    mode = str(payload.get("mode") or "unknown")
+    detail = f"mode={mode} added={added_count} duplicate={duplicate_count} invalid={invalid_count}"
+    if invalid_count:
+        return DailyOpsStepCheck("pool_intake", "blocker", True, detail, count=added_count)
+    if require_pool_intake and mode != "apply":
+        return DailyOpsStepCheck(
+            "pool_intake",
+            "blocker",
+            True,
+            f"{detail}; apply summary required before daily-pipeline apply",
+            count=added_count,
+        )
+    return DailyOpsStepCheck("pool_intake", "pass", require_pool_intake, detail, count=added_count)
+
+
+def _daily_ops_pipeline_dry_run_count(conn: sqlite3.Connection, as_of_date: str) -> int:
+    if not _ops_table_exists(conn, "operation_requests"):
+        return 0
+    rows = conn.execute(
+        """
+        SELECT request_json
+        FROM operation_requests
+        WHERE as_of_date = ?
+          AND status IN ('success', 'partial_success', 'skipped')
+          AND idempotency_key LIKE 'daily-pipeline:%'
+        """,
+        (as_of_date,),
+    ).fetchall()
+    return sum(1 for row in rows if _loads_json_object(row["request_json"]).get("dry_run") is True)
+
+
+def _daily_ops_duplicate_apply_count(conn: sqlite3.Connection, as_of_date: str) -> int:
+    if not _ops_table_exists(conn, "operation_requests"):
+        return 0
+    rows = conn.execute(
+        f"""
+        SELECT request_json
+        FROM operation_requests
+        WHERE as_of_date = ?
+          AND status IN ('success', 'partial_success', 'skipped')
+          AND operation_type IN ({','.join('?' for _ in DAILY_OPS_APPLY_OPERATION_TYPES)})
+        """,
+        (as_of_date, *DAILY_OPS_APPLY_OPERATION_TYPES),
+    ).fetchall()
+    return sum(1 for row in rows if _loads_json_object(row["request_json"]).get("dry_run") is False)
+
+
+def _loads_json_object(value: str | None) -> dict[str, Any]:
+    if not value:
+        return {}
+    try:
+        decoded = json.loads(value)
+    except json.JSONDecodeError:
+        return {}
+    return decoded if isinstance(decoded, dict) else {}
 
 
 def _read_applied_migrations(db_path: Path) -> list[str]:

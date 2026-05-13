@@ -4,8 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>PGC 操作台</title>
-    <link rel="stylesheet" href="/dashboard/assets/styles.css?v=20260512-m70-action-log-1" />
-    <script defer src="/dashboard/assets/app.js?v=20260512-m70-action-log-1"></script>
+    <link rel="stylesheet" href="/dashboard/assets/styles.css?v=20260513-m82-shadow-lab-1" />
+    <script defer src="/dashboard/assets/app.js?v=20260513-m82-shadow-lab-1"></script>
   </head>
   <body>
     <div class="app-shell">
@@ -67,6 +67,13 @@
             </span>
             <span>假设评估</span>
             <b id="hypothesesBadge">0</b>
+          </button>
+          <button class="nav-item" type="button" data-page-button="shadow">
+            <span class="nav-glyph">
+              <img src="/dashboard/assets/icon-connect.svg" alt="" aria-hidden="true" />
+            </span>
+            <span>影子实验室</span>
+            <b id="shadowBadge">0</b>
           </button>
           <button class="nav-item" type="button" data-page-button="plans">
             <span class="nav-glyph">
@@ -539,6 +546,7 @@
           <section class="market-history-strip" id="marketHistoryStrip" aria-label="全市场历史"></section>
           <section class="market-diagnostics" id="marketDiagnosticsPanel" aria-live="polite"></section>
           <section class="market-regime-strip" id="marketRegimeStrip" aria-live="polite"></section>
+          <section class="market-hierarchy-panel" id="marketHierarchyPanel" aria-live="polite"></section>
 
           <div class="market-layout">
             <section class="panel market-sector-panel">
@@ -652,6 +660,76 @@
               </div>
             </div>
             <div id="strategyHypothesisWorkbenchList" class="hypothesis-workbench-list"></div>
+          </section>
+        </section>
+
+        <section class="page" data-page="shadow">
+          <div class="page-heading">
+            <div>
+              <h1>影子实验室</h1>
+              <p>Shadow strategy lab：只读展示候选族群、walk-forward、promotion blocker 和 frozen CPB 对照；研究-only，不发布策略、不写交易计划。</p>
+            </div>
+            <div class="toolbar">
+              <span id="shadowSnapshotDateLabel" class="review-scope-chip">Shadow snapshot -</span>
+              <button type="button" id="reloadShadowStrategyButton">刷新影子快照</button>
+            </div>
+          </div>
+
+          <section class="shadow-summary-panel" id="shadowSummaryPanel" aria-live="polite"></section>
+
+          <div class="shadow-lab-grid">
+            <section class="panel">
+              <div class="panel-heading">
+                <h2>候选族群</h2>
+                <span class="chip chip-agent">artifact-only</span>
+              </div>
+              <div id="shadowFamilyGrid" class="shadow-family-grid"></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <h2>Walk-forward</h2>
+                <span class="chip chip-neutral">20 日观察</span>
+              </div>
+              <div id="shadowWalkForwardPanel" class="shadow-walk-forward-panel"></div>
+            </section>
+          </div>
+
+          <div class="shadow-lab-grid">
+            <section class="panel">
+              <div class="panel-heading">
+                <h2>Promotion blocker</h2>
+                <span class="chip chip-red">默认阻断</span>
+              </div>
+              <div id="shadowBlockerPanel" class="shadow-blocker-panel"></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <h2>Frozen CPB 对照</h2>
+                <span class="chip chip-neutral">active CPB 不变</span>
+              </div>
+              <div id="shadowFrozenCpbPanel" class="shadow-frozen-panel"></div>
+            </section>
+          </div>
+
+          <section class="panel shadow-candidate-panel">
+            <div class="panel-heading">
+              <h2>候选 drill-down</h2>
+              <div class="panel-heading-actions">
+                <span id="shadowCandidateState" class="muted">-</span>
+                <span class="chip chip-neutral">无写入动作</span>
+              </div>
+            </div>
+            <div id="shadowCandidateList" class="shadow-candidate-list"></div>
+          </section>
+
+          <section class="panel shadow-safety-panel">
+            <div class="panel-heading">
+              <h2>安全边界</h2>
+              <span class="chip chip-agent">read-only</span>
+            </div>
+            <div id="shadowSafetyPanel" class="shadow-safety-grid"></div>
           </section>
         </section>
 

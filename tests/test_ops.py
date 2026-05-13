@@ -2,16 +2,20 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import json
 from pathlib import Path
 
 from pgc_trading.ops import (
     build_release_tag,
+    run_daily_ops_preflight,
     run_market_review_parity_check,
     run_ops_health_check,
     run_ops_migration_step,
+    run_shadow_strategy_snapshot,
 )
 from pgc_trading.storage.migrate import discover_migrations, run_migrations
 from pgc_trading.storage.database import connect
+from pgc_trading.storage.seed import seed_reference_data
 
 
 class OpsTest(unittest.TestCase):
@@ -68,6 +72,99 @@ class OpsTest(unittest.TestCase):
             self.assertIsNone(result.backup_path)
             self.assertTrue(result.dry_run)
             self.assertFalse(db_path.exists())
+
+    def test_daily_ops_preflight_names_missing_steps_before_apply(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc.db"
+            run_migrations(db_path)
+            seed_reference_data(db_path)
+            with connect(db_path) as conn:
+                conn.execute(
+                    """
+                    INSERT INTO trade_calendar (exchange, cal_date, is_open, pretrade_date)
+                    VALUES ('SSE', '20260512', 1, '20260511')
+                    """
+                )
+
+            result = run_daily_ops_preflight(db_path, as_of_date="20260512", include_market_review=True)
+
+            self.assertEqual(result.status, "blocked")
+            self.assertFalse(result.ok)
+            self.assertIn("raw_events", result.missing_steps)
+            self.assertIn("market_data", result.missing_steps)
+            self.assertEqual(_step_status(result, "trading_day"), "pass")
+            self.assertEqual(_step_status(result, "market_review"), "warning")
+
+    def test_daily_ops_preflight_blocks_duplicate_apply_writes_unless_allowed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc.db"
+            run_migrations(db_path)
+            seed_reference_data(db_path)
+            _seed_daily_preflight_ready_rows(db_path)
+            with connect(db_path) as conn:
+                conn.execute(
+                    """
+                    INSERT INTO operation_requests
+                      (idempotency_key, operation_type, as_of_date, status, request_json, operator)
+                    VALUES
+                      ('daily-pipeline:paper-main:20260512:cpb:paper:daily-close',
+                       'daily_review', '20260512', 'success', '{"dry_run": false}', 'tester')
+                    """
+                )
+
+            blocked = run_daily_ops_preflight(db_path, as_of_date="20260512")
+            allowed = run_daily_ops_preflight(db_path, as_of_date="20260512", allow_rerun=True)
+
+            self.assertEqual(blocked.status, "blocked")
+            self.assertEqual(blocked.duplicate_apply_count, 1)
+            self.assertIn("duplicate_apply", blocked.missing_steps)
+            self.assertEqual(allowed.status, "pass")
+            self.assertEqual(_step_status(allowed, "duplicate_apply"), "warning")
+
+    def test_daily_ops_preflight_requires_apply_pool_intake_summary_when_requested(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "pgc.db"
+            summary = root / "intake.json"
+            run_migrations(db_path)
+            seed_reference_data(db_path)
+            _seed_daily_preflight_ready_rows(db_path)
+            summary.write_text(
+                '{"mode":"dry_run","added_count":1,"duplicate_count":0,"invalid_count":0}\n',
+                encoding="utf-8",
+            )
+
+            result = run_daily_ops_preflight(
+                db_path,
+                as_of_date="20260512",
+                pool_intake_summary_path=summary,
+                require_pool_intake=True,
+            )
+
+            self.assertEqual(result.status, "blocked")
+            self.assertIn("pool_intake", result.missing_steps)
+            self.assertIn("apply summary required", _step_detail(result, "pool_intake"))
+
+    def test_shadow_strategy_snapshot_helper_routes_read_only_feed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "pgc.db"
+            reports_dir = root / "reports"
+            reports_dir.mkdir()
+            run_migrations(db_path)
+            _seed_shadow_snapshot_artifacts(reports_dir)
+
+            result = run_shadow_strategy_snapshot(db_path, as_of_date="20260512", reports_dir=reports_dir)
+
+            self.assertTrue(result.ok)
+            self.assertEqual(result.request_id, "ops-shadow-strategy-snapshot")
+            assert result.data is not None
+            self.assertEqual(result.data.as_of_date, "20260512")
+            self.assertTrue(result.data.read_only)
+            self.assertTrue(result.data.artifact_only)
+            self.assertEqual(result.data.counts["candidate_count"], 1)
+            self.assertEqual(result.data.blocker_counts["operator_review_required"], 1)
+            self.assertFalse(result.data.safety["writes_trade_state"])
 
     def test_market_review_parity_detects_matching_and_mismatched_tables(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -132,6 +229,108 @@ def _seed_market_review_rows(db_path: Path) -> None:
             VALUES ('20260508', 'breadth', 'Breadth hypothesis', 'Reviewed.', '{}', '{}', 'testing')
             """
         )
+
+
+def _seed_daily_preflight_ready_rows(db_path: Path) -> None:
+    with connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO trade_calendar (exchange, cal_date, is_open, pretrade_date)
+            VALUES ('SSE', '20260512', 1, '20260511')
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO raw_events
+              (ts_code, code, name, entry_date, entry_time, entry_price, source)
+            VALUES
+              ('000001.SZ', '000001', 'Ready Candidate', '20260512', '09:30', 10.0, 'operator_screenshot')
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO market_bars
+              (ts_code, trade_date, open, high, low, close, vol, amount)
+            VALUES
+              ('000001.SZ', '20260512', 10.0, 10.5, 9.9, 10.2, 100000, 1000.0)
+            """
+        )
+
+
+def _seed_shadow_snapshot_artifacts(reports_dir: Path) -> None:
+    monitor = {
+        "review_date": "20260512",
+        "next_trade_date": "20260513",
+        "today_candidate_count": 1,
+        "walk_forward_progress": {"status": "partial", "required_days": 20, "evaluable_signal_days": 5},
+        "candidate_monitors": [
+            {
+                "candidate_key": "trend_extension_shadow",
+                "candidate_family": "shadow_bucket",
+                "walk_forward_progress": {"status": "partial", "required_days": 20, "days": 5},
+                "promotion_gates": {
+                    "paper_observation_gate": {
+                        "status": "blocked",
+                        "allowed": False,
+                        "artifact_only": True,
+                        "blockers": ["operator_review_required"],
+                    },
+                    "strategy_version_gate": {
+                        "status": "blocked",
+                        "allowed": False,
+                        "artifact_only": True,
+                        "blockers": ["proposal_review_required"],
+                    },
+                },
+            }
+        ],
+    }
+    preflight = {
+        "review_date": "20260512",
+        "next_trade_date": "20260513",
+        "status": "blocked",
+        "candidate_count": 1,
+        "candidate_gates": [
+            {
+                "candidate_key": "trend_extension_shadow",
+                "candidate_family": "shadow_bucket",
+                "status": "blocked",
+                "paper_observation_gate": {
+                    "status": "blocked",
+                    "allowed": False,
+                    "artifact_only": True,
+                    "blockers": ["operator_review_required"],
+                },
+                "strategy_version_gate": {
+                    "status": "blocked",
+                    "allowed": False,
+                    "artifact_only": True,
+                    "blockers": ["proposal_review_required"],
+                },
+            }
+        ],
+        "blocker_counts": {"operator_review_required": 1, "proposal_review_required": 1},
+        "safety": {"artifact_only": True, "writes_trade_state": False, "promotion_allowed": False},
+    }
+    (reports_dir / "strategy_shadow_monitor_20260512.json").write_text(json.dumps(monitor), encoding="utf-8")
+    (reports_dir / "strategy_shadow_promotion_preflight_20260512.json").write_text(
+        json.dumps(preflight),
+        encoding="utf-8",
+    )
+
+
+def _step_status(result, step: str) -> str | None:
+    for check in result.checks:
+        if check.step == step:
+            return check.status
+    return None
+
+
+def _step_detail(result, step: str) -> str:
+    for check in result.checks:
+        if check.step == step:
+            return check.detail
+    return ""
 
 
 if __name__ == "__main__":

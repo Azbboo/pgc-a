@@ -69,6 +69,8 @@ const state = {
   strategyHypothesisAsOfDate: localStorage.getItem("pgc.dashboard.strategyHypothesisAsOfDate") || "",
   strategyHypothesisWorkbench: null,
   strategyHypothesisWorkbenchEnvelope: null,
+  shadowStrategySnapshot: null,
+  shadowStrategySnapshotEnvelope: null,
   tradePlans: [],
   positions: [],
   qualityEvents: [],
@@ -159,6 +161,7 @@ function cacheElements() {
     "marketHistoryStrip",
     "marketDiagnosticsPanel",
     "marketRegimeStrip",
+    "marketHierarchyPanel",
     "marketSectorState",
     "marketSectorBody",
     "marketPlanContextPanel",
@@ -177,6 +180,17 @@ function cacheElements() {
     "strategyHypothesisSafetyPanel",
     "strategyHypothesisWorkbenchState",
     "strategyHypothesisWorkbenchList",
+    "shadowBadge",
+    "reloadShadowStrategyButton",
+    "shadowSnapshotDateLabel",
+    "shadowSummaryPanel",
+    "shadowFamilyGrid",
+    "shadowWalkForwardPanel",
+    "shadowBlockerPanel",
+    "shadowFrozenCpbPanel",
+    "shadowCandidateState",
+    "shadowCandidateList",
+    "shadowSafetyPanel",
     "plansBadge",
     "recordBadge",
     "positionsBadge",
@@ -316,6 +330,8 @@ function bindEvents() {
   els.strategyHypothesisClearDateButton.addEventListener("click", clearStrategyHypothesisDateFilter);
   els.strategyHypothesisWorkbenchList.addEventListener("click", onStrategyHypothesisWorkbenchClick);
   els.strategyHypothesisQueue.addEventListener("click", onStrategyHypothesisWorkbenchClick);
+  els.reloadShadowStrategyButton.addEventListener("click", loadShadowStrategySnapshotAndRender);
+  els.shadowCandidateList.addEventListener("click", onShadowCandidateClick);
   els.reloadExecutionButton.addEventListener("click", refreshAll);
   els.executionEvaluateExitsButton.addEventListener("click", evaluateExits);
   els.publishReviewPlanButton.addEventListener("click", () => {
@@ -551,6 +567,7 @@ async function refreshAll(options = {}) {
       loadPaperAcceptanceHistory(),
       loadOpsHistory(),
       loadStrategyHypothesisWorkbench(),
+      loadShadowStrategySnapshot(),
     ]);
     renderAll();
   } catch (error) {
@@ -778,6 +795,16 @@ async function loadStrategyHypothesisWorkbench() {
   state.strategyHypothesisWorkbench = envelope.data || null;
 }
 
+async function loadShadowStrategySnapshot() {
+  const params = new URLSearchParams();
+  params.set("request_id", requestId("shadow-strategy"));
+  const asOfDate = normalizeDate(state.asOfDate);
+  if (/^\d{8}$/.test(asOfDate)) params.set("as_of_date", asOfDate);
+  const envelope = await apiRequest(`/api/shadow-strategy-snapshot?${params.toString()}`);
+  state.shadowStrategySnapshotEnvelope = envelope;
+  state.shadowStrategySnapshot = envelope.data || null;
+}
+
 function latestReviewHistoryDate() {
   const dates = reviewHistoryDates();
   return dates.length ? dates[dates.length - 1] : "";
@@ -914,6 +941,14 @@ async function loadStrategyHypothesisWorkbenchAndRender() {
   await runWithNotice(async () => {
     await loadStrategyHypothesisWorkbench();
     renderStrategyHypothesisWorkbench();
+    renderBadges();
+  });
+}
+
+async function loadShadowStrategySnapshotAndRender() {
+  await runWithNotice(async () => {
+    await loadShadowStrategySnapshot();
+    renderShadowStrategyLab();
     renderBadges();
   });
 }
@@ -1215,6 +1250,7 @@ function renderAll() {
   renderOpsHistory();
   renderMarketReview();
   renderStrategyHypothesisWorkbench();
+  renderShadowStrategyLab();
   renderPlans();
   renderRecordQueue();
   renderPositions();
@@ -2726,6 +2762,7 @@ function renderMarketReview() {
   renderMarketScopeMarkers();
   renderMarketDiagnostics();
   renderMarketRegimeStrip();
+  renderMarketReviewHierarchy();
   renderMarketSectors();
   renderMarketPlanContext();
   renderMarketSentimentSummary();
@@ -2861,6 +2898,262 @@ function renderStrategyHypothesisCard(evaluation) {
       ${strategyProposalReviewButtons(evaluation)}
     </article>
   `;
+}
+
+function renderShadowStrategyLab() {
+  const snapshot = shadowSnapshotData();
+  const candidates = shadowCandidates();
+  const latest = snapshot.latest || {};
+  const monitorDate = latest.monitor_review_date ? `monitor ${displayDate(latest.monitor_review_date)}` : "monitor -";
+  const preflightDate = latest.promotion_preflight_review_date ? `preflight ${displayDate(latest.promotion_preflight_review_date)}` : "preflight -";
+  els.shadowSnapshotDateLabel.textContent = `${snapshot.as_of_date ? `Shadow snapshot ${displayDate(snapshot.as_of_date)}` : "Shadow snapshot -"} · ${monitorDate} · ${preflightDate}`;
+  renderShadowSummaryPanel(snapshot, candidates);
+  renderShadowFamilies(snapshot.candidate_families || {});
+  renderShadowWalkForward(snapshot.walk_forward || {}, candidates);
+  renderShadowBlockers(snapshot.blocker_counts || {});
+  renderShadowFrozenCpb(snapshot.frozen_cpb_comparison || {});
+  renderShadowCandidates(candidates);
+  renderShadowSafety(snapshot);
+}
+
+function renderShadowSummaryPanel(snapshot, candidates) {
+  const counts = snapshot.counts || {};
+  const summary = snapshot.summary || {};
+  const safety = snapshot.safety || {};
+  const errors = errorMessages(state.shadowStrategySnapshotEnvelope || {});
+  const note = errors.length
+    ? `<p class="market-readonly-note">影子实验室读取到异常：${escapeHtml(errors.join("；"))}。该页面仍保持只读，不写 active strategy、交易计划、成交、持仓、paper/live 行为或 timer。</p>`
+    : `<p class="market-readonly-note">影子实验室是研究-only visibility surface：展示 shadow_strategy_snapshot_v1，不提供 promotion、发布计划、成交录入或 timer 操作。</p>`;
+  els.shadowSummaryPanel.innerHTML = `
+    ${note}
+    ${actionMetrics([
+      ["状态", shadowStatusText(snapshot.status || summary.status)],
+      ["候选数", integerText(counts.candidate_count ?? candidates.length)],
+      ["blocked candidates", integerText(counts.blocked_candidate_count || 0)],
+      ["distinct blockers", integerText(counts.distinct_blocker_count || 0)],
+      ["shadow hypotheses", integerText(counts.shadow_hypothesis_count || 0)],
+      ["artifact-only", safety.artifact_only || snapshot.artifact_only ? "是" : "-"],
+      ["active CPB", snapshot.active_cpb_integrity?.status || summary.active_cpb_integrity_status || "-"],
+      ["API", "/api/shadow-strategy-snapshot"],
+    ])}
+  `;
+}
+
+function renderShadowFamilies(families) {
+  const entries = Object.entries(families || {}).sort((a, b) => Number(b[1]) - Number(a[1]));
+  els.shadowFamilyGrid.innerHTML = entries.length
+    ? entries.map(([family, count]) => `
+      <article class="shadow-family-card">
+        <span class="market-regime-kicker">${escapeHtml(family)}</span>
+        <strong>${integerText(count)}</strong>
+        <p>${escapeHtml(shadowFamilyText(family))}</p>
+      </article>
+    `).join("")
+    : emptyState("暂无 shadow candidate family 数据。");
+}
+
+function renderShadowWalkForward(walkForward, candidates) {
+  const byCandidate = Array.isArray(walkForward.by_candidate) ? walkForward.by_candidate : [];
+  const summaryRows = Array.isArray(walkForward.summary) ? walkForward.summary : [];
+  const rows = byCandidate.length ? byCandidate : summaryRows;
+  els.shadowWalkForwardPanel.innerHTML = `
+    ${actionMetrics([
+      ["状态", shadowWalkForwardStatusText(walkForward.status)],
+      ["要求天数", integerText(walkForward.required_days)],
+      ["已评估天数", integerText(walkForward.evaluable_signal_days)],
+      ["起始信号日", displayDate(walkForward.start_signal_date)],
+      ["最新信号日", displayDate(walkForward.latest_signal_date)],
+      ["最新 outcome", displayDate(walkForward.latest_outcome_date)],
+    ])}
+    <div class="shadow-mini-list">
+      ${rows.length ? rows.map((item) => shadowWalkForwardItem(item, candidates)).join("") : emptyState("暂无 walk-forward candidate 进度。")}
+    </div>
+  `;
+}
+
+function shadowWalkForwardItem(item, candidates) {
+  const candidate = candidates.find((entry) => entry.candidate_key === item.candidate_key) || {};
+  const walk = candidate.walk_forward || item || {};
+  return `
+    <article class="shadow-mini-card">
+      <div>
+        <strong>${escapeHtml(item.candidate_key || item.bucket || "-")}</strong>
+        <span>${escapeHtml(shadowProgressText(walk))}</span>
+      </div>
+      <div class="hypothesis-chip-stack">
+        ${chipHtml(shadowWalkForwardStatusText(walk.status || item.status), shadowWalkForwardStatusClass(walk.status || item.status))}
+        ${chipHtml(`T+1 close ${shadowPctText(walk.t1_close_mean_pct)}`, "chip-neutral")}
+        ${chipHtml(`win ${shadowPctText(walk.t1_close_win_rate_pct)}`, "chip-neutral")}
+      </div>
+    </article>
+  `;
+}
+
+function renderShadowBlockers(blockerCounts) {
+  const entries = Object.entries(blockerCounts || {}).sort((a, b) => Number(b[1]) - Number(a[1]) || a[0].localeCompare(b[0]));
+  els.shadowBlockerPanel.innerHTML = entries.length
+    ? `
+      <div class="shadow-blocker-list">
+        ${entries.map(([blocker, count]) => `
+          <div class="shadow-blocker-row">
+            <span>${escapeHtml(blocker)}</span>
+            ${chipHtml(integerText(count), "chip-red")}
+          </div>
+        `).join("")}
+      </div>
+    `
+    : emptyState("暂无 blocker 统计。");
+}
+
+function renderShadowFrozenCpb(comparison) {
+  const baseline = comparison.baseline || {};
+  const rows = Array.isArray(comparison.by_candidate) ? comparison.by_candidate : [];
+  els.shadowFrozenCpbPanel.innerHTML = `
+    ${actionMetrics([
+      ["baseline", baseline.strategy_version || baseline.baseline_label || baseline.label || "active_cpb_persisted_picks"],
+      ["baseline days", integerText(baseline.days || baseline.baseline_days)],
+      ["candidate comparisons", integerText(rows.length)],
+      ["active CPB", shadowSnapshotData().active_cpb_integrity?.status || "unchanged"],
+    ])}
+    <div class="shadow-mini-list">
+      ${rows.length ? rows.map(shadowFrozenComparisonItem).join("") : emptyState("暂无 frozen CPB 对照数据。")}
+    </div>
+  `;
+}
+
+function shadowFrozenComparisonItem(item) {
+  const comparison = item.comparison || {};
+  return `
+    <article class="shadow-mini-card">
+      <div>
+        <strong>${escapeHtml(item.candidate_key || "-")}</strong>
+        <span>${escapeHtml(comparison.baseline_label || "frozen CPB baseline")}</span>
+      </div>
+      <div class="hypothesis-chip-stack">
+        ${chipHtml(shadowStatusText(comparison.status), shadowStatusClass(comparison.status))}
+        ${chipHtml(`T+1 mean ${shadowDeltaText(comparison.t1_close_mean_delta_pct)}`, "chip-neutral")}
+        ${chipHtml(`win ${shadowDeltaText(comparison.t1_close_win_rate_delta_pct)}`, "chip-neutral")}
+      </div>
+    </article>
+  `;
+}
+
+function renderShadowCandidates(candidates) {
+  const sorted = [...candidates].sort(shadowCandidateSort);
+  els.shadowCandidateState.textContent = sorted.length ? `${sorted.length} 个影子候选` : "暂无候选";
+  els.shadowCandidateList.innerHTML = sorted.length
+    ? sorted.map(shadowCandidateCard).join("")
+    : emptyState(errorMessages(state.shadowStrategySnapshotEnvelope || {}).join("；") || "暂无 shadow candidate snapshot。");
+}
+
+function shadowCandidateCard(candidate) {
+  const walk = candidate.walk_forward || {};
+  const comparison = candidate.comparison_vs_frozen_cpb || {};
+  const linked = candidate.linked_hypothesis || {};
+  return `
+    <article class="shadow-candidate-card">
+      <div class="shadow-candidate-card__head">
+        <div>
+          <span class="market-regime-kicker">${escapeHtml(candidate.candidate_family || "shadow_candidate")}</span>
+          <strong>${escapeHtml(candidate.candidate_key || "-")}</strong>
+        </div>
+        <div class="hypothesis-chip-stack">
+          ${chipHtml(shadowStatusText(candidate.status), shadowStatusClass(candidate.status))}
+          ${chipHtml(candidate.artifact_only ? "artifact-only" : "needs review", candidate.artifact_only ? "chip-agent" : "chip-amber")}
+        </div>
+      </div>
+      <p>Top candidate: ${escapeHtml(shadowTopCandidateText(candidate.today_top))}；hypothesis ${escapeHtml(linked.hypothesis_id || "-")}；promotion 默认阻断。</p>
+      <div class="hypothesis-gate-strip">
+        ${chipHtml(shadowWalkForwardStatusText(candidate.walk_forward_status || walk.status), shadowWalkForwardStatusClass(candidate.walk_forward_status || walk.status))}
+        ${chipHtml(`${shadowProgressText(walk)}`, "chip-neutral")}
+        ${chipHtml(`${integerText(candidate.blocker_count || 0)} blockers`, candidate.blocker_count ? "chip-red" : "chip-green")}
+        ${chipHtml(`paper ${shadowGateStatusText(candidate.paper_observation_gate?.status)}`, shadowStatusClass(candidate.paper_observation_gate?.status))}
+        ${chipHtml(`strategy ${shadowGateStatusText(candidate.strategy_version_gate?.status)}`, shadowStatusClass(candidate.strategy_version_gate?.status))}
+        ${chipHtml(`T+1 mean ${shadowDeltaText(comparison.t1_close_mean_delta_pct)}`, "chip-neutral")}
+      </div>
+      <div class="row-actions">
+        <button type="button" data-shadow-candidate-key="${escapeHtml(candidate.candidate_key)}">打开候选详情</button>
+      </div>
+    </article>
+  `;
+}
+
+function renderShadowSafety(snapshot) {
+  const safety = snapshot.safety || {};
+  const integrity = snapshot.active_cpb_integrity || {};
+  els.shadowSafetyPanel.innerHTML = `
+    ${actionMetrics([
+      ["read_only", safety.read_only ? "是" : "-"],
+      ["artifact_only", safety.artifact_only ? "是" : "-"],
+      ["visibility_layer_writes", safety.visibility_layer_writes ? "是" : "否"],
+      ["active_params_mutated", safety.active_params_mutated ? "是" : "否"],
+      ["wrote_strategy_version", safety.wrote_strategy_version ? "是" : "否"],
+      ["writes_trade_state", safety.writes_trade_state ? "是" : "否"],
+      ["paper/live 行为", safety.writes_paper_live_behavior ? "会改变" : "不改变"],
+      ["timer_mutated", safety.timer_mutated ? "是" : "否"],
+      ["promotion_allowed", safety.promotion_allowed ? "是" : "否"],
+      ["paper_observation_allowed", safety.paper_observation_allowed ? "是" : "否"],
+      ["active CPB integrity", integrity.status || "-"],
+      ["active CPB mutated", integrity.visibility_layer_mutated_active_cpb ? "是" : "否"],
+    ])}
+  `;
+}
+
+function openShadowCandidateDrawer(candidate) {
+  const walk = candidate.walk_forward || {};
+  const comparison = candidate.comparison_vs_frozen_cpb || {};
+  const linked = candidate.linked_hypothesis || {};
+  const blockers = listValue(candidate.blockers);
+  const artifacts = listValue(candidate.source_artifacts);
+  openDetailDrawer({
+    kicker: "影子候选",
+    title: candidate.candidate_key || "-",
+    subtitle: "候选详情来自 shadow_strategy_snapshot_v1，只读研究记录，不创建计划、不发布策略、不写 paper/live 或 timer。",
+    meta: [
+      [shadowStatusText(candidate.status), shadowStatusClass(candidate.status)],
+      [candidate.artifact_only ? "artifact-only" : "needs review", candidate.artifact_only ? "chip-agent" : "chip-amber"],
+      [`复盘日 ${displayDate(shadowSnapshotData().as_of_date)}`, "chip-neutral"],
+    ],
+    actions: [
+      { label: "影子实验室", action: "page", page: "shadow" },
+      linked.hypothesis_id ? { label: "假设评估", action: "page", page: "hypotheses" } : null,
+    ].filter(Boolean),
+    sections: [
+      detailSection("候选摘要", detailMetrics([
+        ["candidate_key", candidate.candidate_key || "-"],
+        ["candidate_family", candidate.candidate_family || "-"],
+        ["signal_source", candidate.signal_source || "-"],
+        ["prior candidates", integerText(candidate.prior_candidate_count)],
+        ["today candidates", integerText(candidate.today_candidate_count)],
+        ["today top", shadowTopCandidateText(candidate.today_top)],
+        ["linked hypothesis", linked.hypothesis_id || "-"],
+      ])),
+      detailSection("Walk-forward", detailRows([
+        ["status", shadowWalkForwardStatusText(walk.status || candidate.walk_forward_status)],
+        ["progress", shadowProgressText(walk)],
+        ["start_signal_date", displayDate(walk.start_signal_date)],
+        ["latest_signal_date", displayDate(walk.latest_signal_date)],
+        ["T+1 close mean", shadowPctText(walk.t1_close_mean_pct)],
+        ["T+1 close win rate", shadowPctText(walk.t1_close_win_rate_pct)],
+        ["T+1 high mean", shadowPctText(walk.t1_high_mean_pct)],
+        ["T+1 high >=3 rate", shadowPctText(walk.t1_high_ge3_rate_pct)],
+      ])),
+      detailSection("Frozen CPB comparison", detailRows([
+        ["status", shadowStatusText(comparison.status)],
+        ["baseline", comparison.baseline_label || "-"],
+        ["baseline_days", integerText(comparison.baseline_days)],
+        ["candidate_days", integerText(comparison.candidate_days)],
+        ["T+1 close mean delta", shadowDeltaText(comparison.t1_close_mean_delta_pct)],
+        ["T+1 win-rate delta", shadowDeltaText(comparison.t1_close_win_rate_delta_pct)],
+        ["T+5 close mean delta", shadowDeltaText(comparison.t5_close_mean_delta_pct)],
+        ["sample warning", comparison.sample_warning || "-"],
+      ])),
+      detailSection("Promotion blockers", shadowBlockerListHtml(blockers)),
+      detailSection("Paper observation gate", marketObjectRows(candidate.paper_observation_gate || {})),
+      detailSection("Strategy-version gate", marketObjectRows(candidate.strategy_version_gate || {})),
+      detailSection("Source artifacts", shadowArtifactRows(artifacts)),
+    ],
+  });
 }
 
 function renderMarketScopeMarkers() {
@@ -3048,6 +3341,173 @@ function renderMarketRegimeStrip() {
   `;
 }
 
+function renderMarketReviewHierarchy() {
+  const hierarchy = marketReviewHierarchy();
+  if (!marketReviewExists()) {
+    els.marketHierarchyPanel.innerHTML = emptyState("解释链缺少 market_review_runs：market regime -> sector -> stock -> evidence -> continuity -> next-day plan 暂不可用。");
+    return;
+  }
+  const continuity = hierarchy.continuity || {};
+  const sectors = hierarchy.sectors || [];
+  const primarySector = sectors[0] || {};
+  const relationships = marketHierarchyPlanRelationships(hierarchy);
+  const relationship = relationships[0] || {};
+  const sourceRefs = marketHierarchySourceRefs(hierarchy);
+  els.marketHierarchyPanel.innerHTML = `
+    <div class="market-hierarchy-head">
+      <div>
+        <span class="market-regime-kicker">market regime -> sector -> stock -> evidence -> continuity -> next-day plan</span>
+        <strong>全市场复盘解释链</strong>
+      </div>
+      <div class="hypothesis-chip-stack">
+        ${chipHtml(continuityText(continuity.label), continuityClass(continuity.label))}
+        ${chipHtml(`source_refs ${integerText(sourceRefs.length)}`, sourceRefs.length ? "chip-blue" : "chip-amber")}
+      </div>
+    </div>
+    <div class="market-hierarchy-chain">
+      ${marketHierarchyNode("市场状态", marketRegimeText(hierarchy.regime?.regime || state.marketReview?.status), hierarchy.regime?.summary || marketSummaryText(state.marketReview?.summary), "regime")}
+      ${marketHierarchyNode("板块轮动", primarySector.sector_name || "缺少板块", marketSectorHierarchyText(primarySector), "sector")}
+      ${marketHierarchyNode("代表个股", marketRepresentativeStockSummary(sectors), "按板块成分股 rank/score 展示，不补造股票证据。", "stock")}
+      ${marketHierarchyNode("证据 freshness", marketEvidenceFreshnessText(hierarchy.evidence_freshness), "market / sector / stock 新闻情绪证据缺失会显式显示。", "evidence")}
+      ${marketHierarchyNode("连续性判断", continuityText(continuity.label), continuity.reason || "暂无连续性说明。", "continuity")}
+      ${marketHierarchyNode("明日计划关系", marketPlanRelationshipText(relationship.relationship_label), relationship.relationship_reason || "暂无 plan-context；不能当作 aligned。", "plan")}
+    </div>
+    <p class="market-hierarchy-source">${escapeHtml(sourceRefs.slice(0, 8).join(" / ") || "无 source_refs")}</p>
+  `;
+}
+
+function marketHierarchyNode(label, value, detail, key) {
+  return `
+    <article class="market-hierarchy-node" data-market-hierarchy-node="${escapeHtml(key)}">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value || "-")}</strong>
+      <p>${escapeHtml(detail || "-")}</p>
+    </article>
+  `;
+}
+
+function marketReviewHierarchy() {
+  if (state.marketReview?.hierarchy) return state.marketReview.hierarchy;
+  return {
+    regime: state.marketReview?.regime || null,
+    sectors: orderedMarketSectors().map((sector) => ({
+      sector_code: sector.sector_code,
+      sector_name: sector.sector_name,
+      rank_overall: sector.rank_overall,
+      persistence_score: sector.persistence_score,
+      representative_stocks: (sector.constituents || []).slice(0, 3),
+    })),
+    evidence_freshness: state.marketExternalEnvelope?.data?.coverage?.freshness || {},
+    continuity: {
+      label: marketReviewExists() ? "insufficient_evidence" : "missing",
+      reason: "当前 API 未返回 hierarchy payload，Dashboard 使用已加载读侧数据保持显式空态。",
+    },
+    plan_relationships: (state.marketPlanContexts || []).map((context) => ({
+      relationship_label: context.relationship_label || marketPlanRelationshipLabel(context),
+      relationship_reason: context.relationship_reason || marketPlanRelationshipReason(context),
+      trade_plan_id: context.trade_plan_id,
+    })),
+    source_refs: [],
+  };
+}
+
+function marketSectorHierarchyText(sector) {
+  if (!sector?.sector_code && !sector?.sector_name) return "未找到 sector_daily_snapshots。";
+  const parts = [];
+  if (sector.rank_overall != null) parts.push(`排名 ${dash(sector.rank_overall)}`);
+  if (sector.persistence_score != null) parts.push(`持续性 ${scoreText(sector.persistence_score)}`);
+  if (sector.evidence?.freshness) parts.push(`证据 ${sector.evidence.freshness}`);
+  return parts.join(" / ") || "板块记录可用，指标不足。";
+}
+
+function marketRepresentativeStockSummary(sectors) {
+  const stocks = [];
+  for (const sector of sectors || []) {
+    for (const stock of (sector.representative_stocks || []).slice(0, 2)) {
+      const name = [stock.ts_code, stock.name].filter(Boolean).join(" ");
+      if (name) stocks.push(`${sector.sector_name || sector.sector_code}:${name}`);
+    }
+  }
+  return stocks.length ? stocks.slice(0, 4).join(" / ") : "缺少代表个股";
+}
+
+function marketEvidenceFreshnessText(freshness) {
+  const payload = freshness || {};
+  return ["market", "sector", "stock"]
+    .map((key) => `${key} ${payload[key] || "missing"}`)
+    .join(" / ");
+}
+
+function marketHierarchyPlanRelationships(hierarchy) {
+  const relationships = hierarchy.plan_relationships || [];
+  if (relationships.length) return relationships;
+  return (state.marketPlanContexts || []).map((context) => ({
+    ...context,
+    relationship_label: context.relationship_label || marketPlanRelationshipLabel(context),
+    relationship_reason: context.relationship_reason || marketPlanRelationshipReason(context),
+  }));
+}
+
+function marketHierarchySourceRefs(hierarchy) {
+  const refs = [...(hierarchy.source_refs || [])];
+  for (const context of state.marketPlanContexts || []) {
+    for (const ref of context.source_refs || []) refs.push(ref);
+  }
+  return [...new Set(refs.filter(Boolean).map(String))];
+}
+
+function continuityText(value) {
+  return {
+    improving: "改善",
+    fading: "转弱",
+    crowded: "拥挤",
+    divergent: "背离",
+    insufficient_evidence: "证据不足",
+    missing: "缺失",
+  }[value] || dash(value);
+}
+
+function continuityClass(value) {
+  if (value === "improving") return "chip-green";
+  if (value === "crowded" || value === "divergent" || value === "fading") return "chip-amber";
+  if (value === "insufficient_evidence" || value === "missing") return "chip-red";
+  return "chip-neutral";
+}
+
+function marketPlanRelationshipLabel(context) {
+  const alignment = context?.alignment || "unknown";
+  const risk = context?.risk_level || "unknown";
+  const action = context?.management_action || "unknown";
+  if (action === "consider_cancel" || risk === "high" || alignment === "conflict") return "blocked";
+  if (alignment === "aligned" && risk === "low" && action === "proceed") return "aligned";
+  if (alignment === "unknown" || risk === "unknown" || action === "unknown") return "missing";
+  return "cautious";
+}
+
+function marketPlanRelationshipReason(context) {
+  const label = marketPlanRelationshipLabel(context);
+  if (label === "aligned") return "计划与市场复盘链路一致；仍需人工开盘检查。";
+  if (label === "blocked") return "计划存在冲突或高风险，只提示人工复核。";
+  if (label === "missing") return "缺少 plan-context 或证据输入，不能当作安全信号。";
+  return "计划只有部分支持，需要 cautious 人工核对。";
+}
+
+function marketPlanRelationshipText(value) {
+  return {
+    aligned: "aligned",
+    cautious: "cautious",
+    blocked: "blocked",
+    missing: "missing",
+  }[value] || dash(value);
+}
+
+function marketPlanRelationshipClass(value) {
+  if (value === "aligned") return "chip-green";
+  if (value === "cautious") return "chip-amber";
+  if (value === "blocked") return "chip-red";
+  return "chip-neutral";
+}
+
 function marketRegimeMetric(label, value, key) {
   return `
     <div class="market-regime-card market-regime-card--metric" data-regime-metric="${escapeHtml(key)}">
@@ -3115,14 +3575,19 @@ function renderMarketPlanContext() {
               <div class="market-context-card__head">
                 <strong>计划 ${escapeHtml(context.trade_plan_id)}</strong>
                 <span>
+                  ${chipHtml(marketPlanRelationshipText(context.relationship_label || marketPlanRelationshipLabel(context)), marketPlanRelationshipClass(context.relationship_label || marketPlanRelationshipLabel(context)))}
                   ${chipHtml(alignmentText(context.alignment), alignmentClass(context.alignment))}
                   ${chipHtml(riskText(context.risk_level), riskClass(context.risk_level))}
                 </span>
               </div>
               <p>${escapeHtml(context.rationale || "暂无 rationale。")}</p>
               <dl class="market-context-meta">
+                <dt>计划关系</dt>
+                <dd>${escapeHtml(marketPlanRelationshipText(context.relationship_label || marketPlanRelationshipLabel(context)))}</dd>
                 <dt>管理建议</dt>
                 <dd>${escapeHtml(managementActionText(context.management_action))}</dd>
+                <dt>关系说明</dt>
+                <dd>${escapeHtml(context.relationship_reason || marketPlanRelationshipReason(context))}</dd>
                 <dt>创建时间</dt>
                 <dd>${escapeHtml(displayTimestamp(context.created_at))}</dd>
               </dl>
@@ -3682,6 +4147,7 @@ function renderBadges() {
   els.acceptanceBadge.textContent = acceptanceBlockers ? String(acceptanceBlockers) : acceptanceStatusText(acceptance?.status);
   els.opsBadge.textContent = String(state.opsHistory?.items?.length || 0);
   els.hypothesesBadge.textContent = String(state.strategyHypothesisWorkbench?.summary?.total || 0);
+  els.shadowBadge.textContent = shadowBadgeText();
   els.plansBadge.textContent = String(activePlans + draftPlans);
   els.recordBadge.textContent = String(activePlans + due);
   els.positionsBadge.textContent = String(state.positions.length);
@@ -3800,6 +4266,13 @@ function onStrategyHypothesisWorkbenchClick(event) {
   if (!button) return;
   const evaluation = findStrategyHypothesisEvaluation(Number(button.dataset.strategyHypothesisId));
   if (evaluation) openStrategyHypothesisEvaluationDrawer(evaluation);
+}
+
+function onShadowCandidateClick(event) {
+  const button = event.target.closest("button[data-shadow-candidate-key]");
+  if (!button) return;
+  const candidate = findShadowCandidate(button.dataset.shadowCandidateKey);
+  if (candidate) openShadowCandidateDrawer(candidate);
 }
 
 function onDrawerActionClick(event) {
@@ -4918,6 +5391,106 @@ function findStrategyHypothesisEvaluation(id) {
   return strategyHypothesisEvaluations().find((item) => Number(item.hypothesis?.hypothesis_id) === Number(id));
 }
 
+function shadowSnapshotData() {
+  return state.shadowStrategySnapshot && typeof state.shadowStrategySnapshot === "object"
+    ? state.shadowStrategySnapshot
+    : {};
+}
+
+function shadowCandidates() {
+  const candidates = shadowSnapshotData().candidates;
+  return Array.isArray(candidates) ? candidates : [];
+}
+
+function findShadowCandidate(candidateKey) {
+  return shadowCandidates().find((item) => String(item.candidate_key) === String(candidateKey));
+}
+
+function shadowCandidateSort(a, b) {
+  const blockerDelta = Number(b.blocker_count || 0) - Number(a.blocker_count || 0);
+  if (blockerDelta !== 0) return blockerDelta;
+  return String(a.candidate_key || "").localeCompare(String(b.candidate_key || ""));
+}
+
+function shadowBadgeText() {
+  const snapshot = shadowSnapshotData();
+  const counts = snapshot.counts || {};
+  if (counts.blocked_candidate_count) return String(counts.blocked_candidate_count);
+  if (counts.candidate_count) return String(counts.candidate_count);
+  return snapshot.status ? shadowStatusText(snapshot.status) : "0";
+}
+
+function shadowFamilyText(family) {
+  return {
+    shadow_bucket: "M69 bucket candidate lane",
+    preconfirm_watchlist: "pre-confirm watchlist research",
+    pullback_dip_buy: "pullback dip-buy research",
+  }[family] || "shadow research lane";
+}
+
+function shadowProgressText(walk) {
+  const days = walk.days ?? walk.n ?? walk.evaluable_signal_days;
+  const required = walk.required_days;
+  if (days != null && required != null) return `${integerText(days)}/${integerText(required)} 交易日`;
+  if (days != null) return `${integerText(days)} 交易日`;
+  return "进度 -";
+}
+
+function shadowTopCandidateText(value) {
+  if (Array.isArray(value)) {
+    return value.length ? shadowTopCandidateText(value[0]) : "-";
+  }
+  if (value && typeof value === "object") {
+    const code = value.ts_code || value.code || "";
+    const name = value.name || value.stock_name || "";
+    const score = value.score != null ? ` score ${numberText(value.score, 2)}` : "";
+    return [code, name].filter(Boolean).join(" ") + score || JSON.stringify(value);
+  }
+  return dash(value);
+}
+
+function shadowPctText(value) {
+  if (value == null || value === "") return "-";
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "-";
+  return `${number.toFixed(2)}%`;
+}
+
+function shadowDeltaText(value) {
+  if (value == null || value === "") return "-";
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "-";
+  const sign = number > 0 ? "+" : "";
+  return `${sign}${number.toFixed(2)}pp`;
+}
+
+function shadowBlockerListHtml(blockers) {
+  if (!blockers.length) return emptyState("该候选暂无 blocker。");
+  return `
+    <ul class="drawer-list">
+      ${blockers.map((blocker) => `<li>${escapeHtml(blocker)}</li>`).join("")}
+    </ul>
+  `;
+}
+
+function shadowArtifactRows(artifacts) {
+  if (!artifacts.length) return emptyState("暂无 source artifact。");
+  return `
+    <div class="table-wrap market-leadership-table">
+      <table>
+        <thead>
+          <tr>
+            <th>Artifact path</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${artifacts.map((artifact) => `<tr><td>${escapeHtml(artifact)}</td></tr>`).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
 function latestStrategyVersionProposal(evaluation) {
   const proposals = evaluation?.strategy_version_proposals || [];
   return proposals.length ? proposals[proposals.length - 1] : null;
@@ -5324,7 +5897,7 @@ function defaultReviewDate() {
 
 function initialPage() {
   const page = String(window.location.hash || "").replace(/^#/, "");
-  return ["execution", "decision", "review", "market", "acceptance", "ops", "hypotheses", "plans", "record", "positions", "quality", "agent"].includes(page)
+  return ["execution", "decision", "review", "market", "acceptance", "ops", "hypotheses", "shadow", "plans", "record", "positions", "quality", "agent"].includes(page)
     ? page
     : "execution";
 }
@@ -5456,6 +6029,55 @@ function acceptanceStatusClass(value) {
     warning: "chip-amber",
     blocked: "chip-red",
   }[value] || "chip-neutral";
+}
+
+function shadowStatusText(value) {
+  return {
+    blocked: "阻断",
+    available: "可观察",
+    compared: "已对照",
+    complete: "完成",
+    success: "成功",
+    unavailable: "不可用",
+    unknown: "未知",
+  }[value] || dash(value);
+}
+
+function shadowStatusClass(value) {
+  return {
+    blocked: "chip-red",
+    available: "chip-green",
+    compared: "chip-blue",
+    complete: "chip-green",
+    success: "chip-green",
+    unavailable: "chip-amber",
+    unknown: "chip-neutral",
+  }[value] || "chip-neutral";
+}
+
+function shadowGateStatusText(value) {
+  return {
+    blocked: "阻断",
+    pass: "通过",
+    warning: "警告",
+    complete: "完成",
+  }[value] || shadowStatusText(value);
+}
+
+function shadowWalkForwardStatusText(value) {
+  return {
+    complete: "walk-forward 完成",
+    in_progress: "walk-forward 观察中",
+    blocked: "walk-forward 阻断",
+    unknown: "walk-forward 未知",
+  }[value] || shadowStatusText(value);
+}
+
+function shadowWalkForwardStatusClass(value) {
+  if (value === "complete") return "chip-green";
+  if (value === "in_progress") return "chip-amber";
+  if (value === "blocked") return "chip-red";
+  return shadowStatusClass(value);
 }
 
 function decisionStatusText(value) {

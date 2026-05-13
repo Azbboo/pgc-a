@@ -34,6 +34,9 @@ class StrategyHypothesisBacktestResult:
     wrote_artifact: bool = False
     artifact_path: str | None = None
     active_params_mutated: bool = False
+    writes_trade_state: bool = False
+    writes_paper_live_behavior: bool = False
+    timer_mutated: bool = False
     recorded_hypothesis_validation: bool = False
     validation_evidence_ids: list[str] = field(default_factory=list)
     artifact: dict[str, Any] = field(default_factory=dict)
@@ -51,6 +54,9 @@ class StrategyHypothesisBacktestArtifactReview:
     strategy_version_task_key: str | None = None
     accepted_is_research_outcome_only: bool | None = None
     active_params_mutated: bool | None = None
+    writes_trade_state: bool | None = None
+    writes_paper_live_behavior: bool | None = None
+    timer_mutated: bool | None = None
     error: str | None = None
 
 
@@ -144,6 +150,9 @@ class StrategyHypothesisBacktestService:
                     wrote_artifact=False,
                     artifact_path=None,
                     active_params_mutated=False,
+                    writes_trade_state=False,
+                    writes_paper_live_behavior=False,
+                    timer_mutated=False,
                     recorded_hypothesis_validation=False,
                     validation_evidence_ids=_suggested_validation_evidence_ids(hypothesis),
                     artifact=artifact,
@@ -175,6 +184,9 @@ class StrategyHypothesisBacktestService:
                 wrote_artifact=True,
                 artifact_path=str(artifact_path),
                 active_params_mutated=False,
+                writes_trade_state=False,
+                writes_paper_live_behavior=False,
+                timer_mutated=False,
                 recorded_hypothesis_validation=True,
                 validation_evidence_ids=validation_evidence_ids,
                 artifact=artifact,
@@ -251,15 +263,26 @@ def review_strategy_hypothesis_backtest_artifact(
     validation_gate = artifact.get("validation_gate", {})
     safety = artifact.get("safety", {})
     active_params_mutated = safety.get("active_params_mutated") if isinstance(safety, dict) else None
+    writes_trade_state = safety.get("writes_trade_state") if isinstance(safety, dict) else None
+    writes_paper_live_behavior = safety.get("writes_paper_live_behavior") if isinstance(safety, dict) else None
+    timer_mutated = safety.get("timer_mutated") if isinstance(safety, dict) else None
     valid_type = artifact_type == "strategy_hypothesis_backtest_request"
-    valid_safety = active_params_mutated is not True
+    valid_safety = not any(
+        value is True
+        for value in [
+            active_params_mutated,
+            writes_trade_state,
+            writes_paper_live_behavior,
+            timer_mutated,
+        ]
+    )
     error = None
     if not valid_type:
         error = "backtest artifact must be a strategy_hypothesis_backtest_request artifact."
     elif not expected_matches:
         error = "backtest artifact hypothesis id does not match the requested hypothesis."
     elif not valid_safety:
-        error = "backtest artifact reports active parameter mutation."
+        error = "backtest artifact reports forbidden state mutation."
 
     return StrategyHypothesisBacktestArtifactReview(
         path=str(path),
@@ -284,6 +307,11 @@ def review_strategy_hypothesis_backtest_artifact(
             else None
         ),
         active_params_mutated=bool(active_params_mutated) if active_params_mutated is not None else None,
+        writes_trade_state=bool(writes_trade_state) if writes_trade_state is not None else None,
+        writes_paper_live_behavior=(
+            bool(writes_paper_live_behavior) if writes_paper_live_behavior is not None else None
+        ),
+        timer_mutated=bool(timer_mutated) if timer_mutated is not None else None,
         error=error,
     )
 
@@ -390,7 +418,9 @@ def _build_artifact(
         "safety": {
             "active_params_mutated": False,
             "writes_trade_state": False,
+            "writes_paper_live_behavior": False,
             "writes_backtest_results": False,
+            "timer_mutated": False,
             "requires_replay_before_param_change": True,
             "accepted_creates_separate_strategy_version_task": status == "accepted",
             "shadow_candidate": _is_shadow_candidate(evidence, proposed_change),

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from pgc_trading.services.common import RequestContext
 from pgc_trading.services.market_review_service import (
+    GetMarketReviewRequest,
     ListMarketReviewExternalItemsRequest,
     MarketReviewService,
     RunMarketReviewRequest,
@@ -209,6 +210,97 @@ class MarketReviewServiceTest(unittest.TestCase):
             self.assertEqual(result.data["coverage"]["freshness"]["sector"], "stale")
             self.assertEqual(result.data["coverage"]["freshness"]["stock"], "missing")
             self.assertEqual(result.data["coverage"]["source_hash"], "available")
+
+    def test_market_review_detail_includes_hierarchy_and_plan_relationship(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._migrated_db(tmp)
+            with sqlite3.connect(db_path) as conn:
+                run_id = int(
+                    conn.execute(
+                        """
+                        INSERT INTO market_review_runs
+                          (as_of_date, status, provider_manifest_json, coverage_json, summary_json, completed_at)
+                        VALUES
+                          (?, 'completed', '{"fixture":"m76"}', '{"fixture":true}', '{}', CURRENT_TIMESTAMP)
+                        """,
+                        (AS_OF_DATE,),
+                    ).lastrowid
+                )
+                conn.execute(
+                    """
+                    INSERT INTO market_regime_snapshots
+                      (
+                        market_review_run_id, as_of_date, regime, breadth_score, trend_score,
+                        volume_score, persistence_score, summary
+                      )
+                    VALUES
+                      (?, ?, 'risk_on', 0.72, 0.68, 0.66, 0.80, 'Market breadth and trend improved.')
+                    """,
+                    (run_id, AS_OF_DATE),
+                )
+                conn.execute(
+                    """
+                    INSERT INTO sector_daily_snapshots
+                      (
+                        market_review_run_id, as_of_date, sector_code, sector_name, provider,
+                        rank_overall, breadth_score, volume_score, persistence_score, leader_count
+                      )
+                    VALUES
+                      (?, ?, 'AI', '人工智能', 'manual_test', 1, 0.82, 0.74, 0.80, 3)
+                    """,
+                    (run_id, AS_OF_DATE),
+                )
+                conn.execute(
+                    """
+                    INSERT INTO sector_constituents
+                      (market_review_run_id, sector_code, sector_name, ts_code, name, rank_in_sector, role, score)
+                    VALUES
+                      (?, 'AI', '人工智能', '000001.SZ', 'M76 Leader', 1, 'leader', 0.91)
+                    """,
+                    (run_id,),
+                )
+                conn.execute(
+                    """
+                    INSERT INTO market_external_items
+                      (
+                        as_of_date, scope_type, scope_key, item_type, provider, title, summary,
+                        sentiment, importance, published_date, source_hash
+                      )
+                    VALUES
+                      (?, 'sector', 'AI', 'news', 'manual_fixture', '板块新闻', '板块摘要',
+                       'positive', 'medium', ?, 'hash-sector'),
+                      (?, 'stock', '000001.SZ', 'news', 'manual_fixture', '个股新闻', '个股摘要',
+                       'positive', 'medium', ?, 'hash-stock')
+                    """,
+                    (AS_OF_DATE, AS_OF_DATE, AS_OF_DATE, AS_OF_DATE),
+                )
+                conn.execute(
+                    """
+                    INSERT INTO market_plan_contexts
+                      (market_review_run_id, trade_plan_id, alignment, risk_level, management_action, rationale, evidence_json)
+                    VALUES
+                      (?, 42, 'aligned', 'low', 'proceed', 'Sector and evidence support the plan.', '{"candidate":{"ts_code":"000001.SZ"}}')
+                    """,
+                    (run_id,),
+                )
+
+            result = MarketReviewService(db_path).get_market_review(
+                GetMarketReviewRequest(as_of_date=AS_OF_DATE),
+                RequestContext(request_id="req-m76-hierarchy", dry_run=True),
+            )
+
+            self.assertTrue(result.ok)
+            hierarchy = result.data["hierarchy"]
+            self.assertEqual(hierarchy["chain"][-1], "next_day_plan")
+            self.assertEqual(hierarchy["continuity"]["label"], "improving")
+            self.assertEqual(hierarchy["sectors"][0]["representative_stocks"][0]["ts_code"], "000001.SZ")
+            self.assertEqual(hierarchy["sectors"][0]["evidence"]["freshness"], "fresh")
+            self.assertEqual(hierarchy["evidence_freshness"]["sector"], "fresh")
+            self.assertEqual(hierarchy["evidence_freshness"]["stock"], "fresh")
+            self.assertEqual(hierarchy["plan_relationships"][0]["relationship_label"], "aligned")
+            self.assertTrue(hierarchy["coverage"]["has_complete_chain"])
+            self.assertIn(f"market_review_runs:{run_id}", hierarchy["source_refs"])
+            self.assertEqual(result.data["coverage"]["hierarchy"]["plan_context_count"], 1)
 
     def _migrated_db(self, tmp: str) -> Path:
         db_path = Path(tmp) / "pgc.db"

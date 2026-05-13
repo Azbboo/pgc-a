@@ -23,6 +23,10 @@ from pgc_trading.services.decision_action_log_service import (
     DecisionActionLogService,
     ListDecisionActionLogsRequest,
 )
+from pgc_trading.services.evidence_coverage_ledger_service import (
+    BuildEvidenceCoverageLedgerRequest,
+    EvidenceCoverageLedgerService,
+)
 from pgc_trading.services.operational_readiness_service import (
     NextDayDecisionChecklistItem,
     NextDayDecisionSummary,
@@ -35,6 +39,7 @@ from pgc_trading.services.operational_readiness_service import (
     summarize_next_day_decision,
 )
 from pgc_trading.services.open_execution_service import OpenExecutionRequest, OpenExecutionService
+from pgc_trading.services.shadow_strategy_service import GetShadowStrategySnapshotRequest, ShadowStrategyService
 from pgc_trading.portfolio.state_machines import BUY_PLAN_ACTION, OPEN_POSITION_STATUSES, SELL_PLAN_ACTIONS
 from pgc_trading.storage.database import connect
 from pgc_trading.storage.invariant_checks import InvariantReport, check_database
@@ -317,6 +322,9 @@ class MarketPlanContextReport:
     management_action: str
     rationale: str
     evidence: dict[str, Any] = field(default_factory=dict)
+    relationship_label: str = "missing"
+    relationship_reason: str = ""
+    source_refs: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -330,6 +338,9 @@ class MarketSectorReport:
     leader_count: int
     return_1d: float | None
     return_3d: float | None
+    representative_stocks: list[dict[str, Any]] = field(default_factory=list)
+    evidence_freshness: str = "missing"
+    source_refs: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -359,6 +370,10 @@ class MarketReviewReport:
     sector_persistence: list[MarketSectorReport] = field(default_factory=list)
     external_evidence_coverage: dict[str, Any] = field(default_factory=dict)
     strategy_hypotheses: list[StrategyHypothesisSummaryReport] = field(default_factory=list)
+    continuity_label: str = "insufficient_evidence"
+    continuity_reason: str = ""
+    evidence_freshness: dict[str, str] = field(default_factory=dict)
+    source_refs: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -564,6 +579,43 @@ class OpsHistory:
 
 
 @dataclass(frozen=True)
+class ShadowCandidateReport:
+    candidate_key: str
+    candidate_family: str
+    status: str
+    today_candidate_count: int | None
+    today_top: dict[str, Any]
+    walk_forward_status: str
+    blocker_count: int
+    blockers: list[str] = field(default_factory=list)
+    promotion_allowed: bool = False
+    paper_observation_allowed: bool = False
+
+
+@dataclass(frozen=True)
+class ShadowStrategyReport:
+    status: str
+    as_of_date: str | None
+    next_trade_date: str | None
+    latest_monitor_date: str | None
+    latest_preflight_date: str | None
+    latest_monitor_generated_at: str | None
+    latest_preflight_generated_at: str | None
+    candidate_count: int
+    blocked_candidate_count: int
+    distinct_blocker_count: int
+    shadow_hypothesis_count: int
+    blocker_counts: dict[str, int]
+    candidate_families: dict[str, int]
+    top_candidates: list[ShadowCandidateReport] = field(default_factory=list)
+    source_artifacts: dict[str, str | None] = field(default_factory=dict)
+    safety: dict[str, Any] = field(default_factory=dict)
+    read_only: bool = True
+    artifact_only: bool = True
+    unavailable_reason: str | None = None
+
+
+@dataclass(frozen=True)
 class DailyReport:
     generated_at: str
     as_of_date: str
@@ -580,6 +632,8 @@ class DailyReport:
     buy_plan: BuyPlanReport | None
     market_review: MarketReviewReport | None
     market_plan_context: MarketPlanContextReport | None
+    evidence_coverage_ledger: dict[str, Any]
+    shadow_strategy: ShadowStrategyReport
     agent_advice: AgentAdviceReport
     positions: list[PositionReport]
     due_positions: list[PositionReport]
@@ -589,8 +643,9 @@ class DailyReport:
 class ReportingQueryService:
     """Read report-ready state without mutating trading facts."""
 
-    def __init__(self, db_path: Path | None = None):
+    def __init__(self, db_path: Path | None = None, *, reports_dir: Path | None = None):
         self.db_path = db_path or Paths().db_path
+        self.reports_dir = reports_dir or Paths().reports_dir
 
     def get_daily_report(
         self,
@@ -682,6 +737,8 @@ class ReportingQueryService:
             strategy_proposals=strategy_proposals,
             action_log=_decision_action_log(self.db_path, request, account, context),
         )
+        evidence_coverage_ledger = _evidence_coverage_ledger_payload(self.db_path, request, context)
+        shadow_strategy = _shadow_strategy_report(self.db_path, self.reports_dir, context)
         report = DailyReport(
             generated_at=datetime.now(UTC).isoformat(),
             as_of_date=request.as_of_date,
@@ -698,6 +755,8 @@ class ReportingQueryService:
             buy_plan=buy_plan,
             market_review=market_review,
             market_plan_context=market_plan_context,
+            evidence_coverage_ledger=evidence_coverage_ledger,
+            shadow_strategy=shadow_strategy,
             agent_advice=agent_advice,
             positions=positions,
             due_positions=[position for position in positions if position.action_due != "none"],
@@ -1084,6 +1143,8 @@ def render_daily_report_markdown(report: DailyReport) -> str:
 
     lines.extend(_market_review_lines(report.market_review))
     lines.extend(_market_plan_context_lines(report.market_plan_context))
+    lines.extend(_evidence_coverage_ledger_lines(report.evidence_coverage_ledger))
+    lines.extend(_shadow_strategy_lines(report.shadow_strategy))
 
     lines.extend(["", "## Agent 复核", ""])
     lines.extend(
@@ -1504,6 +1565,122 @@ def _decision_action_log(
     return result.data if result.ok else None
 
 
+def _evidence_coverage_ledger_payload(
+    db_path: Path,
+    request: DailyReportRequest,
+    context: RequestContext,
+) -> dict[str, Any]:
+    result = EvidenceCoverageLedgerService(db_path).build_coverage_ledger(
+        BuildEvidenceCoverageLedgerRequest(as_of_date=request.as_of_date, discover_manifests=True),
+        RequestContext(request_id=context.request_id, dry_run=True, operator=context.operator, source="report"),
+    )
+    if result.data is None:
+        return {}
+    payload = asdict(result.data)
+    if result.errors:
+        payload["errors"] = [asdict(error) for error in result.errors]
+    return payload
+
+
+def _shadow_strategy_report(db_path: Path, reports_dir: Path, context: RequestContext) -> ShadowStrategyReport:
+    result = ShadowStrategyService(db_path, reports_dir=reports_dir).get_snapshot(
+        GetShadowStrategySnapshotRequest(),
+        RequestContext(request_id=context.request_id, dry_run=True, operator=context.operator, source="report"),
+    )
+    if result.data is None:
+        return _unavailable_shadow_strategy_report([error.code for error in result.errors])
+
+    snapshot = result.data
+    latest = _dict_value(snapshot.latest) or {}
+    counts = snapshot.counts
+    errors = [error.code for error in result.errors]
+    candidates = sorted(snapshot.candidates, key=_shadow_candidate_sort_key)[:5]
+    return ShadowStrategyReport(
+        status=snapshot.status,
+        as_of_date=snapshot.as_of_date,
+        next_trade_date=snapshot.next_trade_date,
+        latest_monitor_date=_optional_text_value(latest.get("monitor_review_date")),
+        latest_preflight_date=_optional_text_value(latest.get("promotion_preflight_review_date")),
+        latest_monitor_generated_at=_optional_text_value(latest.get("monitor_generated_at")),
+        latest_preflight_generated_at=_optional_text_value(latest.get("promotion_preflight_generated_at")),
+        candidate_count=_optional_int_from_any(counts.get("candidate_count")) or 0,
+        blocked_candidate_count=_optional_int_from_any(counts.get("blocked_candidate_count")) or 0,
+        distinct_blocker_count=_optional_int_from_any(counts.get("distinct_blocker_count")) or 0,
+        shadow_hypothesis_count=_optional_int_from_any(counts.get("shadow_hypothesis_count")) or 0,
+        blocker_counts={
+            str(key): _optional_int_from_any(value) or 0
+            for key, value in sorted(snapshot.blocker_counts.items())
+        },
+        candidate_families={
+            str(key): _optional_int_from_any(value) or 0
+            for key, value in sorted(snapshot.candidate_families.items())
+        },
+        top_candidates=[_shadow_candidate_report(candidate) for candidate in candidates],
+        source_artifacts=snapshot.source_artifacts,
+        safety=snapshot.safety,
+        read_only=bool(snapshot.read_only),
+        artifact_only=bool(snapshot.artifact_only),
+        unavailable_reason=", ".join(errors) if errors else None,
+    )
+
+
+def _unavailable_shadow_strategy_report(error_codes: list[str]) -> ShadowStrategyReport:
+    return ShadowStrategyReport(
+        status="unavailable",
+        as_of_date=None,
+        next_trade_date=None,
+        latest_monitor_date=None,
+        latest_preflight_date=None,
+        latest_monitor_generated_at=None,
+        latest_preflight_generated_at=None,
+        candidate_count=0,
+        blocked_candidate_count=0,
+        distinct_blocker_count=0,
+        shadow_hypothesis_count=0,
+        blocker_counts={},
+        candidate_families={},
+        safety={
+            "read_only": True,
+            "artifact_only": True,
+            "visibility_layer_writes": False,
+            "writes_trade_state": False,
+            "timer_mutated": False,
+        },
+        unavailable_reason=", ".join(error_codes) if error_codes else "shadow snapshot unavailable",
+    )
+
+
+def _shadow_candidate_report(candidate: dict[str, Any]) -> ShadowCandidateReport:
+    return ShadowCandidateReport(
+        candidate_key=str(candidate.get("candidate_key") or "unknown"),
+        candidate_family=str(candidate.get("candidate_family") or "unknown"),
+        status=str(candidate.get("status") or "unknown"),
+        today_candidate_count=_optional_int_from_any(candidate.get("today_candidate_count")),
+        today_top=_dict_value(candidate.get("today_top")) or {},
+        walk_forward_status=str(candidate.get("walk_forward_status") or "unknown"),
+        blocker_count=_optional_int_from_any(candidate.get("blocker_count")) or 0,
+        blockers=_shadow_text_list(candidate.get("blockers")),
+        promotion_allowed=bool(candidate.get("promotion_allowed")),
+        paper_observation_allowed=bool(candidate.get("paper_observation_allowed")),
+    )
+
+
+def _shadow_text_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value] if value else []
+    if isinstance(value, (list, tuple, set)):
+        return [str(item) for item in value if str(item)]
+    return [str(value)] if str(value) else []
+
+
+def _shadow_candidate_sort_key(candidate: dict[str, Any]) -> tuple[int, int, str]:
+    blocker_count = _optional_int_from_any(candidate.get("blocker_count")) or 0
+    today_count = _optional_int_from_any(candidate.get("today_candidate_count")) or 0
+    return (-today_count, -blocker_count, str(candidate.get("candidate_key") or ""))
+
+
 def _next_day_system_proposal(open_execution: DailyAcceptanceOpenExecution) -> NextDaySystemProposal:
     target = " ".join(part for part in [open_execution.target_stock, open_execution.target_name] if part)
     action_text = {
@@ -1584,6 +1761,14 @@ def _next_day_market_review_check(
         status = "warning"
         warning_codes.append("MARKET_PLAN_CONTEXT_MISSING")
         manual_action = "补齐全市场复盘与明日计划关系，或人工确认该计划无需市场上下文。"
+    elif market_plan_context.relationship_label in {"blocked", "missing"}:
+        status = "warning"
+        warning_codes.append(f"MARKET_PLAN_RELATIONSHIP_{market_plan_context.relationship_label.upper()}")
+        manual_action = "人工复核全市场复盘给出的计划关系标签。"
+    elif market_plan_context.relationship_label == "cautious":
+        status = "warning"
+        warning_codes.append("MARKET_PLAN_RELATIONSHIP_CAUTIOUS")
+        manual_action = "按 cautious 关系执行更严格的人工核对。"
     elif market_plan_context.management_action in {"manual_review", "consider_cancel", "unknown"}:
         status = "warning"
         warning_codes.append(f"MARKET_ACTION_{market_plan_context.management_action.upper()}")
@@ -1593,8 +1778,8 @@ def _next_day_market_review_check(
         label="全市场复盘 / 计划关系",
         status=status,
         summary=(
-            f"{market_review.regime}；{market_review.summary or '无摘要'}；"
-            f"计划建议 {market_plan_context.management_action if market_plan_context else 'missing'}"
+            f"{market_review.regime} / {market_review.continuity_label}；{market_review.summary or '无摘要'}；"
+            f"计划关系 {market_plan_context.relationship_label if market_plan_context else 'missing'}"
         ),
         manual_action=manual_action,
         detail="市场复盘只提供 advisory，不会创建、取消或执行交易计划。",
@@ -1720,6 +1905,7 @@ def _acceptance_evidence_gate(
     else:
         market_count = _optional_int_from_any(market_review.external_evidence_coverage.get("total_count")) or 0
         source_refs.append(f"market_review_runs:{market_review.market_review_run_id}")
+        source_refs.extend(market_review.source_refs)
         if market_count <= 0:
             warning_codes.append("MARKET_EVIDENCE_MISSING")
     if market_plan_context is None and lineage.trade_plan_id is not None:
@@ -2596,12 +2782,12 @@ def _ops_history_items_from_log(path: Path, payload: dict[str, str], as_of_date:
 
 
 def _ops_history_log_dirs() -> list[Path]:
-    candidates = [
-        os.environ.get("PGC_DAILY_PIPELINE_LOG_DIR"),
-        os.environ.get("PGC_TIMER_EVIDENCE_DIR"),
-        ".pgc-runs",
-        ".pgc-runs/timer-evidence",
-    ]
+    configured_pipeline_dir = os.environ.get("PGC_DAILY_PIPELINE_LOG_DIR")
+    configured_timer_dir = os.environ.get("PGC_TIMER_EVIDENCE_DIR")
+    if configured_pipeline_dir or configured_timer_dir:
+        candidates = [configured_pipeline_dir, configured_timer_dir]
+    else:
+        candidates = [".pgc-runs", ".pgc-runs/timer-evidence"]
     dirs: list[Path] = []
     seen: set[Path] = set()
     for candidate in candidates:
@@ -3156,6 +3342,18 @@ def _load_market_review(conn: Any, as_of_date: str) -> MarketReviewReport | None
     if row is None:
         return None
     run_id = int(row["market_review_run_id"])
+    top_sectors = _load_market_review_top_sectors(conn, run_id)
+    external_evidence_coverage = _load_market_external_evidence_coverage(conn, as_of_date)
+    continuity_label, continuity_reason = _market_continuity_summary(
+        {
+            "breadth_score": _optional_float(row["breadth_score"]),
+            "trend_score": _optional_float(row["trend_score"]),
+            "volume_score": _optional_float(row["volume_score"]),
+            "persistence_score": _optional_float(row["persistence_score"]),
+        },
+        top_sectors,
+        external_evidence_coverage,
+    )
     return MarketReviewReport(
         market_review_run_id=run_id,
         status=row["status"],
@@ -3166,10 +3364,14 @@ def _load_market_review(conn: Any, as_of_date: str) -> MarketReviewReport | None
         volume_score=_optional_float(row["volume_score"]),
         sentiment_score=_optional_float(row["sentiment_score"]),
         persistence_score=_optional_float(row["persistence_score"]),
-        top_sectors=_load_market_review_top_sectors(conn, run_id),
+        top_sectors=top_sectors,
         sector_persistence=_load_market_review_sector_persistence(conn, run_id),
-        external_evidence_coverage=_load_market_external_evidence_coverage(conn, as_of_date),
+        external_evidence_coverage=external_evidence_coverage,
         strategy_hypotheses=_load_strategy_hypothesis_summaries(conn, as_of_date),
+        continuity_label=continuity_label,
+        continuity_reason=continuity_reason,
+        evidence_freshness=_market_evidence_freshness_from_coverage(external_evidence_coverage),
+        source_refs=_market_review_source_refs(run_id, top_sectors, external_evidence_coverage),
     )
 
 
@@ -3193,7 +3395,20 @@ def _load_market_review_top_sectors(conn: Any, market_review_run_id: int) -> lis
         """,
         (market_review_run_id,),
     ).fetchall()
-    return [_market_sector_report(row) for row in rows]
+    return [
+        _market_sector_report(
+            row,
+            representative_stocks=_load_market_sector_representatives(conn, market_review_run_id, row["sector_code"]),
+            evidence_freshness=_sector_evidence_freshness(
+                conn,
+                market_review_run_id,
+                row["sector_code"],
+                row["sector_name"],
+            ),
+            source_refs=[f"sector_daily_snapshots:{market_review_run_id}:{row['sector_code']}"],
+        )
+        for row in rows
+    ]
 
 
 def _load_market_review_sector_persistence(conn: Any, market_review_run_id: int) -> list[MarketSectorReport]:
@@ -3220,7 +3435,13 @@ def _load_market_review_sector_persistence(conn: Any, market_review_run_id: int)
     return [_market_sector_report(row) for row in rows]
 
 
-def _market_sector_report(row: Any) -> MarketSectorReport:
+def _market_sector_report(
+    row: Any,
+    *,
+    representative_stocks: list[dict[str, Any]] | None = None,
+    evidence_freshness: str = "missing",
+    source_refs: list[str] | None = None,
+) -> MarketSectorReport:
     return MarketSectorReport(
         sector_code=row["sector_code"],
         sector_name=row["sector_name"],
@@ -3231,7 +3452,67 @@ def _market_sector_report(row: Any) -> MarketSectorReport:
         leader_count=int(row["leader_count"] or 0),
         return_1d=_optional_float(row["return_1d"]),
         return_3d=_optional_float(row["return_3d"]),
+        representative_stocks=representative_stocks or [],
+        evidence_freshness=evidence_freshness,
+        source_refs=source_refs or [],
     )
+
+
+def _load_market_sector_representatives(conn: Any, market_review_run_id: int, sector_code: str) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT ts_code, name, rank_in_sector, role, score
+        FROM sector_constituents
+        WHERE market_review_run_id = ?
+          AND sector_code = ?
+        ORDER BY rank_in_sector IS NULL, rank_in_sector, score DESC, ts_code
+        LIMIT 3
+        """,
+        (market_review_run_id, sector_code),
+    ).fetchall()
+    return [
+        {
+            "ts_code": row["ts_code"],
+            "name": row["name"],
+            "rank_in_sector": _optional_int(row["rank_in_sector"]),
+            "role": row["role"],
+            "score": _optional_float(row["score"]),
+            "source_refs": [f"sector_constituents:{market_review_run_id}:{sector_code}:{row['ts_code']}"],
+        }
+        for row in rows
+    ]
+
+
+def _sector_evidence_freshness(
+    conn: Any,
+    market_review_run_id: int,
+    sector_code: str,
+    sector_name: str,
+) -> str:
+    row = conn.execute("SELECT as_of_date FROM market_review_runs WHERE id = ?", (market_review_run_id,)).fetchone()
+    if row is None:
+        return "missing"
+    as_of_date = row["as_of_date"]
+    rows = conn.execute(
+        """
+        SELECT published_date, COUNT(*) AS count
+        FROM market_external_items
+        WHERE as_of_date = ?
+          AND scope_type = 'sector'
+          AND scope_key IN (?, ?)
+        GROUP BY published_date
+        """,
+        (as_of_date, sector_code, sector_name),
+    ).fetchall()
+    total_count = sum(int(item["count"] or 0) for item in rows)
+    if total_count == 0:
+        return "missing"
+    fresh_count = sum(int(item["count"] or 0) for item in rows if item["published_date"] == as_of_date)
+    if fresh_count == total_count:
+        return "fresh"
+    if fresh_count == 0:
+        return "stale"
+    return "partial"
 
 
 def _load_market_external_evidence_coverage(conn: Any, as_of_date: str) -> dict[str, Any]:
@@ -3279,6 +3560,7 @@ def _load_market_external_evidence_coverage(conn: Any, as_of_date: str) -> dict[
         "sector": "partial" if by_scope.get("sector", 0) else "missing",
         "stock": "partial" if by_scope.get("stock", 0) else "missing",
     }
+    freshness_by_scope = _market_external_freshness_by_scope(conn, as_of_date)
     news_like_types = {"news", "announcement", "policy", "risk_note", "research_note"}
     return {
         "total_count": total_count,
@@ -3289,12 +3571,129 @@ def _load_market_external_evidence_coverage(conn: Any, as_of_date: str) -> dict[
         "missing_scopes": [scope for scope, status in scope_status.items() if status == "missing"],
         "fresh_count": fresh_count,
         "stale_count": stale_count,
+        "freshness_by_scope": freshness_by_scope,
         "by_scope": by_scope,
         "by_item_type": by_item_type,
         "by_sentiment": by_sentiment,
         "by_importance": by_importance,
         "by_provider": by_provider,
+        "source_refs": _market_external_source_refs(as_of_date, by_scope),
     }
+
+
+def _market_external_freshness_by_scope(conn: Any, as_of_date: str) -> dict[str, str]:
+    rows = conn.execute(
+        """
+        SELECT scope_type, published_date, COUNT(*) AS count
+        FROM market_external_items
+        WHERE as_of_date = ?
+        GROUP BY scope_type, published_date
+        """,
+        (as_of_date,),
+    ).fetchall()
+    counts: dict[str, dict[str, int]] = {scope: {"fresh": 0, "total": 0} for scope in ("market", "sector", "stock")}
+    for row in rows:
+        scope = str(row["scope_type"] or "unknown")
+        if scope not in counts:
+            counts[scope] = {"fresh": 0, "total": 0}
+        count = int(row["count"] or 0)
+        counts[scope]["total"] += count
+        if row["published_date"] == as_of_date:
+            counts[scope]["fresh"] += count
+    freshness: dict[str, str] = {}
+    for scope in ("market", "sector", "stock"):
+        total = counts.get(scope, {}).get("total", 0)
+        fresh = counts.get(scope, {}).get("fresh", 0)
+        if total == 0:
+            freshness[scope] = "missing"
+        elif fresh == total:
+            freshness[scope] = "fresh"
+        elif fresh == 0:
+            freshness[scope] = "stale"
+        else:
+            freshness[scope] = "partial"
+    return freshness
+
+
+def _market_external_source_refs(as_of_date: str, by_scope: dict[str, int]) -> list[str]:
+    return [
+        f"market_external_items:{as_of_date}:{scope}:{count}"
+        for scope, count in sorted(by_scope.items())
+        if count
+    ]
+
+
+def _market_evidence_freshness_from_coverage(coverage: dict[str, Any]) -> dict[str, str]:
+    freshness = coverage.get("freshness_by_scope")
+    if isinstance(freshness, dict):
+        return {scope: str(freshness.get(scope) or "missing") for scope in ("market", "sector", "stock")}
+    if not coverage.get("total_count"):
+        return {"market": "missing", "sector": "missing", "stock": "missing"}
+    return {
+        scope: "partial" if coverage.get(scope) != "missing" else "missing"
+        for scope in ("market", "sector", "stock")
+    }
+
+
+def _market_continuity_summary(
+    regime_scores: dict[str, float | None],
+    sectors: list[MarketSectorReport],
+    external_coverage: dict[str, Any],
+) -> tuple[str, str]:
+    if not sectors or not external_coverage.get("total_count"):
+        missing = []
+        if not sectors:
+            missing.append("板块轮动")
+        if not external_coverage.get("total_count"):
+            missing.append("新闻/情绪证据")
+        return "insufficient_evidence", f"缺少{'、'.join(missing)}，连续性不能当作安全信号。"
+    scores = [
+        regime_scores.get("breadth_score"),
+        regime_scores.get("trend_score"),
+        regime_scores.get("volume_score"),
+        regime_scores.get("persistence_score"),
+    ]
+    known_scores = [score for score in scores if score is not None]
+    breadth = regime_scores.get("breadth_score")
+    trend = regime_scores.get("trend_score")
+    volume = regime_scores.get("volume_score")
+    persistence = regime_scores.get("persistence_score")
+    top_persistence = sectors[0].persistence_score if sectors else None
+    if volume is not None and volume >= 0.75 and (breadth is None or breadth < 0.45):
+        return "crowded", "量能强于市场宽度，存在拥挤延续风险。"
+    if known_scores and max(known_scores) - min(known_scores) >= 0.4:
+        return "divergent", "宽度、趋势、量能或持续性分化明显。"
+    if (trend is not None and trend < 0.45) or (persistence is not None and persistence < 0.45):
+        return "fading", "趋势或持续性偏弱，延续性正在转弱。"
+    if (
+        breadth is not None
+        and breadth >= 0.55
+        and trend is not None
+        and trend >= 0.55
+        and persistence is not None
+        and persistence >= 0.55
+        and (top_persistence is None or top_persistence >= 0.5)
+    ):
+        return "improving", "市场宽度、趋势和持续性同步改善。"
+    return "divergent", "证据可用但方向未完全一致。"
+
+
+def _market_review_source_refs(
+    market_review_run_id: int,
+    top_sectors: list[MarketSectorReport],
+    external_coverage: dict[str, Any],
+) -> list[str]:
+    refs = [f"market_review_runs:{market_review_run_id}", f"market_regime_snapshots:{market_review_run_id}"]
+    for sector in top_sectors:
+        refs.extend(sector.source_refs)
+        for stock in sector.representative_stocks:
+            refs.extend(str(ref) for ref in stock.get("source_refs", []))
+    refs.extend(str(ref) for ref in external_coverage.get("source_refs", []))
+    deduped: list[str] = []
+    for ref in refs:
+        if ref and ref not in deduped:
+            deduped.append(ref)
+    return deduped
 
 
 def _increment_count(target: dict[str, int], key: object, count: int) -> None:
@@ -3413,6 +3812,12 @@ def _load_market_plan_context(
     ).fetchone()
     if row is None:
         return None
+    evidence = _loads_json_object(row["evidence_json"])
+    relationship_label = _market_plan_relationship_label(
+        row["alignment"],
+        row["risk_level"],
+        row["management_action"],
+    )
     return MarketPlanContextReport(
         market_review_run_id=int(row["market_review_run_id"]),
         trade_plan_id=int(row["trade_plan_id"]),
@@ -3420,8 +3825,34 @@ def _load_market_plan_context(
         risk_level=row["risk_level"],
         management_action=row["management_action"],
         rationale=row["rationale"],
-        evidence=_loads_json_object(row["evidence_json"]),
+        evidence=evidence,
+        relationship_label=relationship_label,
+        relationship_reason=_market_plan_relationship_reason(relationship_label),
+        source_refs=[f"market_plan_contexts:{row['market_review_run_id']}:{row['trade_plan_id']}"],
     )
+
+
+def _market_plan_relationship_label(alignment: str | None, risk_level: str | None, management_action: str | None) -> str:
+    alignment_value = str(alignment or "unknown")
+    risk_value = str(risk_level or "unknown")
+    action_value = str(management_action or "unknown")
+    if action_value == "consider_cancel" or risk_value == "high" or alignment_value == "conflict":
+        return "blocked"
+    if alignment_value == "aligned" and risk_value == "low" and action_value == "proceed":
+        return "aligned"
+    if alignment_value == "unknown" or risk_value == "unknown" or action_value == "unknown":
+        return "missing"
+    return "cautious"
+
+
+def _market_plan_relationship_reason(label: str) -> str:
+    if label == "aligned":
+        return "计划与市场/板块/证据链一致；仍只作为人工检查依据。"
+    if label == "blocked":
+        return "计划存在冲突、高风险或考虑取消信号；不会自动取消或执行。"
+    if label == "missing":
+        return "计划关系缺少可用市场上下文，不能当作安全信号。"
+    return "计划有部分支持但仍需谨慎复核。"
 
 
 def _load_agent_advice(
@@ -4253,10 +4684,13 @@ def _market_review_lines(review: MarketReviewReport | None) -> list[str]:
     lines.extend(
         [
             f"- 状态：{_status_text(review.status)}；{_market_regime_text(regime_payload)}",
+            f"- 连续性判断：{_continuity_text(review.continuity_label)}；{review.continuity_reason or '暂无连续性说明'}",
             f"- Top 5 板块：{_top_sectors_text(top_sector_payloads)}",
+            f"- 代表个股：{_representative_stocks_text(review.top_sectors)}",
             f"- 板块持续性：{_sector_persistence_text(review.sector_persistence)}",
-            f"- 外部证据覆盖：{_external_coverage_text(review.external_evidence_coverage)}",
+            f"- 外部证据覆盖：{_external_coverage_text(review.external_evidence_coverage)}；freshness {_evidence_freshness_text(review.evidence_freshness)}",
             f"- 策略假设：{_strategy_hypotheses_text(review.strategy_hypotheses)}",
+            f"- 来源：{_source_refs_text(review.source_refs)}",
         ]
     )
     return lines
@@ -4280,6 +4714,7 @@ def _market_plan_context_lines(context: MarketPlanContextReport | None) -> list[
             f"- 强势板块：{_top_sectors_text(top_sectors)}",
             f"- 候选板块匹配：{_candidate_sector_fit_text(candidate_sector)}",
             f"- 新闻/情绪匹配：{_external_fit_text(external_items)}",
+            f"- 计划关系：{_plan_relationship_text(context.relationship_label)}；{context.relationship_reason or '暂无计划关系说明'}",
             (
                 "- 管理建议："
                 f"{_management_action_text(context.management_action)}；"
@@ -4287,10 +4722,129 @@ def _market_plan_context_lines(context: MarketPlanContextReport | None) -> list[
                 f"风险 {_risk_text(context.risk_level)}"
             ),
             f"- 理由：{context.rationale}",
+            f"- 来源：{_source_refs_text(context.source_refs)}",
             "- 提醒：该结论只提供管理建议，不会自动创建、取消或执行交易计划。",
         ]
     )
     return lines
+
+
+def _evidence_coverage_ledger_lines(ledger: dict[str, Any]) -> list[str]:
+    lines = ["", "## 外部证据覆盖台账", ""]
+    if not ledger:
+        lines.append("- 状态：未生成证据覆盖台账。")
+        return lines
+
+    summary = _dict_value(ledger.get("summary")) or {}
+    state_counts = _dict_value(ledger.get("state_counts")) or {}
+    safety = _dict_value(ledger.get("safety")) or {}
+    lines.extend(
+        [
+            (
+                "- 覆盖状态："
+                f"entries={ledger.get('entry_count', 0)}；"
+                f"blocking={ledger.get('blocking_entry_count', 0)}；"
+                f"ready_dates={_list_text(ledger.get('ready_dates'))}；"
+                f"blocking_dates={_list_text(ledger.get('blocking_dates'))}"
+            ),
+            (
+                "- 状态计数："
+                f"missing={state_counts.get('missing', 0)} / "
+                f"unavailable={state_counts.get('unavailable', 0)} / "
+                f"partial={state_counts.get('partial', 0)} / "
+                f"stale={state_counts.get('stale', 0)} / "
+                f"duplicate={state_counts.get('duplicate', 0)} / "
+                f"source_hash_mismatch={state_counts.get('source-hash-mismatch', 0)}"
+            ),
+            (
+                "- Provider pack："
+                f"manifest_count={summary.get('manifest_count', 0)}；"
+                f"discovered={ledger.get('discovered_manifest_count', 0)}"
+            ),
+            (
+                "- 安全边界："
+                f"read_only={str(bool(safety.get('read_only'))).lower()}；"
+                f"live_fetches={str(bool(safety.get('live_fetches'))).lower()}；"
+                f"writes_trade_state={str(bool(safety.get('writes_trade_state'))).lower()}"
+            ),
+        ]
+    )
+    return lines
+
+
+def _shadow_strategy_lines(shadow: ShadowStrategyReport) -> list[str]:
+    lines = ["", "## Shadow 策略观察", ""]
+    if shadow.status == "unavailable":
+        lines.extend(
+            [
+                f"- 状态：unavailable；原因：{shadow.unavailable_reason or '未找到 monitor/preflight artifact'}",
+                "- 边界：research-only / artifact-only；不会进入今日候选、生成交易计划或开启 timer。",
+            ]
+        )
+        return lines
+
+    lines.extend(
+        [
+            (
+                "- 最新 artifact："
+                f"monitor {_date_text(shadow.latest_monitor_date)} / "
+                f"preflight {_date_text(shadow.latest_preflight_date)}；"
+                f"next_trade_date {_date_text(shadow.next_trade_date)}"
+            ),
+            (
+                "- 状态："
+                f"{shadow.status}；candidate {shadow.candidate_count}；"
+                f"blocked {shadow.blocked_candidate_count}；"
+                f"distinct blockers {shadow.distinct_blocker_count}；"
+                f"hypotheses {shadow.shadow_hypothesis_count}"
+            ),
+            f"- blocker counts：{_shadow_blocker_counts_text(shadow.blocker_counts)}",
+            f"- top candidates：{_shadow_top_candidates_text(shadow.top_candidates)}",
+            (
+                "- 安全边界："
+                f"read_only={str(shadow.read_only).lower()}；"
+                f"artifact_only={str(shadow.artifact_only).lower()}；"
+                f"writes_trade_state={str(bool(shadow.safety.get('writes_trade_state'))).lower()}；"
+                f"promotion_allowed={str(bool(shadow.safety.get('promotion_allowed'))).lower()}"
+            ),
+            "- 提醒：Shadow 候选是 research-only，仅展示监控/预检 artifact，不会进入今日候选、生成交易计划或开启 timer。",
+        ]
+    )
+    return lines
+
+
+def _shadow_blocker_counts_text(counts: dict[str, int]) -> str:
+    if not counts:
+        return "无"
+    return " / ".join(f"{key} {counts[key]}" for key in sorted(counts))
+
+
+def _shadow_top_candidates_text(candidates: list[ShadowCandidateReport]) -> str:
+    if not candidates:
+        return "无"
+    parts = []
+    for candidate in candidates[:3]:
+        top = _shadow_today_top_text(candidate.today_top)
+        today_count = candidate.today_candidate_count if candidate.today_candidate_count is not None else "-"
+        blockers = "/".join(candidate.blockers[:2]) if candidate.blockers else "none"
+        parts.append(
+            f"{candidate.candidate_key}（{candidate.candidate_family}，"
+            f"today {today_count}，walk {candidate.walk_forward_status}，"
+            f"blockers {candidate.blocker_count}:{blockers}，top {top}）"
+        )
+    suffix = f"；另有 {len(candidates) - 3} 条" if len(candidates) > 3 else ""
+    return "；".join(parts) + suffix
+
+
+def _shadow_today_top_text(today_top: dict[str, Any]) -> str:
+    if not today_top:
+        return "-"
+    stock = " ".join(
+        part
+        for part in [str(today_top.get("ts_code") or ""), str(today_top.get("name") or "")]
+        if part
+    )
+    return stock or str(today_top)
 
 
 def _dict_value(value: Any) -> dict[str, Any] | None:
@@ -4301,6 +4855,12 @@ def _dict_list(value: Any) -> list[dict[str, Any]]:
     if not isinstance(value, list):
         return []
     return [item for item in value if isinstance(item, dict)]
+
+
+def _list_text(value: Any) -> str:
+    if not isinstance(value, list) or not value:
+        return "无"
+    return "/".join(str(item) for item in value[:5])
 
 
 def _market_regime_text(payload: dict[str, Any] | None) -> str:
@@ -4334,6 +4894,54 @@ def _top_sectors_text(sectors: list[dict[str, Any]]) -> str:
         persistence_text = f"，持续 {persistence:.2f}" if persistence is not None else ""
         parts.append(f"{name}{rank_text}{persistence_text}")
     return "；".join(parts)
+
+
+def _continuity_text(value: str | None) -> str:
+    return {
+        "improving": "改善",
+        "fading": "转弱",
+        "crowded": "拥挤",
+        "divergent": "背离",
+        "insufficient_evidence": "证据不足",
+    }.get(str(value or "insufficient_evidence"), str(value or "insufficient_evidence"))
+
+
+def _representative_stocks_text(sectors: list[MarketSectorReport]) -> str:
+    stock_parts: list[str] = []
+    for sector in sectors[:3]:
+        for stock in sector.representative_stocks[:2]:
+            stock_name = " ".join(
+                part
+                for part in [str(stock.get("ts_code") or ""), str(stock.get("name") or "")]
+                if part
+            )
+            if stock_name:
+                rank = _optional_int_from_any(stock.get("rank_in_sector"))
+                rank_text = f"#{rank}" if rank is not None else "#-"
+                stock_parts.append(f"{sector.sector_name}:{stock_name}{rank_text}")
+    return "；".join(stock_parts) if stock_parts else "未找到代表个股"
+
+
+def _evidence_freshness_text(freshness: dict[str, str]) -> str:
+    if not freshness:
+        return "market missing / sector missing / stock missing"
+    return " / ".join(f"{key} {freshness.get(key, 'missing')}" for key in ("market", "sector", "stock"))
+
+
+def _source_refs_text(refs: list[str]) -> str:
+    if not refs:
+        return "无 source_refs"
+    suffix = f" 等 {len(refs)} 项" if len(refs) > 4 else ""
+    return " / ".join(refs[:4]) + suffix
+
+
+def _plan_relationship_text(value: str | None) -> str:
+    return {
+        "aligned": "aligned",
+        "cautious": "cautious",
+        "blocked": "blocked",
+        "missing": "missing",
+    }.get(str(value or "missing"), str(value or "missing"))
 
 
 def _candidate_sector_fit_text(sector: dict[str, Any] | None) -> str:

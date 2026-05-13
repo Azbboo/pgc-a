@@ -8,11 +8,13 @@ from pgc_trading.api.routes import (
     create_decision_action_log,
     create_strategy_version_proposal_review,
     get_daily_review,
+    get_evidence_coverage_ledger,
     get_next_day_decision_cockpit,
     get_open_execution,
     get_market_review,
     get_market_review_plan_context,
     get_paper_acceptance,
+    get_shadow_strategy_snapshot,
     list_ops_history,
     list_paper_acceptance_history,
     list_account_positions,
@@ -313,6 +315,100 @@ class _FakeDecisionActionLogService:
         )
 
 
+class _FakeEvidenceCoverageLedgerService:
+    calls: list[tuple[Path, object, object]] = []
+
+    def __init__(self, db_path: Path):
+        self.db_path = db_path
+
+    def build_coverage_ledger(self, request, ctx):
+        self.calls.append((self.db_path, request, ctx))
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data={
+                "as_of_date": request.as_of_date,
+                "manifest_files": [str(path) for path in request.manifest_files],
+                "discover_manifests": request.discover_manifests,
+                "state_counts": {"missing": 1, "unavailable": 1},
+                "safety": {"read_only": True, "live_fetches": False, "writes_trade_state": False},
+            },
+            lineage={"read_only": "true"},
+        )
+
+
+class _FakeShadowStrategyService:
+    calls: list[tuple[Path, object, object]] = []
+
+    def __init__(self, db_path: Path):
+        self.db_path = db_path
+
+    def get_snapshot(self, request, ctx):
+        self.calls.append((self.db_path, request, ctx))
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data={
+                "snapshot_contract": "shadow_strategy_snapshot_v1",
+                "as_of_date": request.as_of_date,
+                "status": "blocked",
+                "counts": {
+                    "candidate_count": 2,
+                    "blocked_candidate_count": 2,
+                    "shadow_hypothesis_count": 2,
+                },
+                "candidate_families": {"shadow_bucket": 1, "preconfirm_watchlist": 1},
+                "blocker_counts": {"operator_review_required": 2},
+                "walk_forward": {
+                    "status": "complete",
+                    "by_candidate": [
+                        {
+                            "candidate_key": "trend_extension_shadow",
+                            "status": "complete",
+                            "days": 20,
+                            "required_days": 20,
+                        }
+                    ],
+                },
+                "frozen_cpb_comparison": {
+                    "by_candidate": [
+                        {
+                            "candidate_key": "trend_extension_shadow",
+                            "comparison": {
+                                "status": "compared",
+                                "t1_close_mean_delta_pct": -8.11,
+                            },
+                        }
+                    ]
+                },
+                "candidates": [
+                    {
+                        "candidate_key": "trend_extension_shadow",
+                        "candidate_family": "shadow_bucket",
+                        "status": "blocked",
+                        "artifact_only": True,
+                        "walk_forward_status": "complete",
+                        "blocker_count": 2,
+                        "blockers": ["operator_review_required"],
+                        "comparison_vs_frozen_cpb": {
+                            "status": "compared",
+                            "t1_close_mean_delta_pct": -8.11,
+                        },
+                        "source_artifacts": ["/tmp/shadow-monitor.json"],
+                    }
+                ],
+                "safety": {
+                    "read_only": True,
+                    "artifact_only": True,
+                    "writes_trade_state": False,
+                    "active_params_mutated": False,
+                    "timer_mutated": False,
+                },
+            },
+            lineage={"read_only": "true"},
+        )
+
+
 class _FakePositionService:
     calls: list[tuple[Path, object, object]] = []
 
@@ -384,6 +480,8 @@ class ApiReadRoutesTest(unittest.TestCase):
         _FakeMarketReviewReadService.calls = []
         _FakeStrategyEvolutionService.calls = []
         _FakeDecisionActionLogService.calls = []
+        _FakeEvidenceCoverageLedgerService.calls = []
+        _FakeShadowStrategyService.calls = []
         _FakeOpenExecutionService.calls = []
         _FakePositionService.calls = []
         _FakePortfolioService.calls = []
@@ -394,6 +492,8 @@ class ApiReadRoutesTest(unittest.TestCase):
             market_review_service_factory=_FakeMarketReviewReadService,
             strategy_evolution_service_factory=_FakeStrategyEvolutionService,
             decision_action_log_service_factory=_FakeDecisionActionLogService,
+            evidence_coverage_ledger_service_factory=_FakeEvidenceCoverageLedgerService,
+            shadow_strategy_service_factory=_FakeShadowStrategyService,
             open_execution_service_factory=_FakeOpenExecutionService,
             portfolio_planning_service_factory=_FakePortfolioService,
             position_lifecycle_service_factory=_FakePositionService,
@@ -605,6 +705,67 @@ class ApiReadRoutesTest(unittest.TestCase):
         self.assertTrue(ctx.dry_run)
         self.assertEqual(ctx.source, "api")
         self.assertEqual(ctx.request_id, "req-api-ops-history")
+
+    def test_evidence_coverage_ledger_route_is_read_only_and_normalizes_inputs(self) -> None:
+        response = _Response()
+
+        payload = get_evidence_coverage_ledger(
+            self.settings,
+            self.services,
+            response,
+            as_of_date="2026-05-08",
+            manifest_paths=["/tmp/manifest.json"],
+            discover_manifests=True,
+            request_id="req-api-evidence-ledger",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["data"]["as_of_date"], "20260508")
+        self.assertEqual(payload["data"]["manifest_files"], ["/tmp/manifest.json"])
+        self.assertTrue(payload["data"]["discover_manifests"])
+        db_path, request, ctx = _FakeEvidenceCoverageLedgerService.calls[0]
+        self.assertEqual(db_path, self.settings.db_path)
+        self.assertEqual(request.as_of_date, "20260508")
+        self.assertEqual([str(path) for path in request.manifest_files], ["/tmp/manifest.json"])
+        self.assertTrue(request.discover_manifests)
+        self.assertTrue(ctx.dry_run)
+        self.assertEqual(ctx.source, "api")
+        self.assertEqual(ctx.request_id, "req-api-evidence-ledger")
+
+    def test_shadow_strategy_snapshot_route_is_read_only_and_normalizes_date(self) -> None:
+        response = _Response()
+
+        payload = get_shadow_strategy_snapshot(
+            self.settings,
+            self.services,
+            response,
+            as_of_date="2026-05-12",
+            request_id="req-api-shadow-snapshot",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["data"]["as_of_date"], "20260512")
+        self.assertEqual(payload["data"]["snapshot_contract"], "shadow_strategy_snapshot_v1")
+        self.assertEqual(payload["data"]["candidates"][0]["candidate_key"], "trend_extension_shadow")
+        self.assertEqual(payload["data"]["candidate_families"]["shadow_bucket"], 1)
+        self.assertEqual(payload["data"]["walk_forward"]["by_candidate"][0]["days"], 20)
+        self.assertEqual(
+            payload["data"]["frozen_cpb_comparison"]["by_candidate"][0]["comparison"]["status"],
+            "compared",
+        )
+        self.assertTrue(payload["data"]["safety"]["read_only"])
+        self.assertTrue(payload["data"]["safety"]["artifact_only"])
+        self.assertFalse(payload["data"]["safety"]["active_params_mutated"])
+        self.assertFalse(payload["data"]["safety"]["writes_trade_state"])
+        self.assertFalse(payload["data"]["safety"]["timer_mutated"])
+        db_path, request, ctx = _FakeShadowStrategyService.calls[0]
+        self.assertEqual(db_path, self.settings.db_path)
+        self.assertEqual(request.as_of_date, "20260512")
+        self.assertTrue(ctx.dry_run)
+        self.assertEqual(ctx.source, "api")
+        self.assertEqual(ctx.request_id, "req-api-shadow-snapshot")
 
     def test_daily_review_history_route_passes_filters_to_reporting_service(self) -> None:
         response = _Response()
