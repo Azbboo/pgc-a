@@ -9,12 +9,12 @@ This ledger is the single index for historical and active project work. Detailed
 | Field | Value |
 | --- | --- |
 | Branch | `codex/m96-shadow-walk-forward-outcomes` |
-| Latest deployed commit | See release tag `pgc-v0.1.0-20260513-m95-m99-cn-r2` |
-| Latest release tag | `pgc-v0.1.0-20260513-m95-m99-cn-r2` |
+| Latest deployed commit | See release tag `pgc-v0.1.0-20260513-m100-m103-plan-r1` |
+| Latest release tag | `pgc-v0.1.0-20260513-m100-m103-plan-r1` |
 | Remote API | `http://150.158.121.150:8020` |
 | Remote migration state | `013_decision_action_log`, `pending_migrations=none` |
 | Latest release health | `status=ok`, `api_health_ok=true`, HTTP `200`, latest migration `013_decision_action_log` |
-| Latest full verification | Local M95-M99 verification passed on 2026-05-13: full `PYTHONPATH=src:. pytest -q` (`472 passed, 3 skipped, 10 subtests passed`), focused checks (`103 passed, 1 skipped`), Dashboard Chinese-first static checks (`30 passed, 1 skipped`), `node --check web/dashboard/app.js`, Python compile checks, and `git diff --check`. Formal deploy `pgc-v0.1.0-20260513-m95-m99-cn-r2` ran remote release tests (`475 tests`, `skipped=3`) and remote `ops health --require-current-migrations` passed. M98/M99 remain read-only for strategy/trade/paper-live/timer boundaries. |
+| Latest full verification | Local M95-M99 verification passed on 2026-05-13: full `PYTHONPATH=src:. pytest -q` (`472 passed, 3 skipped, 10 subtests passed`), focused checks (`103 passed, 1 skipped`), Dashboard Chinese-first static checks (`30 passed, 1 skipped`), `node --check web/dashboard/app.js`, Python compile checks, and `git diff --check`. Formal runtime deploy `pgc-v0.1.0-20260513-m95-m99-cn-r2` and docs/ledger release `pgc-v0.1.0-20260513-m100-m103-plan-r1` ran remote release tests (`475 tests`, `skipped=3`) and remote `ops health --require-current-migrations` passed. M98/M99 remain read-only for strategy/trade/paper-live/timer boundaries. |
 
 ## Status Legend
 
