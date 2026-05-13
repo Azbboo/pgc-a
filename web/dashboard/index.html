@@ -4,8 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>PGC 操作台</title>
-    <link rel="stylesheet" href="/dashboard/assets/styles.css?v=20260513-m92-promotion-review-1" />
-    <script defer src="/dashboard/assets/app.js?v=20260513-m92-promotion-review-1"></script>
+    <link rel="stylesheet" href="/dashboard/assets/styles.css?v=20260513-m98-shadow-decision-memo-1" />
+    <script defer src="/dashboard/assets/app.js?v=20260513-m98-shadow-decision-memo-1"></script>
   </head>
   <body>
     <div class="app-shell">
@@ -107,7 +107,7 @@
             <span class="nav-glyph">
               <img src="/dashboard/assets/icon-user-male.svg" alt="" aria-hidden="true" />
             </span>
-            <span>Agent 复核</span>
+            <span>智能体复核</span>
             <b id="agentBadge">只读</b>
           </button>
         </nav>
@@ -119,7 +119,7 @@
           </div>
           <form class="context-form" id="contextForm">
             <label>
-              <span>账户 Key</span>
+              <span>账户标识</span>
               <input id="accountKeyInput" name="account_key" autocomplete="off" />
             </label>
             <label>
@@ -143,12 +143,12 @@
               <input id="writeTokenInput" name="write_token" type="password" autocomplete="off" />
             </label>
             <label>
-              <span>API Base</span>
+              <span>API 地址</span>
               <input id="apiBaseInput" name="api_base" placeholder="同源留空" autocomplete="off" />
             </label>
             <label class="field--toggle">
               <input id="dryRunInput" type="checkbox" checked />
-              <span>Dry run</span>
+              <span>预演模式</span>
             </label>
             <p class="context-help">开盘执行通常使用上一交易日作为复盘日；执行日取该复盘日的下一交易日。</p>
             <button class="primary-button field--submit" type="submit">刷新上下文</button>
@@ -158,8 +158,8 @@
         <div class="sidebar-profile" aria-label="当前模式">
           <span class="sidebar-profile__avatar">PG</span>
           <div>
-            <strong>Paper Console</strong>
-            <span>Dry run ready</span>
+            <strong>纸盘操作台</strong>
+            <span>预演就绪</span>
           </div>
         </div>
       </aside>
@@ -281,7 +281,7 @@
           <div class="page-heading">
             <div>
               <h1>下一交易日决策驾驶舱</h1>
-              <p>把全市场复盘、证据 blocker、paper acceptance、open-execution 和策略 proposal 收束成一张只读人工动作清单；Dashboard 不会执行交易、开启 timer 或修改策略参数。</p>
+              <p>把全市场复盘、证据阻断、纸盘验收、开盘执行和策略提案收束成一张只读人工动作清单；操作台不会执行交易、开启定时任务或修改策略参数。</p>
             </div>
             <div class="toolbar">
               <span id="decisionDateLabel" class="review-scope-chip">复盘日 -</span>
@@ -301,8 +301,8 @@
             </div>
             <div class="panel">
               <div class="panel-heading">
-                <h2>策略 proposal</h2>
-                <span class="chip chip-neutral">不改 paper/live 行为</span>
+                <h2>策略提案</h2>
+                <span class="chip chip-neutral">不改纸盘/实盘行为</span>
               </div>
               <div id="decisionStrategyProposal" class="decision-strategy-proposal"></div>
             </div>
@@ -311,7 +311,7 @@
           <section class="panel decision-checklist-panel">
             <div class="panel-heading">
               <h2>决策清单</h2>
-              <span class="muted">显示 allowed / blocked / manual review</span>
+              <span class="muted">显示可执行 / 阻断 / 需人工复核</span>
             </div>
             <div id="decisionChecklist" class="acceptance-overview-grid decision-checklist"></div>
           </section>
@@ -319,7 +319,7 @@
           <section class="panel decision-action-log-panel">
             <div class="panel-heading">
               <h2>动作日志 / 次日复核</h2>
-              <span class="muted">只记录人工 follow / defer / override，不执行交易</span>
+              <span class="muted">只记录人工跟随 / 暂缓 / 改写，不执行交易</span>
             </div>
             <div id="decisionActionLog" class="decision-action-log"></div>
           </section>
@@ -329,7 +329,7 @@
           <div class="page-heading">
             <div>
               <h1>每日复盘</h1>
-              <p>按复盘日生成或查看下一交易日动作、候选、持仓到期和只读 Agent 意见。<span id="currentReviewDateLabel" class="review-scope-label">当前复盘日：-</span></p>
+              <p>按复盘日生成或查看下一交易日动作、候选、持仓到期和只读智能体意见。<span id="currentReviewDateLabel" class="review-scope-label">当前复盘日：-</span></p>
             </div>
             <div class="toolbar">
               <div class="review-history-control" aria-label="复盘历史">
@@ -442,11 +442,11 @@
             </div>
             <div class="panel">
               <div class="panel-heading">
-                <h2>AI 复核意见</h2>
+                <h2>智能体复核意见</h2>
                 <div class="panel-heading-actions">
                   <span id="agentReviewScope" class="review-scope-chip">复盘日 -</span>
                   <span class="chip chip-agent">仅供复核</span>
-                  <button type="button" class="link-button" id="openAgentDetailInlineButton">Agent 详情</button>
+                  <button type="button" class="link-button" id="openAgentDetailInlineButton">智能体详情</button>
                 </div>
               </div>
               <div id="agentSummary" class="agent-summary"></div>
@@ -458,7 +458,7 @@
           <div class="page-heading">
             <div>
               <h1>纸盘每日运营验收</h1>
-              <p>只读验收视图：数据新鲜度、证据覆盖、Agent 状态、open-execution 状态、readiness gates、历史趋势、告警和未处理 blocker；Dashboard 不会执行交易，不会自动取消或执行计划。</p>
+              <p>只读验收视图：数据新鲜度、证据覆盖、智能体状态、开盘执行状态、就绪门禁、历史趋势、告警和未处理阻断；操作台不会执行交易，不会自动取消或执行计划。</p>
             </div>
             <div class="toolbar">
               <span id="acceptanceDateLabel" class="review-scope-chip">复盘日 -</span>
@@ -468,21 +468,21 @@
 
           <section class="acceptance-status-panel acceptance-status-panel--warning" id="acceptanceStatusPanel" aria-live="polite"></section>
 
-          <section id="acceptanceAlertList" class="acceptance-alert-list" aria-label="paper acceptance 告警"></section>
+          <section id="acceptanceAlertList" class="acceptance-alert-list" aria-label="纸盘验收告警"></section>
 
-          <section class="acceptance-overview-grid" id="acceptanceOverviewGrid" aria-label="运营验收核心 gate"></section>
+          <section class="acceptance-overview-grid" id="acceptanceOverviewGrid" aria-label="运营验收核心门禁"></section>
 
           <section class="split-panels acceptance-detail-grid">
             <div class="panel">
               <div class="panel-heading">
-                <h2>readiness gates</h2>
+                <h2>就绪门禁</h2>
                 <span class="chip chip-agent">只读验收面板</span>
               </div>
               <div id="acceptanceGateBody" class="acceptance-gate-list"></div>
             </div>
             <div class="panel">
               <div class="panel-heading">
-                <h2>未处理 blocker</h2>
+                <h2>未处理阻断</h2>
                 <span class="muted">不会自动取消或执行计划</span>
               </div>
               <div id="acceptanceBlockerList" class="compact-list"></div>
@@ -491,10 +491,10 @@
 
           <section class="panel acceptance-history-panel">
             <div class="panel-heading">
-              <h2>paper acceptance 历史</h2>
-              <span id="acceptanceHistorySummary" class="muted">暂无 paper acceptance 历史。</span>
+              <h2>纸盘验收历史</h2>
+              <span id="acceptanceHistorySummary" class="muted">暂无纸盘验收历史。</span>
             </div>
-            <div id="acceptanceHistoryList" class="acceptance-history-list" aria-label="paper acceptance 历史"></div>
+            <div id="acceptanceHistoryList" class="acceptance-history-list" aria-label="纸盘验收历史"></div>
           </section>
         </section>
 
@@ -502,7 +502,7 @@
           <div class="page-heading">
             <div>
               <h1>运维历史</h1>
-              <p>只读 operator history：pipeline runs、backups、release tags、remote health、paper acceptance snapshots 和 timer dry-run evidence attempts；不会启用 timer、重跑 apply、创建交易或修改策略状态。</p>
+              <p>只读运维历史：日终流水线、备份、发布标签、远端健康检查、纸盘验收快照和定时任务预演证据；不会启用定时任务、重跑正式写入、创建交易或修改策略状态。</p>
             </div>
             <div class="toolbar">
               <span class="chip chip-agent">只读观测</span>
@@ -512,11 +512,11 @@
 
           <section class="panel ops-history-panel">
             <div class="panel-heading">
-              <h2>Ops run history</h2>
-              <span id="opsHistorySummary" class="muted">暂无 ops run history。</span>
+              <h2>运维运行历史</h2>
+              <span id="opsHistorySummary" class="muted">暂无运维运行历史。</span>
             </div>
             <div id="opsHistoryCounts" class="ops-history-counts" aria-label="ops history 计数"></div>
-            <div id="opsHistoryList" class="ops-history-list" aria-label="ops run history"></div>
+            <div id="opsHistoryList" class="ops-history-list" aria-label="运维运行历史"></div>
           </section>
         </section>
 
@@ -524,7 +524,7 @@
           <div class="page-heading">
             <div>
               <h1>全市场</h1>
-              <p>读取 market-reviews 只读结果，核对市场状态、板块轮动、外部证据和明日计划关系。</p>
+              <p>读取全市场复盘的只读结果，核对市场状态、板块轮动、外部证据和明日计划关系。</p>
             </div>
             <div class="toolbar">
               <div class="market-date-control" aria-label="全市场复盘日期">
@@ -576,7 +576,7 @@
             <section class="panel market-plan-context-panel">
               <div class="panel-heading">
                 <h2>明日计划关系</h2>
-                <span class="chip chip-agent">只读 advisory</span>
+                <span class="chip chip-agent">只读参考</span>
               </div>
               <div id="marketPlanContextPanel" class="market-plan-context"></div>
             </section>
@@ -611,7 +611,7 @@
           <div class="page-heading">
             <div>
               <h1>假设评估</h1>
-              <p>策略假设评估工作台：审阅 evidence、backtest artifact、proposal review 和 promotion-request artifacts；accepted 只代表研究结论，后续必须单独创建 strategy-version proposal。</p>
+              <p>策略假设评估工作台：审阅证据、回测产物、提案复核和晋升申请产物；“已接受”只代表研究结论，后续必须单独创建策略版本提案。</p>
             </div>
             <div class="toolbar">
               <label class="review-date-field">
@@ -656,7 +656,7 @@
               <h2>假设列表</h2>
               <div class="panel-heading-actions">
                 <span id="strategyHypothesisWorkbenchState" class="muted">-</span>
-                <span class="chip chip-neutral">不修改 paper/live 行为</span>
+                <span class="chip chip-neutral">不修改纸盘/实盘行为</span>
               </div>
             </div>
             <div id="strategyHypothesisWorkbenchList" class="hypothesis-workbench-list"></div>
@@ -667,7 +667,7 @@
           <div class="page-heading">
             <div>
               <h1>影子实验室</h1>
-              <p>Shadow strategy lab：只读展示候选族群、walk-forward、promotion blocker 和 frozen CPB 对照；研究-only，不发布策略、不写交易计划。</p>
+              <p>影子策略实验室：只读展示候选族群、跟踪验证、晋升阻断和冻结 CPB 对照；仅用于研究观察，不发布策略、不写交易计划。</p>
             </div>
             <div class="toolbar">
               <div class="shadow-history-control" aria-label="影子观察历史筛选">
@@ -686,19 +686,30 @@
                 </label>
                 <button type="button" id="shadowHistoryApplyButton">查看历史</button>
               </div>
-              <span id="shadowSnapshotDateLabel" class="review-scope-chip">Shadow snapshot -</span>
+              <span id="shadowSnapshotDateLabel" class="review-scope-chip">影子快照 -</span>
               <button type="button" id="reloadShadowStrategyButton">刷新影子快照</button>
             </div>
           </div>
 
           <section class="shadow-summary-panel" id="shadowSummaryPanel" aria-live="polite"></section>
 
+          <section class="panel shadow-decision-memo-panel">
+            <div class="panel-heading">
+              <h2>中文决策备忘录</h2>
+              <div class="panel-heading-actions">
+                <span id="shadowDecisionMemoState" class="muted">-</span>
+                <span class="chip chip-agent">中文决策备忘录</span>
+              </div>
+            </div>
+            <div id="shadowDecisionMemoWorkbench" class="shadow-decision-memo-workbench"></div>
+          </section>
+
           <section class="panel shadow-review-workbench-panel">
             <div class="panel-heading">
               <h2>晋升评审工作台</h2>
               <div class="panel-heading-actions">
                 <span id="shadowPromotionReviewState" class="muted">-</span>
-                <span class="chip chip-agent">read-only review package</span>
+                <span class="chip chip-agent">只读评审包</span>
               </div>
             </div>
             <div id="shadowPromotionReviewWorkbench" class="shadow-review-workbench"></div>
@@ -709,7 +720,7 @@
               <h2>观察历史</h2>
               <div class="panel-heading-actions">
                 <span id="shadowObservationHistoryState" class="muted">-</span>
-                <span class="chip chip-neutral">research-only</span>
+                <span class="chip chip-neutral">仅研究观察</span>
               </div>
             </div>
             <div id="shadowObservationHistoryStrip" class="shadow-history-strip" aria-label="影子观察日期时间线"></div>
@@ -721,7 +732,7 @@
               <h2>观察队列</h2>
               <div class="panel-heading-actions">
                 <span id="shadowObservationQueueState" class="muted">-</span>
-                <span class="chip chip-neutral">不是 paper trading</span>
+                <span class="chip chip-neutral">不是纸盘交易</span>
               </div>
             </div>
             <div id="shadowObservationQueue" class="shadow-observation-queue"></div>
@@ -731,14 +742,14 @@
             <section class="panel">
               <div class="panel-heading">
                 <h2>候选族群</h2>
-                <span class="chip chip-agent">artifact-only</span>
+                <span class="chip chip-agent">仅产物记录</span>
               </div>
               <div id="shadowFamilyGrid" class="shadow-family-grid"></div>
             </section>
 
             <section class="panel">
               <div class="panel-heading">
-                <h2>Walk-forward</h2>
+                <h2>跟踪验证</h2>
                 <span class="chip chip-neutral">20 日观察</span>
               </div>
               <div id="shadowWalkForwardPanel" class="shadow-walk-forward-panel"></div>
@@ -748,7 +759,7 @@
           <div class="shadow-lab-grid">
             <section class="panel">
               <div class="panel-heading">
-                <h2>Promotion blocker</h2>
+                <h2>晋升阻断</h2>
                 <span class="chip chip-red">默认阻断</span>
               </div>
               <div id="shadowBlockerPanel" class="shadow-blocker-panel"></div>
@@ -756,8 +767,8 @@
 
             <section class="panel">
               <div class="panel-heading">
-                <h2>Frozen CPB 对照</h2>
-                <span class="chip chip-neutral">active CPB 不变</span>
+                <h2>冻结 CPB 对照</h2>
+                <span class="chip chip-neutral">当前 CPB 不变</span>
               </div>
               <div id="shadowFrozenCpbPanel" class="shadow-frozen-panel"></div>
             </section>
@@ -765,7 +776,7 @@
 
           <section class="panel shadow-candidate-panel">
             <div class="panel-heading">
-              <h2>候选 drill-down</h2>
+              <h2>候选下钻</h2>
               <div class="panel-heading-actions">
                 <span id="shadowCandidateState" class="muted">-</span>
                 <span class="chip chip-neutral">无写入动作</span>
@@ -777,7 +788,7 @@
           <section class="panel shadow-safety-panel">
             <div class="panel-heading">
               <h2>安全边界</h2>
-              <span class="chip chip-agent">read-only</span>
+              <span class="chip chip-agent">只读</span>
             </div>
             <div id="shadowSafetyPanel" class="shadow-safety-grid"></div>
           </section>
@@ -787,7 +798,7 @@
           <div class="page-heading">
             <div>
               <h1>交易计划</h1>
-              <p>只展示服务层返回的计划；无信号不会伪装成 skipped plan。</p>
+              <p>只展示服务层返回的计划；无信号不会伪装成已跳过计划。</p>
             </div>
             <div class="toolbar">
               <select id="planStatusFilter" aria-label="计划状态筛选">
@@ -829,14 +840,14 @@
           <div class="page-heading">
             <div>
               <h1>成交录入</h1>
-              <p>active 计划才允许按计划录入；卖出可从持仓或退出计划进入。</p>
+              <p>有效计划才允许按计划录入；卖出可从持仓或退出计划进入。</p>
             </div>
           </div>
           <div class="record-layout">
             <section class="panel">
               <div class="panel-heading">
                 <h2>待录入队列</h2>
-                <span class="muted">active 计划优先</span>
+                <span class="muted">有效计划优先</span>
               </div>
               <div id="recordQueue" class="compact-list"></div>
             </section>
@@ -846,7 +857,7 @@
                 <span id="recordModeChip" class="chip chip-neutral">未选择</span>
 	              </div>
 	              <form class="record-form" id="recordForm">
-	                <p class="execution-advisory">仅记录人工纸面成交；Dashboard 不会向券商下单。</p>
+	                <p class="execution-advisory">仅记录人工纸面成交；操作台不会向券商下单。</p>
 	                <p id="recordPrefillHint" class="record-prefill-hint">从待录入队列选择计划后，会自动带出计划 ID、方向、成交日期、股数和参考价。</p>
                   <div id="recordPlanReference" class="record-reference-panel" hidden></div>
                   <p id="recordLockReasonInline" class="record-lock-inline" hidden></p>
@@ -937,7 +948,7 @@
           <div class="page-heading">
             <div>
               <h1>数据质量</h1>
-              <p>blocker 始终高亮；发布计划会被阻断。</p>
+              <p>阻断始终高亮；发布计划会被阻断。</p>
             </div>
             <div class="toolbar">
               <select id="qualitySeverityFilter" aria-label="数据质量严重度筛选">
@@ -973,11 +984,11 @@
         <section class="page" data-page="agent">
           <div class="page-heading">
             <div>
-              <h1>Agent 复核</h1>
+              <h1>智能体复核</h1>
               <p>首版只读展示，不表现成交易指令。</p>
             </div>
             <div class="toolbar">
-              <button type="button" id="openAgentDetailButton">打开 Agent 详情</button>
+              <button type="button" id="openAgentDetailButton">打开智能体详情</button>
             </div>
           </div>
           <section class="panel">

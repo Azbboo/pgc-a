@@ -14,6 +14,7 @@ from pgc_trading.api.routes import (
     get_market_review,
     get_market_review_plan_context,
     get_paper_acceptance,
+    get_shadow_decision_memo,
     get_shadow_observation_scorecard,
     get_shadow_promotion_review_request,
     get_shadow_strategy_snapshot,
@@ -592,6 +593,65 @@ class _FakeShadowObservationService:
             lineage={"read_only": "true", "review_request_contract": "shadow_promotion_review_request_v1"},
         )
 
+    def get_decision_memo(self, request, ctx):
+        self.calls.append((self.db_path, request, ctx))
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data={
+                "memo_contract": "shadow_decision_memo_v1",
+                "as_of_date": request.as_of_date,
+                "status": "blocked",
+                "language": "zh-CN",
+                "summary": {
+                    "status": "blocked",
+                    "candidate_count": 1,
+                    "blocker_count": 2,
+                    "conclusion_zh": "当前仍为阻断，候选只允许补证据。",
+                    "promotion_allowed": False,
+                },
+                "sections": {
+                    "候选概览": {"items": [{"candidate_key": "trend_extension_shadow"}]},
+                    "证据状态": {"items": [{"name": "replay/backtest evidence", "status": "missing"}]},
+                    "阻断原因": {"items": ["replay_backtest_result_artifact_required"]},
+                    "下一步实验": {"items": [{"experiment_key": "trend_extension_shadow:collect_replay_evidence"}]},
+                    "人工决策": {
+                        "items": [
+                            {
+                                "decision_key": "manual_promotion_approval_required",
+                                "required": True,
+                                "status": "required",
+                            }
+                        ]
+                    },
+                    "风险/回滚边界": {"items": ["不 approve / 不 promote / 不 trade / 不 plan / 不 timer"]},
+                },
+                "candidate_memos": [
+                    {
+                        "candidate_key": "trend_extension_shadow",
+                        "summary_zh": "继续补证据，不允许晋升。",
+                        "promotion_allowed": False,
+                    }
+                ],
+                "safety": {
+                    "read_only": True,
+                    "artifact_only": True,
+                    "memo_is_not_approval": True,
+                    "no_approve_controls": True,
+                    "no_promotion_controls": True,
+                    "no_trade_controls": True,
+                    "no_trade_plan_controls": True,
+                    "no_timer_controls": True,
+                    "promotion_allowed": False,
+                    "active_params_mutated": False,
+                    "writes_trade_state": False,
+                    "writes_paper_live_behavior": False,
+                    "timer_mutated": False,
+                },
+            },
+            lineage={"read_only": "true", "memo_contract": "shadow_decision_memo_v1"},
+        )
+
 
 class _FakePositionService:
     calls: list[tuple[Path, object, object]] = []
@@ -680,6 +740,7 @@ class ApiReadRoutesTest(unittest.TestCase):
             evidence_coverage_ledger_service_factory=_FakeEvidenceCoverageLedgerService,
             shadow_strategy_service_factory=_FakeShadowStrategyService,
             shadow_observation_service_factory=_FakeShadowObservationService,
+            shadow_decision_memo_service_factory=_FakeShadowObservationService,
             shadow_promotion_review_service_factory=_FakeShadowObservationService,
             open_execution_service_factory=_FakeOpenExecutionService,
             portfolio_planning_service_factory=_FakePortfolioService,
@@ -1051,6 +1112,44 @@ class ApiReadRoutesTest(unittest.TestCase):
         self.assertTrue(ctx.dry_run)
         self.assertEqual(ctx.source, "api")
         self.assertEqual(ctx.request_id, "req-api-shadow-promotion-review")
+
+    def test_shadow_decision_memo_route_is_read_only_and_normalizes_date(self) -> None:
+        response = _Response()
+
+        payload = get_shadow_decision_memo(
+            self.settings,
+            self.services,
+            response,
+            as_of_date="2026-05-12",
+            request_id="req-api-shadow-decision-memo",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["data"]["as_of_date"], "20260512")
+        self.assertEqual(payload["data"]["memo_contract"], "shadow_decision_memo_v1")
+        self.assertEqual(payload["data"]["summary"]["status"], "blocked")
+        self.assertIn("候选概览", payload["data"]["sections"])
+        self.assertIn("证据状态", payload["data"]["sections"])
+        self.assertIn("阻断原因", payload["data"]["sections"])
+        self.assertIn("下一步实验", payload["data"]["sections"])
+        self.assertIn("人工决策", payload["data"]["sections"])
+        self.assertIn("风险/回滚边界", payload["data"]["sections"])
+        self.assertEqual(payload["data"]["candidate_memos"][0]["candidate_key"], "trend_extension_shadow")
+        self.assertTrue(payload["data"]["safety"]["read_only"])
+        self.assertTrue(payload["data"]["safety"]["artifact_only"])
+        self.assertTrue(payload["data"]["safety"]["memo_is_not_approval"])
+        self.assertTrue(payload["data"]["safety"]["no_approve_controls"])
+        self.assertFalse(payload["data"]["safety"]["promotion_allowed"])
+        self.assertFalse(payload["data"]["safety"]["active_params_mutated"])
+        self.assertFalse(payload["data"]["safety"]["writes_trade_state"])
+        self.assertFalse(payload["data"]["safety"]["timer_mutated"])
+        db_path, request, ctx = _FakeShadowObservationService.calls[0]
+        self.assertEqual(db_path, self.settings.db_path)
+        self.assertEqual(request.as_of_date, "20260512")
+        self.assertTrue(ctx.dry_run)
+        self.assertEqual(ctx.source, "api")
+        self.assertEqual(ctx.request_id, "req-api-shadow-decision-memo")
 
     def test_daily_review_history_route_passes_filters_to_reporting_service(self) -> None:
         response = _Response()

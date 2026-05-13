@@ -105,6 +105,9 @@ class DailyPipelineResult:
     shadow_observation_status: str | None = None
     shadow_observation_top_candidates: str | None = None
     shadow_observation_blockers: str | None = None
+    shadow_walk_forward_outcomes_status: str | None = None
+    shadow_walk_forward_outcomes_availability: str | None = None
+    shadow_walk_forward_outcomes_blockers: str | None = None
     shadow_evidence_status: str | None = None
     shadow_evidence_artifacts: str | None = None
     shadow_evidence_blockers: str | None = None
@@ -423,6 +426,10 @@ class DailyPipelineService:
             status=report_result.data.shadow_evidence_status or "unknown",
             detail=report_result.data.shadow_evidence_blockers or "none",
         )
+        step_summaries["shadow_walk_forward_outcomes"] = PipelineStepSummary(
+            status=report_result.data.shadow_walk_forward_outcomes_status or "unknown",
+            detail=report_result.data.shadow_walk_forward_outcomes_blockers or "none",
+        )
 
         after_counts = _table_counts(self.db_path)
         changed = _counts_changed(before_counts, after_counts) or report_result.data.changed
@@ -453,6 +460,9 @@ class DailyPipelineService:
             shadow_observation_status=report_result.data.shadow_observation_status,
             shadow_observation_top_candidates=report_result.data.shadow_observation_top_candidates,
             shadow_observation_blockers=report_result.data.shadow_observation_blockers,
+            shadow_walk_forward_outcomes_status=report_result.data.shadow_walk_forward_outcomes_status,
+            shadow_walk_forward_outcomes_availability=report_result.data.shadow_walk_forward_outcomes_availability,
+            shadow_walk_forward_outcomes_blockers=report_result.data.shadow_walk_forward_outcomes_blockers,
             shadow_evidence_status=report_result.data.shadow_evidence_status,
             shadow_evidence_artifacts=report_result.data.shadow_evidence_artifacts,
             shadow_evidence_blockers=report_result.data.shadow_evidence_blockers,
@@ -506,6 +516,10 @@ class DailyPipelineService:
         shadow_status = _shadow_observation_status(shadow_observation)
         shadow_top_candidates = _shadow_observation_top_candidates(shadow_observation)
         shadow_blockers = _shadow_observation_blockers(shadow_observation)
+        shadow_walk_forward_outcomes = getattr(report.data, "shadow_walk_forward_outcomes", {}) or {}
+        shadow_walk_forward_status = _shadow_walk_forward_outcomes_status(shadow_walk_forward_outcomes)
+        shadow_walk_forward_availability = _shadow_walk_forward_outcomes_availability(shadow_walk_forward_outcomes)
+        shadow_walk_forward_blockers = _shadow_walk_forward_outcomes_blockers(shadow_walk_forward_outcomes)
         shadow_evidence = getattr(report.data, "shadow_evidence", {}) or {}
         shadow_evidence_status = _shadow_evidence_status(shadow_evidence)
         shadow_evidence_artifacts = _shadow_evidence_artifacts(shadow_evidence)
@@ -525,6 +539,9 @@ class DailyPipelineService:
                     shadow_observation_status=shadow_status,
                     shadow_observation_top_candidates=shadow_top_candidates,
                     shadow_observation_blockers=shadow_blockers,
+                    shadow_walk_forward_outcomes_status=shadow_walk_forward_status,
+                    shadow_walk_forward_outcomes_availability=shadow_walk_forward_availability,
+                    shadow_walk_forward_outcomes_blockers=shadow_walk_forward_blockers,
                     shadow_evidence_status=shadow_evidence_status,
                     shadow_evidence_artifacts=shadow_evidence_artifacts,
                     shadow_evidence_blockers=shadow_evidence_blockers,
@@ -548,6 +565,9 @@ class DailyPipelineService:
                 shadow_observation_status=shadow_status,
                 shadow_observation_top_candidates=shadow_top_candidates,
                 shadow_observation_blockers=shadow_blockers,
+                shadow_walk_forward_outcomes_status=shadow_walk_forward_status,
+                shadow_walk_forward_outcomes_availability=shadow_walk_forward_availability,
+                shadow_walk_forward_outcomes_blockers=shadow_walk_forward_blockers,
                 shadow_evidence_status=shadow_evidence_status,
                 shadow_evidence_artifacts=shadow_evidence_artifacts,
                 shadow_evidence_blockers=shadow_evidence_blockers,
@@ -567,6 +587,9 @@ class _ReportWriteResult:
     shadow_observation_status: str | None = None
     shadow_observation_top_candidates: str | None = None
     shadow_observation_blockers: str | None = None
+    shadow_walk_forward_outcomes_status: str | None = None
+    shadow_walk_forward_outcomes_availability: str | None = None
+    shadow_walk_forward_outcomes_blockers: str | None = None
     shadow_evidence_status: str | None = None
     shadow_evidence_artifacts: str | None = None
     shadow_evidence_blockers: str | None = None
@@ -608,6 +631,35 @@ def _shadow_observation_blockers(shadow: object | None) -> str:
         return ";".join(f"{key}:{counts[key]}" for key in sorted(counts))
     reason = getattr(shadow, "unavailable_reason", None)
     return str(reason) if reason else "none"
+
+
+def _shadow_walk_forward_outcomes_status(outcomes: object) -> str:
+    if not isinstance(outcomes, dict):
+        return "unavailable"
+    return str(outcomes.get("status") or "unknown")
+
+
+def _shadow_walk_forward_outcomes_availability(outcomes: object) -> str:
+    if not isinstance(outcomes, dict):
+        return "unavailable"
+    summary = outcomes.get("summary")
+    if not isinstance(summary, dict):
+        return "summary_missing"
+    return (
+        f"signals={summary.get('signal_count', 0)},"
+        f"complete={summary.get('complete_count', 0)},"
+        f"partial={summary.get('partial_horizon_count', 0)},"
+        f"missing_bars={summary.get('missing_market_bar_count', 0)}"
+    )
+
+
+def _shadow_walk_forward_outcomes_blockers(outcomes: object) -> str:
+    if not isinstance(outcomes, dict):
+        return "shadow_walk_forward_outcomes_unavailable"
+    blockers = outcomes.get("blockers")
+    if isinstance(blockers, list) and blockers:
+        return ";".join(str(item) for item in blockers)
+    return "none"
 
 
 def _shadow_evidence_status(evidence: object) -> str:

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from pgc_trading.services.common import RequestContext
 from pgc_trading.services.strategy_evolution_service import (
+    BuildShadowExperimentRegistryRequest,
     BuildShadowThresholdCalibrationRequest,
     CreateStrategyVersionProposalReviewRequest,
     CreateStrategyVersionProposalRequest,
@@ -19,6 +20,7 @@ from pgc_trading.services.strategy_evolution_service import (
     StrategyEvolutionService,
     review_shadow_promotion_dossier_artifact,
     review_shadow_promotion_review_request_artifact,
+    review_shadow_strategy_experiment_registry_artifact,
     review_shadow_threshold_calibration_artifact,
     review_strategy_version_proposal_review_artifact,
     review_strategy_version_proposal_artifact,
@@ -781,6 +783,97 @@ class StrategyEvolutionServiceTest(unittest.TestCase):
             self.assertEqual(
                 unsafe_review.error,
                 "shadow threshold calibration artifact reports mutation or promotion permission.",
+            )
+
+    def test_builds_shadow_experiment_registry_from_calibration_recommendations(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc.db"
+            reports_dir = Path(tmp) / "reports"
+            calibration_path = reports_dir / "shadow_threshold_calibration_20260513.json"
+            registry_path = reports_dir / "custom_shadow_strategy_experiment_registry.json"
+            run_migrations(db_path)
+            _write_shadow_threshold_calibration_inputs(reports_dir)
+            service = StrategyEvolutionService(db_path, reports_dir=reports_dir)
+            calibration = service.build_shadow_threshold_calibration(
+                BuildShadowThresholdCalibrationRequest(
+                    as_of_date="20260513",
+                    output_path=str(calibration_path),
+                ),
+                RequestContext(request_id="m94-for-m97", dry_run=False, operator="azboo"),
+            )
+            self.assertEqual(calibration.status, "success")
+            params_before = _strategy_param_file_contents()
+            strategy_versions_before = _count_strategy_versions(db_path)
+            state_counts_before = _state_counts(db_path)
+
+            result = service.build_shadow_experiment_registry(
+                BuildShadowExperimentRegistryRequest(
+                    as_of_date="20260513",
+                    output_path=str(registry_path),
+                ),
+                RequestContext(request_id="m97", dry_run=False, operator="azboo"),
+            )
+
+            self.assertEqual(result.status, "success")
+            self.assertIsNotNone(result.data)
+            assert result.data is not None
+            self.assertTrue(result.data.wrote_artifact)
+            self.assertTrue(registry_path.exists())
+            self.assertTrue(registry_path.with_suffix(".md").exists())
+            self.assertFalse(result.data.active_params_mutated)
+            self.assertFalse(result.data.wrote_strategy_versions)
+            self.assertFalse(result.data.writes_trade_state)
+            self.assertFalse(result.data.writes_paper_live_behavior)
+            self.assertFalse(result.data.timer_mutated)
+            self.assertEqual(_strategy_param_file_contents(), params_before)
+            self.assertEqual(_count_strategy_versions(db_path), strategy_versions_before)
+            self.assertEqual(_state_counts(db_path), state_counts_before)
+
+            artifact = json.loads(registry_path.read_text(encoding="utf-8"))
+            self.assertEqual(artifact["artifact_type"], "shadow_strategy_experiment_registry")
+            self.assertEqual(artifact["registry_contract"], "shadow_strategy_experiment_registry_v1")
+            self.assertEqual(artifact["source_calibration"]["calibration_contract"], "shadow_threshold_calibration_v1")
+            self.assertTrue(artifact["summary"]["artifact_only"])
+            self.assertFalse(artifact["summary"]["promotion_allowed"])
+            self.assertFalse(artifact["summary"]["active_params_mutated"])
+            self.assertGreaterEqual(artifact["summary"]["experiment_count"], 1)
+            first = artifact["experiments"][0]
+            self.assertIn("candidate_family", first)
+            self.assertIn("calibration_variant", first)
+            self.assertIn("replay_evidence", first)
+            self.assertIn("sample_requirements", first)
+            self.assertIn("frozen_cpb_comparison", first)
+            self.assertIn("required_evidence", first)
+            self.assertIn("stop_rules", first)
+            self.assertIn("rollback_rules", first)
+            self.assertTrue(first["manual_approval_boundaries"]["manual_promotion_approval_required"])
+            self.assertFalse(first["manual_approval_boundaries"]["strategy_version_publication_allowed"])
+            self.assertFalse(first["manual_approval_boundaries"]["trade_state_writes_allowed"])
+            self.assertFalse(artifact["safety"]["active_params_mutated"])
+            self.assertFalse(artifact["safety"]["wrote_strategy_versions"])
+            self.assertFalse(artifact["safety"]["writes_trade_state"])
+            self.assertFalse(artifact["safety"]["writes_paper_live_behavior"])
+            self.assertFalse(artifact["safety"]["timer_mutated"])
+
+            review = review_shadow_strategy_experiment_registry_artifact(registry_path)
+            self.assertTrue(review.exists)
+            self.assertTrue(review.valid)
+            self.assertEqual(review.registry_contract, "shadow_strategy_experiment_registry_v1")
+            self.assertEqual(review.source_calibration_contract, "shadow_threshold_calibration_v1")
+            self.assertTrue(review.artifact_only)
+            self.assertFalse(review.promotion_allowed)
+            self.assertFalse(review.strategy_version_publication_allowed)
+            self.assertFalse(review.writes_trade_state)
+            self.assertFalse(review.timer_mutated)
+
+            unsafe = json.loads(registry_path.read_text(encoding="utf-8"))
+            unsafe["experiments"][0]["manual_approval_boundaries"]["strategy_version_publication_allowed"] = True
+            registry_path.write_text(json.dumps(unsafe), encoding="utf-8")
+            unsafe_review = review_shadow_strategy_experiment_registry_artifact(registry_path)
+            self.assertFalse(unsafe_review.valid)
+            self.assertEqual(
+                unsafe_review.error,
+                "shadow strategy experiment registry reports mutation or promotion permission.",
             )
 
     def test_strategy_version_proposal_review_requires_accepted_hypothesis_and_valid_proposal_for_approval(self) -> None:

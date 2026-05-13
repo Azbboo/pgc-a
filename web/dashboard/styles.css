@@ -1806,6 +1806,84 @@ code {
   margin-bottom: 14px;
 }
 
+.shadow-decision-memo-panel {
+  margin-bottom: 14px;
+}
+
+.shadow-decision-memo-workbench,
+.shadow-decision-candidate-list {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.shadow-decision-memo-workbench .action-meta {
+  margin-top: 10px;
+}
+
+.shadow-decision-conclusion {
+  padding: 11px 12px;
+  border: 1px solid #dfe7ff;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.5;
+}
+
+.shadow-decision-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  min-width: 0;
+}
+
+.shadow-decision-section-card,
+.shadow-decision-candidate-card {
+  display: grid;
+  gap: 9px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-soft);
+}
+
+.shadow-decision-section-card p,
+.shadow-decision-candidate-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.shadow-decision-section-items {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.shadow-decision-section-item {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 7px 8px;
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.shadow-decision-section-item small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 .shadow-review-workbench,
 .shadow-review-stack,
 .shadow-review-candidate-list {
@@ -3774,6 +3852,7 @@ td > .empty-state {
   .decision-grid,
   .market-layout,
   .hypothesis-workbench-grid,
+  .shadow-decision-grid,
   .shadow-review-grid,
   .shadow-lab-grid,
   .market-plan-context-pair,

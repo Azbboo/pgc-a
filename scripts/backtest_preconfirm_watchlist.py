@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,12 +17,13 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
-from analyze_pgc_event_backtest import HORIZONS, MARKET_DIR, RAW_EVENTS_PATH, load_events, load_market, pct, ret_from_adj, round_num, summarize
+from analyze_pgc_event_backtest import HORIZONS, MARKET_DIR, RAW_EVENTS_PATH, MarketData, load_events, load_market, pct, ret_from_adj, round_num, summarize
 from deep_dive_contracting_pullback import build_param_grid
 from run_daily_v2_review import confirmed_candidates_at_date, load_industry_map, pre_confirm_watchlist_at_date
 
 
 POOL_JSON = ROOT / "data" / "pgc_pool.json"
+DB_PATH = ROOT / "data" / "pgc_trading.db"
 TRADES_OUT = ROOT / "data" / "preconfirm_watchlist_backtest_trades.csv"
 SUMMARY_OUT = ROOT / "data" / "preconfirm_watchlist_backtest_summary.csv"
 JSON_OUT = ROOT / "reports" / "preconfirm_watchlist_backtest.json"
@@ -57,12 +59,35 @@ def stat_cells(row: dict, prefix: str) -> list[str]:
     ]
 
 
-def open_dates(start: str, end: str) -> list[str]:
+def open_dates(start: str, end: str, db_path: Path | None = None) -> list[str]:
     path = MARKET_DIR / "trade_cal.csv"
-    if not path.exists():
+    dates: set[str] = set()
+    if path.exists():
+        cal = pd.read_csv(path, dtype={"cal_date": str, "is_open": str})
+        dates.update(
+            str(value)
+            for value in cal[
+                (cal["is_open"] == "1") & (cal["cal_date"] >= start) & (cal["cal_date"] <= end)
+            ]["cal_date"].unique()
+        )
+    if db_path is not None and db_path.exists():
+        try:
+            with sqlite3.connect(db_path) as conn:
+                rows = conn.execute(
+                    """
+                    SELECT DISTINCT trade_date
+                    FROM market_bars
+                    WHERE trade_date >= ? AND trade_date <= ?
+                    ORDER BY trade_date
+                    """,
+                    (start, end),
+                ).fetchall()
+            dates.update(str(row[0]) for row in rows if row[0])
+        except sqlite3.Error:
+            pass
+    if not dates:
         raise FileNotFoundError(path)
-    cal = pd.read_csv(path, dtype={"cal_date": str, "is_open": str})
-    return sorted(cal[(cal["is_open"] == "1") & (cal["cal_date"] >= start) & (cal["cal_date"] <= end)]["cal_date"].unique())
+    return sorted(dates)
 
 
 def latest_cached_market_date(markets: dict) -> str:
@@ -73,6 +98,75 @@ def latest_cached_market_date(markets: dict) -> str:
     if not dates:
         raise ValueError("No cached market data found.")
     return max(dates)
+
+
+def load_market_with_db_overlay(ts_code: str, market_dir: Path, db_path: Path | None) -> MarketData | None:
+    market = load_market(ts_code, market_dir)
+    db_frame = _load_market_frame_from_db(ts_code, db_path)
+    if db_frame.empty:
+        return market
+    frames = [db_frame]
+    if market is not None and not market.frame.empty:
+        frames.insert(0, market.frame)
+    merged = pd.concat(frames, ignore_index=True, sort=False)
+    merged["trade_date"] = merged["trade_date"].astype(str)
+    merged = merged.sort_values("trade_date").drop_duplicates(["ts_code", "trade_date"], keep="last")
+    merged = _normalize_market_frame(merged)
+    by_date = {str(row.trade_date): int(index) for index, row in merged.iterrows()}
+    return MarketData(frame=merged, by_date=by_date)
+
+
+def _load_market_frame_from_db(ts_code: str, db_path: Path | None) -> pd.DataFrame:
+    if db_path is None or not db_path.exists():
+        return pd.DataFrame()
+    try:
+        with sqlite3.connect(db_path) as conn:
+            return pd.read_sql_query(
+                """
+                SELECT ts_code, trade_date, open, high, low, close, vol, amount,
+                       adj_factor, adj_open, adj_high, adj_low, adj_close
+                FROM market_bars
+                WHERE ts_code = ?
+                ORDER BY trade_date
+                """,
+                conn,
+                params=(ts_code,),
+                dtype={"trade_date": str},
+            )
+    except (sqlite3.Error, pd.errors.DatabaseError):
+        return pd.DataFrame()
+
+
+def _normalize_market_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    out = frame.copy().sort_values("trade_date").reset_index(drop=True)
+    for column in [
+        "open",
+        "high",
+        "low",
+        "close",
+        "vol",
+        "amount",
+        "adj_factor",
+        "adj_open",
+        "adj_high",
+        "adj_low",
+        "adj_close",
+    ]:
+        if column in out:
+            out[column] = pd.to_numeric(out[column], errors="coerce")
+    if "adj_factor" not in out:
+        out["adj_factor"] = None
+    out["adj_factor"] = out["adj_factor"].ffill().bfill().fillna(1.0)
+    for column in ["open", "high", "low", "close"]:
+        adj_column = f"adj_{column}"
+        if adj_column not in out:
+            out[adj_column] = None
+        out[adj_column] = pd.to_numeric(out[adj_column], errors="coerce")
+        out[adj_column] = out[adj_column].fillna(out[column] * out["adj_factor"])
+    out["pre_close"] = out["close"].shift(1)
+    out["change"] = out["close"] - out["pre_close"]
+    out["pct_chg"] = (out["change"] / out["pre_close"] * 100).where(out["pre_close"].notna() & (out["pre_close"] != 0))
+    return out
 
 
 def returns_from_buy(frame: pd.DataFrame, buy_idx: int, prefix: str) -> dict:
@@ -116,10 +210,13 @@ def returns_from_watch_close(frame: pd.DataFrame, review_idx: int) -> dict:
 def backtest(args: argparse.Namespace) -> tuple[pd.DataFrame, list[dict], dict]:
     events = load_events(args.events)
     industry_map = load_industry_map(args.pool)
-    markets = {ts_code: load_market(ts_code, MARKET_DIR) for ts_code in sorted(events["ts_code"].dropna().unique())}
+    markets = {
+        ts_code: load_market_with_db_overlay(ts_code, MARKET_DIR, args.db_path)
+        for ts_code in sorted(events["ts_code"].dropna().unique())
+    }
     params = build_param_grid()[int(args.variant_id.split("_")[1]) - 1]
     latest_date = args.end_date or latest_cached_market_date(markets)
-    dates = open_dates(args.start_date, latest_date)
+    dates = open_dates(args.start_date, latest_date, args.db_path)
 
     rows = []
     for review_date in dates:
@@ -181,6 +278,8 @@ def backtest(args: argparse.Namespace) -> tuple[pd.DataFrame, list[dict], dict]:
         "variant_id": args.variant_id,
         "start_date": args.start_date,
         "end_date": latest_date,
+        "market_data_source": "cached_tushare_csv_with_sqlite_market_bars_overlay",
+        "sqlite_market_bars": str(args.db_path),
         "review_dates": len(dates),
         "signals": int(len(trades)),
         "outputs": {
@@ -367,6 +466,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--variant-id", default="cpb_6157")
     parser.add_argument("--events", type=Path, default=RAW_EVENTS_PATH)
     parser.add_argument("--pool", type=Path, default=POOL_JSON)
+    parser.add_argument("--db-path", type=Path, default=DB_PATH)
     parser.add_argument("--trades-out", type=Path, default=TRADES_OUT)
     parser.add_argument("--summary-out", type=Path, default=SUMMARY_OUT)
     parser.add_argument("--json-out", type=Path, default=JSON_OUT)

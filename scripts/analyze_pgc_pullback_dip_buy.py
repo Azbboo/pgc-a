@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -15,6 +16,7 @@ from analyze_pgc_event_backtest import (
     EXIT_CONFIGS,
     HORIZONS,
     MARKET_DIR,
+    MarketData,
     load_market,
     pct,
     ret_from_adj,
@@ -25,6 +27,7 @@ from analyze_pgc_event_backtest import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
+DB_PATH = ROOT / "data" / "pgc_trading.db"
 SCORES_CSV = ROOT / "data" / "pgc_big_winner_scores.csv"
 CURRENT_SCORES_CSV = ROOT / "data" / "pgc_big_winner_current_scores.csv"
 TRADES_CSV = ROOT / "data" / "pgc_pullback_dip_buy_trades.csv"
@@ -83,6 +86,82 @@ def clean_value(value):
 
 def variant_id(retrace_pct: float, min_age: int, min_peak_runup: float) -> str:
     return f"dip_r{int(round(retrace_pct * 100)):02d}_a{min_age}_run{int(round(min_peak_runup * 100)):02d}"
+
+
+def load_market_with_db_overlay(ts_code: str, market_dir: Path, db_path: Path | None) -> MarketData | None:
+    market = load_market(ts_code, market_dir)
+    db_frame = _load_market_frame_from_db(ts_code, db_path)
+    if db_frame.empty:
+        return market
+    frames = [db_frame]
+    if market is not None and not market.frame.empty:
+        frames.insert(0, market.frame)
+    merged = pd.concat(frames, ignore_index=True, sort=False)
+    merged["trade_date"] = merged["trade_date"].astype(str)
+    merged = merged.sort_values("trade_date").drop_duplicates(["ts_code", "trade_date"], keep="last")
+    merged = _normalize_market_frame(merged)
+    by_date = {str(row.trade_date): int(index) for index, row in merged.iterrows()}
+    return MarketData(frame=merged, by_date=by_date)
+
+
+def _load_market_frame_from_db(ts_code: str, db_path: Path | None) -> pd.DataFrame:
+    if db_path is None or not db_path.exists():
+        return pd.DataFrame()
+    try:
+        with sqlite3.connect(db_path) as conn:
+            return pd.read_sql_query(
+                """
+                SELECT ts_code, trade_date, open, high, low, close, vol, amount,
+                       adj_factor, adj_open, adj_high, adj_low, adj_close
+                FROM market_bars
+                WHERE ts_code = ?
+                ORDER BY trade_date
+                """,
+                conn,
+                params=(ts_code,),
+                dtype={"trade_date": str},
+            )
+    except (sqlite3.Error, pd.errors.DatabaseError):
+        return pd.DataFrame()
+
+
+def _normalize_market_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    out = frame.copy().sort_values("trade_date").reset_index(drop=True)
+    for column in [
+        "open",
+        "high",
+        "low",
+        "close",
+        "vol",
+        "amount",
+        "adj_factor",
+        "adj_open",
+        "adj_high",
+        "adj_low",
+        "adj_close",
+    ]:
+        if column in out:
+            out[column] = pd.to_numeric(out[column], errors="coerce")
+    if "adj_factor" not in out:
+        out["adj_factor"] = None
+    out["adj_factor"] = out["adj_factor"].ffill().bfill().fillna(1.0)
+    for column in ["open", "high", "low", "close"]:
+        adj_column = f"adj_{column}"
+        if adj_column not in out:
+            out[adj_column] = None
+        out[adj_column] = pd.to_numeric(out[adj_column], errors="coerce")
+        out[adj_column] = out[adj_column].fillna(out[column] * out["adj_factor"])
+    return out
+
+
+def market_date_range(markets: dict[str, MarketData | None]) -> dict[str, str | None]:
+    dates = [
+        str(market.frame.iloc[index]["trade_date"])
+        for market in markets.values()
+        if market is not None and not market.frame.empty
+        for index in (0, len(market.frame) - 1)
+    ]
+    return {"market_data_start_date": min(dates) if dates else None, "market_data_end_date": max(dates) if dates else None}
 
 
 def build_param_grid(retrace_pcts: list[float], min_ages: list[int], min_peak_runups: list[float]) -> list[dict]:
@@ -222,7 +301,17 @@ def summarize_variants(trades: pd.DataFrame, params: list[dict], eligible_events
             "fill_n": int(len(part)),
             "fill_rate": round_num(len(part) / eligible_events) if eligible_events else None,
         }
-        for metric in ["ret_3d", "ret_5d", "ret_10d", "mfe_10d", "mae_10d", "exit_TP6_SL6_10D_ret"]:
+        for metric in [
+            "ret_1d",
+            "mfe_1d",
+            "mae_1d",
+            "ret_3d",
+            "ret_5d",
+            "ret_10d",
+            "mfe_10d",
+            "mae_10d",
+            "exit_TP6_SL6_10D_ret",
+        ]:
             row.update(add_stat(metric, part[metric]) if metric in part else add_stat(metric, pd.Series(dtype=float)))
         row["research_score"] = rank_score(row)
         rows.append(row)
@@ -282,10 +371,14 @@ def summarize_groups(trades: pd.DataFrame, selected_variant: str) -> dict:
     }
 
 
-def latest_current_levels(current: pd.DataFrame, market_dir: Path, selected_params: dict) -> pd.DataFrame:
+def latest_current_levels(
+    current: pd.DataFrame,
+    markets: dict[str, MarketData | None],
+    selected_params: dict,
+) -> pd.DataFrame:
     rows = []
     for _, item in current.iterrows():
-        market = load_market(item["ts_code"], market_dir)
+        market = markets.get(item["ts_code"])
         if market is None:
             continue
         entry_date = date_str(item.get("entry_date"))
@@ -341,12 +434,27 @@ def build_report(summary: dict) -> str:
     current_levels = summary["current_levels"]
 
     top_table = md_table(
-        ["策略", "触发N", "触发率", "T5胜率", "T5均值", "T5中位", "T5 P25", "T10中位", "10日MFE中位", "10日MAE中位"],
+        [
+            "策略",
+            "触发N",
+            "触发率",
+            "T1胜率",
+            "T1均值",
+            "T5胜率",
+            "T5均值",
+            "T5中位",
+            "T5 P25",
+            "T10中位",
+            "10日MFE中位",
+            "10日MAE中位",
+        ],
         top_rows,
         lambda r: [
             r["variant_id"],
             r["fill_n"],
             pct(r["fill_rate"]),
+            pct(r["ret_1d_win_rate"]),
+            pct(r["ret_1d_mean"]),
             pct(r["ret_5d_win_rate"]),
             pct(r["ret_5d_mean"]),
             pct(r["ret_5d_median"]),
@@ -460,13 +568,17 @@ def parse_int_list(text: str) -> list[int]:
 
 def run(args: argparse.Namespace) -> None:
     scores = pd.read_csv(args.scores)
+    current_scores = pd.read_csv(args.current_scores) if args.current_scores.exists() else pd.DataFrame()
     params = build_param_grid(
         parse_float_list(args.retrace_pcts),
         parse_int_list(args.min_ages),
         parse_float_list(args.min_peak_runups),
     )
     market_dir = Path(args.market_dir)
-    markets = {ts_code: load_market(ts_code, market_dir) for ts_code in sorted(scores["ts_code"].dropna().unique())}
+    ts_codes = set(str(ts_code) for ts_code in scores["ts_code"].dropna().unique())
+    if "ts_code" in current_scores:
+        ts_codes.update(str(ts_code) for ts_code in current_scores["ts_code"].dropna().unique())
+    markets = {ts_code: load_market_with_db_overlay(ts_code, market_dir, args.db_path) for ts_code in sorted(ts_codes)}
     eligible_events = int(
         sum(1 for _, row in scores.iterrows() if markets.get(row["ts_code"]) is not None and date_str(row.get("entry_date")) in markets[row["ts_code"]].by_date)
     )
@@ -487,14 +599,19 @@ def run(args: argparse.Namespace) -> None:
     selected_groups = summarize_groups(trades, selected_variant)
 
     current_levels = pd.DataFrame()
-    if args.current_scores.exists():
-        current_levels = latest_current_levels(pd.read_csv(args.current_scores), market_dir, selected_params)
+    if not current_scores.empty:
+        current_levels = latest_current_levels(current_scores, markets, selected_params)
         current_levels.to_csv(args.current_levels_out, index=False)
 
     summary = {
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "eligible_events": eligible_events,
         "parameter_count": len(params),
+        "source_freshness": {
+            **market_date_range(markets),
+            "market_data_source": "cached_tushare_csv_with_sqlite_market_bars_overlay",
+            "sqlite_market_bars": str(args.db_path),
+        },
         "selected_variant": selected_variant,
         "selected_params": {
             "variant_id": selected_variant,
@@ -524,6 +641,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--scores", type=Path, default=SCORES_CSV)
     parser.add_argument("--current-scores", type=Path, default=CURRENT_SCORES_CSV)
     parser.add_argument("--market-dir", type=Path, default=MARKET_DIR)
+    parser.add_argument("--db-path", type=Path, default=DB_PATH)
     parser.add_argument("--trades-out", type=Path, default=TRADES_CSV)
     parser.add_argument("--current-levels-out", type=Path, default=CURRENT_LEVELS_CSV)
     parser.add_argument("--json-out", type=Path, default=JSON_OUT)

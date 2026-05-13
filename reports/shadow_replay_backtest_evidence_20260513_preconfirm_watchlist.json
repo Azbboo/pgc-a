@@ -2,7 +2,7 @@
   "artifact_type": "shadow_replay_backtest_evidence",
   "as_of_date": "20260513",
   "evidence_contract": "shadow_replay_backtest_evidence_v1",
-  "generated_at": "2026-05-13T14:37:01+00:00",
+  "generated_at": "2026-05-13T15:38:15+00:00",
   "provider": "pgc_shadow_replay_backtest_evidence_producer_v1",
   "results": [
     {
@@ -10,7 +10,7 @@
       "candidate_family": "preconfirm_watchlist",
       "candidate_key": "preconfirm_watchlist",
       "date_range": {
-        "end_date": "20260511",
+        "end_date": "20260513",
         "start_date": "20251110"
       },
       "generation": {
@@ -20,26 +20,26 @@
         "partial_horizon_count": 0,
         "promotion_allowed": false,
         "source_kind": "preconfirm_watchlist_backtest_artifact",
-        "source_row_count": 38,
+        "source_row_count": 41,
         "status": "generated",
-        "t1_sample_size": 37,
-        "t5_sample_size": 35
+        "t1_sample_size": 40,
+        "t5_sample_size": 37
       },
       "metrics": {
         "max_drawdown_pct": -15.1,
-        "source_row_count": 38,
-        "t1_close_mean_pct": 2.42,
-        "t1_close_win_rate_pct": 70.27,
-        "t1_high_mean_pct": 5.06,
-        "t1_sample_size": 37,
-        "t5_close_mean_pct": 6.8,
-        "t5_close_win_rate_pct": 74.29,
-        "t5_sample_size": 35
+        "source_row_count": 41,
+        "t1_close_mean_pct": 1.46,
+        "t1_close_win_rate_pct": 65.0,
+        "t1_high_mean_pct": 4.53,
+        "t1_sample_size": 40,
+        "t5_close_mean_pct": 6.99,
+        "t5_close_win_rate_pct": 75.68,
+        "t5_sample_size": 37
       },
       "no_future_boundary": {
-        "data_cutoff_date": "20260511",
-        "latest_market_date": "20260511",
-        "max_input_date": "20260511",
+        "data_cutoff_date": "20260513",
+        "latest_market_date": "20260513",
+        "max_input_date": "20260513",
         "passed": true
       },
       "provider": "pgc_shadow_replay_backtest_evidence_producer_v1",
@@ -58,11 +58,11 @@
         "wrote_strategy_version": false,
         "wrote_strategy_versions": false
       },
-      "sample_size": 37,
+      "sample_size": 40,
       "source_artifacts": [
         "reports/preconfirm_watchlist_backtest.json"
       ],
-      "source_hash": "479f00bf6a8056ea0e4a25a845e3f85f2294a3e3de0a09a461744e152d16bfab"
+      "source_hash": "4b1e7b9cd94a39849a91faaaa5547d88ed5cc446d787da98b0c074e96b3dd76e"
     }
   ],
   "safety": {

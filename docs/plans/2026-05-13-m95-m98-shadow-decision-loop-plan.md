@@ -24,9 +24,9 @@
 | Lane | Task | Status | Can Run In Parallel? | Depends On | Suggested Session |
 | --- | --- | --- | --- | --- | --- |
 | A | M95 Rejected evidence source closure | Next | First or parallel with fixtures | M91 evidence contract, source research artifacts | Session A |
-| B | M96 Shadow walk-forward outcome accumulator | Next | Parallel | M87 history, M91 evidence shape, market bars | Session B |
+| B | M96 Shadow walk-forward outcome accumulator | Done, Local | Parallel | M87 history, M91 evidence shape, market bars | Session B |
 | C | M97 Shadow experiment registry | Next | Parallel after M94, can use fixtures while M95 runs | M94 calibration artifact | Session C |
-| D | M98 Chinese shadow decision memo workbench | Next | Parallel after M92, can use current blocked package | M92 review workbench, M94 calibration | Session D |
+| D | M98 Chinese shadow decision memo workbench | Done, Local | Parallel after M92, can use current blocked package | M92 review workbench, M94 calibration | Session D |
 
 ## M95: Rejected Evidence Source Closure
 
@@ -106,6 +106,8 @@
 - Registry safety fields must include `artifact_only=true`, `promotion_allowed=false`, `active_params_mutated=false`, `writes_trade_state=false`, and `timer_mutated=false`.
 
 ## M98: Chinese Shadow Decision Memo Workbench
+
+**Codex completion note (2026-05-13):** Added read-only `shadow_decision_memo_v1` through `/api/shadow-decision-memo`, Shadow Lab 中文决策备忘录, and daily report JSON/Markdown. The memo links promotion review request, replay evidence, walk-forward outcomes, M94 calibration, and the experiment registry, with Chinese operator sections for 候选概览、证据状态、阻断原因、下一步实验、人工决策、风险/回滚边界. Verification passed: `node --check web/dashboard/app.js`, Python compile for touched modules, focused M98 pytest (`67 passed, 1 skipped`), full `PYTHONPATH=src:. pytest -q` (`471 passed, 3 skipped, 10 subtests passed`), `git diff --check`, and direct service smoke for `20260513`. No approve/promote/trade/plan/timer controls were added.
 
 **Goal:** Present a Chinese, operator-readable manual decision memo that ties together promotion review request, replay evidence, walk-forward outcomes, calibration, and experiment registry.
 

@@ -30,11 +30,11 @@ class DashboardStaticTest(unittest.TestCase):
             ]
         )
 
-        for label in ["开盘执行", "决策驾驶舱", "每日复盘", "运营验收", "运维历史", "交易计划", "成交录入", "当前持仓", "数据质量", "Agent 复核"]:
+        for label in ["开盘执行", "决策驾驶舱", "每日复盘", "运营验收", "运维历史", "交易计划", "成交录入", "当前持仓", "数据质量", "智能体复核"]:
             self.assertIn(label, source)
         self.assertIn("T+2", source)
         self.assertIn("T+5", source)
-        self.assertIn("Agent 只提供复核意见", source)
+        self.assertIn("智能体只提供复核意见", source)
 
     def test_dashboard_client_uses_http_api_only(self) -> None:
         script = (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8")
@@ -50,6 +50,7 @@ class DashboardStaticTest(unittest.TestCase):
             "/api/shadow-observation-scorecard",
             "/api/shadow-observation-history",
             "/api/shadow-promotion-review-request",
+            "/api/shadow-decision-memo",
             "/api/review-timeline",
             "/api/trade-plans",
             "/api/open-execution",
@@ -66,6 +67,46 @@ class DashboardStaticTest(unittest.TestCase):
         self.assertNotIn("pgc_trading.db", script)
         self.assertNotIn("data/pgc", script)
 
+    def test_dashboard_user_visible_copy_is_chinese_first(self) -> None:
+        source = "\n".join(
+            [
+                (DASHBOARD_DIR / "index.html").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8"),
+            ]
+        )
+
+        for label in [
+            "影子策略实验室",
+            "影子快照",
+            "晋升阻断",
+            "跟踪验证",
+            "候选就绪与回放证据",
+            "无批准 / 晋升 / 交易 / 计划 / 定时任务控件",
+            "运维运行历史",
+            "纸盘验收历史",
+            "策略提案",
+            "记录跟随",
+            "记录暂缓",
+            "记录改写",
+        ]:
+            self.assertIn(label, source)
+
+        for phrase in [
+            "Shadow strategy lab",
+            "Shadow snapshot",
+            "Promotion blocker",
+            "required human decisions",
+            "candidate readiness / replay evidence",
+            "rollback / release gate",
+            "no approve/promote/trade/plan/timer controls",
+            "review package remains manual-only",
+            "evidence accepted",
+            "walk-forward 完成",
+            "Ops run history",
+            "只记录人工 follow / defer / override",
+        ]:
+            self.assertNotIn(phrase, source)
+
     def test_dashboard_m65_ops_history_is_visible_and_read_only(self) -> None:
         source = "\n".join(
             [
@@ -77,14 +118,14 @@ class DashboardStaticTest(unittest.TestCase):
 
         for label in [
             "运维历史",
-            "Ops run history",
-            "pipeline runs",
-            "backups",
-            "release tags",
-            "remote health",
-            "paper acceptance snapshots",
-            "timer dry-run evidence attempts",
-            "不会启用 timer、重跑 apply、创建交易或修改策略状态",
+            "运维运行历史",
+            "日终流水线",
+            "备份",
+            "发布标签",
+            "远端健康检查",
+            "纸盘验收快照",
+            "定时任务预演证据",
+            "不会启用定时任务、重跑正式写入、创建交易或修改策略状态",
             'id="opsHistoryList"',
             'id="opsHistoryCounts"',
         ]:
@@ -113,15 +154,15 @@ class DashboardStaticTest(unittest.TestCase):
             "开盘未极端高开",
             "现金 / 仓位已核对",
             "计划日是执行日",
-            "数据质量 blocker",
+            "数据质量阻断",
             "录入锁定原因",
-            "Paper 晋级分数卡",
+            "纸盘晋级分数卡",
             "样本交易",
             "已闭环交易",
             "累计实现盈亏",
             "胜率",
             "当前阻断",
-            "晋级 live 前还差什么",
+            "晋级实盘前还差什么",
         ]:
             self.assertIn(label, source)
         self.assertIn('id="openingReadinessSummary"', source)
@@ -179,8 +220,8 @@ class DashboardStaticTest(unittest.TestCase):
         for label in [
             "/api/open-execution?",
             "openExecutionEnvelope",
-            "open-execution 找到执行日匹配的 active 买入计划",
-            "market-plan context 只给提示，不会自动取消或执行计划",
+            "开盘执行服务找到执行日匹配的有效买入计划",
+            "计划上下文只给提示，不会自动取消或执行计划",
             "仅提示考虑取消，不会自动取消计划",
             "plan-market-context-note",
         ]:
@@ -213,7 +254,7 @@ class DashboardStaticTest(unittest.TestCase):
             'data-position-action="detail"',
             'data-quality-action="detail"',
             "候选详情",
-            "Agent 详情",
+            "智能体详情",
             "统一详情面板",
             "主体只保留候选摘要",
         ]:
@@ -330,10 +371,10 @@ class DashboardStaticTest(unittest.TestCase):
             "计划价格参考",
             "计划日期已用日期选择器锁定",
             "录入锁定原因：",
-            "Dry-run / Apply",
+            "预演 / 正式写入",
             "操作者要求",
-            "Apply：此操作不支持 dry run",
-            "Dry run：预演不落库",
+            "正式写入：此操作不支持预演",
+            "预演：不落库",
             "确认记录买入成交",
             "确认记录卖出成交",
             "确认评估退出",
@@ -377,7 +418,7 @@ class DashboardStaticTest(unittest.TestCase):
         )
 
         for label in [
-            "TradingAgents 输出",
+            "TradingAgents 智能体输出",
             "系统复盘原始数据",
             "外部证据",
             "中文复核报告",
@@ -385,10 +426,10 @@ class DashboardStaticTest(unittest.TestCase):
             "输出来源",
             "TradingAgents 本地快照模式",
             "TradingAgents 外部图模式",
-            "TradingAgents 不可用 fallback",
-            "来源边界 source_refs",
-            "数据覆盖 external_data_coverage",
-            "Agent 是否影响交易计划：否，仅供参考",
+            "TradingAgents 不可用兜底模式",
+            "来源边界",
+            "外部数据覆盖",
+            "智能体是否影响交易计划：否，仅供参考",
             "未接入/缺失",
             "未接入/数据不足",
             "基本面",
@@ -442,7 +483,7 @@ class DashboardStaticTest(unittest.TestCase):
             "明日计划关系",
             "策略假设",
             "个股领涨",
-            "provider/date/sentiment",
+            "提供方/日期/情绪",
             "市场复盘不会自动改变明日计划",
         ]:
             self.assertIn(label, source)
@@ -475,7 +516,7 @@ class DashboardStaticTest(unittest.TestCase):
         ]:
             self.assertIn(fn_name, source)
         self.assertIn("data-market-sector-action=\"detail\"", source)
-        self.assertIn('data-evidence-columns="provider/date/sentiment"', source)
+        self.assertIn('data-evidence-columns="提供方/日期/情绪"', source)
         self.assertNotIn("POST /api/market-reviews", source)
         self.assertNotIn('apiRequest("/api/market-reviews", { method: "POST"', script)
         self.assertNotIn("market-review write", source.lower())
@@ -495,15 +536,15 @@ class DashboardStaticTest(unittest.TestCase):
             "纸盘每日运营验收",
             "数据新鲜度",
             "证据覆盖",
-            "Agent 状态",
-            "open-execution 状态",
-            "readiness gates",
-            "未处理 blocker",
-            "paper acceptance 历史",
-            "acceptance 告警",
+            "智能体状态",
+            "开盘执行状态",
+            "就绪门禁",
+            "未处理阻断",
+            "纸盘验收历史",
+            "验收告警",
             "历史趋势",
             "只读验收面板",
-            "Dashboard 不会执行交易",
+            "操作台不会执行交易",
             "不会自动取消或执行计划",
         ]:
             self.assertIn(label, source)
@@ -555,10 +596,10 @@ class DashboardStaticTest(unittest.TestCase):
             "决策驾驶舱",
             "下一交易日决策驾驶舱",
             "系统建议",
-            "策略 proposal",
+            "策略提案",
             "决策清单",
-            "allowed / blocked / manual review",
-            "Dashboard 不会执行交易、开启 timer 或修改策略参数",
+            "可执行 / 阻断 / 需人工复核",
+            "操作台不会执行交易、开启定时任务或修改策略参数",
             "/api/next-day-decision-cockpit/",
         ]:
             self.assertIn(label, source)
@@ -597,13 +638,13 @@ class DashboardStaticTest(unittest.TestCase):
 
         for label in [
             "动作日志 / 次日复核",
-            "只记录人工 follow / defer / override",
-            "记录 follow",
-            "记录 defer",
-            "记录 override",
+            "只记录人工跟随 / 暂缓 / 改写",
+            "记录跟随",
+            "记录暂缓",
+            "记录改写",
             "复核结果",
-            "unexpected trade",
-            "不会执行交易、开启 timer 或修改策略参数",
+            "非预期成交",
+            "不会执行交易、开启定时任务或修改策略参数",
             "/api/decision-action-log",
         ]:
             self.assertIn(label, source)
@@ -625,7 +666,7 @@ class DashboardStaticTest(unittest.TestCase):
         self.assertIn("writes_trade_state", script)
         self.assertIn("matched_outcome_count", script)
         self.assertIn("unexpected_trade_count", script)
-        self.assertIn('["decision_action_log", "action log"]', script)
+        self.assertIn('["decision_action_log", "动作日志"]', script)
         self.assertNotIn("recordDecisionActionLogExecute", script)
         self.assertNotIn("trade_record_from_decision_action_log", script)
 
@@ -646,8 +687,8 @@ class DashboardStaticTest(unittest.TestCase):
             "跟随复盘日",
             "全市场历史",
             "相关明日计划",
-            "source_hash",
-            "source metadata",
+            "来源哈希",
+            "来源元数据",
             "计划详情",
         ]:
             self.assertIn(label, source)
@@ -690,8 +731,8 @@ class DashboardStaticTest(unittest.TestCase):
 
         for label in [
             'id="marketDiagnosticsPanel"',
-            "API Base",
-            "source DB",
+            "API 地址",
+            "源数据库",
             "missing_downstream_tables",
             "empty_state_reasons",
             "localStorage 固定",
@@ -721,15 +762,15 @@ class DashboardStaticTest(unittest.TestCase):
         for label in [
             'id="marketHierarchyPanel"',
             "全市场复盘解释链",
-            "market regime -> sector -> stock -> evidence -> continuity -> next-day plan",
-            "证据 freshness",
+            "市场状态 -> 板块 -> 个股 -> 证据 -> 连续性 -> 次日计划",
+            "证据新鲜度",
             "连续性判断",
             "明日计划关系",
-            "aligned",
-            "cautious",
-            "blocked",
-            "missing",
-            "source_refs",
+            "顺风一致",
+            "谨慎推进",
+            "冲突阻断",
+            "证据缺失",
+            "来源引用",
         ]:
             self.assertIn(label, source)
         for fn_name in [
@@ -759,25 +800,25 @@ class DashboardStaticTest(unittest.TestCase):
             "策略假设评估工作台",
             "验证队列",
             "安全边界",
-            "Acceptance gate",
-            "Backtest artifacts",
-            "Validation events",
-            "accepted 只代表研究结论",
-            "单独创建 strategy-version proposal",
-            "Strategy-version proposal artifacts",
-            "Proposal review / promotion-request artifacts",
-            "proposal review",
-            "promotion-request artifacts",
-            "待 proposal review",
-            "review artifacts",
-            "promotion requests",
+            "接受门禁",
+            "回测产物",
+            "验证事件",
+            "已接受",
+            "单独创建策略版本提案",
+            "策略版本提案产物",
+            "提案复核 / 晋升申请产物",
+            "提案复核",
+            "晋升申请产物",
+            "待提案复核",
+            "复核产物",
+            "晋升申请",
             "proposal_artifact_count",
             "proposal_ready_count",
             "proposal_review_artifact_count",
             "promotion_request_count",
             "proposal_artifacts_only",
             "proposal_review_artifacts_only",
-            "不修改 paper/live 行为",
+            "不修改纸盘/实盘行为",
             "/api/strategy-hypotheses/workbench",
             "/api/strategy-hypotheses/proposal-reviews",
         ]:
@@ -830,15 +871,15 @@ class DashboardStaticTest(unittest.TestCase):
 
         for label in [
             "影子实验室",
-            "Shadow strategy lab",
-            "Shadow snapshot",
-            "研究-only",
-            "候选 drill-down",
-            "Promotion blocker",
-            "Frozen CPB 对照",
-            "Walk-forward",
-            "shadow_strategy_snapshot_v1",
-            "不创建计划、不发布策略、不写 paper/live 或 timer",
+            "影子策略实验室",
+            "影子快照",
+            "仅用于研究观察",
+            "打开候选详情",
+            "晋升阻断",
+            "冻结 CPB 对照",
+            "跟踪验证",
+            "影子策略快照",
+            "不创建计划、不发布策略、不写纸盘/实盘或定时任务",
             "/api/shadow-strategy-snapshot",
         ]:
             self.assertIn(label, source)
@@ -887,12 +928,12 @@ class DashboardStaticTest(unittest.TestCase):
             "观察队列",
             "归因抽屉",
             "shadow_observation_scorecard_v1",
-            "观察不是 paper trading",
-            "Outcome score",
-            "sample coverage",
-            "frozen-CPB delta",
-            "Promotion remains blocked",
-            "no promote/trade/plan/timer controls",
+            "观察不是纸盘交易",
+            "结果评分",
+            "样本覆盖",
+            "冻结 CPB 差异",
+            "晋升保持阻断",
+            "无晋升 / 交易 / 计划 / 定时任务控件",
             "/api/shadow-observation-scorecard",
         ]:
             self.assertIn(label, source)
@@ -934,8 +975,8 @@ class DashboardStaticTest(unittest.TestCase):
             "观察截止日",
             "窗口",
             "shadow_observation_history_v1",
-            "research-only",
-            "不是 paper trading",
+            "仅研究观察",
+            "不是纸盘交易",
             "打开候选对比",
             "observation_history_is_research_only",
             "/api/shadow-observation-history",
@@ -982,12 +1023,12 @@ class DashboardStaticTest(unittest.TestCase):
         for label in [
             "晋升评审工作台",
             "shadow_promotion_review_request_v1",
-            "review_ready 不是 approval",
-            "required human decisions",
-            "candidate readiness / replay evidence",
-            "rollback / release gate",
-            "no approve/promote/trade/plan/timer controls",
-            "review_request_is_not_approval",
+            "可复核”不是批准",
+            "必需人工决策",
+            "候选就绪与回放证据",
+            "回滚与发布门禁",
+            "无批准 / 晋升 / 交易 / 计划 / 定时任务控件",
+            "评审申请不是批准",
             "/api/shadow-promotion-review-request",
         ]:
             self.assertIn(label, source)
@@ -1017,6 +1058,45 @@ class DashboardStaticTest(unittest.TestCase):
         self.assertNotIn("data-shadow-review-plan", source)
         self.assertNotIn("data-shadow-review-timer", source)
 
+    def test_dashboard_m98_shadow_decision_memo_is_visible_and_read_only(self) -> None:
+        source = "\n".join(
+            [
+                (DASHBOARD_DIR / "index.html").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "styles.css").read_text(encoding="utf-8"),
+            ]
+        )
+        script = (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8")
+
+        for label in [
+            "中文决策备忘录",
+            "shadow_decision_memo_v1",
+            "候选概览",
+            "证据状态",
+            "阻断原因",
+            "下一步实验",
+            "人工决策",
+            "风险/回滚边界",
+            "不批准、不晋升、不交易、不写计划、不改定时任务",
+            "/api/shadow-decision-memo",
+            'id="shadowDecisionMemoState"',
+            'id="shadowDecisionMemoWorkbench"',
+            "function loadShadowDecisionMemo",
+            "function renderShadowDecisionMemo",
+            "function shadowDecisionMemoCandidateCard",
+            "function openShadowDecisionMemoDrawer",
+            ".shadow-decision-grid",
+        ]:
+            self.assertIn(label, source)
+
+        self.assertIn("data-shadow-decision-key", source)
+        self.assertNotIn('apiRequest("/api/shadow-decision-memo", { method: "POST"', script)
+        self.assertNotIn("data-shadow-decision-approve", source)
+        self.assertNotIn("data-shadow-decision-promote", source)
+        self.assertNotIn("data-shadow-decision-trade", source)
+        self.assertNotIn("data-shadow-decision-plan", source)
+        self.assertNotIn("data-shadow-decision-timer", source)
+
     def test_dashboard_p1_cancel_and_execution_guardrails_are_visible(self) -> None:
         source = "\n".join(
             [
@@ -1028,8 +1108,8 @@ class DashboardStaticTest(unittest.TestCase):
         for reason in ["高开过大", "停牌/不可交易", "重大利空", "人工跳过"]:
             self.assertIn(reason, source)
         self.assertIn("取消原因必填", source)
-        self.assertIn("此操作不支持 dry run", source)
-        self.assertIn("Dashboard 不会向券商下单", source)
+        self.assertIn("此操作不支持预演", source)
+        self.assertIn("操作台不会向券商下单", source)
         self.assertIn("不会记录卖出成交", source)
         self.assertIn("成交价和股数必须来自实际成交", source)
         self.assertIn("成交日期必须与计划交易日", source)
@@ -1045,12 +1125,12 @@ class DashboardStaticTest(unittest.TestCase):
         self.assertIn("recordBlockers.length > 0", source)
         self.assertIn("dateInputValue(recordDate)", source)
         self.assertIn("closeDrawer();\n    setActivePage(\"record\")", source)
-        self.assertIn("成交录入 dry run 成功，未写入持仓", source)
+        self.assertIn("成交录入预演成功，未写入持仓", source)
         self.assertIn("refreshAll({ keepNotice: true })", source)
         self.assertIn("recordReviewPlanButton.disabled = blocked", source)
         self.assertIn("submitRecordButton.disabled", source)
-        self.assertIn("数据质量 / 账本 blocker，买入执行按钮已禁用", source)
-        self.assertIn("账本 invariant blocker 未处理", source)
+        self.assertIn("数据质量 / 账本阻断，买入执行按钮已禁用", source)
+        self.assertIn("账本不变量阻断未处理", source)
         self.assertIn("function ledgerBlockerCount", source)
         self.assertIn("DATABASE_INVARIANTS_FAILED", source)
 

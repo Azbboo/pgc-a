@@ -32,6 +32,7 @@ OpenExecutionServiceFactory = Callable[[Path], OpenExecutionService]
 PortfolioPlanningServiceFactory = Callable[[Path], PortfolioPlanningService]
 PositionLifecycleServiceFactory = Callable[[Path], PositionLifecycleService]
 ShadowObservationServiceFactory = Callable[[Path], ShadowObservationService]
+ShadowDecisionMemoServiceFactory = Callable[[Path], ShadowObservationService]
 ShadowPromotionReviewServiceFactory = Callable[[Path], ShadowObservationService]
 ShadowStrategyServiceFactory = Callable[[Path], ShadowStrategyService]
 StrategyEvolutionServiceFactory = Callable[[Path], StrategyEvolutionService]
@@ -50,6 +51,7 @@ class ApiServices:
     portfolio_planning_service_factory: PortfolioPlanningServiceFactory = PortfolioPlanningService
     position_lifecycle_service_factory: PositionLifecycleServiceFactory = PositionLifecycleService
     shadow_observation_service_factory: ShadowObservationServiceFactory = ShadowObservationService
+    shadow_decision_memo_service_factory: ShadowDecisionMemoServiceFactory = ShadowObservationService
     shadow_promotion_review_service_factory: ShadowPromotionReviewServiceFactory = ShadowObservationService
     shadow_strategy_service_factory: ShadowStrategyServiceFactory = ShadowStrategyService
     strategy_evolution_service_factory: StrategyEvolutionServiceFactory = StrategyEvolutionService

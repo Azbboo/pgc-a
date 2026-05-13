@@ -25,8 +25,13 @@
 | trend_extension_shadow | complete | 20 | 1.67 | 50 | 4.42 | -7.9 |
 | breakout_pressure_shadow | complete | 20 | 0.77 | 70 | 3.36 | -8.8 |
 | low_price_momentum_shadow | complete | 20 | 2.2 | 60 | 5.73 | -7.37 |
-| preconfirm_watchlist | complete | 27 | 2.78 | - | 13.03 | -6.79 |
-| pullback_dip_buy | artifact_summary_only | - | - | 53.54 | - | - |
+| preconfirm_watchlist | complete | 29 | 2.03 | - | 13.25 | -7.54 |
+| pullback_dip_buy | artifact_summary_only | - | - | 47.62 | - | - |
+
+## Walk-forward Outcome Accumulator
+
+- 状态：partial；signals 60；complete 48；partial 12；missing_bars 0。
+- 边界：只追加 market_bars 标签，不写 strategy/trade/position/paper-live/timer。
 
 ## 冻结 CPB 对照
 

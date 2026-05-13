@@ -51,7 +51,7 @@ class ShadowReplayBacktestEvidenceScriptTest(unittest.TestCase):
             self.assertTrue(payload["ok"], payload.get("errors"))
             self.assertEqual(_state_counts(db_path), before_counts)
             self.assertEqual(payload["evidence_contract"], "shadow_replay_backtest_evidence_v1")
-            self.assertEqual(payload["summary"]["accepted_count"], 1)
+            self.assertEqual(payload["summary"]["accepted_count"], 3)
             self.assertEqual(payload["summary"]["rejected_count"], 0)
             self.assertFalse(payload["safety"]["writes_trade_state"])
             artifact_path = reports_dir / "shadow_replay_backtest_evidence_20260512_trend_extension_shadow.json"
@@ -63,9 +63,18 @@ class ShadowReplayBacktestEvidenceScriptTest(unittest.TestCase):
                 required_sample_size=3,
             )
             self.assertTrue(review.valid, review.blockers)
+            dip_review = review_shadow_replay_backtest_evidence_artifact(
+                reports_dir / "shadow_replay_backtest_evidence_20260512_pullback_dip_buy.json",
+                expected_candidate_key="pullback_dip_buy",
+                expected_as_of_date="20260512",
+                required_sample_size=3,
+            )
+            self.assertTrue(dip_review.valid, dip_review.blockers)
+            self.assertEqual(dip_review.metrics["t1_sample_size"], 4)
 
 
 def _seed_monitor(reports_dir: Path) -> None:
+    _seed_source_reports(reports_dir)
     rows = [
         {
             "ts_code": f"300{day:03d}.SZ",
@@ -76,33 +85,87 @@ def _seed_monitor(reports_dir: Path) -> None:
         }
         for day in range(1, 4)
     ]
+    candidate_monitors = [
+        {
+            "candidate_key": "trend_extension_shadow",
+            "candidate_family": "shadow_bucket",
+            "walk_forward_progress": {
+                "status": "complete",
+                "required_days": 3,
+                "days": 3,
+                "start_signal_date": "20260501",
+                "latest_signal_date": "20260503",
+                "latest_outcome_date": "20260512",
+            },
+            "comparison_vs_frozen_cpb": {"status": "compared", "candidate_days": 3},
+            "promotion_gates": {
+                "paper_observation_gate": {"allowed": False, "artifact_only": True, "blockers": []},
+                "strategy_version_gate": {
+                    "allowed": False,
+                    "artifact_only": True,
+                    "blockers": ["replay_backtest_result_artifact_required"],
+                },
+            },
+        },
+        {
+            "candidate_key": "preconfirm_watchlist",
+            "candidate_family": "preconfirm_watchlist",
+            "walk_forward_progress": {
+                "status": "complete",
+                "required_days": 3,
+                "days": 4,
+                "source_artifact": str(reports_dir / "preconfirm_watchlist_backtest.json"),
+            },
+            "comparison_vs_frozen_cpb": {"status": "compared", "candidate_days": 4},
+            "promotion_gates": {
+                "paper_observation_gate": {"allowed": False, "artifact_only": True, "blockers": []},
+                "strategy_version_gate": {
+                    "allowed": False,
+                    "artifact_only": True,
+                    "blockers": ["replay_backtest_result_artifact_required"],
+                },
+            },
+        },
+        {
+            "candidate_key": "pullback_dip_buy",
+            "candidate_family": "dip_buy",
+            "walk_forward_progress": {
+                "status": "artifact_summary_only",
+                "required_days": 3,
+                "observed_trades": 4,
+                "source_artifact": str(reports_dir / "pgc_pullback_dip_buy.json"),
+            },
+            "comparison_vs_frozen_cpb": {"status": "compared", "candidate_days": 4},
+            "promotion_gates": {
+                "paper_observation_gate": {"allowed": False, "artifact_only": True, "blockers": []},
+                "strategy_version_gate": {
+                    "allowed": False,
+                    "artifact_only": True,
+                    "blockers": ["replay_backtest_result_artifact_required"],
+                },
+            },
+        },
+    ]
+    candidate_gates = [
+        {
+            "candidate_key": item["candidate_key"],
+            "candidate_family": item["candidate_family"],
+            "status": "blocked",
+            "walk_forward_progress": item["walk_forward_progress"],
+            "paper_observation_gate": {"allowed": False, "artifact_only": True, "blockers": []},
+            "strategy_version_gate": {
+                "allowed": False,
+                "artifact_only": True,
+                "blockers": ["replay_backtest_result_artifact_required"],
+            },
+        }
+        for item in candidate_monitors
+    ]
     monitor = {
         "review_date": "20260512",
         "next_trade_date": "20260513",
         "walk_forward_progress": {"status": "complete", "required_days": 3, "rows": rows},
-        "candidate_monitors": [
-            {
-                "candidate_key": "trend_extension_shadow",
-                "candidate_family": "shadow_bucket",
-                "walk_forward_progress": {
-                    "status": "complete",
-                    "required_days": 3,
-                    "days": 3,
-                    "start_signal_date": "20260501",
-                    "latest_signal_date": "20260503",
-                    "latest_outcome_date": "20260512",
-                },
-                "comparison_vs_frozen_cpb": {"status": "compared", "candidate_days": 3},
-                "promotion_gates": {
-                    "paper_observation_gate": {"allowed": False, "artifact_only": True, "blockers": []},
-                    "strategy_version_gate": {
-                        "allowed": False,
-                        "artifact_only": True,
-                        "blockers": ["replay_backtest_result_artifact_required"],
-                    },
-                },
-            }
-        ],
+        "candidate_monitors": candidate_monitors,
         "safety": {
             "artifact_only": True,
             "active_params_mutated": False,
@@ -117,26 +180,65 @@ def _seed_monitor(reports_dir: Path) -> None:
         "review_date": "20260512",
         "next_trade_date": "20260513",
         "status": "blocked",
-        "candidate_count": 1,
-        "candidate_gates": [
-            {
-                "candidate_key": "trend_extension_shadow",
-                "candidate_family": "shadow_bucket",
-                "status": "blocked",
-                "walk_forward_progress": monitor["candidate_monitors"][0]["walk_forward_progress"],
-                "paper_observation_gate": {"allowed": False, "artifact_only": True, "blockers": []},
-                "strategy_version_gate": {
-                    "allowed": False,
-                    "artifact_only": True,
-                    "blockers": ["replay_backtest_result_artifact_required"],
-                },
-            }
-        ],
+        "candidate_count": len(candidate_monitors),
+        "candidate_gates": candidate_gates,
         "safety": monitor["safety"],
     }
     (reports_dir / "strategy_shadow_monitor_20260512.json").write_text(json.dumps(monitor), encoding="utf-8")
     (reports_dir / "strategy_shadow_promotion_preflight_20260512.json").write_text(
         json.dumps(preflight),
+        encoding="utf-8",
+    )
+
+
+def _seed_source_reports(reports_dir: Path) -> None:
+    (reports_dir / "preconfirm_watchlist_backtest.json").write_text(
+        json.dumps(
+            {
+                "meta": {"start_date": "20260501", "end_date": "20260512"},
+                "summary": [
+                    {
+                        "pre_action": "高潜伏预警",
+                        "signals": 4,
+                        "next_close_ret_from_watch_n": 4,
+                        "next_close_ret_from_watch_mean": 0.012,
+                        "next_close_ret_from_watch_win_rate": 0.75,
+                        "next_high_ret_from_watch_mean": 0.03,
+                        "watch_ret_5d_n": 4,
+                        "watch_ret_5d_mean": 0.025,
+                        "watch_ret_5d_win_rate": 0.75,
+                        "watch_ret_5d_min": -0.04,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (reports_dir / "pgc_pullback_dip_buy.json").write_text(
+        json.dumps(
+            {
+                "source_freshness": {
+                    "market_data_start_date": "20260501",
+                    "market_data_end_date": "20260512",
+                },
+                "selected_variant": "dip_r15_a6_run05",
+                "variants": [
+                    {
+                        "variant_id": "dip_r15_a6_run05",
+                        "fill_n": 4,
+                        "ret_1d_n": 4,
+                        "ret_1d_mean": 0.01,
+                        "ret_1d_win_rate": 0.5,
+                        "mfe_1d_mean": 0.02,
+                        "ret_5d_n": 4,
+                        "ret_5d_mean": 0.03,
+                        "ret_5d_win_rate": 0.75,
+                        "mae_10d_median": -0.04,
+                    }
+                ],
+                "current_levels": [{"review_date": "20260512"}],
+            }
+        ),
         encoding="utf-8",
     )
 

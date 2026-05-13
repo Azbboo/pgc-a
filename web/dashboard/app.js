@@ -77,6 +77,8 @@ const state = {
   shadowObservationHistoryEnvelope: null,
   shadowPromotionReviewRequest: null,
   shadowPromotionReviewRequestEnvelope: null,
+  shadowDecisionMemo: null,
+  shadowDecisionMemoEnvelope: null,
   shadowHistoryAsOfDate: localStorage.getItem("pgc.dashboard.shadowHistoryAsOfDate") || "",
   shadowHistoryWindow: localStorage.getItem("pgc.dashboard.shadowHistoryWindow") || "20",
   tradePlans: [],
@@ -195,6 +197,8 @@ function cacheElements() {
     "shadowHistoryApplyButton",
     "shadowSnapshotDateLabel",
     "shadowSummaryPanel",
+    "shadowDecisionMemoState",
+    "shadowDecisionMemoWorkbench",
     "shadowPromotionReviewState",
     "shadowPromotionReviewWorkbench",
     "shadowObservationHistoryState",
@@ -354,6 +358,7 @@ function bindEvents() {
   els.shadowHistoryWindowSelect.addEventListener("change", applyShadowHistoryControls);
   els.shadowObservationHistoryStrip.addEventListener("click", onShadowObservationHistoryClick);
   els.shadowObservationHistoryList.addEventListener("click", onShadowObservationHistoryClick);
+  els.shadowDecisionMemoWorkbench.addEventListener("click", onShadowDecisionMemoClick);
   els.shadowPromotionReviewWorkbench.addEventListener("click", onShadowPromotionReviewClick);
   els.shadowObservationQueue.addEventListener("click", onShadowObservationClick);
   els.shadowCandidateList.addEventListener("click", onShadowCandidateClick);
@@ -621,6 +626,7 @@ async function refreshAll(options = {}) {
       loadShadowObservationScorecard(),
       loadShadowObservationHistory(),
       loadShadowPromotionReviewRequest(),
+      loadShadowDecisionMemo(),
     ]);
     renderAll();
   } catch (error) {
@@ -889,6 +895,16 @@ async function loadShadowPromotionReviewRequest() {
   state.shadowPromotionReviewRequest = envelope.data || null;
 }
 
+async function loadShadowDecisionMemo() {
+  const params = new URLSearchParams();
+  params.set("request_id", requestId("shadow-decision-memo"));
+  const asOfDate = shadowHistoryDate();
+  if (/^\d{8}$/.test(asOfDate)) params.set("as_of_date", asOfDate);
+  const envelope = await apiRequest(`/api/shadow-decision-memo?${params.toString()}`);
+  state.shadowDecisionMemoEnvelope = envelope;
+  state.shadowDecisionMemo = envelope.data || null;
+}
+
 function latestReviewHistoryDate() {
   const dates = reviewHistoryDates();
   return dates.length ? dates[dates.length - 1] : "";
@@ -1036,6 +1052,7 @@ async function loadShadowStrategySnapshotAndRender() {
       loadShadowObservationScorecard(),
       loadShadowObservationHistory(),
       loadShadowPromotionReviewRequest(),
+      loadShadowDecisionMemo(),
     ]);
     renderShadowStrategyLab();
     renderBadges();
@@ -1074,20 +1091,20 @@ async function runReview() {
       ...selectedAccountPayload(),
     });
     const envelope = await apiRequest("/api/review-runs", { method: "POST", body: payload });
-    handleMutationEnvelope(envelope, mutationSuccessText("复盘请求已完成", "复盘 dry run 成功，未写入复盘结果。"));
+    handleMutationEnvelope(envelope, mutationSuccessText("复盘请求已完成", "复盘预演成功，未写入复盘结果。"));
     await refreshAll({ keepNotice: true });
   });
 }
 
 async function publishPlan(tradePlanId) {
   if (hasBlockingQuality()) {
-    showNotice("存在数据质量 blocker，不能发布计划。");
+    showNotice("存在数据质量阻断，不能发布计划。");
     return;
   }
   const plan = selectedRecordPlan(tradePlanId);
   const ok = await confirmAction({
     title: "确认发布计划",
-    body: `计划 ${tradePlanId} 将进入 active 状态。此操作不支持 dry run。`,
+    body: `计划 ${tradePlanId} 将进入有效状态。此操作不支持预演模式。`,
     details: writeConfirmationDetails({
       targetStock: planStockText(plan),
       planId: tradePlanId,
@@ -1113,7 +1130,7 @@ async function cancelPlan(tradePlanId) {
   const plan = selectedRecordPlan(tradePlanId);
   const ok = await confirmAction({
     title: "确认取消计划",
-    body: `计划 ${tradePlanId} 将被标记为 cancelled。此操作不支持 dry run。`,
+    body: `计划 ${tradePlanId} 将被标记为已取消。此操作不支持预演模式。`,
     inputLabel: "取消原因",
     quickChoices: CANCEL_REASON_CHOICES,
     details: writeConfirmationDetails({
@@ -1163,10 +1180,10 @@ async function submitTradeRecord(event) {
     if (tradePlanId) {
       const plan = findPlan(tradePlanId) || (state.report?.buy_plan?.trade_plan_id === tradePlanId ? planFromReport(state.report.buy_plan) : null);
       if (hasBlockingQuality()) {
-        throw new Error("存在数据质量 blocker，不能录入计划成交。");
+        throw new Error("存在数据质量阻断，不能录入计划成交。");
       }
       if (plan && plan.status !== "active") {
-        throw new Error("只有 active 计划才能录入成交。");
+        throw new Error("只有有效计划才能录入成交。");
       }
     }
     const basePayload = {
@@ -1188,7 +1205,7 @@ async function submitTradeRecord(event) {
     const recordSideText = positionId || basePayload.side === "sell" ? "卖出" : "买入";
     const ok = await confirmAction({
       title: recordSideText === "卖出" ? "确认记录卖出成交" : "确认记录买入成交",
-      body: `将记录 ${displayDate(basePayload.executed_date)} 的人工纸面${recordSideText}成交：${numberText(basePayload.executed_price, 4)} 元 / ${integerText(basePayload.shares)} 股。Dashboard 不会向券商下单。`,
+      body: `将记录 ${displayDate(basePayload.executed_date)} 的人工纸面${recordSideText}成交：${numberText(basePayload.executed_price, 4)} 元 / ${integerText(basePayload.shares)} 股。操作台不会向券商下单。`,
       details: writeConfirmationDetails({
         targetStock,
         planId: tradePlanId,
@@ -1202,7 +1219,7 @@ async function submitTradeRecord(event) {
     const envelope = await apiRequest("/api/trades", { method: "POST", body: payload });
     handleMutationEnvelope(envelope, mutationSuccessText(
       "成交录入请求已完成，持仓和计划状态已刷新。",
-      "成交录入 dry run 成功，未写入持仓；关闭 Dry run 且服务端开启写入后才会落库。",
+      "成交录入预演成功，未写入持仓；关闭预演模式且服务端开启写入后才会落库。",
     ));
     clearRecordForm();
     await refreshAll({ keepNotice: true });
@@ -1229,7 +1246,7 @@ async function evaluateExits() {
       ...selectedAccountPayload(),
     });
     const envelope = await apiRequest("/api/exits/evaluate", { method: "POST", body: payload });
-    handleMutationEnvelope(envelope, mutationSuccessText("退出评估请求已完成", "退出评估 dry run 成功，未写入退出决策/计划。"));
+    handleMutationEnvelope(envelope, mutationSuccessText("退出评估请求已完成", "退出评估预演成功，未写入退出决策或计划。"));
     await refreshAll({ keepNotice: true });
   });
 }
@@ -1239,21 +1256,21 @@ async function reviewStrategyVersionProposal(evaluation, decision) {
   const proposal = latestStrategyVersionProposal(evaluation);
   if (!hypothesis.hypothesis_id || !decision) return;
   if (!proposal) {
-    showNotice("没有可审阅的 strategy-version proposal artifact。");
+    showNotice("没有可审阅的策略版本提案产物。");
     return;
   }
   const ok = await confirmAction({
     title: proposalReviewConfirmTitle(decision),
     body: proposalReviewConfirmBody(decision, hypothesis),
-    inputLabel: "Review note",
+    inputLabel: "复核备注",
     quickChoices: proposalReviewQuickChoices(decision),
     details: [
       ["假设 ID", hypothesis.hypothesis_id],
-      ["Proposal key", proposal?.proposal_key || "-"],
-      ["Proposal artifact", proposal?.path || "-"],
-      ["Artifact-only", "不会写 strategy_versions、active params、trade_plans、trades、positions 或 paper/live 行为"],
-      ["Dry-run / Apply", state.dryRun ? "Dry run：只预演 artifact" : "Apply：仅写 proposal review / promotion-request artifact"],
-      ["操作者要求", state.dryRun ? `dry-run 可预演；apply 必填：${state.operator || "未填写"}` : `apply 必填：${state.operator || "未填写"}`],
+      ["提案键", proposal?.proposal_key || "-"],
+      ["提案产物", proposal?.path || "-"],
+      ["仅产物记录", "不会写策略版本、当前参数、交易计划、成交、持仓或纸盘/实盘行为"],
+      ["预演 / 正式写入", state.dryRun ? "预演：只预演产物" : "正式写入：仅写提案复核 / 晋升申请产物"],
+      ["操作者要求", state.dryRun ? `预演可不填；正式写入必填：${state.operator || "未填写"}` : `正式写入必填：${state.operator || "未填写"}`],
     ],
     submitLabel: confirmationSubmitLabel(),
   });
@@ -1270,8 +1287,8 @@ async function reviewStrategyVersionProposal(evaluation, decision) {
       body: payload,
     });
     handleMutationEnvelope(envelope, mutationSuccessText(
-      "Proposal review artifact 已写入；策略版本和交易状态未改变。",
-      "Proposal review dry run 成功，未写入 artifact、策略版本或交易状态。",
+      "提案复核产物已写入；策略版本和交易状态未改变。",
+      "提案复核预演成功，未写入产物、策略版本或交易状态。",
     ));
     await loadStrategyHypothesisWorkbenchAndRender();
   });
@@ -1296,13 +1313,13 @@ function writeConfirmationDetails({ targetStock = "-", planId = "", positionId =
       ? `持仓 ${positionId}`
       : "-";
   const operatorText = applyOnly || !state.dryRun
-    ? `apply 必填：${state.operator || "未填写"}`
-    : `dry-run 可预演；apply 必填：${state.operator || "未填写"}`;
+    ? `正式写入必填：${state.operator || "未填写"}`
+    : `预演可不填；正式写入必填：${state.operator || "未填写"}`;
   const modeText = applyOnly
-    ? "Apply：此操作不支持 dry run"
+    ? "正式写入：此操作不支持预演"
     : state.dryRun
-      ? "Dry run：预演不落库"
-      : "Apply：服务端开启写入时会落库";
+      ? "预演：不落库"
+      : "正式写入：服务端开启写入时会落库";
   return [
     ["账户", accountContextText()],
     ["复盘日", displayDate(state.asOfDate)],
@@ -1310,7 +1327,7 @@ function writeConfirmationDetails({ targetStock = "-", planId = "", positionId =
     ["目标股票", targetStock || "-"],
     ["计划/持仓 ID", idText],
     ["操作者要求", operatorText],
-    ["Dry-run / Apply", dryRunSupported ? modeText : "Apply：此操作不支持 dry run"],
+    ["预演 / 正式写入", dryRunSupported ? modeText : "正式写入：此操作不支持预演"],
   ];
 }
 
@@ -1323,8 +1340,8 @@ function accountContextText() {
 }
 
 function confirmationSubmitLabel(applyOnly = false) {
-  if (applyOnly) return "确认 apply";
-  return state.dryRun ? "确认 dry run" : "确认 apply";
+  if (applyOnly) return "确认正式写入";
+  return state.dryRun ? "确认预演" : "确认正式写入";
 }
 
 function renderAll() {
@@ -1360,7 +1377,7 @@ function renderOpeningExecution() {
   renderOpeningWorkflowGuide(readiness, executionPlans, executionDay);
   executionPlanPanel.classList.toggle("blocked", blocked);
   executionPlanPanel.classList.toggle("idle", !blocked && activePlans.length === 0);
-  els.openingBlockerChip.textContent = blocked ? "数据阻断" : activePlans.length ? "可执行" : "无 active 买入计划";
+  els.openingBlockerChip.textContent = blocked ? "数据阻断" : activePlans.length ? "可执行" : "无有效买入计划";
   els.openingBlockerChip.className = `chip ${blocked ? "chip-red" : activePlans.length ? "chip-green" : "chip-neutral"}`;
   renderOpeningReadinessSummary(readiness);
   renderPaperPromotionScorecard();
@@ -1369,14 +1386,14 @@ function renderOpeningExecution() {
     const blockers = blockingEvents().slice(0, 2).map((item) => escapeHtml(item.message || item.code || "数据阻断")).join("；");
     const ledgerCount = ledgerBlockerCount();
     els.openingPlanBody.innerHTML = `
-      <h3 class="action-title">数据质量 / 账本 blocker，买入执行按钮已禁用</h3>
-      <p class="muted">${blockers || "请先处理数据质量页面中的 blocker。"}</p>
-      ${ledgerCount ? `<p class="ledger-blocker-note">账本 invariant blocker 未清除前，发布、取消和成交录入会保持锁定。</p>` : ""}
+      <h3 class="action-title">数据质量 / 账本阻断，买入执行按钮已禁用</h3>
+      <p class="muted">${blockers || "请先处理数据质量页面中的阻断。"}</p>
+      ${ledgerCount ? `<p class="ledger-blocker-note">账本不变量阻断未清除前，发布、取消和成交录入会保持锁定。</p>` : ""}
       ${actionMetrics([
         ["执行日", displayDate(executionDay)],
-        ["active 买入计划", String(activePlans.length)],
+        ["有效买入计划", String(activePlans.length)],
         ["阻断数", String(blockingEvents().length)],
-        ["账本 blocker", String(ledgerCount)],
+        ["账本阻断", String(ledgerCount)],
         ["账户容量", capacityText(state.report?.account)],
       ])}
     `;
@@ -1386,7 +1403,7 @@ function renderOpeningExecution() {
       : `<p class="execution-advisory">没有计划交易日匹配执行日 ${displayDate(executionDay)} 的买入计划；下方仅展示其他未完成计划，录入按钮已锁定。</p>`;
     els.openingPlanBody.innerHTML = `${advisory}${visiblePlans.map((plan) => openingPlanCard(plan, executionDay)).join("")}`;
   } else {
-    els.openingPlanBody.innerHTML = emptyState(`没有计划交易日为 ${displayDate(executionDay)} 的 active 买入计划。`);
+    els.openingPlanBody.innerHTML = emptyState(`没有计划交易日为 ${displayDate(executionDay)} 的有效买入计划。`);
   }
 
   renderPreOpenChecklist(activePlans, executionDay, blocked, readiness);
@@ -1409,7 +1426,7 @@ function renderOpeningWorkflowGuide(readiness, executionPlans, executionDay) {
       ${workflowFact("今天该做什么", guidance.what, guidance.whatTone)}
       ${workflowFact("为什么不能做", guidance.why, guidance.whyTone)}
       ${workflowFact("下一步点哪里", guidance.next, guidance.nextTone)}
-      ${workflowFact("市场计划关系", guidance.marketContext || "未关联 market-plan context", guidance.marketContextTone || "idle")}
+      ${workflowFact("市场计划关系", guidance.marketContext || "未关联计划上下文", guidance.marketContextTone || "idle")}
     </div>
     <div class="workflow-guide__actions">
       ${guidance.actions.map(workflowActionButton).join("")}
@@ -1424,7 +1441,7 @@ function openExecutionGuidance(openExecution, readiness, executionPlans, executi
   const contextFields = { marketContext, marketContextTone };
 
   if (openExecution.status === "blocked" || openExecution.next_action === "blocked") {
-    const reason = (openExecution.blocked_reasons || [])[0] || errorMessages(state.openExecutionEnvelope).join("；") || "账本 invariant blocker 未处理。";
+    const reason = (openExecution.blocked_reasons || [])[0] || errorMessages(state.openExecutionEnvelope).join("；") || "账本不变量阻断未处理。";
     return {
       ...contextFields,
       tone: "blocked",
@@ -1457,7 +1474,7 @@ function openExecutionGuidance(openExecution, readiness, executionPlans, executi
       title: `按 active 退出计划录入 ${target} 卖出成交`,
       detail: "退出计划来自持仓生命周期；成交录入仍需人工确认日期、价格、股数和写入凭证。",
       what: `${displayDate(executionDay)} 录入人工纸面卖出成交`,
-      why: "open-execution 找到执行日匹配的 active 卖出计划",
+      why: "开盘执行服务找到执行日匹配的有效卖出计划",
       next: "点“录入卖出成交”进入成交录入页",
       whatTone: "ready",
       whyTone: "ready",
@@ -1473,10 +1490,10 @@ function openExecutionGuidance(openExecution, readiness, executionPlans, executi
     return {
       ...contextFields,
       tone: "ready",
-      title: `按 active 计划录入 ${target} 买入成交`,
-      detail: "开盘检查已完成；market-plan context 只给提示，不会自动取消或执行计划。",
+      title: `按有效计划录入 ${target} 买入成交`,
+      detail: "开盘检查已完成；计划上下文只给提示，不会自动取消或执行计划。",
       what: `${displayDate(executionDay)} 录入人工纸面买入成交`,
-      why: "open-execution 找到执行日匹配的 active 买入计划",
+      why: "开盘执行服务找到执行日匹配的有效买入计划",
       next: "点“录入买入成交”进入成交录入页",
       whatTone: "ready",
       whyTone: "ready",
@@ -1496,7 +1513,7 @@ function openExecutionGuidance(openExecution, readiness, executionPlans, executi
       title: "先完成开盘检查，再录入买入成交",
       detail: unchecked.length ? `待确认：${unchecked.join("、")}。` : "待确认开盘检查项。",
       what: `核对 ${target} 的开盘可交易条件`,
-      why: "open-execution 已找到 active 买入计划，但人工开盘检查未完成",
+      why: "开盘执行服务已找到有效买入计划，但人工开盘检查未完成",
       next: "点“定位检查清单”，逐项确认后再点录入",
       whatTone: "warning",
       whyTone: "blocked",
@@ -1513,7 +1530,7 @@ function openExecutionGuidance(openExecution, readiness, executionPlans, executi
       ...contextFields,
       tone: "waiting",
       title: `今天优先评估 ${target} 的退出动作`,
-      detail: "open-execution 找到 T+2 / T+5 到期待处理持仓；评估按钮仍走显式写入确认。",
+      detail: "开盘执行服务找到 T+2 / T+5 到期待处理持仓；评估按钮仍走显式写入确认。",
       what: `${displayDate(executionDay)} 评估退出并按实际成交录入卖出`,
       why: "存在到期待处理持仓，尚未生成执行日卖出计划",
       next: "点“评估退出”生成决策/计划，或直接进入卖出录入",
@@ -1531,10 +1548,10 @@ function openExecutionGuidance(openExecution, readiness, executionPlans, executi
     return {
       ...contextFields,
       tone: "idle",
-      title: "有 active 计划，但还没到执行日",
+      title: "有有效计划，但还没到执行日",
       detail: `下一计划交易日：${displayDate(openExecution.planned_trade_date)}。`,
       what: "等待计划交易日，不错日录入",
-      why: "open-execution 未找到今天到期的 active 执行计划",
+      why: "开盘执行服务未找到今天到期的有效执行计划",
       next: "点“查看交易计划”核对具体日期",
       whatTone: "idle",
       whyTone: "blocked",
@@ -1550,9 +1567,9 @@ function openExecutionGuidance(openExecution, readiness, executionPlans, executi
     ...contextFields,
     tone: "idle",
     title: "今天没有主动买入或退出任务",
-    detail: "open-execution 没有找到执行日计划或到期持仓。",
+    detail: "开盘执行服务没有找到执行日计划或到期持仓。",
     what: "保留观察，必要时刷新复盘和计划列表",
-    why: "没有 active 计划、卖出计划或 T+2 / T+5 退出任务",
+    why: "没有有效计划、卖出计划或 T+2 / T+5 退出任务",
     next: "点“查看每日复盘”确认无候选原因",
     whatTone: "idle",
     whyTone: "ready",
@@ -1580,7 +1597,7 @@ function openingWorkflowGuidance(readiness, executionPlans, executionDay) {
       tone: "blocked",
       title: "先确认上下文，执行台还没有可用复盘报告",
       detail: "复盘报告读取失败时，不判断买入、卖出或持仓动作。",
-      what: "检查账户、复盘日、策略版本和 API Base",
+      what: "检查账户、复盘日、策略版本和 API 地址",
       why: "缺少复盘报告，无法确认执行日和计划状态",
       next: "点“刷新执行台”，仍失败时调整左侧页面上下文",
       whatTone: "warning",
@@ -1599,7 +1616,7 @@ function openingWorkflowGuidance(readiness, executionPlans, executionDay) {
       tone: "blocked",
       title: "今天先处理数据阻断，暂不做买入录入",
       detail: reason,
-      what: "处理 open 数据质量 blocker",
+      what: "处理开盘数据质量阻断",
       why: reason,
       next: "点“查看数据质量”，处理后回到执行台刷新",
       whatTone: "blocked",
@@ -1615,10 +1632,10 @@ function openingWorkflowGuidance(readiness, executionPlans, executionDay) {
   if (firstActivePlan && readiness.ready) {
     return {
       tone: "ready",
-      title: `按 active 计划录入 ${planStockText(firstActivePlan)} 买入成交`,
+      title: `按有效计划录入 ${planStockText(firstActivePlan)} 买入成交`,
       detail: "开盘检查已完成；提交前仍需按真实成交日期、价格和股数核对。",
       what: `${displayDate(executionDay)} 录入人工纸面买入成交`,
-      why: "没有锁定项，Dashboard 只记录事实，不会向券商下单",
+      why: "没有锁定项，操作台只记录事实，不会向券商下单",
       next: "点“录入买入成交”进入成交录入页",
       whatTone: "ready",
       whyTone: "ready",
@@ -1653,7 +1670,7 @@ function openingWorkflowGuidance(readiness, executionPlans, executionDay) {
     return {
       tone: "waiting",
       title: "今天有草稿计划，先发布为 active",
-      detail: "成交录入只接受 active 计划；草稿计划不会进入开盘录入队列。",
+      detail: "成交录入只接受有效计划；草稿计划不会进入开盘录入队列。",
       what: `${displayDate(executionDay)} 计划发布后再录入成交`,
       why: "计划仍是草稿，尚未成为可执行计划",
       next: "点“发布计划”，发布成功后完成开盘检查",
@@ -1671,7 +1688,7 @@ function openingWorkflowGuidance(readiness, executionPlans, executionDay) {
     return {
       tone: "waiting",
       title: "今天优先处理到期持仓退出任务",
-      detail: "没有匹配执行日的 active 买入计划，但存在 T+2 / T+5 到期待处理持仓。",
+      detail: "没有匹配执行日的有效买入计划，但存在 T+2 / T+5 到期待处理持仓。",
       what: `${displayDate(executionDay)} 评估退出并按实际成交录入卖出`,
       why: "买入计划缺失；退出任务来自当前持仓生命周期",
       next: "点“评估退出”生成退出决策/计划，或直接进入卖出录入",
@@ -1689,7 +1706,7 @@ function openingWorkflowGuidance(readiness, executionPlans, executionDay) {
     const statusSummary = executionPlans.map((plan) => `计划 ${plan.id}：${statusText(plan.status)}`).join("；");
     return {
       tone: "idle",
-      title: "今天没有 active 买入待录入",
+      title: "今天没有有效买入待录入",
       detail: statusSummary,
       what: "核对今日计划状态，确认是否已执行、取消或过期",
       why: "没有 active 状态的执行日买入计划",
@@ -1707,8 +1724,8 @@ function openingWorkflowGuidance(readiness, executionPlans, executionDay) {
   if (activeBuyPlans().some((plan) => plan.status === "active")) {
     return {
       tone: "idle",
-      title: "存在 active 买入计划，但不是今天执行",
-      detail: "当前 active 买入计划的计划交易日与执行日不一致，不能在今天录入。",
+      title: "存在有效买入计划，但不是今天执行",
+      detail: "当前有效买入计划的计划交易日与执行日不一致，不能在今天录入。",
       what: "核对计划交易日，避免错日录入成交",
       why: "计划交易日与执行日不一致",
       next: "点“查看交易计划”核对具体日期",
@@ -1728,7 +1745,7 @@ function openingWorkflowGuidance(readiness, executionPlans, executionDay) {
       title: "有复盘候选，但今天还没有可执行计划",
       detail: "候选不等于成交计划；需要在每日复盘和交易计划中确认计划生成状态。",
       what: "检查候选是否已生成并发布计划",
-      why: "没有计划交易日匹配执行日的 active 买入计划",
+      why: "没有计划交易日匹配执行日的有效买入计划",
       next: "点“查看每日复盘”确认候选和计划血缘",
       whatTone: "warning",
       whyTone: "blocked",
@@ -1745,7 +1762,7 @@ function openingWorkflowGuidance(readiness, executionPlans, executionDay) {
     title: "今天没有主动买入或退出任务",
     detail: `复盘状态：${reasonText(report.no_candidate_reason)}。`,
     what: "保留观察，必要时刷新复盘和计划列表",
-    why: "没有候选、active 买入计划或 T+2 / T+5 退出任务",
+    why: "没有候选、有效买入计划或 T+2 / T+5 退出任务",
     next: "点“查看每日复盘”确认无候选原因",
     whatTone: "idle",
     whyTone: "ready",
@@ -1784,7 +1801,7 @@ function openExecutionTargetText(openExecution) {
 }
 
 function marketPlanContextExecutionText(context) {
-  if (!context) return "未关联 market-plan context";
+  if (!context) return "未关联计划上下文";
   const action = managementActionText(context.management_action);
   return `${alignmentText(context.alignment)} / ${riskText(context.risk_level)} / ${action}`;
 }
@@ -1800,7 +1817,7 @@ function marketPlanContextExecutionTone(context) {
 function primaryBlockerReason() {
   const blockers = blockingEvents();
   const first = blockers[0];
-  const reason = first?.message || first?.code || "存在数据质量 blocker。";
+  const reason = first?.message || first?.code || "存在数据质量阻断。";
   return blockers.length > 1 ? `${reason}（另有 ${blockers.length - 1} 项）` : reason;
 }
 
@@ -1818,8 +1835,8 @@ function uncheckedPreOpenLabels() {
 
 function renderOpeningReadinessSummary(readiness) {
   const items = [
-    ["数据质量", readiness.blocked ? `${readiness.blockerCount} blocker` : "可交易", readiness.blocked ? "danger" : "ready"],
-    ["当日 active 计划", readiness.hasExecutionPlan ? `${readiness.matchingActiveCount} 个` : "缺失", readiness.hasExecutionPlan ? "ready" : "idle"],
+    ["数据质量", readiness.blocked ? `${readiness.blockerCount} 个阻断` : "可交易", readiness.blocked ? "danger" : "ready"],
+    ["当日有效计划", readiness.hasExecutionPlan ? `${readiness.matchingActiveCount} 个` : "缺失", readiness.hasExecutionPlan ? "ready" : "idle"],
     ["开盘检查", `${readiness.checkedCount}/${readiness.totalChecks}`, readiness.manualComplete && readiness.hasExecutionPlan ? "ready" : "waiting"],
     ["买入录入", readiness.ready ? "可录入" : "锁定", readiness.ready ? "ready" : "locked"],
   ];
@@ -1843,7 +1860,7 @@ function renderOpeningReadinessSummary(readiness) {
 function renderPaperPromotionScorecard() {
   const promotion = state.report?.paper_promotion;
   if (!promotion) {
-    els.paperPromotionScorecard.innerHTML = emptyState("Paper 晋级分数卡暂无数据。");
+    els.paperPromotionScorecard.innerHTML = emptyState("纸盘晋级分数卡暂无数据。");
     return;
   }
   const blockers = listValue(promotion.promotion_blockers);
@@ -1854,12 +1871,12 @@ function renderPaperPromotionScorecard() {
     ["已闭环交易", integerText(promotion.closed_trades_count), promotion.closed_trades_count > 0 ? "ready" : "idle"],
     ["累计实现盈亏", money(promotion.realized_pnl), Number(promotion.realized_pnl || 0) >= 0 ? "ready" : "danger"],
     ["胜率", percent(promotion.win_rate), promotion.win_rate == null ? "idle" : "ready"],
-    ["当前阻断", blockers.length ? blockers.join(" / ") : "无", blockers.length ? "danger" : "ready"],
-    ["晋级 live 前还差什么", nextSteps, blockers.length ? "danger" : warnings.length ? "waiting" : "ready"],
+    ["当前阻断", blockers.length ? blockers.map(shadowBlockerText).join(" / ") : "无", blockers.length ? "danger" : "ready"],
+    ["晋级实盘前还差什么", nextSteps, blockers.length ? "danger" : warnings.length ? "waiting" : "ready"],
   ];
   els.paperPromotionScorecard.innerHTML = `
     <div class="paper-promotion-scorecard__head">
-      <span>Paper 晋级分数卡</span>
+      <span>纸盘晋级分数卡</span>
       ${chipHtml(promotionReadinessText(promotion.readiness), promotionReadinessClass(promotion.readiness))}
     </div>
     <div class="paper-promotion-scorecard__grid">
@@ -1870,12 +1887,12 @@ function renderPaperPromotionScorecard() {
         </div>
       `).join("")}
     </div>
-    <p>最近 pipeline：${escapeHtml(promotion.last_pipeline_status || "无记录")}；平均滑点：${escapeHtml(percent(promotion.avg_slippage))}；晋级警告：${escapeHtml(warnings.length ? warnings.join(" / ") : "无")}</p>
+    <p>最近流水线：${escapeHtml(promotion.last_pipeline_status || "无记录")}；平均滑点：${escapeHtml(percent(promotion.avg_slippage))}；晋级警告：${escapeHtml(warnings.length ? warnings.map(shadowBlockerText).join(" / ") : "无")}</p>
   `;
 }
 
 function promotionNextSteps(promotion, blockers = listValue(promotion?.promotion_blockers), warnings = listValue(promotion?.promotion_warnings)) {
-  if (blockers.length) return blockers.join(" / ");
+  if (blockers.length) return blockers.map(shadowBlockerText).join(" / ");
   if (warnings.length) return warnings.join(" / ");
   return "已满足当前 paper 晋级检查";
 }
@@ -1904,7 +1921,7 @@ function openingPlanCard(plan, executionDay) {
         ["计划资金", money(plannedCash(plan))],
       ])}
       <div class="row-actions">
-        <button type="button" data-plan-action="record" data-plan-id="${plan.id}" title="${escapeHtml(lockReason || "按该 active 计划录入人工买入成交")}" ${canRecord ? "" : "disabled"}>录入买入成交</button>
+        <button type="button" data-plan-action="record" data-plan-id="${plan.id}" title="${escapeHtml(lockReason || "按该有效计划录入人工买入成交")}" ${canRecord ? "" : "disabled"}>录入买入成交</button>
         <button type="button" data-plan-action="cancel" data-plan-id="${plan.id}" ${canCancel ? "" : "disabled"}>取消计划</button>
         <button type="button" data-plan-action="detail" data-plan-id="${plan.id}">详情</button>
       </div>
@@ -1961,7 +1978,7 @@ function renderOpeningCancelQueue() {
         <button type="button" data-plan-action="cancel" data-plan-id="${plan.id}">取消</button>
       </div>
     `).join("")
-    : emptyState("没有可取消的 draft / active 计划。");
+    : emptyState("没有可取消的草稿或有效计划。");
 }
 
 function renderOpeningExitQueue() {
@@ -2023,7 +2040,7 @@ function renderNextDayDecision() {
     els.decisionStatusPanel.className = "acceptance-status-panel decision-status-panel";
     els.decisionStatusPanel.innerHTML = emptyState("下一交易日决策驾驶舱暂无数据。");
     els.decisionSystemProposal.innerHTML = emptyState("暂无系统建议。");
-    els.decisionStrategyProposal.innerHTML = emptyState("暂无策略 proposal 摘要。");
+    els.decisionStrategyProposal.innerHTML = emptyState("暂无策略提案摘要。");
     els.decisionChecklist.innerHTML = emptyState("暂无决策清单。");
     renderDecisionActionLog(decisionActionLogData());
     return;
@@ -2033,7 +2050,7 @@ function renderNextDayDecision() {
   els.decisionStatusPanel.className = `acceptance-status-panel decision-status-panel decision-status-panel--${escapeHtml(cockpit.status || "review_required")}`;
   els.decisionStatusPanel.innerHTML = `
     <div class="acceptance-status-main">
-      <span class="workflow-guide__kicker">只读驾驶舱 · 不执行交易 / 不开 timer</span>
+      <span class="workflow-guide__kicker">只读驾驶舱 · 不执行交易 / 不开启定时任务</span>
       <h2>${escapeHtml(decisionStatusText(cockpit.status))}</h2>
       <p>${escapeHtml(cockpit.headline || "下一交易日决策状态待确认。")}</p>
     </div>
@@ -2041,14 +2058,14 @@ function renderNextDayDecision() {
       ["复盘日", displayDate(cockpit.as_of_date)],
       ["执行日", displayDate(cockpit.execution_date)],
       ["建议动作", openExecutionActionText(proposal.action)],
-      ["blocker", String(cockpit.blocker_count || 0)],
-      ["warning", String(cockpit.warning_count || 0)],
+      ["阻断数", String(cockpit.blocker_count || 0)],
+      ["警告数", String(cockpit.warning_count || 0)],
       ["人工下一步", cockpit.recommended_manual_action || "-"],
     ])}
     <div class="acceptance-actions">
-      <button type="button" data-decision-log="followed">记录 follow</button>
-      <button type="button" data-decision-log="deferred">记录 defer</button>
-      <button type="button" data-decision-log="overrode">记录 override</button>
+      <button type="button" data-decision-log="followed">记录跟随</button>
+      <button type="button" data-decision-log="deferred">记录暂缓</button>
+      <button type="button" data-decision-log="overrode">记录改写</button>
       <button type="button" data-decision-action="execution">开盘执行</button>
       <button type="button" data-decision-action="acceptance">运营验收</button>
       <button type="button" data-decision-action="refresh">刷新驾驶舱</button>
@@ -2066,7 +2083,7 @@ function renderNextDayDecision() {
         ["计划交易日", displayDate(proposal.planned_trade_date)],
         ["计划股数", integerText(proposal.planned_shares)],
       ])}
-      <button type="button" class="link-button" data-decision-action="execution">查看 open-execution</button>
+      <button type="button" class="link-button" data-decision-action="execution">查看开盘执行服务</button>
     </div>
   `;
 
@@ -2088,14 +2105,14 @@ function decisionActionLogData() {
 
 function renderDecisionStrategyProposal(proposals) {
   if (!proposals) {
-    els.decisionStrategyProposal.innerHTML = emptyState("暂无策略 proposal 摘要。");
+    els.decisionStrategyProposal.innerHTML = emptyState("暂无策略提案摘要。");
     return;
   }
   const items = Array.isArray(proposals.items) ? proposals.items : [];
   els.decisionStrategyProposal.innerHTML = `
     <div class="decision-proposal-card">
       ${chipHtml(`${proposals.review_required_count || 0} 待审阅`, proposals.review_required_count ? "chip-amber" : "chip-green")}
-      <strong>total ${integerText(proposals.total_count)} / accepted ${integerText(proposals.accepted_count)}</strong>
+      <strong>共 ${integerText(proposals.total_count)} 条 / 已接受 ${integerText(proposals.accepted_count)} 条</strong>
       ${actionMetrics([
         ["proposed", integerText(proposals.proposed_count)],
         ["testing", integerText(proposals.testing_count)],
@@ -2106,10 +2123,10 @@ function renderDecisionStrategyProposal(proposals) {
         ${items.length ? items.slice(0, 4).map((item) => `
           <div class="list-row">
             ${chipHtml(statusText(item.status), item.status === "accepted" ? "chip-amber" : "chip-neutral")}
-            <span>${escapeHtml(item.title || `hypothesis ${item.hypothesis_id}`)}</span>
+            <span>${escapeHtml(item.title || `假设 ${item.hypothesis_id}`)}</span>
             <button type="button" data-decision-action="hypotheses">审阅</button>
           </div>
-        `).join("") : emptyState("没有待审阅策略假设或 proposal。")}
+        `).join("") : emptyState("没有待审阅策略假设或提案。")}
       </div>
     </div>
   `;
@@ -2122,18 +2139,18 @@ function renderDecisionActionLog(actionLog) {
   els.decisionActionLog.innerHTML = `
     <div class="decision-action-summary">
       ${actionMetrics([
-        ["followed", integerText(actionLog?.followed_count)],
-        ["deferred", integerText(actionLog?.deferred_count)],
-        ["override", integerText(actionLog?.override_count)],
-        ["matched", integerText(actionLog?.matched_outcome_count)],
-        ["pending outcome", integerText(actionLog?.pending_outcome_count)],
-        ["unexpected trade", integerText(actionLog?.unexpected_trade_count)],
+        ["已跟随", integerText(actionLog?.followed_count)],
+        ["已暂缓", integerText(actionLog?.deferred_count)],
+        ["已改写", integerText(actionLog?.override_count)],
+        ["结果已匹配", integerText(actionLog?.matched_outcome_count)],
+        ["待复核结果", integerText(actionLog?.pending_outcome_count)],
+        ["非预期成交", integerText(actionLog?.unexpected_trade_count)],
       ])}
       <p class="muted">${escapeHtml(summary)}</p>
-      ${unresolved.length ? `<div class="acceptance-code-row">${unresolved.map((code) => chipHtml(code, "chip-red")).join("")}</div>` : ""}
+      ${unresolved.length ? `<div class="acceptance-code-row">${unresolved.map((code) => chipHtml(shadowBlockerText(code), "chip-red")).join("")}</div>` : ""}
     </div>
     <div class="compact-list">
-      ${items.length ? items.map(decisionActionLogRow).join("") : emptyState("还没有记录人工 follow / defer / override。")}
+      ${items.length ? items.map(decisionActionLogRow).join("") : emptyState("还没有记录人工跟随 / 暂缓 / 改写。")}
     </div>
   `;
 }
@@ -2160,14 +2177,14 @@ function decisionChecklistCard(item) {
   return `
     <article class="acceptance-gate acceptance-gate--${escapeHtml(item.status || "warning")} decision-check-card">
       <div class="acceptance-gate__head">
-        <strong>${escapeHtml(item.label || item.key || "decision check")}</strong>
+        <strong>${escapeHtml(item.label || uiLabelText(item.key) || "决策检查")}</strong>
         ${chipHtml(decisionItemStatusText(item.status), acceptanceStatusClass(item.status))}
       </div>
       <p>${escapeHtml(item.summary || "-")}</p>
       <span>${escapeHtml(item.detail || "只读检查项。")}</span>
       <span><b>下一步：</b>${escapeHtml(item.manual_action || "-")}</span>
-      ${blockers.length ? `<div class="acceptance-code-row">${blockers.map((code) => chipHtml(code, "chip-red")).join("")}</div>` : ""}
-      ${warnings.length ? `<div class="acceptance-code-row">${warnings.map((code) => chipHtml(code, "chip-amber")).join("")}</div>` : ""}
+      ${blockers.length ? `<div class="acceptance-code-row">${blockers.map((code) => chipHtml(shadowBlockerText(code), "chip-red")).join("")}</div>` : ""}
+      ${warnings.length ? `<div class="acceptance-code-row">${warnings.map((code) => chipHtml(shadowBlockerText(code), "chip-amber")).join("")}</div>` : ""}
       ${refs.length ? `<div class="acceptance-source-refs">${refs.slice(0, 4).map((ref) => chipHtml(sourceRefText(ref), sourceRefClass(ref))).join("")}</div>` : ""}
       <button type="button" class="link-button" data-decision-action="${escapeHtml(action)}">${escapeHtml(decisionActionText(action))}</button>
     </article>
@@ -2218,7 +2235,7 @@ function openDecisionActionLogDetail(detailKey) {
     ["执行日", displayDate(item.execution_date)],
     ["系统动作", openExecutionActionText(item.system_action)],
     ["人工记录", decisionLogDecisionText(item.operator_decision)],
-    ["outcome", `${decisionOutcomeText(outcome.outcome_bucket)} / ${decisionOutcomeText(outcome.outcome_status)}`],
+    ["复核结果", `${decisionOutcomeText(outcome.outcome_bucket)} / ${decisionOutcomeText(outcome.outcome_status)}`],
     ["匹配成交", outcome.matched_trade_id || "-"],
     ["匹配退出", outcome.matched_exit_decision_id || "-"],
     ["说明", outcome.outcome_summary || "-"],
@@ -2233,7 +2250,7 @@ async function recordDecisionActionLog(operatorDecision) {
     const target = decisionActionLogTarget(proposal);
     const ok = await confirmAction({
       title: `记录 ${decisionLogDecisionText(operatorDecision)}`,
-      body: "只记录人工对驾驶舱建议的处理方式；不会执行交易、开启 timer 或修改策略参数。",
+      body: "只记录人工对驾驶舱建议的处理方式；不会执行交易、开启定时任务或修改策略参数。",
       inputLabel: "记录说明",
       quickChoices: decisionLogQuickChoices(operatorDecision, proposal),
       submitLabel: confirmationSubmitLabel(),
@@ -2242,14 +2259,14 @@ async function recordDecisionActionLog(operatorDecision) {
         ["执行日", displayDate(cockpit.execution_date)],
         ["系统建议", openExecutionActionText(proposal.action)],
         ["目标", proposal.target || "-"],
-        ["target", `${target.target_type}${target.target_id ? `:${target.target_id}` : ""}`],
-        ["Dry-run / Apply", state.dryRun ? "Dry run：预演不落库" : "Apply：写入 advisory action log"],
+        ["目标记录", `${target.target_type}${target.target_id ? `:${target.target_id}` : ""}`],
+        ["预演 / 正式写入", state.dryRun ? "预演：不落库" : "正式写入：写入顾问动作日志"],
       ],
     });
     if (!ok.confirmed) return;
     const note = ok.value.trim();
     if (["deferred", "overrode"].includes(operatorDecision) && !note) {
-      showNotice("defer / override 需要填写记录说明。");
+      showNotice("暂缓 / 改写需要填写记录说明。");
       return;
     }
     const payload = supportedWritePayload(`decision-action-log:${cockpit.as_of_date}:${operatorDecision}:${proposal.action || "none"}`, {
@@ -2272,7 +2289,7 @@ async function recordDecisionActionLog(operatorDecision) {
       throw new Error("动作日志服务返回了越界写入标记，已停止刷新。");
     }
     showNotice(
-      state.dryRun ? "动作日志 dry run 成功，未写入数据库。" : "动作日志已记录；成交仍需走成交录入端点。",
+      state.dryRun ? "动作日志预演成功，未写入数据库。" : "动作日志已记录；成交仍需走成交录入端点。",
       "ok",
     );
     await Promise.all([loadDecisionActionLog(), loadOpsHistory()]);
@@ -2312,8 +2329,8 @@ function renderPaperAcceptance() {
     renderAcceptanceAlerts(null, paperAcceptanceHistoryData());
     renderAcceptanceHistory(paperAcceptanceHistoryData());
     els.acceptanceOverviewGrid.innerHTML = "";
-    els.acceptanceGateBody.innerHTML = emptyState("readiness gates 暂无数据。");
-    els.acceptanceBlockerList.innerHTML = emptyState("无法确认未处理 blocker。");
+    els.acceptanceGateBody.innerHTML = emptyState("就绪门禁暂无数据。");
+    els.acceptanceBlockerList.innerHTML = emptyState("无法确认未处理阻断。");
     return;
   }
 
@@ -2323,7 +2340,7 @@ function renderPaperAcceptance() {
   els.acceptanceStatusPanel.className = `acceptance-status-panel acceptance-status-panel--${acceptance.status || "warning"}`;
   els.acceptanceStatusPanel.innerHTML = `
     <div class="acceptance-status-main">
-      <span class="workflow-guide__kicker">只读验收面板 · Dashboard 不会执行交易</span>
+      <span class="workflow-guide__kicker">只读验收面板 · 操作台不会执行交易</span>
       <h2>${escapeHtml(acceptanceStatusText(acceptance.status))}</h2>
       <p>${escapeHtml(acceptance.summary || "纸盘每日运营验收状态待确认。")}</p>
     </div>
@@ -2331,9 +2348,9 @@ function renderPaperAcceptance() {
       ["账户", acceptance.account_key || accountContextText()],
       ["复盘日", displayDate(acceptance.as_of_date)],
       ["执行日", displayDate(acceptance.execution_date)],
-      ["open-execution", openExecutionActionText(openExecution.next_action)],
-      ["未处理 blocker", String(blockers.length)],
-      ["advisory 警告", String(warningCount)],
+      ["开盘执行", openExecutionActionText(openExecution.next_action)],
+      ["未处理阻断", String(blockers.length)],
+      ["顾问警告", String(warningCount)],
     ])}
     <div class="acceptance-actions">
       <button type="button" data-acceptance-action="execution">查看开盘执行</button>
@@ -2354,17 +2371,17 @@ function renderPaperAcceptance() {
   const readinessGates = acceptance.readiness_gates || [];
   els.acceptanceGateBody.innerHTML = readinessGates.length
     ? readinessGates.map(acceptanceGateCard).join("")
-    : emptyState("readiness gates 暂无数据。");
+    : emptyState("就绪门禁暂无数据。");
 
   els.acceptanceBlockerList.innerHTML = blockers.length
     ? blockers.map((blocker) => `
       <div class="list-row">
-        ${chipHtml("blocker", "chip-red")}
-        <span>${escapeHtml(blocker)}</span>
+        ${chipHtml("阻断", "chip-red")}
+        <span>${escapeHtml(shadowBlockerText(blocker))}</span>
         <button type="button" data-acceptance-action="quality">定位</button>
       </div>
     `).join("")
-    : emptyState("没有未处理 blocker；仍需人工核对开盘检查和成交事实。");
+    : emptyState("没有未处理阻断；仍需人工核对开盘检查和成交事实。");
   renderAcceptanceHistory(paperAcceptanceHistoryData());
 }
 
@@ -2381,31 +2398,31 @@ function renderAcceptanceAlerts(acceptance, history) {
   els.acceptanceAlertList.innerHTML = alerts.length
     ? alerts.slice(0, 8).map((alert) => `
       <div class="acceptance-alert acceptance-alert--${escapeHtml(alert.severity || "warning")}">
-        ${chipHtml(alert.severity === "blocker" ? "blocker" : "warning", alert.severity === "blocker" ? "chip-red" : "chip-amber")}
+        ${chipHtml(alert.severity === "blocker" ? "阻断" : "警告", alert.severity === "blocker" ? "chip-red" : "chip-amber")}
         <div>
-          <strong>${escapeHtml(alert.title || alert.code || "acceptance alert")}</strong>
+          <strong>${escapeHtml(alert.title || shadowBlockerText(alert.code) || "验收告警")}</strong>
           <span>${escapeHtml(alert.summary || "-")}</span>
         </div>
         <small>${escapeHtml(displayDate(alert.as_of_date))}</small>
         <button type="button" data-acceptance-action="${escapeHtml(alert.action || "quality")}">${escapeHtml(acceptanceActionText(alert.action || "quality"))}</button>
       </div>
     `).join("")
-    : emptyState("暂无 acceptance 告警；历史趋势仍保持只读。");
+    : emptyState("暂无验收告警；历史趋势仍保持只读。");
 }
 
 function renderAcceptanceHistory(history) {
   const items = Array.isArray(history?.items) ? history.items : [];
-  els.acceptanceHistorySummary.textContent = history?.summary || "暂无 paper acceptance 历史。";
+  els.acceptanceHistorySummary.textContent = history?.summary || "暂无纸盘验收历史。";
   els.acceptanceHistoryList.innerHTML = items.length
     ? items.map((item) => `
       <button type="button" class="acceptance-history-card acceptance-history-card--${escapeHtml(item.status || "warning")}" data-acceptance-history-date="${escapeHtml(item.as_of_date)}">
         <strong>${escapeHtml(displayDate(item.as_of_date))}</strong>
         ${chipHtml(acceptanceStatusText(item.status), acceptanceStatusClass(item.status))}
         <span>执行 ${escapeHtml(displayDate(item.execution_date))} · ${escapeHtml(openExecutionActionText(item.open_execution_next_action))}</span>
-        <span>blocker ${escapeHtml(String(item.unresolved_blocker_count || 0))} · warning ${escapeHtml(String(item.warning_count || 0))} · alert ${escapeHtml(String(item.alert_count || 0))}</span>
+        <span>阻断 ${escapeHtml(String(item.unresolved_blocker_count || 0))} · 警告 ${escapeHtml(String(item.warning_count || 0))} · 告警 ${escapeHtml(String(item.alert_count || 0))}</span>
       </button>
     `).join("")
-    : emptyState("暂无 paper acceptance 历史；运行日终复盘后会出现在这里。");
+    : emptyState("暂无纸盘验收历史；运行日终复盘后会出现在这里。");
 }
 
 function acceptanceAlertList(acceptance, history) {
@@ -2424,11 +2441,11 @@ function acceptanceAlertList(acceptance, history) {
 function renderOpsHistory() {
   const history = opsHistoryData();
   const items = Array.isArray(history?.items) ? history.items : [];
-  els.opsHistorySummary.textContent = history?.summary || "暂无 ops run history；该视图不会主动运行远端命令。";
+  els.opsHistorySummary.textContent = history?.summary || "暂无运维运行历史；该视图不会主动运行远端命令。";
   els.opsHistoryCounts.innerHTML = opsHistoryCountChips(history?.counts || {});
   els.opsHistoryList.innerHTML = items.length
     ? items.map(opsHistoryCard).join("")
-    : emptyState("暂无 pipeline / backup / release / health / timer evidence 历史。");
+    : emptyState("暂无日终流水线 / 备份 / 发布 / 健康检查 / 定时任务证据历史。");
 }
 
 function opsHistoryData() {
@@ -2437,15 +2454,15 @@ function opsHistoryData() {
 
 function opsHistoryCountChips(counts) {
   const entries = [
-    ["daily_pipeline", "pipeline"],
-    ["pipeline_step", "step"],
-    ["backup", "backup"],
-    ["release", "release"],
-    ["health", "health"],
-    ["paper_acceptance", "acceptance"],
-    ["decision_action_log", "action log"],
-    ["timer_evidence", "timer evidence"],
-    ["timer_action", "timer action"],
+    ["daily_pipeline", "日终流水线"],
+    ["pipeline_step", "流水线步骤"],
+    ["backup", "备份"],
+    ["release", "发布"],
+    ["health", "健康检查"],
+    ["paper_acceptance", "纸盘验收"],
+    ["decision_action_log", "动作日志"],
+    ["timer_evidence", "定时任务证据"],
+    ["timer_action", "定时任务动作"],
   ];
   const chips = entries
     .filter(([key]) => Number(counts[key] || 0) > 0)
@@ -2459,14 +2476,14 @@ function opsHistoryCard(item) {
     ["来源", item.source],
     ["日期", displayDate(item.as_of_date)],
     ["操作者", item.operator || "-"],
-    ["operation", item.operation_type || "-"],
-    ["log", item.log_file || "-"],
-    ["backup", details.backup_path || "-"],
-    ["duplicate", details.duplicate_apply_count ?? "-"],
-    ["health", details.health_url || details.health_command || "-"],
-    ["release", details.release_tag || "-"],
-    ["action", details.system_action || "-"],
-    ["outcome", details.outcome_bucket || details.outcome_status || "-"],
+        ["operation", item.operation_type || "-"],
+        ["log", item.log_file || "-"],
+        ["backup", details.backup_path || "-"],
+        ["duplicate", details.duplicate_apply_count ?? "-"],
+        ["health", details.health_url || details.health_command || "-"],
+        ["release", details.release_tag || "-"],
+        ["action", details.system_action || "-"],
+        ["outcome", details.outcome_bucket || details.outcome_status || "-"],
   ].filter(([, value]) => value !== "-" && value !== "" && value !== null && value !== undefined);
   return `
     <article class="ops-history-card ops-history-card--${escapeHtml(item.category || "operation")}">
@@ -2484,7 +2501,7 @@ function opsHistoryCard(item) {
       ${detailRows.length ? `
         <div class="ops-history-card__details">
           ${detailRows.slice(0, 6).map(([label, value]) => `
-            <span><b>${escapeHtml(label)}</b>${escapeHtml(String(value))}</span>
+            <span><b>${escapeHtml(uiLabelText(label))}</b>${escapeHtml(uiValueText(value))}</span>
           `).join("")}
         </div>
       ` : ""}
@@ -2500,13 +2517,13 @@ function acceptanceGateCard(gate) {
   return `
     <article class="acceptance-gate acceptance-gate--${escapeHtml(gate.status || "warning")}">
       <div class="acceptance-gate__head">
-        <strong>${escapeHtml(gate.label || gate.key || "gate")}</strong>
+        <strong>${escapeHtml(gate.label || uiLabelText(gate.key) || "门禁")}</strong>
         ${chipHtml(acceptanceStatusText(gate.status), acceptanceStatusClass(gate.status))}
       </div>
       <p>${escapeHtml(gate.summary || "-")}</p>
-      <span>${escapeHtml(gate.detail || "只读 gate，不会触发写入。")}</span>
-      ${blockers.length ? `<div class="acceptance-code-row">${blockers.map((code) => chipHtml(code, "chip-red")).join("")}</div>` : ""}
-      ${warnings.length ? `<div class="acceptance-code-row">${warnings.map((code) => chipHtml(code, "chip-amber")).join("")}</div>` : ""}
+      <span>${escapeHtml(gate.detail || "只读门禁，不会触发写入。")}</span>
+      ${blockers.length ? `<div class="acceptance-code-row">${blockers.map((code) => chipHtml(shadowBlockerText(code), "chip-red")).join("")}</div>` : ""}
+      ${warnings.length ? `<div class="acceptance-code-row">${warnings.map((code) => chipHtml(shadowBlockerText(code), "chip-amber")).join("")}</div>` : ""}
       ${refs.length ? `<div class="acceptance-source-refs">${refs.slice(0, 4).map((ref) => chipHtml(sourceRefText(ref), sourceRefClass(ref))).join("")}</div>` : ""}
       <button type="button" class="link-button" data-acceptance-action="${escapeHtml(action)}">${escapeHtml(acceptanceActionText(action))}</button>
     </article>
@@ -2551,7 +2568,7 @@ function acceptanceActionText(action) {
     agent: "查看 Agent",
     execution: "查看开盘执行",
     market: "查看证据",
-    quality: "查看 blocker",
+    quality: "查看阻断",
     refresh: "刷新验收",
   }[action] || "查看";
 }
@@ -2600,7 +2617,7 @@ function renderReviewTimeline() {
             <em>${escapeHtml(reviewTimelinePlanContextText(item))}</em>
           </span>
           <span class="timeline-cell timeline-cell--execution">
-            <b>open-execution</b>
+            <b>开盘执行</b>
             <em>${escapeHtml(reviewTimelineExecutionText(item))}</em>
           </span>
           <span class="history-badges">
@@ -2676,7 +2693,7 @@ function renderNextAction() {
   panel.classList.toggle("no-action", !blocked && !plan && !candidate);
 
   if (!report) {
-    els.nextActionBody.innerHTML = emptyState("无法读取复盘报告。请确认 API Base、复盘日和账户。");
+    els.nextActionBody.innerHTML = emptyState("无法读取复盘报告。请确认 API 地址、复盘日和账户。");
     setReviewButtons();
     return;
   }
@@ -2684,7 +2701,7 @@ function renderNextAction() {
   if (blocked) {
     els.nextActionBody.innerHTML = `
       <h3 class="action-title">数据阻断，不能发布计划</h3>
-      <p class="muted">请先处理 blocker；页面不会把阻断状态降级成可执行动作。</p>
+      <p class="muted">请先处理阻断；页面不会把阻断状态降级成可执行动作。</p>
       ${actionMetrics([
         ["复盘日", displayDate(report.as_of_date)],
         ["下一交易日", displayDate(report.next_trade_date)],
@@ -2726,7 +2743,7 @@ function renderNextAction() {
   } else {
     els.nextActionBody.innerHTML = `
       <h3 class="action-title">无可执行候选</h3>
-      <p class="muted">状态来自日级复盘结果，不写入 trade_plans.action。</p>
+      <p class="muted">状态来自日级复盘结果，不写入交易计划动作字段。</p>
       ${actionMetrics([
         ["复盘日", displayDate(report.as_of_date)],
         ["原因", reasonText(report.no_candidate_reason)],
@@ -2760,7 +2777,7 @@ function setReviewButtons() {
 function renderBlockers() {
   const blockers = blockingEvents();
   if (!blockers.length) {
-    els.blockerList.innerHTML = emptyState("当前复盘日没有 open blocker。");
+    els.blockerList.innerHTML = emptyState("当前复盘日没有未处理阻断。");
     return;
   }
   els.blockerList.innerHTML = blockers
@@ -2793,7 +2810,7 @@ function renderCandidate() {
       <div class="metric"><span>计划买入日</span><strong>${displayDate(candidate.planned_buy_date)}</strong></div>
       <div class="metric"><span>胜出信号数</span><strong>${dash(candidate.selected_over_signal_count)}</strong></div>
     </div>
-    <p class="summary-footnote">主体只保留候选摘要；特征、血缘和 ranked signals 在详情面板查看。</p>
+    <p class="summary-footnote">主体只保留候选摘要；特征、血缘和信号排名在详情面板查看。</p>
   `;
   const rows = candidate.ranked_signals || [];
   els.rankedSignalsBody.innerHTML = rows.length
@@ -2805,7 +2822,7 @@ function renderCandidate() {
         <td>${signal.signal_id}</td>
       </tr>
     `).join("")
-    : emptyRow(4, "没有 ranked signals。");
+    : emptyRow(4, "没有信号排名明细。");
 }
 
 function renderDuePositions() {
@@ -2879,15 +2896,15 @@ function renderStrategyHypothesisSummary(summary) {
     ["策略假设", integerText(summary.total || 0)],
     ["验证中", integerText(byStatus.testing || 0)],
     ["可进入接受复核", integerText(summary.ready_to_accept_count || 0)],
-    ["待 strategy-version task", integerText(summary.strategy_version_task_required_count || 0)],
-    ["待 proposal artifact", integerText(summary.proposal_required_count || 0)],
-    ["待 proposal review", integerText(summary.proposal_review_required_count || 0)],
-    ["proposal ready", integerText(summary.proposal_ready_count || 0)],
-    ["review artifacts", integerText(summary.proposal_review_artifact_count || 0)],
-    ["promotion requests", integerText(summary.promotion_request_count || 0)],
-    ["Backtest artifacts", integerText(summary.artifact_count || 0)],
-    ["Proposal artifacts", integerText(summary.proposal_artifact_count || 0)],
-    ["异常 artifacts", integerText(
+    ["待策略版本任务", integerText(summary.strategy_version_task_required_count || 0)],
+    ["待提案产物", integerText(summary.proposal_required_count || 0)],
+    ["待提案复核", integerText(summary.proposal_review_required_count || 0)],
+    ["提案就绪", integerText(summary.proposal_ready_count || 0)],
+    ["复核产物", integerText(summary.proposal_review_artifact_count || 0)],
+    ["晋升申请", integerText(summary.promotion_request_count || 0)],
+    ["回测产物", integerText(summary.artifact_count || 0)],
+    ["提案产物", integerText(summary.proposal_artifact_count || 0)],
+    ["异常产物", integerText(
       (summary.invalid_artifact_count || 0)
       + (summary.invalid_proposal_artifact_count || 0)
       + (summary.invalid_proposal_review_artifact_count || 0),
@@ -2920,17 +2937,17 @@ function renderStrategyHypothesisQueue(evaluations) {
 
 function renderStrategyHypothesisSafety(safety) {
   els.strategyHypothesisSafetyPanel.innerHTML = `
-    <p class="market-readonly-note">策略假设评估工作台只读：不会修改 active strategy params，不写 trade_plans、trades、positions，也不会改变 paper/live 交易行为。</p>
+    <p class="market-readonly-note">策略假设评估工作台只读：不会修改当前策略参数，不写交易计划、成交、持仓，也不会改变纸盘/实盘交易行为。</p>
     ${actionMetrics([
-      ["read_only", safety.read_only ? "是" : "-"],
-      ["active_params_mutated", safety.active_params_mutated ? "是" : "否"],
-      ["writes_trade_state", safety.writes_trade_state ? "是" : "否"],
-      ["paper/live 行为", safety.writes_paper_live_behavior ? "会改变" : "不改变"],
-      ["accepted 后续", safety.accepted_creates_separate_strategy_version_task ? "单独 proposal" : "-"],
-      ["proposal_artifacts_only", safety.proposal_artifacts_only ? "是" : "-"],
-      ["proposal_review_artifacts_only", safety.proposal_review_artifacts_only ? "是" : "-"],
+      ["只读", safety.read_only ? "是" : "-"],
+      ["改动当前参数", safety.active_params_mutated ? "是" : "否"],
+      ["写交易状态", safety.writes_trade_state ? "是" : "否"],
+      ["纸盘/实盘行为", safety.writes_paper_live_behavior ? "会改变" : "不改变"],
+      ["接受后续", safety.accepted_creates_separate_strategy_version_task ? "单独提案任务" : "-"],
+      ["提案仅产物记录", safety.proposal_artifacts_only ? "是" : "-"],
+      ["提案复核仅产物记录", safety.proposal_review_artifacts_only ? "是" : "-"],
       ["API", "/api/strategy-hypotheses/workbench"],
-      ["Review API", "/api/strategy-hypotheses/proposal-reviews"],
+      ["复核接口", "/api/strategy-hypotheses/proposal-reviews"],
     ])}
   `;
 }
@@ -2962,7 +2979,7 @@ function renderStrategyHypothesisCard(evaluation) {
     <article class="hypothesis-workbench-card">
       <div class="hypothesis-workbench-card__head">
         <div>
-          <span class="market-regime-kicker">strategy_hypotheses · ${escapeHtml(hypothesis.hypothesis_type || "-")}</span>
+          <span class="market-regime-kicker">策略假设 · ${escapeHtml(hypothesis.hypothesis_type || "-")}</span>
           <strong>${escapeHtml(hypothesis.title || `假设 ${hypothesis.hypothesis_id}`)}</strong>
         </div>
         <div class="hypothesis-chip-stack">
@@ -2970,15 +2987,15 @@ function renderStrategyHypothesisCard(evaluation) {
           ${chipHtml(hypothesisNextActionText(evaluation.next_action), hypothesisNextActionClass(evaluation.next_action))}
         </div>
       </div>
-      <p>${escapeHtml(hypothesis.rationale || "暂无 rationale。")}</p>
+      <p>${escapeHtml(hypothesis.rationale || "暂无理由。")}</p>
       <div class="hypothesis-gate-strip">
-        ${chipHtml(gate.has_validation_evidence ? "evidence 已附" : "缺 validation evidence", gate.has_validation_evidence ? "chip-green" : "chip-amber")}
-        ${chipHtml(artifactCount ? `${artifactCount} artifact` : "缺 backtest artifact", artifactCount ? "chip-blue" : "chip-amber")}
-        ${chipHtml(gate.backtest_artifacts_valid ? "artifact 有效" : "artifact 待确认", gate.backtest_artifacts_valid ? "chip-green" : "chip-neutral")}
-        ${chipHtml(proposalCount ? `${proposalCount} proposal` : "缺 proposal artifact", proposalCount ? "chip-indigo" : "chip-neutral")}
-        ${chipHtml(proposalReviewCount ? `${proposalReviewCount} review` : "待 proposal review", proposalReviewCount ? "chip-blue" : "chip-neutral")}
-        ${chipHtml(latestReview?.decision ? proposalReviewDecisionText(latestReview.decision) : "未请求 promotion", latestReview?.decision ? proposalReviewDecisionClass(latestReview.decision) : "chip-neutral")}
-        ${chipHtml(gate.can_accept ? "可接受复核" : gate.accepted_complete ? "accepted 完整" : "gate 未完成", gateClass)}
+        ${chipHtml(gate.has_validation_evidence ? "验证证据已附" : "缺验证证据", gate.has_validation_evidence ? "chip-green" : "chip-amber")}
+        ${chipHtml(artifactCount ? `${artifactCount} 个回测产物` : "缺回测产物", artifactCount ? "chip-blue" : "chip-amber")}
+        ${chipHtml(gate.backtest_artifacts_valid ? "回测产物有效" : "回测产物待确认", gate.backtest_artifacts_valid ? "chip-green" : "chip-neutral")}
+        ${chipHtml(proposalCount ? `${proposalCount} 个提案` : "缺提案产物", proposalCount ? "chip-indigo" : "chip-neutral")}
+        ${chipHtml(proposalReviewCount ? `${proposalReviewCount} 个复核` : "待提案复核", proposalReviewCount ? "chip-blue" : "chip-neutral")}
+        ${chipHtml(latestReview?.decision ? proposalReviewDecisionText(latestReview.decision) : "未请求晋升", latestReview?.decision ? proposalReviewDecisionClass(latestReview.decision) : "chip-neutral")}
+        ${chipHtml(gate.can_accept ? "可接受复核" : gate.accepted_complete ? "接受闭环完整" : "门禁未完成", gateClass)}
       </div>
       <div class="row-actions">
         <button type="button" data-strategy-hypothesis-id="${escapeHtml(hypothesis.hypothesis_id)}">评估详情</button>
@@ -2993,12 +3010,13 @@ function renderShadowStrategyLab() {
   const snapshot = shadowSnapshotData();
   const candidates = shadowCandidates();
   const latest = snapshot.latest || {};
-  const monitorDate = latest.monitor_review_date ? `monitor ${displayDate(latest.monitor_review_date)}` : "monitor -";
-  const preflightDate = latest.promotion_preflight_review_date ? `preflight ${displayDate(latest.promotion_preflight_review_date)}` : "preflight -";
+  const monitorDate = latest.monitor_review_date ? `监控 ${displayDate(latest.monitor_review_date)}` : "监控 -";
+  const preflightDate = latest.promotion_preflight_review_date ? `晋升预检 ${displayDate(latest.promotion_preflight_review_date)}` : "晋升预检 -";
   const history = shadowObservationHistoryData();
-  els.shadowSnapshotDateLabel.textContent = `${snapshot.as_of_date ? `Shadow snapshot ${displayDate(snapshot.as_of_date)}` : "Shadow snapshot -"} · history ${integerText(history.window || state.shadowHistoryWindow)} 日 · ${monitorDate} · ${preflightDate}`;
+  els.shadowSnapshotDateLabel.textContent = `${snapshot.as_of_date ? `影子快照 ${displayDate(snapshot.as_of_date)}` : "影子快照 -"} · 历史窗口 ${integerText(history.window || state.shadowHistoryWindow)} 日 · ${monitorDate} · ${preflightDate}`;
   renderShadowHistoryControls();
   renderShadowSummaryPanel(snapshot, candidates);
+  renderShadowDecisionMemo(shadowDecisionMemoData());
   renderShadowPromotionReviewWorkbench(shadowPromotionReviewData());
   renderShadowObservationHistory(history);
   renderShadowObservationQueue(shadowObservationData());
@@ -3016,20 +3034,123 @@ function renderShadowSummaryPanel(snapshot, candidates) {
   const safety = snapshot.safety || {};
   const errors = errorMessages(state.shadowStrategySnapshotEnvelope || {});
   const note = errors.length
-    ? `<p class="market-readonly-note">影子实验室读取到异常：${escapeHtml(errors.join("；"))}。该页面仍保持只读，不写 active strategy、交易计划、成交、持仓、paper/live 行为或 timer。</p>`
-    : `<p class="market-readonly-note">影子实验室是研究-only visibility surface：展示 shadow_strategy_snapshot_v1，不提供 promotion、发布计划、成交录入或 timer 操作。</p>`;
+    ? `<p class="market-readonly-note">影子实验室读取到异常：${escapeHtml(errors.join("；"))}。该页面仍保持只读，不写当前策略、交易计划、成交、持仓、纸盘/实盘行为或定时任务。</p>`
+    : `<p class="market-readonly-note">影子实验室是仅研究的可视化页面：展示影子策略快照，不提供晋升、发布计划、成交录入或定时任务操作。</p>`;
   els.shadowSummaryPanel.innerHTML = `
     ${note}
     ${actionMetrics([
       ["状态", shadowStatusText(snapshot.status || summary.status)],
       ["候选数", integerText(counts.candidate_count ?? candidates.length)],
-      ["blocked candidates", integerText(counts.blocked_candidate_count || 0)],
-      ["distinct blockers", integerText(counts.distinct_blocker_count || 0)],
-      ["shadow hypotheses", integerText(counts.shadow_hypothesis_count || 0)],
-      ["artifact-only", safety.artifact_only || snapshot.artifact_only ? "是" : "-"],
-      ["active CPB", snapshot.active_cpb_integrity?.status || summary.active_cpb_integrity_status || "-"],
-      ["API", "/api/shadow-strategy-snapshot"],
+      ["被阻断候选", integerText(counts.blocked_candidate_count || 0)],
+      ["阻断类型", integerText(counts.distinct_blocker_count || 0)],
+      ["影子假设", integerText(counts.shadow_hypothesis_count || 0)],
+      ["仅产物记录", safety.artifact_only || snapshot.artifact_only ? "是" : "-"],
+      ["当前 CPB", shadowStatusText(snapshot.active_cpb_integrity?.status || summary.active_cpb_integrity_status || "-")],
+      ["接口", "/api/shadow-strategy-snapshot"],
     ])}
+  `;
+}
+
+function renderShadowDecisionMemo(data) {
+  const summary = data.summary || {};
+  const sections = shadowDecisionMemoSections(data);
+  const candidates = shadowDecisionMemoCandidates(data);
+  const evidenceItems = arrayValue(sections["证据状态"]?.items);
+  const blockers = listValue(sections["阻断原因"]?.items);
+  const experiments = arrayValue(sections["下一步实验"]?.items);
+  const decisions = arrayValue(sections["人工决策"]?.items);
+  const rollback = listValue(sections["风险/回滚边界"]?.items);
+  const errors = errorMessages(state.shadowDecisionMemoEnvelope || {});
+  const status = summary.status || data.status || "missing";
+  els.shadowDecisionMemoState.textContent = candidates.length
+    ? `${candidates.length} 个候选 · ${shadowStatusText(status)}`
+    : shadowStatusText(status);
+  const alert = errors.length
+    ? `<p class="market-readonly-note">中文决策备忘录读取到异常：${escapeHtml(errors.join("；"))}。该区域仍只读，不批准、不晋升、不交易、不写计划、不改定时任务。</p>`
+    : `<p class="market-readonly-note">中文决策备忘录聚合评审申请、回放证据、跟踪验证、校准结果和实验登记；用于人工阅读，不是批准动作。</p>`;
+  els.shadowDecisionMemoWorkbench.innerHTML = `
+    ${alert}
+    ${actionMetrics([
+      ["API", "/api/shadow-decision-memo"],
+      ["契约版本", data.memo_contract || "shadow_decision_memo_v1"],
+      ["状态", shadowStatusText(status)],
+      ["候选", integerText(summary.candidate_count ?? candidates.length)],
+      ["阻断数", integerText(summary.blocker_count ?? blockers.length)],
+      ["已接受证据", integerText(summary.accepted_replay_evidence_count || 0)],
+      ["已拒绝证据", integerText(summary.rejected_replay_evidence_count || 0)],
+      ["缺失证据", integerText(summary.missing_replay_evidence_count || 0)],
+      ["下一步实验", integerText(summary.next_experiment_count ?? experiments.length)],
+      ["允许晋升", data.safety?.promotion_allowed ? "是" : "否"],
+    ])}
+    <div class="shadow-decision-conclusion">${escapeHtml(summary.conclusion_zh || "候选保持人工复核边界。")}</div>
+    <div class="shadow-decision-grid">
+      ${shadowDecisionMemoSectionCard("候选概览", sections["候选概览"], `${candidates.length} 个候选`)}
+      ${shadowDecisionMemoSectionCard("证据状态", sections["证据状态"], `${evidenceItems.length} 项证据`)}
+      ${shadowDecisionMemoSectionCard("阻断原因", sections["阻断原因"], `${blockers.length} 个阻断`)}
+      ${shadowDecisionMemoSectionCard("下一步实验", sections["下一步实验"], `${experiments.length} 项实验`)}
+      ${shadowDecisionMemoSectionCard("人工决策", sections["人工决策"], `${decisions.length} 项确认`)}
+      ${shadowDecisionMemoSectionCard("风险/回滚边界", sections["风险/回滚边界"], `${rollback.length} 条边界`)}
+    </div>
+    <div class="shadow-review-section-head">
+      <span>候选备忘录</span>
+      ${chipHtml("无批准 / 晋升 / 交易 / 计划 / 定时任务控件", "chip-agent")}
+    </div>
+    <div class="shadow-decision-candidate-list">
+      ${candidates.length ? candidates.map(shadowDecisionMemoCandidateCard).join("") : emptyState("暂无影子决策备忘录候选；所有候选保持阻断。")}
+    </div>
+  `;
+}
+
+function shadowDecisionMemoSectionCard(title, section, chipLabel) {
+  const items = arrayValue(section?.items);
+  return `
+    <article class="shadow-decision-section-card">
+      <div class="shadow-review-section-head">
+        <span>${escapeHtml(title)}</span>
+        ${chipHtml(chipLabel, "chip-neutral")}
+      </div>
+      <p>${escapeHtml(section?.summary_zh || "暂无摘要。")}</p>
+      <div class="shadow-decision-section-items">
+        ${items.length ? items.slice(0, 4).map((item) => shadowDecisionMemoSectionItem(item)).join("") : emptyState("暂无条目。")}
+      </div>
+    </article>
+  `;
+}
+
+function shadowDecisionMemoSectionItem(item) {
+  if (item && typeof item === "object") {
+    const label = item.candidate_key ? shadowCandidateKeyText(item.candidate_key) : item.name || item.experiment_key || item.decision_key || item.status || "条目";
+    const detail = item.summary_zh || item.next_step_zh || item.reason || item.note || item.status || "";
+    return `<span class="shadow-decision-section-item"><b>${escapeHtml(label)}</b>${detail ? `<small>${escapeHtml(detail)}</small>` : ""}</span>`;
+  }
+  return `<span class="shadow-decision-section-item">${escapeHtml(item)}</span>`;
+}
+
+function shadowDecisionMemoCandidateCard(candidate) {
+  const blockers = listValue(candidate.blockers);
+  const experiments = arrayValue(candidate.next_experiments);
+  return `
+    <article class="shadow-decision-candidate-card">
+      <div class="shadow-review-card__head">
+        <div>
+          <span class="market-regime-kicker">${escapeHtml(shadowFamilyText(candidate.candidate_family))}</span>
+          <strong>${escapeHtml(shadowCandidateKeyText(candidate.candidate_key))}</strong>
+        </div>
+        <div class="hypothesis-chip-stack">
+          ${chipHtml(shadowReplayEvidenceStatusText(candidate.evidence_status), shadowReplayEvidenceStatusClass(candidate.evidence_status))}
+          ${chipHtml(shadowWalkForwardStatusText(candidate.walk_forward_status), shadowWalkForwardStatusClass(candidate.walk_forward_status))}
+        </div>
+      </div>
+      <p>${escapeHtml(candidate.summary_zh || "候选仍需人工复核。")}</p>
+      <div class="hypothesis-gate-strip">
+        ${chipHtml(`${blockers.length} 个阻断`, blockers.length ? "chip-red" : "chip-green")}
+        ${chipHtml(`${experiments.length} 下一步实验`, experiments.length ? "chip-blue" : "chip-neutral")}
+        ${chipHtml(`允许晋升：${candidate.promotion_allowed ? "是" : "否"}`, candidate.promotion_allowed ? "chip-red" : "chip-neutral")}
+      </div>
+      <div class="row-actions">
+        <button type="button" data-shadow-decision-key="${escapeHtml(candidate.candidate_key)}">打开中文备忘录详情</button>
+      </div>
+    </article>
   `;
 }
 
@@ -3044,49 +3165,49 @@ function renderShadowPromotionReviewWorkbench(data) {
   const errors = errorMessages(state.shadowPromotionReviewRequestEnvelope || {});
   const status = data.status || summary.status || reviewRequest.request_status || "missing";
   els.shadowPromotionReviewState.textContent = candidates.length
-    ? `${candidates.length} 个候选 · ${integerText(summary.review_ready_count || 0)} ready`
+    ? `${candidates.length} 个候选 · ${integerText(summary.review_ready_count || 0)} 个可复核`
     : shadowPromotionReviewStatusText(status);
   const alert = errors.length || data.artifact_error
-    ? `<p class="market-readonly-note">晋升评审包读取到异常：${escapeHtml([...errors, data.artifact_error].filter(Boolean).join("；"))}。该工作台仍只读，不 approve、不 promote、不交易、不改 timer。</p>`
-    : `<p class="market-readonly-note">晋升评审工作台读取 shadow_promotion_review_request_v1；review_ready 不是 approval，只展示人工决策、replay/backtest evidence 和 rollback 边界。</p>`;
+    ? `<p class="market-readonly-note">晋升评审包读取到异常：${escapeHtml([...errors, data.artifact_error].filter(Boolean).join("；"))}。该工作台仍只读，不批准、不晋升、不交易、不改定时任务。</p>`
+    : `<p class="market-readonly-note">晋升评审工作台读取 shadow_promotion_review_request_v1；“可复核”不是批准，只展示人工决策、回放 / 回测证据和回滚边界。</p>`;
   els.shadowPromotionReviewWorkbench.innerHTML = `
     ${alert}
     ${actionMetrics([
       ["API", "/api/shadow-promotion-review-request"],
-      ["contract", data.review_request_contract || "shadow_promotion_review_request_v1"],
+      ["契约版本", data.review_request_contract || "shadow_promotion_review_request_v1"],
       ["状态", shadowPromotionReviewStatusText(status)],
-      ["artifact valid", data.artifact_valid ? "是" : "否"],
+      ["产物有效", data.artifact_valid ? "是" : "否"],
       ["候选", integerText(summary.candidate_count ?? candidates.length)],
-      ["review ready", integerText(summary.review_ready_count || 0)],
-      ["blocked", integerText(summary.blocked_count || 0)],
-      ["evidence accepted", integerText(evidenceSummary.accepted_count || 0)],
-      ["evidence rejected", integerText(evidenceSummary.rejected_count || 0)],
-      ["evidence missing", integerText(evidenceSummary.missing_count || 0)],
-      ["blocking reason", reviewRequest.blocking_reason || "none"],
-      ["promotion_allowed", data.safety?.promotion_allowed ? "是" : "否"],
+      ["可复核", integerText(summary.review_ready_count || 0)],
+      ["已阻断", integerText(summary.blocked_count || 0)],
+      ["已接受证据", integerText(evidenceSummary.accepted_count || 0)],
+      ["已拒绝证据", integerText(evidenceSummary.rejected_count || 0)],
+      ["缺失证据", integerText(evidenceSummary.missing_count || 0)],
+      ["阻断原因", shadowBlockerText(reviewRequest.blocking_reason || "none")],
+      ["允许晋升", data.safety?.promotion_allowed ? "是" : "否"],
     ])}
     <div class="shadow-review-grid">
       <section class="shadow-review-stack" aria-label="必需人工决策">
         <div class="shadow-review-section-head">
-          <span>required human decisions</span>
+          <span>必需人工决策</span>
           ${chipHtml(`${decisions.length} 项`, decisions.length ? "chip-blue" : "chip-neutral")}
         </div>
-        ${decisions.length ? decisions.map(shadowPromotionDecisionCard).join("") : emptyState("暂无 required_human_decisions。")}
+        ${decisions.length ? decisions.map(shadowPromotionDecisionCard).join("") : emptyState("暂无必需人工决策。")}
       </section>
       <section class="shadow-review-stack" aria-label="回滚与发布阻断">
         <div class="shadow-review-section-head">
-          <span>rollback / release gate</span>
-          ${chipHtml("manual gate", "chip-amber")}
+          <span>回滚与发布门禁</span>
+          ${chipHtml("人工门禁", "chip-amber")}
         </div>
         ${shadowPromotionNoteList([...rollbackNotes, ...safetyNotes])}
       </section>
     </div>
     <div class="shadow-review-section-head">
-      <span>candidate readiness / replay evidence</span>
-      ${chipHtml("no approve/promote/trade/plan/timer controls", "chip-agent")}
+      <span>候选就绪与回放证据</span>
+      ${chipHtml("无批准 / 晋升 / 交易 / 计划 / 定时任务控件", "chip-agent")}
     </div>
     <div class="shadow-review-candidate-list">
-      ${candidates.length ? candidates.map(shadowPromotionReviewCandidateCard).join("") : emptyState("暂无 candidate readiness；晋升保持阻断。")}
+      ${candidates.length ? candidates.map(shadowPromotionReviewCandidateCard).join("") : emptyState("暂无候选就绪记录；晋升保持阻断。")}
     </div>
   `;
 }
@@ -3095,15 +3216,15 @@ function shadowPromotionDecisionCard(decision) {
   return `
     <article class="shadow-review-decision-card">
       <div class="shadow-review-card__head">
-        <strong>${escapeHtml(decision.decision_key || "decision")}</strong>
+        <strong>${escapeHtml(shadowDecisionKeyText(decision.decision_key || "decision"))}</strong>
         <div class="hypothesis-chip-stack">
           ${chipHtml(shadowPromotionDecisionStatusText(decision.status), shadowPromotionDecisionStatusClass(decision.status))}
-          ${chipHtml(decision.required ? "required" : "optional", decision.required ? "chip-amber" : "chip-neutral")}
+          ${chipHtml(decision.required ? "必需" : "可选", decision.required ? "chip-amber" : "chip-neutral")}
         </div>
       </div>
       <p>${escapeHtml(decision.note || "暂无说明。")}</p>
       ${listValue(decision.candidate_keys).length ? `<div class="hypothesis-gate-strip">${listValue(decision.candidate_keys).map((key) => chipHtml(key, "chip-blue")).join("")}</div>` : ""}
-      ${listValue(decision.blocked_mutation_targets).length ? `<div class="hypothesis-gate-strip">${listValue(decision.blocked_mutation_targets).map((target) => chipHtml(target, "chip-red")).join("")}</div>` : ""}
+      ${listValue(decision.blocked_mutation_targets).length ? `<div class="hypothesis-gate-strip">${listValue(decision.blocked_mutation_targets).map((target) => chipHtml(uiLabelText(target), "chip-red")).join("")}</div>` : ""}
     </article>
   `;
 }
@@ -3126,20 +3247,20 @@ function shadowPromotionReviewCandidateCard(candidate) {
     <article class="shadow-review-candidate-card">
       <div class="shadow-review-card__head">
         <div>
-          <span class="market-regime-kicker">${escapeHtml(candidate.candidate_family || "shadow_candidate")}</span>
-          <strong>${escapeHtml(candidateKey)}</strong>
+          <span class="market-regime-kicker">${escapeHtml(shadowFamilyText(candidate.candidate_family))}</span>
+          <strong>${escapeHtml(shadowCandidateKeyText(candidateKey))}</strong>
         </div>
         <div class="hypothesis-chip-stack">
           ${chipHtml(shadowReviewStatusText(reviewStatus), shadowReviewStatusClass(reviewStatus))}
           ${chipHtml(shadowReplayEvidenceStatusText(evidenceStatus), shadowReplayEvidenceStatusClass(evidenceStatus))}
         </div>
       </div>
-      <p>sample ${integerText(minimumSample.actual ?? evidence.sample_size)}/${integerText(minimumSample.threshold ?? evidence.required_sample_size)}；source_hash ${escapeHtml(dash(evidence.source_hash || evidence.expected_source_hash))}；review package remains manual-only.</p>
+      <p>样本 ${integerText(minimumSample.actual ?? evidence.sample_size)}/${integerText(minimumSample.threshold ?? evidence.required_sample_size)}；来源哈希 ${escapeHtml(dash(evidence.source_hash || evidence.expected_source_hash))}；评审包仅供人工复核。</p>
       <div class="hypothesis-gate-strip">
-        ${chipHtml(`${blockers.length} blockers`, blockers.length ? "chip-red" : "chip-green")}
-        ${chipHtml(`artifact ${evidence.artifact_path ? "linked" : "missing"}`, evidence.artifact_path ? "chip-blue" : "chip-amber")}
-        ${chipHtml(`promotion_allowed ${evidence.promotion_allowed ? "true" : "false"}`, evidence.promotion_allowed ? "chip-red" : "chip-neutral")}
-        ${chipHtml("review_request_is_not_approval", "chip-neutral")}
+        ${chipHtml(`${blockers.length} 个阻断`, blockers.length ? "chip-red" : "chip-green")}
+        ${chipHtml(`证据产物${evidence.artifact_path ? "已关联" : "缺失"}`, evidence.artifact_path ? "chip-blue" : "chip-amber")}
+        ${chipHtml(`允许晋升：${evidence.promotion_allowed ? "是" : "否"}`, evidence.promotion_allowed ? "chip-red" : "chip-neutral")}
+        ${chipHtml("评审申请不是批准", "chip-neutral")}
       </div>
       <div class="row-actions">
         <button type="button" data-shadow-review-key="${escapeHtml(candidateKey)}">打开评审包详情</button>
@@ -3150,7 +3271,7 @@ function shadowPromotionReviewCandidateCard(candidate) {
 
 function shadowPromotionNoteList(notes) {
   const rows = uniqueTextList(notes);
-  if (!rows.length) return emptyState("暂无 rollback_notes / safety_notes。");
+  if (!rows.length) return emptyState("暂无回滚说明或安全边界。");
   return `
     <ul class="shadow-review-note-list">
       ${rows.map((note) => `<li>${escapeHtml(note)}</li>`).join("")}
@@ -3160,10 +3281,10 @@ function shadowPromotionNoteList(notes) {
 
 function shadowPromotionDecisionRows(decisions) {
   const rows = Array.isArray(decisions) ? decisions : [];
-  if (!rows.length) return emptyState("暂无 required_human_decisions。");
+  if (!rows.length) return emptyState("暂无必需人工决策。");
   return detailRows(rows.map((decision) => [
-    decision.decision_key || "decision",
-    `${shadowPromotionDecisionStatusText(decision.status)} / required=${decision.required ? "true" : "false"} / ${decision.note || "no note"}`,
+    shadowDecisionKeyText(decision.decision_key || "decision"),
+    `${shadowPromotionDecisionStatusText(decision.status)} / ${decision.required ? "必需" : "可选"} / ${decision.note || "暂无备注"}`,
   ]));
 }
 
@@ -3185,24 +3306,24 @@ function renderShadowObservationHistory(history) {
   if (errors.length) {
     els.shadowObservationHistoryStrip.innerHTML = "";
     els.shadowObservationHistoryList.innerHTML = `
-      <p class="market-readonly-note">观察历史读取到异常：${escapeHtml(errors.join("；"))}。该区域仍只读，不创建 trade plan、不记录 trade、不发布 strategy version、不改 timer。</p>
+      <p class="market-readonly-note">观察历史读取到异常：${escapeHtml(errors.join("；"))}。该区域仍只读，不创建交易计划、不记录成交、不发布策略版本、不改定时任务。</p>
     `;
     return;
   }
   els.shadowObservationHistoryStrip.innerHTML = dates.length
     ? dates.map(shadowObservationHistoryDatePill).join("")
-    : emptyState("暂无 shadow observation history artifact；promotion 仍保持阻断。");
+    : emptyState("暂无影子观察历史产物；晋升仍保持阻断。");
   els.shadowObservationHistoryList.innerHTML = `
-    <p class="shadow-observation-note">观察历史来自 shadow_observation_history_v1；用于比较 score、rank、coverage/blocker 和 frozen-CPB delta，research-only，不是 paper trading。</p>
+    <p class="shadow-observation-note">观察历史来自 shadow_observation_history_v1；用于比较评分、排名、覆盖 / 阻断和冻结 CPB 差异，仅研究观察，不是纸盘交易。</p>
     ${actionMetrics([
       ["API", "/api/shadow-observation-history"],
       ["状态", shadowStatusText(history.status)],
       ["日期数", integerText(counts.date_count || dates.length)],
       ["候选数", integerText(counts.candidate_count || candidates.length)],
-      ["missing artifacts", integerText(counts.missing_artifact_date_count || 0)],
-      ["observation_history_is_research_only", history.safety?.observation_history_is_research_only ? "是" : "否"],
-      ["promotion_allowed", history.safety?.promotion_allowed ? "是" : "否"],
-      ["trade_plan_allowed", history.safety?.trade_plan_allowed ? "是" : "否"],
+      ["缺失产物", integerText(counts.missing_artifact_date_count || 0)],
+      ["仅研究观察", history.safety?.observation_history_is_research_only ? "是" : "否"],
+      ["允许晋升", history.safety?.promotion_allowed ? "是" : "否"],
+      ["允许交易计划", history.safety?.trade_plan_allowed ? "是" : "否"],
     ])}
     ${candidates.length ? candidates.map(shadowObservationHistoryCard).join("") : emptyState("暂无候选历史；观察仍保持只读。")}
   `;
@@ -3215,7 +3336,7 @@ function shadowObservationHistoryDatePill(item) {
   return `
     <button type="button" class="shadow-history-pill ${selected ? "active" : ""}" data-shadow-history-date="${escapeHtml(date)}">
       <strong>${displayDate(date)}</strong>
-      <span>${integerText(item.candidate_count || 0)} candidates · ${blockers ? `${blockers} artifact gaps` : shadowStatusText(item.status)}</span>
+      <span>${integerText(item.candidate_count || 0)} 个候选 · ${blockers ? `${blockers} 个产物缺口` : shadowStatusText(item.status)}</span>
     </button>
   `;
 }
@@ -3228,21 +3349,21 @@ function shadowObservationHistoryCard(candidate) {
     <article class="shadow-history-card">
       <div class="shadow-history-card__head">
         <div>
-          <span class="market-regime-kicker">${escapeHtml(candidate.candidate_family || "shadow_candidate")}</span>
-          <strong>${escapeHtml(candidate.candidate_key || "-")}</strong>
+          <span class="market-regime-kicker">${escapeHtml(shadowFamilyText(candidate.candidate_family))}</span>
+          <strong>${escapeHtml(shadowCandidateKeyText(candidate.candidate_key))}</strong>
         </div>
         <div class="hypothesis-chip-stack">
-          ${chipHtml(`rank ${integerText(candidate.latest_rank)}`, "chip-blue")}
+          ${chipHtml(`排名 ${integerText(candidate.latest_rank)}`, "chip-blue")}
           ${chipHtml(shadowObservationStatusText(candidate.latest_status), shadowObservationStatusClass(candidate.latest_status))}
           ${chipHtml(shadowReviewStatusText(candidate.latest_review_status), shadowReviewStatusClass(candidate.latest_review_status))}
         </div>
       </div>
       <div class="hypothesis-gate-strip">
-        ${chipHtml(`score ${numberText(candidate.latest_score, 1)} (${shadowPlainDeltaText(candidate.score_delta)})`, "chip-neutral")}
-        ${chipHtml(`rank Δ ${shadowPlainDeltaText(candidate.rank_delta)}`, "chip-neutral")}
-        ${chipHtml(`blockers Δ ${shadowPlainDeltaText(candidate.blocker_count_delta)}`, candidate.blocker_count_delta > 0 ? "chip-red" : "chip-neutral")}
-        ${chipHtml(`frozen Δ ${shadowDeltaText(candidate.latest_frozen_cpb_delta_pct)}`, "chip-neutral")}
-        ${chipHtml(`${integerText(candidate.dates_observed)} dates`, "chip-agent")}
+        ${chipHtml(`评分 ${numberText(candidate.latest_score, 1)}（${shadowPlainDeltaText(candidate.score_delta)}）`, "chip-neutral")}
+        ${chipHtml(`排名变化 ${shadowPlainDeltaText(candidate.rank_delta)}`, "chip-neutral")}
+        ${chipHtml(`阻断变化 ${shadowPlainDeltaText(candidate.blocker_count_delta)}`, candidate.blocker_count_delta > 0 ? "chip-red" : "chip-neutral")}
+        ${chipHtml(`冻结对照 ${shadowDeltaText(candidate.latest_frozen_cpb_delta_pct)}`, "chip-neutral")}
+        ${chipHtml(`${integerText(candidate.dates_observed)} 日`, "chip-agent")}
       </div>
       <div class="shadow-history-points">
         ${recent.map(shadowObservationHistoryPoint).join("")}
@@ -3258,8 +3379,8 @@ function shadowObservationHistoryPoint(row) {
   return `
     <span class="shadow-history-point">
       <b>${displayDate(row.date)}</b>
-      <span>#${integerText(row.rank)} · score ${numberText(row.score, 1)} · ${sampleCoverageText(row.coverage_status)}</span>
-      <span>${integerText(row.blocker_count || 0)} blockers · ${shadowDeltaText(row.frozen_cpb_delta_pct)}</span>
+      <span>#${integerText(row.rank)} · 评分 ${numberText(row.score, 1)} · ${sampleCoverageText(row.coverage_status)}</span>
+      <span>${integerText(row.blocker_count || 0)} 个阻断 · ${shadowDeltaText(row.frozen_cpb_delta_pct)}</span>
     </span>
   `;
 }
@@ -3275,24 +3396,24 @@ function renderShadowObservationQueue(scorecard) {
       : "-";
   if (errors.length) {
     els.shadowObservationQueue.innerHTML = `
-      <p class="market-readonly-note">观察队列读取到异常：${escapeHtml(errors.join("；"))}。该区域仍只读，不创建 trade plan、不记录 trade、不发布 strategy version、不改 timer。</p>
+      <p class="market-readonly-note">观察队列读取到异常：${escapeHtml(errors.join("；"))}。该区域仍只读，不创建交易计划、不记录成交、不发布策略版本、不改定时任务。</p>
     `;
     return;
   }
   els.shadowObservationQueue.innerHTML = `
-    <p class="shadow-observation-note">观察队列来自 shadow_observation_scorecard_v1；观察不是 paper trading，只用于解释排名、样本覆盖和 blocker。</p>
+    <p class="shadow-observation-note">观察队列来自 shadow_observation_scorecard_v1；观察不是纸盘交易，只用于解释排名、样本覆盖和阻断。</p>
     ${actionMetrics([
       ["API", "/api/shadow-observation-scorecard"],
       ["状态", shadowObservationStatusText(scorecard.status)],
       ["候选数", integerText(counts.candidate_count ?? rows.length)],
       ["样本不足", integerText(counts.insufficient_sample_count || 0)],
-      ["market gaps", integerText(counts.market_data_gap_count || 0)],
-      ["observation_is_not_paper_trading", scorecard.safety?.observation_is_not_paper_trading ? "是" : "否"],
-      ["trade_plan_allowed", scorecard.safety?.trade_plan_allowed ? "是" : "否"],
-      ["top", scorecard.summary?.top_candidate_key || "-"],
+      ["市场数据缺口", integerText(counts.market_data_gap_count || 0)],
+      ["不是纸盘交易", scorecard.safety?.observation_is_not_paper_trading ? "是" : "否"],
+      ["允许交易计划", scorecard.safety?.trade_plan_allowed ? "是" : "否"],
+      ["最高候选", shadowCandidateKeyText(scorecard.summary?.top_candidate_key)],
     ])}
     <div class="shadow-observation-list">
-      ${rows.length ? rows.map(shadowObservationCard).join("") : emptyState("暂无 shadow observation scorecard；promotion 仍保持阻断。")}
+      ${rows.length ? rows.map(shadowObservationCard).join("") : emptyState("暂无影子观察分数卡；晋升仍保持阻断。")}
     </div>
   `;
 }
@@ -3307,20 +3428,20 @@ function shadowObservationCard(row) {
       <div class="shadow-observation-card__body">
         <div class="shadow-candidate-card__head">
           <div>
-            <span class="market-regime-kicker">${escapeHtml(row.candidate_family || "shadow_candidate")}</span>
-            <strong>${escapeHtml(row.candidate_key || "-")}</strong>
+            <span class="market-regime-kicker">${escapeHtml(shadowFamilyText(row.candidate_family))}</span>
+          <strong>${escapeHtml(shadowCandidateKeyText(row.candidate_key))}</strong>
           </div>
           <div class="hypothesis-chip-stack">
             ${chipHtml(shadowObservationStatusText(row.observation_status), shadowObservationStatusClass(row.observation_status))}
             ${chipHtml(sampleCoverageText(row.sample_coverage_status), sampleCoverageClass(row.sample_coverage_status))}
           </div>
         </div>
-        <p>Outcome score ${numberText(row.outcome_score, 1)}；sample ${integerText(row.sample_size)}/${integerText(row.required_sample)}；frozen-CPB delta ${shadowDeltaText(row.frozen_cpb_delta_pct)}；promotion remains blocked.</p>
+        <p>结果评分 ${numberText(row.outcome_score, 1)}；样本 ${integerText(row.sample_size)}/${integerText(row.required_sample)}；冻结 CPB 差异 ${shadowDeltaText(row.frozen_cpb_delta_pct)}；晋升保持阻断。</p>
         <div class="hypothesis-gate-strip">
-          ${chipHtml(`${integerText(row.blocker_count || 0)} blockers`, row.blocker_count ? "chip-red" : "chip-green")}
-          ${chipHtml(gaps.length ? `${gaps.length} gaps` : "coverage clear", gaps.length ? "chip-amber" : "chip-green")}
-          ${chipHtml(row.market_data_gaps?.length ? "market data gap" : "market data checked", row.market_data_gaps?.length ? "chip-amber" : "chip-blue")}
-          ${chipHtml("not paper trading", "chip-neutral")}
+          ${chipHtml(`${integerText(row.blocker_count || 0)} 个阻断`, row.blocker_count ? "chip-red" : "chip-green")}
+          ${chipHtml(gaps.length ? `${gaps.length} 个缺口` : "覆盖完整", gaps.length ? "chip-amber" : "chip-green")}
+          ${chipHtml(row.market_data_gaps?.length ? "市场数据缺口" : "市场数据已检查", row.market_data_gaps?.length ? "chip-amber" : "chip-blue")}
+          ${chipHtml("不是纸盘交易", "chip-neutral")}
         </div>
         <div class="row-actions">
           <button type="button" data-shadow-observation-key="${escapeHtml(row.candidate_key)}">打开归因抽屉</button>
@@ -3335,12 +3456,12 @@ function renderShadowFamilies(families) {
   els.shadowFamilyGrid.innerHTML = entries.length
     ? entries.map(([family, count]) => `
       <article class="shadow-family-card">
-        <span class="market-regime-kicker">${escapeHtml(family)}</span>
+        <span class="market-regime-kicker">${escapeHtml(shadowFamilyText(family))}</span>
         <strong>${integerText(count)}</strong>
         <p>${escapeHtml(shadowFamilyText(family))}</p>
       </article>
     `).join("")
-    : emptyState("暂无 shadow candidate family 数据。");
+    : emptyState("暂无影子候选族群数据。");
 }
 
 function renderShadowWalkForward(walkForward, candidates) {
@@ -3354,10 +3475,10 @@ function renderShadowWalkForward(walkForward, candidates) {
       ["已评估天数", integerText(walkForward.evaluable_signal_days)],
       ["起始信号日", displayDate(walkForward.start_signal_date)],
       ["最新信号日", displayDate(walkForward.latest_signal_date)],
-      ["最新 outcome", displayDate(walkForward.latest_outcome_date)],
+      ["最新结果日", displayDate(walkForward.latest_outcome_date)],
     ])}
     <div class="shadow-mini-list">
-      ${rows.length ? rows.map((item) => shadowWalkForwardItem(item, candidates)).join("") : emptyState("暂无 walk-forward candidate 进度。")}
+      ${rows.length ? rows.map((item) => shadowWalkForwardItem(item, candidates)).join("") : emptyState("暂无跟踪验证候选进度。")}
     </div>
   `;
 }
@@ -3368,13 +3489,13 @@ function shadowWalkForwardItem(item, candidates) {
   return `
     <article class="shadow-mini-card">
       <div>
-        <strong>${escapeHtml(item.candidate_key || item.bucket || "-")}</strong>
+        <strong>${escapeHtml(shadowCandidateKeyText(item.candidate_key || item.bucket))}</strong>
         <span>${escapeHtml(shadowProgressText(walk))}</span>
       </div>
       <div class="hypothesis-chip-stack">
         ${chipHtml(shadowWalkForwardStatusText(walk.status || item.status), shadowWalkForwardStatusClass(walk.status || item.status))}
-        ${chipHtml(`T+1 close ${shadowPctText(walk.t1_close_mean_pct)}`, "chip-neutral")}
-        ${chipHtml(`win ${shadowPctText(walk.t1_close_win_rate_pct)}`, "chip-neutral")}
+        ${chipHtml(`T+1 收盘 ${shadowPctText(walk.t1_close_mean_pct)}`, "chip-neutral")}
+        ${chipHtml(`胜率 ${shadowPctText(walk.t1_close_win_rate_pct)}`, "chip-neutral")}
       </div>
     </article>
   `;
@@ -3387,13 +3508,13 @@ function renderShadowBlockers(blockerCounts) {
       <div class="shadow-blocker-list">
         ${entries.map(([blocker, count]) => `
           <div class="shadow-blocker-row">
-            <span>${escapeHtml(blocker)}</span>
+            <span>${escapeHtml(shadowBlockerText(blocker))}</span>
             ${chipHtml(integerText(count), "chip-red")}
           </div>
         `).join("")}
       </div>
     `
-    : emptyState("暂无 blocker 统计。");
+    : emptyState("暂无阻断统计。");
 }
 
 function renderShadowFrozenCpb(comparison) {
@@ -3401,10 +3522,10 @@ function renderShadowFrozenCpb(comparison) {
   const rows = Array.isArray(comparison.by_candidate) ? comparison.by_candidate : [];
   els.shadowFrozenCpbPanel.innerHTML = `
     ${actionMetrics([
-      ["baseline", baseline.strategy_version || baseline.baseline_label || baseline.label || "active_cpb_persisted_picks"],
-      ["baseline days", integerText(baseline.days || baseline.baseline_days)],
-      ["candidate comparisons", integerText(rows.length)],
-      ["active CPB", shadowSnapshotData().active_cpb_integrity?.status || "unchanged"],
+      ["基准", baseline.strategy_version || baseline.baseline_label || baseline.label || "active_cpb_persisted_picks"],
+      ["基准天数", integerText(baseline.days || baseline.baseline_days)],
+      ["候选对照数", integerText(rows.length)],
+      ["当前 CPB", shadowStatusText(shadowSnapshotData().active_cpb_integrity?.status || "unchanged")],
     ])}
     <div class="shadow-mini-list">
       ${rows.length ? rows.map(shadowFrozenComparisonItem).join("") : emptyState("暂无 frozen CPB 对照数据。")}
@@ -3417,13 +3538,13 @@ function shadowFrozenComparisonItem(item) {
   return `
     <article class="shadow-mini-card">
       <div>
-        <strong>${escapeHtml(item.candidate_key || "-")}</strong>
-        <span>${escapeHtml(comparison.baseline_label || "frozen CPB baseline")}</span>
+        <strong>${escapeHtml(shadowCandidateKeyText(item.candidate_key))}</strong>
+        <span>${escapeHtml(comparison.baseline_label || "冻结 CPB 基准")}</span>
       </div>
       <div class="hypothesis-chip-stack">
         ${chipHtml(shadowStatusText(comparison.status), shadowStatusClass(comparison.status))}
-        ${chipHtml(`T+1 mean ${shadowDeltaText(comparison.t1_close_mean_delta_pct)}`, "chip-neutral")}
-        ${chipHtml(`win ${shadowDeltaText(comparison.t1_close_win_rate_delta_pct)}`, "chip-neutral")}
+        ${chipHtml(`T+1 均值 ${shadowDeltaText(comparison.t1_close_mean_delta_pct)}`, "chip-neutral")}
+        ${chipHtml(`胜率 ${shadowDeltaText(comparison.t1_close_win_rate_delta_pct)}`, "chip-neutral")}
       </div>
     </article>
   `;
@@ -3434,7 +3555,7 @@ function renderShadowCandidates(candidates) {
   els.shadowCandidateState.textContent = sorted.length ? `${sorted.length} 个影子候选` : "暂无候选";
   els.shadowCandidateList.innerHTML = sorted.length
     ? sorted.map(shadowCandidateCard).join("")
-    : emptyState(errorMessages(state.shadowStrategySnapshotEnvelope || {}).join("；") || "暂无 shadow candidate snapshot。");
+    : emptyState(errorMessages(state.shadowStrategySnapshotEnvelope || {}).join("；") || "暂无影子候选快照。");
 }
 
 function shadowCandidateCard(candidate) {
@@ -3445,22 +3566,22 @@ function shadowCandidateCard(candidate) {
     <article class="shadow-candidate-card">
       <div class="shadow-candidate-card__head">
         <div>
-          <span class="market-regime-kicker">${escapeHtml(candidate.candidate_family || "shadow_candidate")}</span>
-          <strong>${escapeHtml(candidate.candidate_key || "-")}</strong>
+          <span class="market-regime-kicker">${escapeHtml(shadowFamilyText(candidate.candidate_family))}</span>
+          <strong>${escapeHtml(shadowCandidateKeyText(candidate.candidate_key))}</strong>
         </div>
         <div class="hypothesis-chip-stack">
           ${chipHtml(shadowStatusText(candidate.status), shadowStatusClass(candidate.status))}
-          ${chipHtml(candidate.artifact_only ? "artifact-only" : "needs review", candidate.artifact_only ? "chip-agent" : "chip-amber")}
+          ${chipHtml(candidate.artifact_only ? "仅产物记录" : "需要复核", candidate.artifact_only ? "chip-agent" : "chip-amber")}
         </div>
       </div>
-      <p>Top candidate: ${escapeHtml(shadowTopCandidateText(candidate.today_top))}；hypothesis ${escapeHtml(linked.hypothesis_id || "-")}；promotion 默认阻断。</p>
+      <p>当日最高候选：${escapeHtml(shadowTopCandidateText(candidate.today_top))}；关联假设 ${escapeHtml(linked.hypothesis_id || "-")}；晋升默认阻断。</p>
       <div class="hypothesis-gate-strip">
         ${chipHtml(shadowWalkForwardStatusText(candidate.walk_forward_status || walk.status), shadowWalkForwardStatusClass(candidate.walk_forward_status || walk.status))}
         ${chipHtml(`${shadowProgressText(walk)}`, "chip-neutral")}
-        ${chipHtml(`${integerText(candidate.blocker_count || 0)} blockers`, candidate.blocker_count ? "chip-red" : "chip-green")}
-        ${chipHtml(`paper ${shadowGateStatusText(candidate.paper_observation_gate?.status)}`, shadowStatusClass(candidate.paper_observation_gate?.status))}
-        ${chipHtml(`strategy ${shadowGateStatusText(candidate.strategy_version_gate?.status)}`, shadowStatusClass(candidate.strategy_version_gate?.status))}
-        ${chipHtml(`T+1 mean ${shadowDeltaText(comparison.t1_close_mean_delta_pct)}`, "chip-neutral")}
+        ${chipHtml(`${integerText(candidate.blocker_count || 0)} 个阻断`, candidate.blocker_count ? "chip-red" : "chip-green")}
+        ${chipHtml(`纸盘观察 ${shadowGateStatusText(candidate.paper_observation_gate?.status)}`, shadowStatusClass(candidate.paper_observation_gate?.status))}
+        ${chipHtml(`策略版本 ${shadowGateStatusText(candidate.strategy_version_gate?.status)}`, shadowStatusClass(candidate.strategy_version_gate?.status))}
+        ${chipHtml(`T+1 均值 ${shadowDeltaText(comparison.t1_close_mean_delta_pct)}`, "chip-neutral")}
       </div>
       <div class="row-actions">
         <button type="button" data-shadow-candidate-key="${escapeHtml(candidate.candidate_key)}">打开候选详情</button>
@@ -3474,18 +3595,18 @@ function renderShadowSafety(snapshot) {
   const integrity = snapshot.active_cpb_integrity || {};
   els.shadowSafetyPanel.innerHTML = `
     ${actionMetrics([
-      ["read_only", safety.read_only ? "是" : "-"],
-      ["artifact_only", safety.artifact_only ? "是" : "-"],
-      ["visibility_layer_writes", safety.visibility_layer_writes ? "是" : "否"],
-      ["active_params_mutated", safety.active_params_mutated ? "是" : "否"],
-      ["wrote_strategy_version", safety.wrote_strategy_version ? "是" : "否"],
-      ["writes_trade_state", safety.writes_trade_state ? "是" : "否"],
-      ["paper/live 行为", safety.writes_paper_live_behavior ? "会改变" : "不改变"],
-      ["timer_mutated", safety.timer_mutated ? "是" : "否"],
-      ["promotion_allowed", safety.promotion_allowed ? "是" : "否"],
-      ["paper_observation_allowed", safety.paper_observation_allowed ? "是" : "否"],
-      ["active CPB integrity", integrity.status || "-"],
-      ["active CPB mutated", integrity.visibility_layer_mutated_active_cpb ? "是" : "否"],
+      ["只读", safety.read_only ? "是" : "-"],
+      ["仅产物记录", safety.artifact_only ? "是" : "-"],
+      ["可视层写入", safety.visibility_layer_writes ? "是" : "否"],
+      ["改动当前参数", safety.active_params_mutated ? "是" : "否"],
+      ["写策略版本", safety.wrote_strategy_version ? "是" : "否"],
+      ["写交易状态", safety.writes_trade_state ? "是" : "否"],
+      ["纸盘/实盘行为", safety.writes_paper_live_behavior ? "会改变" : "不改变"],
+      ["改动定时任务", safety.timer_mutated ? "是" : "否"],
+      ["允许晋升", safety.promotion_allowed ? "是" : "否"],
+      ["允许纸盘观察", safety.paper_observation_allowed ? "是" : "否"],
+      ["当前 CPB 完整性", shadowStatusText(integrity.status || "-")],
+      ["改动当前 CPB", integrity.visibility_layer_mutated_active_cpb ? "是" : "否"],
     ])}
   `;
 }
@@ -3498,11 +3619,11 @@ function openShadowCandidateDrawer(candidate) {
   const artifacts = listValue(candidate.source_artifacts);
   openDetailDrawer({
     kicker: "影子候选",
-    title: candidate.candidate_key || "-",
-    subtitle: "候选详情来自 shadow_strategy_snapshot_v1，只读研究记录，不创建计划、不发布策略、不写 paper/live 或 timer。",
+    title: shadowCandidateKeyText(candidate.candidate_key),
+    subtitle: "候选详情来自影子策略快照，只读研究记录，不创建计划、不发布策略、不写纸盘/实盘或定时任务。",
     meta: [
       [shadowStatusText(candidate.status), shadowStatusClass(candidate.status)],
-      [candidate.artifact_only ? "artifact-only" : "needs review", candidate.artifact_only ? "chip-agent" : "chip-amber"],
+      [candidate.artifact_only ? "仅产物记录" : "需要复核", candidate.artifact_only ? "chip-agent" : "chip-amber"],
       [`复盘日 ${displayDate(shadowSnapshotData().as_of_date)}`, "chip-neutral"],
     ],
     actions: [
@@ -3511,7 +3632,7 @@ function openShadowCandidateDrawer(candidate) {
     ].filter(Boolean),
     sections: [
       detailSection("候选摘要", detailMetrics([
-        ["candidate_key", candidate.candidate_key || "-"],
+        ["candidate_key", shadowCandidateKeyText(candidate.candidate_key)],
         ["candidate_family", candidate.candidate_family || "-"],
         ["signal_source", candidate.signal_source || "-"],
         ["prior candidates", integerText(candidate.prior_candidate_count)],
@@ -3519,7 +3640,7 @@ function openShadowCandidateDrawer(candidate) {
         ["today top", shadowTopCandidateText(candidate.today_top)],
         ["linked hypothesis", linked.hypothesis_id || "-"],
       ])),
-      detailSection("Walk-forward", detailRows([
+      detailSection("跟踪验证", detailRows([
         ["status", shadowWalkForwardStatusText(walk.status || candidate.walk_forward_status)],
         ["progress", shadowProgressText(walk)],
         ["start_signal_date", displayDate(walk.start_signal_date)],
@@ -3529,7 +3650,7 @@ function openShadowCandidateDrawer(candidate) {
         ["T+1 high mean", shadowPctText(walk.t1_high_mean_pct)],
         ["T+1 high >=3 rate", shadowPctText(walk.t1_high_ge3_rate_pct)],
       ])),
-      detailSection("Frozen CPB comparison", detailRows([
+      detailSection("冻结 CPB 对照", detailRows([
         ["status", shadowStatusText(comparison.status)],
         ["baseline", comparison.baseline_label || "-"],
         ["baseline_days", integerText(comparison.baseline_days)],
@@ -3539,10 +3660,10 @@ function openShadowCandidateDrawer(candidate) {
         ["T+5 close mean delta", shadowDeltaText(comparison.t5_close_mean_delta_pct)],
         ["sample warning", comparison.sample_warning || "-"],
       ])),
-      detailSection("Promotion blockers", shadowBlockerListHtml(blockers)),
-      detailSection("Paper observation gate", marketObjectRows(candidate.paper_observation_gate || {})),
-      detailSection("Strategy-version gate", marketObjectRows(candidate.strategy_version_gate || {})),
-      detailSection("Source artifacts", shadowArtifactRows(artifacts)),
+      detailSection("晋升阻断", shadowBlockerListHtml(blockers)),
+      detailSection("纸盘观察门禁", marketObjectRows(candidate.paper_observation_gate || {})),
+      detailSection("策略版本门禁", marketObjectRows(candidate.strategy_version_gate || {})),
+      detailSection("来源产物", shadowArtifactRows(artifacts)),
     ],
   });
 }
@@ -3562,8 +3683,8 @@ function openShadowPromotionReviewDrawer(candidate) {
   ]);
   openDetailDrawer({
     kicker: "晋升评审包",
-    title: candidateKey,
-    subtitle: "评审包来自 shadow_promotion_review_request_v1；该抽屉只展示 evidence、人工决策和 rollback notes，不 approve、不 promote、不创建计划、不交易、不改 timer。",
+    title: shadowCandidateKeyText(candidateKey),
+    subtitle: "评审包来自 shadow_promotion_review_request_v1；该抽屉只展示证据、人工决策和回滚说明，不批准、不晋升、不创建计划、不交易、不改定时任务。",
     meta: [
       [shadowReviewStatusText(candidate.review_status || candidate.promotion_readiness), shadowReviewStatusClass(candidate.review_status || candidate.promotion_readiness)],
       [shadowReplayEvidenceStatusText(evidence.status), shadowReplayEvidenceStatusClass(evidence.status)],
@@ -3573,15 +3694,15 @@ function openShadowPromotionReviewDrawer(candidate) {
       { label: "影子实验室", action: "page", page: "shadow" },
     ],
     sections: [
-      detailSection("Candidate readiness", detailMetrics([
-        ["candidate_key", candidateKey],
+      detailSection("候选就绪", detailMetrics([
+        ["candidate_key", shadowCandidateKeyText(candidateKey)],
         ["candidate_family", candidate.candidate_family || "-"],
         ["review_status", shadowReviewStatusText(candidate.review_status || candidate.promotion_readiness)],
         ["sample", `${integerText(minimumSample.actual ?? evidence.sample_size)}/${integerText(minimumSample.threshold ?? evidence.required_sample_size)}`],
-        ["blockers", integerText(blockers.length)],
-        ["promotion_allowed", candidate.promotion_allowed || evidence.promotion_allowed ? "true" : "false"],
+        ["阻断", integerText(blockers.length)],
+        ["允许晋升", candidate.promotion_allowed || evidence.promotion_allowed ? "是" : "否"],
       ])),
-      detailSection("Replay/backtest evidence", detailRows([
+      detailSection("回放 / 回测证据", detailRows([
         ["status", shadowReplayEvidenceStatusText(evidence.status)],
         ["contract", evidence.evidence_contract || "shadow_replay_backtest_evidence_v1"],
         ["artifact_path", evidence.artifact_path || "-"],
@@ -3592,25 +3713,87 @@ function openShadowPromotionReviewDrawer(candidate) {
         ["expected_source_hash", evidence.expected_source_hash || "-"],
         ["error", evidence.error || "-"],
       ])),
-      detailSection("Evidence metrics", marketObjectRows(evidence.metrics || {})),
-      detailSection("No-future boundary", marketObjectRows(evidence.no_future_boundary || {})),
-      detailSection("Blockers", blockers.length ? shadowBlockerListHtml(blockers) : emptyState("暂无 blocker。")),
-      detailSection("Required human decisions", shadowPromotionDecisionRows(reviewRequest.required_human_decisions || [])),
-      detailSection("Rollback / safety notes", shadowPromotionNoteList([
+      detailSection("证据指标", marketObjectRows(evidence.metrics || {})),
+      detailSection("未来函数边界", marketObjectRows(evidence.no_future_boundary || {})),
+      detailSection("阻断", blockers.length ? shadowBlockerListHtml(blockers) : emptyState("暂无阻断。")),
+      detailSection("必需人工决策", shadowPromotionDecisionRows(reviewRequest.required_human_decisions || [])),
+      detailSection("回滚 / 安全说明", shadowPromotionNoteList([
         ...listValue(reviewRequest.rollback_notes),
         ...listValue(reviewRequest.safety_notes),
       ])),
-      detailSection("Safety", detailRows([
+      detailSection("安全边界", detailRows([
         ["review_request_is_not_approval", "是"],
         ["manual_review_required", "是"],
         ["promotion_allowed", "否"],
         ["active_params_mutated", "否"],
         ["wrote_strategy_version", "否"],
         ["writes_trade_state", "否"],
-        ["timer_mutated", "否"],
+        ["改动定时任务", "否"],
       ])),
     ],
   });
+}
+
+function openShadowDecisionMemoDrawer(candidate) {
+  const memo = shadowDecisionMemoData();
+  const sections = shadowDecisionMemoSections(memo);
+  const candidateKey = String(candidate.candidate_key || "-");
+  const blockers = listValue(candidate.blockers);
+  const experiments = arrayValue(candidate.next_experiments);
+  openDetailDrawer({
+    kicker: "中文决策备忘录",
+    title: shadowCandidateKeyText(candidateKey),
+    subtitle: "来自 shadow_decision_memo_v1；只展示候选概览、证据、阻断、下一步实验、人工决策和风险/回滚边界，不提供批准或交易控件。",
+    meta: [
+      [shadowReplayEvidenceStatusText(candidate.evidence_status), shadowReplayEvidenceStatusClass(candidate.evidence_status)],
+      [shadowWalkForwardStatusText(candidate.walk_forward_status), shadowWalkForwardStatusClass(candidate.walk_forward_status)],
+      [`复盘日 ${displayDate(memo.as_of_date)}`, "chip-neutral"],
+    ],
+    actions: [
+      { label: "影子实验室", action: "page", page: "shadow" },
+    ],
+    sections: [
+      detailSection("候选概览", detailMetrics([
+        ["candidate_key", shadowCandidateKeyText(candidateKey)],
+        ["candidate_family", candidate.candidate_family || "-"],
+        ["review_status", shadowReviewStatusText(candidate.review_status)],
+        ["evidence_status", shadowReplayEvidenceStatusText(candidate.evidence_status)],
+        ["walk_forward_status", shadowWalkForwardStatusText(candidate.walk_forward_status)],
+        ["sample", `${integerText(candidate.sample_size)}/${integerText(candidate.required_sample_size)}`],
+        ["promotion_allowed", candidate.promotion_allowed ? "true" : "false"],
+      ])),
+      detailSection("证据状态", detailRows([
+        ["T+1 close mean", shadowPctText(candidate.t1_close_mean_pct)],
+        ["T+1 win rate", shadowPctText(candidate.t1_close_win_rate_pct)],
+        ["frozen CPB delta", shadowDeltaText(candidate.frozen_cpb_delta_pct)],
+        ["memo conclusion", memo.summary?.conclusion_zh || "-"],
+      ])),
+      detailSection("阻断原因", blockers.length ? shadowBlockerListHtml(blockers) : emptyState("暂无阻断。")),
+      detailSection("下一步实验", shadowDecisionExperimentRows(experiments)),
+      detailSection("人工决策", shadowPromotionDecisionRows(arrayValue(sections["人工决策"]?.items))),
+      detailSection("风险/回滚边界", shadowPromotionNoteList([
+        ...listValue(sections["风险/回滚边界"]?.items),
+        "本备忘录不是批准",
+        "不批准 / 不晋升 / 不交易 / 不写计划 / 不改定时任务",
+      ])),
+      detailSection("安全边界", detailRows([
+        ["memo_is_not_approval", memo.safety?.memo_is_not_approval ? "是" : "否"],
+        ["promotion_allowed", memo.safety?.promotion_allowed ? "是" : "否"],
+        ["active_params_mutated", memo.safety?.active_params_mutated ? "是" : "否"],
+        ["writes_trade_state", memo.safety?.writes_trade_state ? "是" : "否"],
+        ["timer_mutated", memo.safety?.timer_mutated ? "是" : "否"],
+      ])),
+    ],
+  });
+}
+
+function shadowDecisionExperimentRows(experiments) {
+  const rows = arrayValue(experiments);
+  if (!rows.length) return emptyState("暂无下一步实验；默认继续补证据。");
+  return detailRows(rows.map((experiment) => [
+    experiment.experiment_key || experiment.candidate_key || "experiment",
+    `${experiment.next_step_zh || experiment.reason || "-"} / 来源=${experiment.source || "-"} / 允许晋升=${experiment.promotion_allowed ? "是" : "否"}`,
+  ]));
 }
 
 function openShadowObservationDrawer(row) {
@@ -3619,8 +3802,8 @@ function openShadowObservationDrawer(row) {
   const gaps = [...listValue(row.coverage_gaps), ...listValue(row.evidence_gaps), ...listValue(row.market_data_gaps)];
   openDetailDrawer({
     kicker: "影子观察归因",
-    title: row.candidate_key || "-",
-    subtitle: "归因抽屉展示 shadow_observation_scorecard_v1 的只读排名依据；观察不是 paper trading，不能 promote、trade、plan 或改 timer。",
+    title: shadowCandidateKeyText(row.candidate_key),
+    subtitle: "归因抽屉展示 shadow_observation_scorecard_v1 的只读排名依据；观察不是纸盘交易，不能晋升、交易、写计划或改定时任务。",
     meta: [
       [`rank ${integerText(row.rank)}`, "chip-blue"],
       [shadowObservationStatusText(row.observation_status), shadowObservationStatusClass(row.observation_status)],
@@ -3636,13 +3819,13 @@ function openShadowObservationDrawer(row) {
         ["blockers", integerText(row.blocker_count)],
         ["frozen CPB delta", shadowDeltaText(row.frozen_cpb_delta_pct)],
       ])),
-      detailSection("Observed days", detailRows([
+      detailSection("观察天数", detailRows([
         ["start_signal_date", displayDate(observedDays.start_signal_date)],
         ["latest_signal_date", displayDate(observedDays.latest_signal_date)],
         ["latest_outcome_date", displayDate(observedDays.latest_outcome_date)],
         ["sample coverage", sampleCoverageText(row.sample_coverage_status)],
       ])),
-      detailSection("Best / worst outcomes", detailRows([
+      detailSection("最好 / 最差结果", detailRows([
         ["best", `${row.best_outcome?.label || "-"} ${shadowPctText(row.best_outcome?.value_pct)}`],
         ["worst", `${row.worst_outcome?.label || "-"} ${shadowPctText(row.worst_outcome?.value_pct)}`],
         ["T+1 close mean", shadowPctText(metrics.t1_close_mean_pct)],
@@ -3656,13 +3839,13 @@ function openShadowObservationDrawer(row) {
         ["source top", shadowTopCandidateText(row.today_top)],
         ["sample warning", metrics.sample_warning || "-"],
       ])),
-      detailSection("Promotion remains blocked", detailRows([
-        ["blocked reason", row.promotion_blocked_reason || "manual_promotion_review_required"],
-        ["not paper trading", "是"],
-        ["no promote/trade/plan/timer controls", "是"],
+      detailSection("晋升保持阻断", detailRows([
+        ["阻断原因", shadowBlockerText(row.promotion_blocked_reason || "manual_promotion_review_required")],
+        ["不是纸盘交易", "是"],
+        ["无晋升 / 交易 / 计划 / 定时任务控件", "是"],
       ])),
-      detailSection("Coverage / evidence / market gaps", gaps.length ? shadowBlockerListHtml(gaps) : emptyState("暂无覆盖或证据缺口。")),
-      detailSection("Source artifacts", shadowArtifactRows(listValue(row.source_artifacts))),
+      detailSection("覆盖 / 证据 / 市场缺口", gaps.length ? shadowBlockerListHtml(gaps) : emptyState("暂无覆盖或证据缺口。")),
+      detailSection("来源产物", shadowArtifactRows(listValue(row.source_artifacts))),
     ],
   });
 }
@@ -3672,10 +3855,10 @@ function openShadowObservationHistoryDrawer(candidate) {
   const latest = history.length ? history[history.length - 1] : {};
   openDetailDrawer({
     kicker: "影子候选对比",
-    title: candidate.candidate_key || "-",
-    subtitle: "候选对比来自 shadow_observation_history_v1；跨日期观察 score、rank、coverage/blocker 和 frozen-CPB delta，不是 paper trading，也不授权 promote、trade、plan 或 timer。",
+    title: shadowCandidateKeyText(candidate.candidate_key),
+    subtitle: "候选对比来自 shadow_observation_history_v1；跨日期观察评分、排名、覆盖 / 阻断和冻结 CPB 差异，不是纸盘交易，也不授权晋升、交易、写计划或定时任务。",
     meta: [
-      [`${integerText(candidate.dates_observed)} dates`, "chip-agent"],
+      [`${integerText(candidate.dates_observed)} 日`, "chip-agent"],
       [shadowObservationStatusText(candidate.latest_status), shadowObservationStatusClass(candidate.latest_status)],
       [shadowReviewStatusText(candidate.latest_review_status), shadowReviewStatusClass(candidate.latest_review_status)],
     ],
@@ -3694,14 +3877,14 @@ function openShadowObservationHistoryDrawer(candidate) {
         ["frozen-CPB delta change", shadowDeltaText(candidate.frozen_cpb_delta_change_pct)],
       ])),
       detailSection("日期对比", shadowObservationHistoryTable(history)),
-      detailSection("最新 blockers", shadowBlockerListHtml(listValue(latest.blockers))),
-      detailSection("Source artifacts", shadowArtifactRows(listValue(latest.source_artifacts))),
-      detailSection("Safety", detailRows([
-        ["research-only", "是"],
-        ["not paper trading", "是"],
-        ["promotion_allowed", "否"],
-        ["trade_plan_allowed", "否"],
-        ["timer_mutated", "否"],
+      detailSection("最新阻断", shadowBlockerListHtml(listValue(latest.blockers))),
+      detailSection("来源产物", shadowArtifactRows(listValue(latest.source_artifacts))),
+      detailSection("安全边界", detailRows([
+        ["仅研究", "是"],
+        ["不是纸盘交易", "是"],
+        ["允许晋升", "否"],
+        ["允许交易计划", "否"],
+        ["改动定时任务", "否"],
       ])),
     ],
   });
@@ -3715,12 +3898,12 @@ function shadowObservationHistoryTable(rows) {
         <thead>
           <tr>
             <th>日期</th>
-            <th>Rank</th>
-            <th>Score</th>
-            <th>Coverage</th>
-            <th>Blockers</th>
-            <th>Frozen delta</th>
-            <th>Review</th>
+            <th>排名</th>
+            <th>评分</th>
+            <th>覆盖</th>
+            <th>阻断</th>
+            <th>冻结差异</th>
+            <th>复核</th>
           </tr>
         </thead>
         <tbody>
@@ -3798,18 +3981,18 @@ function renderMarketDiagnostics() {
   const sourceDb = diagnostics.source_db || {};
   const missing = diagnostics.missing_downstream_tables || [];
   const reasons = diagnostics.empty_state_reasons || [];
-  const apiBase = state.apiBase || "same-origin";
+  const apiBase = state.apiBase || "同源";
   const pinnedText = marketPinnedDiagnosticText(selectedDate, latestDate);
   const dbText = sourceDb.exists
     ? `${sourceDbFreshnessText(sourceDb.freshness)} · ${displayTimestamp(sourceDb.modified_at)}`
     : "API 数据库不可见";
   els.marketDiagnosticsPanel.innerHTML = `
     <div class="market-diagnostics__summary">
-      ${chipHtml(`API Base ${apiBase}`, apiBase === "same-origin" ? "chip-neutral" : "chip-blue")}
+      ${chipHtml(`API 地址 ${apiBase}`, apiBase === "同源" ? "chip-neutral" : "chip-blue")}
       ${chipHtml(`选中 ${displayDate(selectedDate)}`, "chip-neutral")}
       ${chipHtml(latestDate ? `最新 ${displayDate(latestDate)}` : "无全市场历史", latestDate ? "chip-blue" : "chip-amber")}
       ${chipHtml(pinnedText, state.marketDatePinned ? "chip-amber" : "chip-green")}
-      ${chipHtml(`source DB ${dbText}`, sourceDbFreshnessClass(sourceDb.freshness))}
+      ${chipHtml(`源数据库 ${dbText}`, sourceDbFreshnessClass(sourceDb.freshness))}
     </div>
     <div class="market-diagnostics__tables">
       ${marketDiagnosticTableChips(diagnostics.downstream_tables || {})}
@@ -3830,31 +4013,65 @@ function marketDiagnosticTableChips(tables) {
   const entries = Object.entries(tables);
   if (!entries.length) return chipHtml("下游表状态未知", "chip-amber");
   return entries.map(([table, status]) => {
-    const count = status?.count == null ? "missing" : integerText(status.count);
+    const count = status?.count == null ? "缺失" : integerText(status.count);
     const className = status?.exists === false
       ? "chip-red"
       : Number(status?.count || 0) > 0
         ? "chip-green"
         : "chip-amber";
-    return chipHtml(`${table} ${count}`, className);
+    return chipHtml(`${dataTableText(table)} ${count}`, className);
   }).join("");
 }
 
 function marketDiagnosticReasonText(reasons, missing) {
   if (reasons.length) {
-    return reasons.map((reason) => `${reason.code}: ${reason.message}`).join("；");
+    return reasons.map((reason) => `${diagnosticCodeText(reason.code)}：${diagnosticMessageText(reason.message)}`).join("；");
   }
-  if (missing.length) return `下游空表：${missing.join(", ")}`;
+  if (missing.length) return `下游空表：${missing.map(dataTableText).join("、")}`;
   return "全市场复盘数据链路完整；空面板可能来自当前筛选没有匹配记录。";
+}
+
+function dataTableText(value) {
+  return {
+    market_review_runs: "全市场复盘运行",
+    sector_daily_snapshots: "板块日快照",
+    sector_constituents: "板块成分股",
+    market_external_items: "市场外部证据",
+    market_plan_contexts: "市场计划关系",
+    strategy_hypotheses: "策略假设",
+    daily_reviews: "日终复盘",
+    trade_plans: "交易计划",
+    market_bars: "行情K线",
+    daily_basic_snapshots: "日级基础快照",
+  }[value] || dash(value);
+}
+
+function diagnosticCodeText(value) {
+  return {
+    market_review_missing: "缺少全市场复盘",
+    downstream_empty: "下游表为空",
+    source_db_missing: "源数据库缺失",
+    source_db_stale: "源数据库滞后",
+    selected_date_pinned: "页面固定在历史日期",
+  }[value] || dash(value);
+}
+
+function diagnosticMessageText(value) {
+  const text = String(value || "");
+  return text
+    .replaceAll("market review", "全市场复盘")
+    .replaceAll("market-reviews", "全市场复盘")
+    .replaceAll("source DB", "源数据库")
+    .replaceAll("latest market-review date", "最新全市场复盘日");
 }
 
 function sourceDbFreshnessText(value) {
   return {
-    fresh: "fresh",
-    stale: "stale",
-    old: "old",
-    missing: "missing",
-  }[value] || "unknown";
+    fresh: "新鲜",
+    stale: "滞后",
+    old: "过旧",
+    missing: "缺失",
+  }[value] || "未知";
 }
 
 function sourceDbFreshnessClass(value) {
@@ -3904,9 +4121,9 @@ function renderMarketRegimeStrip() {
     const missing = marketMissingDataText(review);
     els.marketRegimeStrip.innerHTML = `
       <div class="market-regime-card market-regime-card--empty">
-        <span class="market-regime-kicker">market-reviews</span>
+        <span class="market-regime-kicker">全市场复盘</span>
         <strong>暂无全市场复盘</strong>
-        <p>${escapeHtml(missing || `全市场日 ${displayDate(marketReviewDate())} 尚未生成 market-reviews 记录。`)}</p>
+        <p>${escapeHtml(missing || `全市场日 ${displayDate(marketReviewDate())} 尚未生成全市场复盘记录。`)}</p>
       </div>
     `;
     return;
@@ -3914,7 +4131,7 @@ function renderMarketRegimeStrip() {
 
   els.marketRegimeStrip.innerHTML = `
     <div class="market-regime-card market-regime-card--hero">
-      <span class="market-regime-kicker">market-reviews</span>
+      <span class="market-regime-kicker">全市场复盘</span>
       <strong>${escapeHtml(marketRegimeText(regime?.regime || review.status))}</strong>
       <p>${escapeHtml(regime?.summary || review.regime_summary || marketSummaryText(review.summary))}</p>
     </div>
@@ -3929,7 +4146,7 @@ function renderMarketRegimeStrip() {
 function renderMarketReviewHierarchy() {
   const hierarchy = marketReviewHierarchy();
   if (!marketReviewExists()) {
-    els.marketHierarchyPanel.innerHTML = emptyState("解释链缺少 market_review_runs：market regime -> sector -> stock -> evidence -> continuity -> next-day plan 暂不可用。");
+    els.marketHierarchyPanel.innerHTML = emptyState("解释链缺少全市场复盘运行记录：市场状态 -> 板块 -> 个股 -> 证据 -> 连续性 -> 次日计划暂不可用。");
     return;
   }
   const continuity = hierarchy.continuity || {};
@@ -3941,23 +4158,23 @@ function renderMarketReviewHierarchy() {
   els.marketHierarchyPanel.innerHTML = `
     <div class="market-hierarchy-head">
       <div>
-        <span class="market-regime-kicker">market regime -> sector -> stock -> evidence -> continuity -> next-day plan</span>
+        <span class="market-regime-kicker">市场状态 -> 板块 -> 个股 -> 证据 -> 连续性 -> 次日计划</span>
         <strong>全市场复盘解释链</strong>
       </div>
       <div class="hypothesis-chip-stack">
         ${chipHtml(continuityText(continuity.label), continuityClass(continuity.label))}
-        ${chipHtml(`source_refs ${integerText(sourceRefs.length)}`, sourceRefs.length ? "chip-blue" : "chip-amber")}
+        ${chipHtml(`来源引用 ${integerText(sourceRefs.length)}`, sourceRefs.length ? "chip-blue" : "chip-amber")}
       </div>
     </div>
     <div class="market-hierarchy-chain">
       ${marketHierarchyNode("市场状态", marketRegimeText(hierarchy.regime?.regime || state.marketReview?.status), hierarchy.regime?.summary || marketSummaryText(state.marketReview?.summary), "regime")}
       ${marketHierarchyNode("板块轮动", primarySector.sector_name || "缺少板块", marketSectorHierarchyText(primarySector), "sector")}
-      ${marketHierarchyNode("代表个股", marketRepresentativeStockSummary(sectors), "按板块成分股 rank/score 展示，不补造股票证据。", "stock")}
-      ${marketHierarchyNode("证据 freshness", marketEvidenceFreshnessText(hierarchy.evidence_freshness), "market / sector / stock 新闻情绪证据缺失会显式显示。", "evidence")}
+      ${marketHierarchyNode("代表个股", marketRepresentativeStockSummary(sectors), "按板块成分股排名 / 评分展示，不补造股票证据。", "stock")}
+      ${marketHierarchyNode("证据新鲜度", marketEvidenceFreshnessText(hierarchy.evidence_freshness), "市场 / 板块 / 个股新闻情绪证据缺失会显式显示。", "evidence")}
       ${marketHierarchyNode("连续性判断", continuityText(continuity.label), continuity.reason || "暂无连续性说明。", "continuity")}
-      ${marketHierarchyNode("明日计划关系", marketPlanRelationshipText(relationship.relationship_label), relationship.relationship_reason || "暂无 plan-context；不能当作 aligned。", "plan")}
+      ${marketHierarchyNode("明日计划关系", marketPlanRelationshipText(relationship.relationship_label), relationship.relationship_reason || "暂无计划上下文；不能当作顺风一致。", "plan")}
     </div>
-    <p class="market-hierarchy-source">${escapeHtml(sourceRefs.slice(0, 8).join(" / ") || "无 source_refs")}</p>
+    <p class="market-hierarchy-source">${escapeHtml(sourceRefs.slice(0, 8).join(" / ") || "无来源引用")}</p>
   `;
 }
 
@@ -3985,7 +4202,7 @@ function marketReviewHierarchy() {
     evidence_freshness: state.marketExternalEnvelope?.data?.coverage?.freshness || {},
     continuity: {
       label: marketReviewExists() ? "insufficient_evidence" : "missing",
-      reason: "当前 API 未返回 hierarchy payload，Dashboard 使用已加载读侧数据保持显式空态。",
+      reason: "当前接口未返回解释链载荷，操作台使用已加载读侧数据保持显式空态。",
     },
     plan_relationships: (state.marketPlanContexts || []).map((context) => ({
       relationship_label: context.relationship_label || marketPlanRelationshipLabel(context),
@@ -4001,7 +4218,7 @@ function marketSectorHierarchyText(sector) {
   const parts = [];
   if (sector.rank_overall != null) parts.push(`排名 ${dash(sector.rank_overall)}`);
   if (sector.persistence_score != null) parts.push(`持续性 ${scoreText(sector.persistence_score)}`);
-  if (sector.evidence?.freshness) parts.push(`证据 ${sector.evidence.freshness}`);
+  if (sector.evidence?.freshness) parts.push(`证据 ${uiValueText(sector.evidence.freshness)}`);
   return parts.join(" / ") || "板块记录可用，指标不足。";
 }
 
@@ -4018,8 +4235,9 @@ function marketRepresentativeStockSummary(sectors) {
 
 function marketEvidenceFreshnessText(freshness) {
   const payload = freshness || {};
+  const labels = { market: "市场", sector: "板块", stock: "个股" };
   return ["market", "sector", "stock"]
-    .map((key) => `${key} ${payload[key] || "missing"}`)
+    .map((key) => `${labels[key]} ${uiValueText(payload[key] || "missing")}`)
     .join(" / ");
 }
 
@@ -4073,16 +4291,16 @@ function marketPlanRelationshipReason(context) {
   const label = marketPlanRelationshipLabel(context);
   if (label === "aligned") return "计划与市场复盘链路一致；仍需人工开盘检查。";
   if (label === "blocked") return "计划存在冲突或高风险，只提示人工复核。";
-  if (label === "missing") return "缺少 plan-context 或证据输入，不能当作安全信号。";
-  return "计划只有部分支持，需要 cautious 人工核对。";
+  if (label === "missing") return "缺少计划上下文或证据输入，不能当作安全信号。";
+  return "计划只有部分支持，需要谨慎人工核对。";
 }
 
 function marketPlanRelationshipText(value) {
   return {
-    aligned: "aligned",
-    cautious: "cautious",
-    blocked: "blocked",
-    missing: "missing",
+    aligned: "顺风一致",
+    cautious: "谨慎推进",
+    blocked: "冲突阻断",
+    missing: "证据缺失",
   }[value] || dash(value);
 }
 
@@ -4115,7 +4333,7 @@ function renderMarketSectors() {
           <td>${dash(sector.rank_overall)}</td>
           <td>
             <strong>${escapeHtml(sector.sector_name || sector.sector_code)}</strong>
-            <span class="table-subtext">${escapeHtml(sector.sector_code || "-")} · ${escapeHtml(sector.provider || "unknown")}</span>
+            <span class="table-subtext">${escapeHtml(sector.sector_code || "-")} · ${escapeHtml(sector.provider || "未知")}</span>
           </td>
           <td class="num">${percent(sector.return_1d)}</td>
           <td class="num">${percent(sector.return_5d)}</td>
@@ -4133,7 +4351,7 @@ function renderMarketPlanContext() {
   const planId = marketContextPlanId();
   const contexts = state.marketPlanContexts || [];
   const header = `
-    <p class="market-readonly-note">Plan-context 只读：市场复盘不会自动改变明日计划，不会发布、取消、修改或执行 trade_plans。</p>
+    <p class="market-readonly-note">计划上下文只读：市场复盘不会自动改变明日计划，不会发布、取消、修改或执行交易计划。</p>
   `;
   if (!contexts.length) {
     const missing = marketMissingDataText(state.marketPlanContextEnvelope?.data);
@@ -4143,7 +4361,7 @@ function renderMarketPlanContext() {
       ${actionMetrics([
         ["关联计划", planId ? `计划 ${planId}` : "当前无明日计划"],
         ["上下文记录", "0"],
-        ["来源", "market_plan_contexts"],
+        ["来源", "市场计划上下文"],
         ["状态", missing || "暂无关系记录"],
       ])}
     `;
@@ -4165,7 +4383,7 @@ function renderMarketPlanContext() {
                   ${chipHtml(riskText(context.risk_level), riskClass(context.risk_level))}
                 </span>
               </div>
-              <p>${escapeHtml(context.rationale || "暂无 rationale。")}</p>
+              <p>${escapeHtml(context.rationale || "暂无理由。")}</p>
               <dl class="market-context-meta">
                 <dt>计划关系</dt>
                 <dd>${escapeHtml(marketPlanRelationshipText(context.relationship_label || marketPlanRelationshipLabel(context)))}</dd>
@@ -4193,7 +4411,7 @@ function renderMarketLinkedPlan(context) {
       <aside class="market-linked-plan market-linked-plan--empty">
         <span>相关明日计划</span>
         <strong>当前无明日计划</strong>
-        <p>Plan-context 会靠近相关计划展示；没有计划时只保留市场建议。</p>
+        <p>计划上下文会靠近相关计划展示；没有计划时只保留市场建议。</p>
       </aside>
     `;
   }
@@ -4258,7 +4476,7 @@ function renderMarketHypotheses() {
           <strong>${escapeHtml(item.title)}</strong>
           ${chipHtml(hypothesisStatusText(item.status), hypothesisStatusClass(item.status))}
         </div>
-        <p>${escapeHtml(item.rationale || "暂无 rationale。")}</p>
+        <p>${escapeHtml(item.rationale || "暂无理由。")}</p>
         <button type="button" class="link-button" data-market-hypothesis-id="${escapeHtml(item.hypothesis_id)}">假设详情</button>
       </article>
     `).join("")
@@ -4267,28 +4485,28 @@ function renderMarketHypotheses() {
 
 function renderMarketEvidenceItem(item) {
   return `
-    <article class="market-evidence-item" data-evidence-columns="provider/date/sentiment">
+    <article class="market-evidence-item" data-evidence-columns="提供方/日期/情绪">
       <div class="market-evidence-item__head">
         <strong>${escapeHtml(item.title || "外部证据")}</strong>
         ${chipHtml(sentimentText(item.sentiment), sentimentClass(item.sentiment))}
       </div>
       <p>${escapeHtml(item.summary || "暂无摘要。")}</p>
       <dl>
-        <dt>provider</dt>
-        <dd>${escapeHtml(item.provider || "unknown")}</dd>
-        <dt>date</dt>
+        <dt>提供方</dt>
+        <dd>${escapeHtml(item.provider || "未知")}</dd>
+        <dt>发布日期</dt>
         <dd>${displayDate(item.published_date)}</dd>
-        <dt>source_hash</dt>
+        <dt>来源哈希</dt>
         <dd>${escapeHtml(item.source_hash || "-")}</dd>
-        <dt>type</dt>
+        <dt>类型</dt>
         <dd>${escapeHtml(itemTypeText(item.item_type))}</dd>
-        <dt>importance</dt>
+        <dt>重要性</dt>
         <dd>${escapeHtml(importanceText(item.importance))}</dd>
-        <dt>scope</dt>
+        <dt>范围</dt>
         <dd>${escapeHtml(scopeText(item.scope_type, item.scope_key))}</dd>
       </dl>
       <div class="market-evidence-source">
-        <span>source metadata</span>
+        <span>来源元数据</span>
         ${item.url ? `<a href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer">来源链接</a>` : `<em>无 URL</em>`}
       </div>
     </article>
@@ -4349,12 +4567,12 @@ function renderAgentAdvice(advice, { expanded }) {
     <div class="agent-report-card ${unavailable ? "agent-report-card--empty" : ""}">
       <div class="agent-report-head">
         <div>
-          <span class="agent-kicker">TradingAgents 输出</span>
+          <span class="agent-kicker">TradingAgents 智能体输出</span>
           <h3>${unavailable ? "未返回可用复核意见" : "中文复核报告"}</h3>
         </div>
-        ${chipHtml("只读 advisory", "chip-agent")}
+        ${chipHtml("只读参考", "chip-agent")}
       </div>
-      <div class="agent-source-boundary" aria-label="Agent 来源边界">
+      <div class="agent-source-boundary" aria-label="智能体来源边界">
         <span>TradingAgents 输出：意见、置信度、风险和分析摘要</span>
         <span>系统复盘原始数据：候选、计划、数据质量和成交事实</span>
         <span>外部证据：仅展示已缓存的技术、基本面、新闻公告和情绪资料</span>
@@ -4371,7 +4589,7 @@ function renderAgentAdvice(advice, { expanded }) {
       ${!expanded ? renderAgentSourceRefs(sourceRefs, { compact: true }) : ""}
       ${quickPoints}
       ${detail}
-      <p class="muted">Agent 只提供复核意见，不会自动发布、取消或记录成交，也不会向券商执行。</p>
+      <p class="muted">智能体只提供复核意见，不会自动发布、取消或记录成交，也不会向券商执行。</p>
     </div>
   `;
 }
@@ -4501,10 +4719,10 @@ function normalizedAgentCoverage(coverage) {
 function renderAgentCoverage(coverage) {
   const items = normalizedAgentCoverage(coverage);
   return `
-    <section class="agent-coverage" aria-label="Agent 外部数据覆盖">
+    <section class="agent-coverage" aria-label="智能体外部数据覆盖">
       <div class="agent-coverage__head">
-        <span>数据覆盖 external_data_coverage</span>
-        ${chipHtml("Agent 是否影响交易计划：否，仅供参考", "chip-agent")}
+        <span>外部数据覆盖</span>
+        ${chipHtml("智能体是否影响交易计划：否，仅供参考", "chip-agent")}
       </div>
       <div class="agent-coverage__grid">
         ${items.map((item) => `
@@ -4521,7 +4739,7 @@ function renderAgentCoverage(coverage) {
 function renderAgentEvidence(evidence) {
   const rows = Array.isArray(evidence) ? evidence.filter(Boolean).slice(0, 24) : [];
   return `
-    <section class="agent-evidence" aria-label="Agent 外部证据">
+    <section class="agent-evidence" aria-label="智能体外部证据">
       <div class="agent-evidence__head">
         <span>外部证据</span>
         ${chipHtml(rows.length ? `${rows.length} 条缓存` : "未接入/缺失", rows.length ? "chip-indigo" : "chip-neutral")}
@@ -4532,13 +4750,13 @@ function renderAgentEvidence(evidence) {
             <article class="agent-evidence-item">
               <div>
                 <strong>${escapeHtml(item.title || "外部证据")}</strong>
-                <span>${escapeHtml(agentEvidenceCategoryText(item.category))} · ${escapeHtml(item.source || "unknown")} · ${dash(item.published_date)}</span>
+                <span>${escapeHtml(agentEvidenceCategoryText(item.category))} · ${escapeHtml(item.source || "未知")} · ${dash(item.published_date)}</span>
               </div>
               <p>${escapeHtml(item.summary || "已缓存，暂无摘要。")}</p>
             </article>
           `).join("")}
         </div>
-      ` : `<p class="muted">未接入/缺失：没有可展示的外部证据，Agent 不得补写或猜测外部资料。</p>`}
+      ` : `<p class="muted">未接入/缺失：没有可展示的外部证据，智能体不得补写或猜测外部资料。</p>`}
     </section>
   `;
 }
@@ -4547,7 +4765,7 @@ function renderAgentMissingDataWarnings(warnings) {
   const rows = listValue(warnings);
   if (!rows.length) return "";
   return `
-    <section class="agent-missing-data" aria-label="Agent 未接入或缺失数据">
+    <section class="agent-missing-data" aria-label="智能体未接入或缺失数据">
       <div class="agent-missing-data__head">
         <span>未接入/缺失</span>
         ${chipHtml(`${rows.length} 条提醒`, "chip-neutral")}
@@ -4565,7 +4783,7 @@ function renderAgentSourceRefs(sourceRefs, { compact = false } = {}) {
   return `
     <section class="agent-source-refs">
       <div class="agent-source-refs__head">
-        <span>来源边界 source_refs</span>
+        <span>来源边界</span>
         ${chipHtml(sourceRefs.length ? `${sourceRefs.length} 个来源` : "未接入/数据不足", sourceRefs.length ? "chip-blue" : "chip-neutral")}
       </div>
       ${visibleRefs.length ? `
@@ -4584,13 +4802,25 @@ function agentAdviceUnavailable(advice) {
 
 function agentUnavailableText(advice) {
   if (advice.status === "failed") return advice.note || "TradingAgents 复核失败，需人工复核。";
-  if (advice.status === "skipped") return advice.note || "TradingAgents 已跳过；未产生可展示的 Agent 输出。";
-  return advice.note || "TradingAgents 未运行或不可用；未产生可展示的 Agent 输出。";
+  if (advice.status === "skipped") return advice.note || "TradingAgents 已跳过；未产生可展示的智能体输出。";
+  return advice.note || "TradingAgents 未运行或不可用；未产生可展示的智能体输出。";
 }
 
 function sourceRefText(ref) {
   const text = String(ref || "").trim();
-  return text || "未接入/数据不足";
+  if (!text) return "未接入/数据不足";
+  const [prefix, ...rest] = text.split(":");
+  const suffix = rest.join(":");
+  const label = {
+    agent_external_items: "智能体外部证据",
+    market_diagnostic_bars: "诊断行情",
+    market_review_runs: "全市场复盘运行",
+    sector_daily_snapshots: "板块日快照",
+    sector_constituents: "板块成分股",
+    market_bars: "行情K线",
+    daily_basic_snapshots: "日级基础快照",
+  }[prefix];
+  return label ? `${label}${suffix ? `：${suffix}` : ""}` : text;
 }
 
 function sourceRefClass(ref) {
@@ -4668,7 +4898,7 @@ function renderRecordQueue() {
       <button type="button" data-record-position-id="${position.position_id}">卖出</button>
     </div>
   `);
-  els.recordQueue.innerHTML = [...planRows, ...positionRows].join("") || emptyState("没有待录入的 active 计划或到期持仓。");
+  els.recordQueue.innerHTML = [...planRows, ...positionRows].join("") || emptyState("没有待录入的有效计划或到期持仓。");
   setRecordFormState();
 }
 
@@ -4714,7 +4944,7 @@ function renderQuality() {
         </td>
       </tr>
     `).join("")
-    : emptyRow(9, "当前筛选下没有 open 数据质量事件。");
+    : emptyRow(9, "当前筛选下没有未处理数据质量事件。");
 }
 
 function renderBadges() {
@@ -4874,6 +5104,13 @@ function onShadowPromotionReviewClick(event) {
   if (candidate) openShadowPromotionReviewDrawer(candidate);
 }
 
+function onShadowDecisionMemoClick(event) {
+  const button = event.target.closest("button[data-shadow-decision-key]");
+  if (!button) return;
+  const candidate = findShadowDecisionMemoCandidate(button.dataset.shadowDecisionKey);
+  if (candidate) openShadowDecisionMemoDrawer(candidate);
+}
+
 async function onShadowObservationHistoryClick(event) {
   const dateButton = event.target.closest("button[data-shadow-history-date]");
   if (dateButton) {
@@ -5029,7 +5266,7 @@ function fillRecordFromPlan(plan) {
     ["目标股票", planStockText(plan)],
   ]);
   els.recordPrefillHint.textContent = `已从计划 ${plan.id} 预填：计划日期 ${displayDate(recordDate)}、计划股数 ${integerText(shares)}${price != null ? `、计划价格参考 ${inputNumber(price)}` : ""}。计划日期已用日期选择器锁定，成交价请按实际开盘成交核对。`;
-  els.recordModeChip.textContent = plan.status === "active" ? "按 active 计划录入" : "计划未激活";
+  els.recordModeChip.textContent = plan.status === "active" ? "按有效计划录入" : "计划未激活";
   els.recordModeChip.className = `chip ${plan.status === "active" ? "chip-blue" : "chip-amber"}`;
   setRecordFormState();
 }
@@ -5123,7 +5360,7 @@ function openLineageDrawer() {
     ],
     actions: [
       { label: "候选详情", action: "candidate" },
-      { label: "Agent 详情", action: "agent" },
+      { label: "智能体详情", action: "agent" },
     ],
     sections: [
       detailSection("运行链路", detailRows([
@@ -5135,8 +5372,8 @@ function openLineageDrawer() {
         ["入选记录", dash(lineage.daily_pick_id)],
         ["信号记录", dash(lineage.signal_id)],
         ["计划记录", dash(lineage.trade_plan_id)],
-        ["Agent 运行", dash(lineage.agent_run_id)],
-        ["Agent 意见", dash(lineage.agent_decision_id)],
+        ["智能体运行", dash(lineage.agent_run_id)],
+        ["智能体意见", dash(lineage.agent_decision_id)],
         ["质量事件", (lineage.data_quality_event_ids || []).join(", ") || "-"],
       ])),
     ],
@@ -5173,10 +5410,10 @@ function openCandidateDrawer() {
         ["入选原因", reasonText(candidate.selection_reason)],
       ])),
       detailSection("策略特征", featureRows.length ? detailRows(featureRows) : emptyState("候选未返回特征快照。")),
-      detailSection("Ranked signals", signals.length ? detailRows(signals.map((signal) => [
+      detailSection("信号排名", signals.length ? detailRows(signals.map((signal) => [
         `#${dash(signal.signal_rank)} ${signal.ts_code} ${signal.name}`,
         `评分 ${numberText(signal.score, 4)} / 信号 ${dash(signal.signal_id)}`,
-      ])) : emptyState("没有 ranked signals。")),
+      ])) : emptyState("没有信号排名明细。")),
     ],
   });
 }
@@ -5185,7 +5422,7 @@ function openQualityEventDrawer(event) {
   openDetailDrawer({
     kicker: "数据质量事件",
     title: `${event.event_code || "QUALITY_EVENT"} #${event.id}`,
-    subtitle: "质量事件只解释数据状态；blocker 会阻断计划发布和成交录入。",
+    subtitle: "质量事件只解释数据状态；阻断会阻断计划发布和成交录入。",
     meta: [
       [severityText(event.severity), severityClass(event.severity)],
       [statusText(event.status), statusClass(event.status)],
@@ -5248,7 +5485,7 @@ function openMarketNewsDrawer(scopeType = "", scopeKey = "") {
   openDetailDrawer({
     kicker: "新闻 / 情绪",
     title,
-    subtitle: "证据抽屉按 provider/date/sentiment 追溯来源，结论只用于人工复核。",
+    subtitle: "证据抽屉按提供方、日期和情绪追溯来源，结论只用于人工复核。",
     meta: [
       [`证据 ${items.length}`, "chip-blue"],
       [sentimentText(dominantSentiment(counts)), sentimentClass(dominantSentiment(counts))],
@@ -5282,12 +5519,12 @@ function openMarketHypothesisDrawer(hypothesis) {
         ["假设 ID", hypothesis.hypothesis_id],
         ["状态", hypothesisStatusText(hypothesis.status)],
         ["创建时间", displayTimestamp(hypothesis.created_at)],
-        ["Rationale", hypothesis.rationale || "-"],
+        ["理由", hypothesis.rationale || "-"],
         ["评估状态", evaluation ? hypothesisNextActionText(evaluation.next_action) : "未加载评估工作台"],
       ])),
       detailSection("证据", marketObjectRows(hypothesis.evidence)),
       detailSection("拟议变更", marketObjectRows(hypothesis.proposed_change)),
-      evaluation ? detailSection("评估 gate", strategyHypothesisGateRows(evaluation)) : "",
+      evaluation ? detailSection("评估门禁", strategyHypothesisGateRows(evaluation)) : "",
     ],
   });
 }
@@ -5299,7 +5536,7 @@ function openStrategyHypothesisEvaluationDrawer(evaluation) {
   openDetailDrawer({
     kicker: "策略假设评估",
     title: hypothesis.title || `假设 ${hypothesis.hypothesis_id}`,
-    subtitle: "评估工作台只读审阅 evidence/backtest artifact；accepted 仍需单独 strategy-version proposal。",
+    subtitle: "评估工作台只读审阅证据和回测产物；已接受后仍需单独创建策略版本提案。",
     meta: [
       [hypothesisStatusText(hypothesis.status), hypothesisStatusClass(hypothesis.status)],
       [hypothesisNextActionText(evaluation.next_action), hypothesisNextActionClass(evaluation.next_action)],
@@ -5311,39 +5548,39 @@ function openStrategyHypothesisEvaluationDrawer(evaluation) {
       ...strategyProposalReviewDrawerActions(evaluation),
     ],
     sections: [
-      detailSection("Acceptance gate", strategyHypothesisGateRows(evaluation)),
+      detailSection("接受门禁", strategyHypothesisGateRows(evaluation)),
       detailSection("假设摘要", detailRows([
         ["假设 ID", hypothesis.hypothesis_id],
         ["类型", hypothesis.hypothesis_type],
         ["状态", hypothesisStatusText(hypothesis.status)],
         ["创建时间", displayTimestamp(hypothesis.created_at)],
         ["下一步", evaluation.next_action_label || "-"],
-        ["Rationale", hypothesis.rationale || "-"],
+        ["理由", hypothesis.rationale || "-"],
       ])),
-      detailSection("Backtest artifacts", strategyHypothesisArtifactRows(evaluation.backtest_artifacts || [])),
+      detailSection("回测产物", strategyHypothesisArtifactRows(evaluation.backtest_artifacts || [])),
       detailSection(
-        "Strategy-version proposal artifacts",
+        "策略版本提案产物",
         strategyHypothesisProposalRows(evaluation.strategy_version_proposals || []),
       ),
       detailSection(
-        "Proposal review / promotion-request artifacts",
+        "提案复核 / 晋升申请产物",
         strategyHypothesisProposalReviewRows(evaluation.strategy_version_proposal_reviews || []),
       ),
-      detailSection("Validation events", strategyHypothesisValidationEvents(evaluation.validation_events || [])),
-      detailSection("Safety", detailRows([
+      detailSection("验证事件", strategyHypothesisValidationEvents(evaluation.validation_events || [])),
+      detailSection("安全边界", detailRows([
         ["只读评估", safety.read_only_evaluation ? "是" : "-"],
-        ["拟议变更是否改 active params", safety.proposed_change_mutates_active_params ? "是" : "否"],
-        ["artifact 是否报告 active param mutation", safety.artifact_reports_active_param_mutation ? "是" : "否"],
-        ["proposal 是否 artifact-only", safety.proposal_artifacts_only ? "是" : "-"],
-        ["proposal review 是否 artifact-only", safety.proposal_review_artifacts_only ? "是" : "-"],
-        ["proposal 是否写 strategy_versions", safety.proposal_wrote_strategy_versions ? "是" : "否"],
+        ["拟议变更是否改当前参数", safety.proposed_change_mutates_active_params ? "是" : "否"],
+        ["产物是否报告当前参数改动", safety.artifact_reports_active_param_mutation ? "是" : "否"],
+        ["提案是否仅产物记录", safety.proposal_artifacts_only ? "是" : "-"],
+        ["提案复核是否仅产物记录", safety.proposal_review_artifacts_only ? "是" : "-"],
+        ["提案是否写策略版本", safety.proposal_wrote_strategy_versions ? "是" : "否"],
         ["本工作台写交易状态", safety.writes_trade_state ? "是" : "否"],
-        ["本工作台改变 paper/live", safety.writes_paper_live_behavior ? "是" : "否"],
+        ["本工作台改变纸盘/实盘", safety.writes_paper_live_behavior ? "是" : "否"],
       ])),
       detailSection("证据", marketObjectRows(hypothesis.evidence)),
       detailSection("拟议变更", marketObjectRows(hypothesis.proposed_change)),
       evaluation.strategy_version_task
-        ? detailSection("未来 strategy-version task", marketObjectRows(evaluation.strategy_version_task))
+        ? detailSection("未来策略版本任务", marketObjectRows(evaluation.strategy_version_task))
         : "",
     ],
   });
@@ -5352,13 +5589,13 @@ function openStrategyHypothesisEvaluationDrawer(evaluation) {
 function openAgentDrawer() {
   const advice = state.report?.agent_advice;
   if (!advice) {
-    openDrawer("Agent 详情", "暂无复核输出", [["状态", "TradingAgents 未运行或不可用"]]);
+    openDrawer("智能体详情", "暂无复核输出", [["状态", "TradingAgents 未运行或不可用"]]);
     return;
   }
   openDetailDrawer({
-    kicker: "Agent 详情",
+    kicker: "智能体详情",
     title: "TradingAgents 中文复核报告",
-    subtitle: "Agent 只读 advisory，不自动发布、取消、记录成交或向券商执行。",
+    subtitle: "智能体只读参考，不自动发布、取消、记录成交或向券商执行。",
     meta: [
       [agentRunStatusText(advice.status), agentRunStatusClass(advice.status)],
       [agentActionText(advice.action), "chip-agent"],
@@ -5422,10 +5659,241 @@ function detailSection(title, bodyHtml) {
   `;
 }
 
+function uiLabelText(label) {
+  const raw = String(label ?? "").trim();
+  const normalized = raw.replace(/\s+/g, " ");
+  const direct = {
+    "API Base": "API 地址",
+    "Dry-run / Apply": "预演 / 正式写入",
+    "Proposal key": "提案键",
+    "Proposal artifact": "提案产物",
+    "Review API": "复核接口",
+    API: "接口",
+    contract: "契约版本",
+    operation: "操作类型",
+    log: "日志",
+    backup: "备份",
+    duplicate: "重复写入",
+    health: "健康检查",
+    release: "发布标签",
+    action: "动作",
+    outcome: "结果",
+    status: "状态",
+    progress: "进度",
+    sample: "样本",
+    blockers: "阻断",
+    blocker: "阻断",
+    warnings: "警告",
+    proposed: "待验证",
+    testing: "验证中",
+    accepted: "已接受",
+    rejected: "已拒绝",
+    followed: "已跟随",
+    deferred: "已暂缓",
+    override: "已改写",
+    matched: "已匹配",
+    "pending outcome": "待复核结果",
+    "unexpected trade": "非预期成交",
+    target: "目标",
+    "target type": "目标类型",
+    "target id": "目标 ID",
+    "candidate_key": "候选键",
+    "candidate_family": "候选族群",
+    "signal_source": "信号来源",
+    "prior candidates": "历史候选",
+    "today candidates": "当日候选",
+    "today top": "当日最高候选",
+    "linked hypothesis": "关联假设",
+    "start_signal_date": "起始信号日",
+    "latest_signal_date": "最新信号日",
+    "latest_outcome_date": "最新结果日",
+    "T+1 close mean": "T+1 收盘均值",
+    "T+1 close win rate": "T+1 收盘胜率",
+    "T+1 high mean": "T+1 最高均值",
+    "T+1 high >=3 rate": "T+1 最高涨幅 >=3% 比例",
+    "Frozen CPB comparison": "冻结 CPB 对照",
+    "baseline": "基准",
+    "baseline_days": "基准天数",
+    "candidate_days": "候选天数",
+    "T+1 close mean delta": "T+1 收盘均值差异",
+    "T+1 win-rate delta": "T+1 胜率差异",
+    "T+5 close mean delta": "T+5 收盘均值差异",
+    "sample warning": "样本警告",
+    "Candidate readiness": "候选就绪",
+    "Replay/backtest evidence": "回放 / 回测证据",
+    "Evidence metrics": "证据指标",
+    "No-future boundary": "未来函数边界",
+    "Blockers": "阻断",
+    "Required human decisions": "必需人工决策",
+    "Rollback / safety notes": "回滚 / 安全说明",
+    "Safety": "安全边界",
+    "review_status": "复核状态",
+    "evidence_status": "证据状态",
+    "walk_forward_status": "跟踪验证状态",
+    "promotion_allowed": "允许晋升",
+    "artifact_path": "产物路径",
+    "provider": "提供方",
+    "sample_size": "样本数",
+    "required_sample_size": "要求样本数",
+    "source_hash": "来源哈希",
+    "expected_source_hash": "预期来源哈希",
+    "error": "错误",
+    "review_request_is_not_approval": "评审申请不是批准",
+    "manual_review_required": "需要人工复核",
+    "active_params_mutated": "改动当前参数",
+    "wrote_strategy_version": "写策略版本",
+    "writes_trade_state": "写交易状态",
+    "timer_mutated": "改动定时任务",
+    "memo_is_not_approval": "备忘录不是批准",
+    "memo conclusion": "备忘录结论",
+    "outcome score": "结果评分",
+    "frozen CPB delta": "冻结 CPB 差异",
+    "Observed days": "观察天数",
+    "sample coverage": "样本覆盖",
+    "Best / worst outcomes": "最好 / 最差结果",
+    "best": "最好",
+    "worst": "最差",
+    "drawdown proxy": "回撤代理指标",
+    "rationale": "理由",
+    "source top": "来源最高候选",
+    "Promotion remains blocked": "晋升保持阻断",
+    "blocked reason": "阻断原因",
+    "not paper trading": "不是纸盘交易",
+    "no promote/trade/plan/timer controls": "无晋升 / 交易 / 计划 / 定时任务控件",
+    "Coverage / evidence / market gaps": "覆盖 / 证据 / 市场缺口",
+    "Source artifacts": "来源产物",
+    "latest_date": "最新日期",
+    "latest_rank": "最新排名",
+    "latest_score": "最新评分",
+    "score_delta": "评分变化",
+    "rank_delta": "排名变化",
+    "blocker_count_delta": "阻断数变化",
+    "latest frozen-CPB delta": "最新冻结 CPB 差异",
+    "frozen-CPB delta change": "冻结 CPB 差异变化",
+    "research-only": "仅研究",
+    "trade_plan_allowed": "允许交易计划",
+    "paper_acceptance": "纸盘验收",
+    "evidence_blockers": "证据阻断",
+    "market_review": "全市场复盘",
+    "open_execution": "开盘执行",
+    "strategy_proposals": "策略提案",
+    "can_accept": "可接受",
+    "accepted_complete": "接受闭环完整",
+    "testing_required": "需要验证",
+    "has_validation_evidence": "有验证证据",
+    "has_backtest_artifact": "有回测产物",
+    "backtest_artifacts_valid": "回测产物有效",
+    "requires_replay_backtest": "需要回放 / 回测",
+    "blocks": "阻断",
+    "evidence_ids": "证据编号",
+  };
+  return direct[normalized] || direct[raw] || humanizeCodeLabel(raw);
+}
+
+function uiValueText(value) {
+  if (value === true) return "是";
+  if (value === false) return "否";
+  const raw = String(value ?? "-");
+  const direct = {
+    true: "是",
+    false: "否",
+    none: "无",
+    unknown: "未知",
+    missing: "缺失",
+    ready: "就绪",
+    review_ready: "可复核",
+    blocked: "阻断",
+    pass: "通过",
+    success: "成功",
+    failed: "失败",
+    preview: "预演",
+    observed: "已观测",
+    artifact: "产物",
+    "artifact-only": "仅产物记录",
+    artifact_only: "仅产物记录",
+    linked: "已关联",
+    unavailable: "不可用",
+    unchanged: "未改变",
+    active_cpb_persisted_picks: "当前 CPB 已持久化选择",
+    review_request_is_not_approval: "评审申请不是批准",
+    manual_promotion_review_required: "需要人工晋升复核",
+    preconfirm_watchlist: "预确认观察清单",
+    pullback_dip_buy: "回撤低吸",
+    breakout_pressure_shadow: "突破承压影子",
+    low_price_momentum_shadow: "低价动量影子",
+    trend_extension_shadow: "趋势延续影子",
+  };
+  return direct[raw] || raw;
+}
+
+function humanizeCodeLabel(value) {
+  const text = String(value || "");
+  if (!text.includes("_")) return text;
+  const tokens = text.split("_").filter(Boolean);
+  const dictionary = {
+    account: "账户",
+    action: "动作",
+    active: "当前",
+    accepted: "已接受",
+    artifact: "产物",
+    artifacts: "产物",
+    backtest: "回测",
+    bars: "K线",
+    blocker: "阻断",
+    blockers: "阻断",
+    candidate: "候选",
+    candidates: "候选",
+    close: "收盘",
+    count: "数量",
+    cpb: "CPB",
+    daily: "日级",
+    date: "日期",
+    delta: "变化",
+    evidence: "证据",
+    execution: "执行",
+    expected: "预期",
+    frozen: "冻结",
+    high: "最高",
+    id: "ID",
+    key: "键",
+    latest: "最新",
+    market: "市场",
+    memo: "备忘录",
+    mutated: "已改动",
+    outcome: "结果",
+    params: "参数",
+    plan: "计划",
+    promotion: "晋升",
+    rank: "排名",
+    ratio: "比例",
+    request: "申请",
+    required: "需要",
+    review: "复核",
+    sample: "样本",
+    score: "评分",
+    signal: "信号",
+    source: "来源",
+    status: "状态",
+    strategy: "策略",
+    timer: "定时任务",
+    trade: "交易",
+    validation: "验证",
+    version: "版本",
+    walk: "跟踪",
+    forward: "验证",
+    warning: "警告",
+    win: "胜率",
+    writes: "写入",
+    wrote: "写入",
+  };
+  const translated = tokens.map((token) => dictionary[token] || token).join("");
+  return translated || text;
+}
+
 function detailRows(rows) {
   return `
     <dl class="kv detail-kv">
-      ${rows.map(([key, value]) => `<dt>${escapeHtml(key)}</dt><dd>${escapeHtml(String(value ?? "-"))}</dd>`).join("")}
+      ${rows.map(([key, value]) => `<dt>${escapeHtml(uiLabelText(key))}</dt><dd>${escapeHtml(uiValueText(value))}</dd>`).join("")}
     </dl>
   `;
 }
@@ -5434,7 +5902,7 @@ function detailMetrics(items) {
   return `
     <div class="drawer-metrics">
       ${items.map(([label, value]) => `
-        <div class="drawer-metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value ?? "-"))}</strong></div>
+        <div class="drawer-metric"><span>${escapeHtml(uiLabelText(label))}</span><strong>${escapeHtml(uiValueText(value))}</strong></div>
       `).join("")}
     </div>
   `;
@@ -5549,9 +6017,9 @@ function openingReadiness(activePlans, executionDay, blocked = hasBlockingQualit
   const totalChecks = Object.keys(state.preOpenChecks).length + 1;
   let lockReason = "";
   if (blocked) {
-    lockReason = ledgerBlockerCount() ? "账本 invariant blocker 未处理" : "数据质量 blocker 未处理";
+    lockReason = ledgerBlockerCount() ? "账本不变量阻断未处理" : "数据质量阻断未处理";
   } else if (!hasExecutionPlan) {
-    lockReason = "没有计划交易日匹配执行日的 active 买入计划";
+    lockReason = "没有计划交易日匹配执行日的有效买入计划";
   } else if (!manualComplete) {
     lockReason = "开盘检查未完成";
   }
@@ -5587,8 +6055,8 @@ function openingRecordReady(activePlans, executionDay, blocked = hasBlockingQual
 }
 
 function recordLockReasonForPlan(plan, executionDay) {
-  if (hasBlockingQuality()) return ledgerBlockerCount() ? "账本 invariant blocker 未处理" : "数据质量 blocker 未处理";
-  if (plan.status !== "active") return "计划不是 active";
+  if (hasBlockingQuality()) return ledgerBlockerCount() ? "账本不变量阻断未处理" : "数据质量阻断未处理";
+  if (plan.status !== "active") return "计划不是有效状态";
   if (planTradeDate(plan) !== executionDay) return "计划交易日与执行日不一致";
   if (!manualPreOpenChecksComplete()) return "开盘检查未完成";
   return "";
@@ -5596,8 +6064,8 @@ function recordLockReasonForPlan(plan, executionDay) {
 
 function recordLockReasonForPlanAction(plan, executionDay = executionDate()) {
   if (isBuyPlan(plan)) return recordLockReasonForPlan(plan, executionDay);
-  if (hasBlockingQuality()) return ledgerBlockerCount() ? "账本 invariant blocker 未处理" : "数据质量 blocker 未处理";
-  if (plan.status !== "active") return "计划不是 active";
+  if (hasBlockingQuality()) return ledgerBlockerCount() ? "账本不变量阻断未处理" : "数据质量阻断未处理";
+  if (plan.status !== "active") return "计划不是有效状态";
   return "";
 }
 
@@ -5614,7 +6082,7 @@ function blockingEvents() {
       code: "READINESS_BLOCKER",
       message: ledgerErrors.length
         ? `复盘日 ${displayDate(state.asOfDate)} 账本 invariant 检查失败。`
-        : `复盘日 ${displayDate(state.asOfDate)} 数据状态为 blocker。`,
+        : `复盘日 ${displayDate(state.asOfDate)} 数据状态为阻断。`,
     }]
     : [];
   return [...ledgerErrors, ...readinessBlocker, ...otherEnvelopeErrors, ...qualityBlockers];
@@ -5849,7 +6317,7 @@ function recordFormIssues() {
   if (tradePlanId && positionId) {
     issues.push({ severity: "blocker", text: "计划 ID 和持仓 ID 只能填写一个。" });
   } else if (!tradePlanId && !positionId) {
-    issues.push({ severity: "blocker", text: "请先从待录入队列选择 active 计划或待卖出持仓。" });
+    issues.push({ severity: "blocker", text: "请先从待录入队列选择有效计划或待卖出持仓。" });
   }
 
   if (tradePlanId) {
@@ -5860,7 +6328,7 @@ function recordFormIssues() {
       const expectedSideText = expectedSide === "buy" ? "买入" : "卖出";
       const planDate = planTradeDate(plan);
       if (plan.status !== "active") {
-        issues.push({ severity: "blocker", text: "只有 active 计划可以录入成交。" });
+        issues.push({ severity: "blocker", text: "只有有效计划可以录入成交。" });
       }
       if (side !== expectedSide) {
         issues.push({ severity: "blocker", text: `该计划方向必须为${expectedSideText}。` });
@@ -5897,7 +6365,7 @@ function recordFormIssues() {
     issues.push({ severity: "blocker", text: "成交日期必须是有效日期。" });
   }
   if (!state.dryRun && !state.operator) {
-    issues.push({ severity: "blocker", text: "非 dry-run 成交录入需要填写操作者。" });
+    issues.push({ severity: "blocker", text: "非预演成交录入需要填写操作者。" });
   }
   if (price == null) {
     issues.push({ severity: "blocker", text: "成交价必须大于 0，且来自实际成交。" });
@@ -5964,15 +6432,15 @@ function marketReviewExists() {
 function marketMissingDataText(payload) {
   const missing = payload?.missing_data || [];
   if (!missing.length) return "";
-  return `缺少 ${missing.join(", ")}`;
+  return `缺少 ${missing.map(dataTableText).join("、")}`;
 }
 
 function marketSummaryText(summary) {
   if (!summary || typeof summary !== "object") return "暂无市场摘要。";
   const parts = [];
   if (summary.summary) parts.push(summary.summary);
-  if (summary.regime) parts.push(`regime=${summary.regime}`);
-  if (summary.coverage_ratio != null) parts.push(`coverage=${percent(summary.coverage_ratio)}`);
+  if (summary.regime) parts.push(`市场状态：${marketRegimeText(summary.regime)}`);
+  if (summary.coverage_ratio != null) parts.push(`覆盖率：${percent(summary.coverage_ratio)}`);
   return parts.join(" / ") || JSON.stringify(summary);
 }
 
@@ -6027,6 +6495,22 @@ function shadowPromotionReviewData() {
   return state.shadowPromotionReviewRequest && typeof state.shadowPromotionReviewRequest === "object"
     ? state.shadowPromotionReviewRequest
     : {};
+}
+
+function shadowDecisionMemoData() {
+  return state.shadowDecisionMemo && typeof state.shadowDecisionMemo === "object"
+    ? state.shadowDecisionMemo
+    : {};
+}
+
+function shadowDecisionMemoSections(data = shadowDecisionMemoData()) {
+  return data.sections && typeof data.sections === "object" ? data.sections : {};
+}
+
+function shadowDecisionMemoCandidates(data = shadowDecisionMemoData()) {
+  if (Array.isArray(data.candidate_memos)) return data.candidate_memos;
+  const overview = shadowDecisionMemoSections(data)["候选概览"];
+  return Array.isArray(overview?.items) ? overview.items : [];
 }
 
 function shadowPromotionReviewSummary(data = shadowPromotionReviewData()) {
@@ -6107,6 +6591,10 @@ function findShadowPromotionReviewCandidate(candidateKey) {
   return shadowPromotionReviewCandidates().find((item) => String(item.candidate_key) === String(candidateKey));
 }
 
+function findShadowDecisionMemoCandidate(candidateKey) {
+  return shadowDecisionMemoCandidates().find((item) => String(item.candidate_key) === String(candidateKey));
+}
+
 function findShadowCandidate(candidateKey) {
   return shadowCandidates().find((item) => String(item.candidate_key) === String(candidateKey));
 }
@@ -6131,10 +6619,68 @@ function shadowBadgeText() {
 
 function shadowFamilyText(family) {
   return {
-    shadow_bucket: "M69 bucket candidate lane",
-    preconfirm_watchlist: "pre-confirm watchlist research",
-    pullback_dip_buy: "pullback dip-buy research",
-  }[family] || "shadow research lane";
+    shadow_bucket: "M69 桶候选通道",
+    preconfirm_watchlist: "预确认观察清单",
+    pullback_dip_buy: "回撤低吸研究",
+    breakout_pressure_shadow: "突破承压影子研究",
+    low_price_momentum_shadow: "低价动量影子研究",
+    trend_extension_shadow: "趋势延续影子研究",
+    shadow_candidate: "影子候选",
+  }[family] || "影子研究通道";
+}
+
+function shadowCandidateKeyText(key) {
+  return {
+    preconfirm_watchlist: "预确认观察清单",
+    pullback_dip_buy: "回撤低吸",
+    breakout_pressure_shadow: "突破承压影子",
+    low_price_momentum_shadow: "低价动量影子",
+    trend_extension_shadow: "趋势延续影子",
+    shadow_bucket: "影子桶候选",
+  }[String(key || "")] || dash(key);
+}
+
+function shadowBlockerText(blocker) {
+  return {
+    none: "无阻断",
+    manual_promotion_review_required: "需要人工晋升复核",
+    promotion_review_required: "需要晋升复核",
+    replay_backtest_evidence_missing: "缺少回放 / 回测证据",
+    replay_backtest_evidence_rejected: "回放 / 回测证据被拒绝",
+    insufficient_sample: "样本不足",
+    minimum_sample_missing: "缺少最低样本",
+    market_data_gap: "市场数据缺口",
+    market_data_missing: "缺少市场数据",
+    source_artifact_missing: "缺少来源产物",
+    evidence_artifact_missing: "缺少证据产物",
+    artifact_missing: "缺少产物",
+    artifact_invalid: "产物无效",
+    no_future_boundary_failed: "未来函数边界未通过",
+    rollback_required: "需要回滚边界",
+    release_gate_blocked: "发布门禁阻断",
+    strategy_version_task_required: "需要单独策略版本任务",
+    active_param_mutation_blocked: "禁止改动当前策略参数",
+    active_cpb_mutation_blocked: "禁止改动当前 CPB",
+    trade_state_mutation_blocked: "禁止写交易状态",
+    timer_mutation_blocked: "禁止改动定时任务",
+    paper_observation_blocked: "纸盘观察阻断",
+    promotion_allowed_false: "晋升未被允许",
+    review_request_is_not_approval: "评审申请不是批准",
+  }[String(blocker || "")] || dash(blocker);
+}
+
+function shadowDecisionKeyText(key) {
+  return {
+    decision: "人工决策",
+    manual_promotion_review_required: "人工晋升复核",
+    accept_replay_evidence: "接受回放证据",
+    reject_replay_evidence: "拒绝回放证据",
+    create_strategy_version_task: "创建策略版本任务",
+    confirm_no_future_boundary: "确认未来函数边界",
+    confirm_rollback_plan: "确认回滚方案",
+    approve_candidate_creation: "批准候选创建",
+    confirm_release_gate: "确认发布门禁",
+  }[String(key || "")] || dash(key);
 }
 
 function shadowProgressText(walk) {
@@ -6152,7 +6698,7 @@ function shadowTopCandidateText(value) {
   if (value && typeof value === "object") {
     const code = value.ts_code || value.code || "";
     const name = value.name || value.stock_name || "";
-    const score = value.score != null ? ` score ${numberText(value.score, 2)}` : "";
+    const score = value.score != null ? ` 评分 ${numberText(value.score, 2)}` : "";
     return [code, name].filter(Boolean).join(" ") + score || JSON.stringify(value);
   }
   return dash(value);
@@ -6182,22 +6728,22 @@ function shadowPlainDeltaText(value) {
 }
 
 function shadowBlockerListHtml(blockers) {
-  if (!blockers.length) return emptyState("该候选暂无 blocker。");
+  if (!blockers.length) return emptyState("该候选暂无阻断。");
   return `
     <ul class="drawer-list">
-      ${blockers.map((blocker) => `<li>${escapeHtml(blocker)}</li>`).join("")}
+      ${blockers.map((blocker) => `<li>${escapeHtml(shadowBlockerText(blocker))}</li>`).join("")}
     </ul>
   `;
 }
 
 function shadowArtifactRows(artifacts) {
-  if (!artifacts.length) return emptyState("暂无 source artifact。");
+  if (!artifacts.length) return emptyState("暂无来源产物。");
   return `
     <div class="table-wrap market-leadership-table">
       <table>
         <thead>
           <tr>
-            <th>Artifact path</th>
+            <th>产物路径</th>
           </tr>
         </thead>
         <tbody>
@@ -6223,7 +6769,7 @@ function strategyProposalReviewButtons(evaluation) {
   if (!actions.length) return "";
   const hypothesisId = evaluation?.hypothesis?.hypothesis_id;
   return `
-    <div class="proposal-review-actions" aria-label="proposal review artifact actions">
+    <div class="proposal-review-actions" aria-label="提案复核产物操作">
       ${actions.map((action) => `
         <button
           type="button"
@@ -6246,20 +6792,20 @@ function strategyProposalReviewActions(evaluation) {
   return [
     {
       decision: "approve",
-      label: "批准 proposal",
-      title: "写入 proposal review artifact，不创建策略版本。",
+      label: "批准提案",
+      title: "写入提案复核产物，不创建策略版本。",
       disabled: !hasValidProposal || latestReview?.decision === "request_promotion",
     },
     {
       decision: "reject",
-      label: "拒绝 artifact",
-      title: "写入 rejection review artifact，active strategy 不变。",
+      label: "拒绝产物",
+      title: "写入拒绝复核产物，当前策略不变。",
       disabled: latestReview?.decision === "request_promotion",
     },
     {
       decision: "request_promotion",
-      label: "生成 promotion-request",
-      title: "写入 promotion-request artifact，不创建/提升 strategy_version。",
+      label: "生成晋升申请",
+      title: "写入晋升申请产物，不创建或提升策略版本。",
       disabled: !hasValidProposal || latestReview?.decision === "request_promotion",
     },
   ];
@@ -6313,13 +6859,13 @@ function strategyHypothesisGateRows(evaluation) {
     ["has_backtest_artifact", gate.has_backtest_artifact ? "是" : "否"],
     ["backtest_artifacts_valid", gate.backtest_artifacts_valid ? "是" : "否"],
     ["requires_replay_backtest", gate.requires_replay_backtest ? "是" : "否"],
-    ["blocks", listValue(gate.blocks).join(" / ") || "无"],
+    ["blocks", listValue(gate.blocks).map(shadowBlockerText).join(" / ") || "无"],
     ["evidence_ids", listValue(evaluation.evidence_ids).join(" / ") || "-"],
   ]);
 }
 
 function strategyHypothesisArtifactRows(artifacts) {
-  if (!artifacts.length) return emptyState("暂无 backtest artifact；接受前必须创建或附加 replay/backtest request artifact。");
+  if (!artifacts.length) return emptyState("暂无回测产物；接受前必须创建或附加回放 / 回测请求产物。");
   return `
     <div class="table-wrap market-leadership-table">
       <table>
@@ -6349,7 +6895,7 @@ function strategyHypothesisArtifactRows(artifacts) {
 }
 
 function strategyHypothesisProposalRows(artifacts) {
-  if (!artifacts.length) return emptyState("暂无 strategy-version proposal artifact；accepted 后必须单独创建 proposal 工件。");
+  if (!artifacts.length) return emptyState("暂无策略版本提案产物；接受后必须单独创建提案产物。");
   return `
     <div class="table-wrap market-leadership-table">
       <table>
@@ -6357,7 +6903,7 @@ function strategyHypothesisProposalRows(artifacts) {
           <tr>
             <th>路径</th>
             <th>状态</th>
-            <th>Proposal key</th>
+            <th>提案键</th>
             <th>候选版本名</th>
             <th>安全边界</th>
             <th>错误</th>
@@ -6370,7 +6916,7 @@ function strategyHypothesisProposalRows(artifacts) {
               <td>${chipHtml(artifact.valid ? "有效" : artifact.exists ? "无效" : "缺失", artifact.valid ? "chip-green" : "chip-red")}</td>
               <td>${escapeHtml(artifact.proposal_key || "-")}</td>
               <td>${escapeHtml(artifact.candidate_strategy_version || "-")}</td>
-              <td>${artifact.wrote_strategy_versions ? "写 strategy_versions" : "artifact-only"}</td>
+              <td>${artifact.wrote_strategy_versions ? "写策略版本" : "仅产物记录"}</td>
               <td>${escapeHtml(artifact.error || "-")}</td>
             </tr>
           `).join("")}
@@ -6382,7 +6928,7 @@ function strategyHypothesisProposalRows(artifacts) {
 
 function strategyHypothesisProposalReviewRows(artifacts) {
   if (!artifacts.length) {
-    return emptyState("暂无 proposal review artifact；可 approve、reject 或生成 promotion-request artifact。");
+    return emptyState("暂无提案复核产物；可批准、拒绝或生成晋升申请产物。");
   }
   return `
     <div class="table-wrap market-leadership-table">
@@ -6391,9 +6937,9 @@ function strategyHypothesisProposalReviewRows(artifacts) {
           <tr>
             <th>路径</th>
             <th>状态</th>
-            <th>Decision</th>
-            <th>Review key</th>
-            <th>Promotion request</th>
+            <th>决策</th>
+            <th>复核键</th>
+            <th>晋升申请</th>
             <th>安全边界</th>
             <th>错误</th>
           </tr>
@@ -6406,7 +6952,7 @@ function strategyHypothesisProposalReviewRows(artifacts) {
               <td>${chipHtml(proposalReviewDecisionText(artifact.decision), proposalReviewDecisionClass(artifact.decision))}</td>
               <td>${escapeHtml(artifact.review_key || "-")}</td>
               <td>${escapeHtml(artifact.promotion_request_key || "-")}</td>
-              <td>${artifact.wrote_strategy_versions ? "写 strategy_versions" : "artifact-only"}</td>
+              <td>${artifact.wrote_strategy_versions ? "写策略版本" : "仅产物记录"}</td>
               <td>${escapeHtml(artifact.error || "-")}</td>
             </tr>
           `).join("")}
@@ -6756,13 +7302,15 @@ function shadowStatusText(value) {
     observing: "观察中",
     insufficient_sample: "样本不足",
     missing: "缺数据",
-    artifact_summary_only: "artifact 摘要",
+    manual_review_required: "需人工复核",
+    artifact_summary_only: "仅产物摘要",
     available: "可观察",
     compared: "已对照",
     complete: "完成",
     success: "成功",
     unavailable: "不可用",
     unknown: "未知",
+    unchanged: "未改变",
   }[value] || dash(value);
 }
 
@@ -6774,6 +7322,7 @@ function shadowStatusClass(value) {
     observing: "chip-blue",
     insufficient_sample: "chip-amber",
     missing: "chip-amber",
+    manual_review_required: "chip-amber",
     artifact_summary_only: "chip-neutral",
     available: "chip-green",
     compared: "chip-blue",
@@ -6851,10 +7400,10 @@ function shadowPromotionDecisionStatusClass(value) {
 
 function shadowReplayEvidenceStatusText(value) {
   return {
-    accepted: "evidence accepted",
-    rejected: "evidence rejected",
-    missing: "evidence missing",
-    unavailable: "evidence unavailable",
+    accepted: "证据已接受",
+    rejected: "证据已拒绝",
+    missing: "证据缺失",
+    unavailable: "证据不可用",
   }[value] || shadowStatusText(value);
 }
 
@@ -6872,7 +7421,7 @@ function sampleCoverageText(value) {
     complete: "样本覆盖完整",
     insufficient_sample: "样本不足",
     missing: "市场数据缺口",
-    artifact_summary_only: "artifact 摘要",
+    artifact_summary_only: "仅产物摘要",
   }[value] || dash(value);
 }
 
@@ -6896,10 +7445,10 @@ function shadowGateStatusText(value) {
 
 function shadowWalkForwardStatusText(value) {
   return {
-    complete: "walk-forward 完成",
-    in_progress: "walk-forward 观察中",
-    blocked: "walk-forward 阻断",
-    unknown: "walk-forward 未知",
+    complete: "跟踪验证完成",
+    in_progress: "跟踪验证中",
+    blocked: "跟踪验证阻断",
+    unknown: "跟踪验证未知",
   }[value] || shadowStatusText(value);
 }
 
@@ -6947,9 +7496,9 @@ function decisionActionText(value) {
 
 function decisionLogDecisionText(value) {
   return {
-    followed: "follow",
-    deferred: "defer",
-    overrode: "override",
+    followed: "跟随",
+    deferred: "暂缓",
+    overrode: "改写",
   }[value] || dash(value);
 }
 
@@ -6963,18 +7512,18 @@ function decisionLogDecisionClass(value) {
 
 function decisionOutcomeText(value) {
   return {
-    dry_run_preview: "dry run preview",
-    pending: "pending",
-    deferred: "deferred",
-    matched: "matched",
-    unexpected: "unexpected",
-    override: "override",
-    review_only: "review only",
-    pending_outcome: "pending outcome",
-    override_recorded: "override recorded",
-    override_executed: "override executed",
-    override_reviewed: "override reviewed",
-    unexpected_trade_recorded: "unexpected trade",
+    dry_run_preview: "预演结果",
+    pending: "待复核",
+    deferred: "已暂缓",
+    matched: "已匹配",
+    unexpected: "非预期",
+    override: "已改写",
+    review_only: "仅复核",
+    pending_outcome: "待复核结果",
+    override_recorded: "改写已记录",
+    override_executed: "改写已执行",
+    override_reviewed: "改写已复核",
+    unexpected_trade_recorded: "非预期成交已记录",
   }[value] || dash(value);
 }
 
@@ -6997,32 +7546,32 @@ function decisionOutcomeClass(value) {
 function decisionLogQuickChoices(operatorDecision, proposal) {
   const action = openExecutionActionText(proposal?.action);
   return {
-    followed: [`已按 ${action} 进入人工流程`, "已确认无 blocker 后 follow", "仅记录，成交另走成交录入"],
-    deferred: ["证据 blocker 未关闭，暂缓", "等待开盘条件确认", "等待人工补充复核"],
-    overrode: ["人工风险判断 override", "计划与市场状态不匹配", "实际盘面不满足执行条件"],
+    followed: [`已按 ${action} 进入人工流程`, "已确认无阻断后跟随", "仅记录，成交另走成交录入"],
+    deferred: ["证据阻断未关闭，暂缓", "等待开盘条件确认", "等待人工补充复核"],
+    overrode: ["人工风险判断改写", "计划与市场状态不匹配", "实际盘面不满足执行条件"],
   }[operatorDecision] || ["人工记录"];
 }
 
 function decisionLogDefaultNote(operatorDecision, proposal) {
   return {
-    followed: `Followed cockpit recommendation: ${openExecutionActionText(proposal?.action)}.`,
-    deferred: "Deferred cockpit recommendation.",
-    overrode: "Overrode cockpit recommendation.",
-  }[operatorDecision] || "Recorded cockpit action.";
+    followed: `已跟随驾驶舱建议：${openExecutionActionText(proposal?.action)}。`,
+    deferred: "已暂缓驾驶舱建议。",
+    overrode: "已改写驾驶舱建议。",
+  }[operatorDecision] || "已记录驾驶舱动作。";
 }
 
 function opsHistoryCategoryText(value) {
   return {
-    daily_pipeline: "pipeline",
-    pipeline_step: "pipeline step",
-    backup: "backup",
-    release: "release",
-    health: "health",
-    paper_acceptance: "acceptance",
-    decision_action_log: "action log",
-    timer_evidence: "timer evidence",
-    timer_action: "timer action",
-    operation: "operation",
+    daily_pipeline: "日终流水线",
+    pipeline_step: "流水线步骤",
+    backup: "备份",
+    release: "发布",
+    health: "健康检查",
+    paper_acceptance: "纸盘验收",
+    decision_action_log: "动作日志",
+    timer_evidence: "定时任务证据",
+    timer_action: "定时任务动作",
+    operation: "操作",
   }[value] || dash(value);
 }
 
@@ -7044,14 +7593,14 @@ function opsHistoryStatusText(value) {
   return {
     pass: "通过",
     success: "成功",
-    ready: "ready",
-    artifact: "artifact",
+    ready: "就绪",
+    artifact: "产物记录",
     recorded: "已记录",
     blocked: "阻断",
     failed: "失败",
     not_evaluated: "未评估",
-    preview: "preview",
-    observed: "observed",
+    preview: "预演",
+    observed: "已观测",
   }[value] || dash(value);
 }
 
@@ -7081,7 +7630,7 @@ function statusText(value) {
     not_run: "未运行",
     failed: "失败",
     success: "成功",
-    open_event: "open",
+    open_event: "开盘事件",
     resolved: "已处理",
   }[value] || dash(value);
 }
@@ -7264,42 +7813,42 @@ function hypothesisStatusClass(value) {
 
 function proposalReviewConfirmTitle(decision) {
   return {
-    approve: "批准 strategy-version proposal artifact",
-    reject: "拒绝 strategy-version proposal artifact",
-    request_promotion: "生成 promotion-request artifact",
-  }[decision] || "审阅 strategy-version proposal artifact";
+    approve: "批准策略版本提案产物",
+    reject: "拒绝策略版本提案产物",
+    request_promotion: "生成晋升申请产物",
+  }[decision] || "审阅策略版本提案产物";
 }
 
 function proposalReviewConfirmBody(decision, hypothesis) {
   const title = hypothesis?.title || `假设 ${hypothesis?.hypothesis_id || "-"}`;
   return {
-    approve: `将批准 proposal artifact：${title}。只写 review artifact，不创建策略版本。`,
-    reject: `将拒绝 proposal artifact：${title}。只写 rejection artifact，不改变策略状态。`,
-    request_promotion: `将为 ${title} 生成 promotion-request artifact。后续仍需单独任务创建或提升候选策略版本。`,
-  }[decision] || `将审阅 proposal artifact：${title}。`;
+    approve: `将批准提案产物：${title}。只写复核产物，不创建策略版本。`,
+    reject: `将拒绝提案产物：${title}。只写拒绝产物，不改变策略状态。`,
+    request_promotion: `将为 ${title} 生成晋升申请产物。后续仍需单独任务创建或提升候选策略版本。`,
+  }[decision] || `将审阅提案产物：${title}。`;
 }
 
 function proposalReviewQuickChoices(decision) {
   return {
-    approve: ["证据完整，允许进入 promotion request", "artifact-only 边界已核对"],
-    reject: ["证据不足，拒绝 proposal", "安全边界不清晰，退回重写"],
-    request_promotion: ["请求创建候选 strategy version", "请求进入独立 promotion gate"],
+    approve: ["证据完整，允许进入晋升申请", "仅产物记录边界已核对"],
+    reject: ["证据不足，拒绝提案", "安全边界不清晰，退回重写"],
+    request_promotion: ["请求创建候选策略版本", "请求进入独立晋升门禁"],
   }[decision] || ["人工审阅完成"];
 }
 
 function proposalReviewDefaultNote(decision) {
   return {
-    approve: "Approved proposal artifact for separate promotion request review.",
-    reject: "Rejected proposal artifact; active strategy remains unchanged.",
-    request_promotion: "Requested explicit promotion artifact; candidate creation remains a separate task.",
-  }[decision] || "Reviewed proposal artifact.";
+    approve: "已批准提案产物进入单独晋升申请复核。",
+    reject: "已拒绝提案产物；当前策略保持不变。",
+    request_promotion: "已请求显式晋升申请产物；候选创建仍是单独任务。",
+  }[decision] || "已审阅提案产物。";
 }
 
 function proposalReviewDecisionText(value) {
   return {
-    approve: "proposal approved",
-    reject: "proposal rejected",
-    request_promotion: "promotion requested",
+    approve: "提案已批准",
+    reject: "提案已拒绝",
+    request_promotion: "已请求晋升",
   }[value] || dash(value);
 }
 
@@ -7313,20 +7862,20 @@ function proposalReviewDecisionClass(value) {
 
 function hypothesisNextActionText(value) {
   return {
-    move_to_testing: "进入 testing",
-    create_backtest_artifact: "创建回测 artifact",
+    move_to_testing: "进入验证",
+    create_backtest_artifact: "创建回测产物",
     attach_validation_evidence: "补验证证据",
-    fix_backtest_artifact: "修复 artifact",
+    fix_backtest_artifact: "修复产物",
     continue_testing: "继续验证",
     ready_to_accept: "可接受复核",
-    create_strategy_version_proposal: "创建 proposal",
-    fix_strategy_version_proposal: "修复 proposal",
-    review_strategy_version_proposal: "审阅 proposal",
-    fix_strategy_version_proposal_review: "修复 review artifact",
-    request_strategy_promotion: "请求 promotion",
-    promotion_requested: "promotion requested",
-    proposal_rejected: "proposal rejected",
-    proposal_ready: "proposal ready",
+    create_strategy_version_proposal: "创建提案",
+    fix_strategy_version_proposal: "修复提案",
+    review_strategy_version_proposal: "审阅提案",
+    fix_strategy_version_proposal_review: "修复复核产物",
+    request_strategy_promotion: "请求晋升",
+    promotion_requested: "已请求晋升",
+    proposal_rejected: "提案已拒绝",
+    proposal_ready: "提案就绪",
     strategy_version_task_required: "单独策略版本任务",
     reject_or_rewrite: "拒绝或重写",
     closed_rejected: "已关闭：拒绝",
@@ -7389,7 +7938,14 @@ function importanceText(value) {
 }
 
 function scopeText(scopeType, scopeKey) {
-  return `${dash(scopeType)}:${dash(scopeKey)}`;
+  const label = {
+    market: "市场",
+    sector: "板块",
+    stock: "个股",
+    index: "指数",
+    account: "账户",
+  }[scopeType] || dash(scopeType);
+  return `${label}：${dash(scopeKey)}`;
 }
 
 function featureLabel(key) {
@@ -7451,8 +8007,8 @@ function agentSourceText(value) {
   return {
     local_snapshot_mode: "TradingAgents 本地快照模式",
     external_graph_mode: "TradingAgents 外部图模式",
-    unavailable_fallback: "TradingAgents 不可用 fallback",
-    dry_run: "dry-run preview",
+    unavailable_fallback: "TradingAgents 不可用兜底模式",
+    dry_run: "预演模式",
   }[value] || "TradingAgents 输出";
 }
 
@@ -7545,16 +8101,16 @@ function reviewHistorySubtext(item) {
     `信号 ${integerText(item.signals_count)}`,
   ];
   if (item.score != null) parts.push(`评分 ${numberText(item.score, 2)}`);
-  if (item.agent_action) parts.push(`AI ${agentActionText(item.agent_action)}`);
+  if (item.agent_action) parts.push(`智能体 ${agentActionText(item.agent_action)}`);
   return parts.join(" / ");
 }
 
 function reviewHistoryMetaText(item) {
   const parts = [];
   if (item.created_at) parts.push(`创建 ${displayTimestamp(item.created_at)}`);
-  if (Number(item.blocker_count || 0) > 0) parts.push(`${integerText(item.blocker_count)} blocker`);
-  if (Number(item.warning_count || 0) > 0) parts.push(`${integerText(item.warning_count)} warning`);
-  if (item.agent_status) parts.push(`Agent ${agentRunStatusText(item.agent_status)}`);
+  if (Number(item.blocker_count || 0) > 0) parts.push(`${integerText(item.blocker_count)} 个阻断`);
+  if (Number(item.warning_count || 0) > 0) parts.push(`${integerText(item.warning_count)} 个警告`);
+  if (item.agent_status) parts.push(`智能体 ${agentRunStatusText(item.agent_status)}`);
   return parts.join(" / ");
 }
 
@@ -7574,7 +8130,7 @@ function reviewTimelineMarketText(item) {
 
 function reviewTimelinePlanContextText(item) {
   if (!item.plan_context_management_action) {
-    return item.trade_plan_id ? "暂无 plan-context" : "无关联计划";
+    return item.trade_plan_id ? "暂无计划上下文" : "无关联计划";
   }
   return `${alignmentText(item.plan_context_alignment)} / ${riskText(item.plan_context_risk_level)} / ${managementActionText(item.plan_context_management_action)}`;
 }
@@ -7599,9 +8155,9 @@ function renderReviewTimelineBadges(item) {
     chips.push(chipHtml(managementActionShortText(item.plan_context_management_action), managementActionClass(item.plan_context_management_action)));
   }
   if (Number(item.blocker_count || 0) > 0) {
-    chips.push(chipHtml(`${integerText(item.blocker_count)} blocker`, "chip-red"));
+    chips.push(chipHtml(`${integerText(item.blocker_count)} 个阻断`, "chip-red"));
   } else if (Number(item.warning_count || 0) > 0) {
-    chips.push(chipHtml(`${integerText(item.warning_count)} warning`, "chip-amber"));
+    chips.push(chipHtml(`${integerText(item.warning_count)} 个警告`, "chip-amber"));
   }
   return chips.join("");
 }
@@ -7612,12 +8168,12 @@ function renderReviewHistoryBadges(item) {
     chips.push(chipHtml(statusText(item.trade_plan_status), statusClass(item.trade_plan_status)));
   }
   if (item.agent_status) {
-    chips.push(chipHtml(`Agent ${agentRunStatusText(item.agent_status)}`, agentRunStatusClass(item.agent_status)));
+    chips.push(chipHtml(`智能体 ${agentRunStatusText(item.agent_status)}`, agentRunStatusClass(item.agent_status)));
   }
   if (Number(item.blocker_count || 0) > 0) {
-    chips.push(chipHtml(`${integerText(item.blocker_count)} blocker`, "chip-red"));
+    chips.push(chipHtml(`${integerText(item.blocker_count)} 个阻断`, "chip-red"));
   } else if (Number(item.warning_count || 0) > 0) {
-    chips.push(chipHtml(`${integerText(item.warning_count)} warning`, "chip-amber"));
+    chips.push(chipHtml(`${integerText(item.warning_count)} 个警告`, "chip-amber"));
   } else if (item.daily_pick_id) {
     chips.push(chipHtml("有候选", "chip-blue"));
   } else {
@@ -7729,7 +8285,7 @@ function actionMetrics(items) {
   return `
     <div class="action-meta">
       ${items.map(([label, value]) => `
-        <div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></div>
+        <div class="metric"><span>${escapeHtml(uiLabelText(label))}</span><strong>${escapeHtml(uiValueText(value))}</strong></div>
       `).join("")}
     </div>
   `;
@@ -7790,6 +8346,10 @@ function dash(value) {
 
 function listValue(value) {
   return Array.isArray(value) ? value.filter((item) => item != null && String(item).trim() !== "").map(String) : [];
+}
+
+function arrayValue(value) {
+  return Array.isArray(value) ? value.filter((item) => item != null) : [];
 }
 
 function uniqueTextList(values) {

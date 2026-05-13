@@ -4444,6 +4444,18 @@ def _write_daily_pipeline_result(stdout: TextIO, result: ServiceResult[object]) 
         "shadow_observation_blockers="
         f"{getattr(data, 'shadow_observation_blockers', None) or 'none'}\n"
     )
+    stdout.write(
+        "shadow_walk_forward_outcomes_status="
+        f"{getattr(data, 'shadow_walk_forward_outcomes_status', None) or 'none'}\n"
+    )
+    stdout.write(
+        "shadow_walk_forward_outcomes_availability="
+        f"{getattr(data, 'shadow_walk_forward_outcomes_availability', None) or 'none'}\n"
+    )
+    stdout.write(
+        "shadow_walk_forward_outcomes_blockers="
+        f"{getattr(data, 'shadow_walk_forward_outcomes_blockers', None) or 'none'}\n"
+    )
     stdout.write(f"shadow_evidence_status={getattr(data, 'shadow_evidence_status', None) or 'none'}\n")
     stdout.write(f"shadow_evidence_artifacts={getattr(data, 'shadow_evidence_artifacts', None) or 'none'}\n")
     stdout.write(f"shadow_evidence_blockers={getattr(data, 'shadow_evidence_blockers', None) or 'none'}\n")

@@ -38,6 +38,9 @@ class _FakePipelineData:
     shadow_observation_status: str | None = "blocked"
     shadow_observation_top_candidates: str | None = "trend_extension_shadow[status=blocked,today=3]"
     shadow_observation_blockers: str | None = "operator_review_required:1"
+    shadow_walk_forward_outcomes_status: str | None = "partial"
+    shadow_walk_forward_outcomes_availability: str | None = "signals=12,complete=9,partial=3,missing_bars=0"
+    shadow_walk_forward_outcomes_blockers: str | None = "shadow_walk_forward_partial_horizon"
     shadow_evidence_status: str | None = "blocked"
     shadow_evidence_artifacts: str | None = "dossier:pass;replay_backtest_evidence:blocked;review_request:missing;scorecard:pass"
     shadow_evidence_blockers: str | None = "shadow_review_request_json_missing;shadow_replay_backtest_evidence_missing"
@@ -114,6 +117,9 @@ class CliDailyPipelineTest(unittest.TestCase):
         self.assertIn("shadow_observation_status=blocked", output)
         self.assertIn("shadow_observation_top_candidates=trend_extension_shadow", output)
         self.assertIn("shadow_observation_blockers=operator_review_required:1", output)
+        self.assertIn("shadow_walk_forward_outcomes_status=partial", output)
+        self.assertIn("shadow_walk_forward_outcomes_availability=signals=12,complete=9,partial=3,missing_bars=0", output)
+        self.assertIn("shadow_walk_forward_outcomes_blockers=shadow_walk_forward_partial_horizon", output)
         self.assertIn("shadow_evidence_status=blocked", output)
         self.assertIn("shadow_evidence_artifacts=dossier:pass", output)
         self.assertIn("shadow_evidence_blockers=shadow_review_request_json_missing", output)

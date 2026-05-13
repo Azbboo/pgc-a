@@ -44,6 +44,8 @@ SHADOW_RESEARCH_ARTIFACTS = {
 }
 SHADOW_THRESHOLD_CALIBRATION_CONTRACT = "shadow_threshold_calibration_v1"
 SHADOW_THRESHOLD_CALIBRATION_ARTIFACT_TYPE = "shadow_threshold_calibration"
+SHADOW_EXPERIMENT_REGISTRY_CONTRACT = "shadow_strategy_experiment_registry_v1"
+SHADOW_EXPERIMENT_REGISTRY_ARTIFACT_TYPE = "shadow_strategy_experiment_registry"
 SHADOW_THRESHOLD_CALIBRATION_CANDIDATES = (
     "trend_extension_shadow",
     "breakout_pressure_shadow",
@@ -87,6 +89,16 @@ SHADOW_THRESHOLD_VARIANTS: tuple[dict[str, Any], ...] = (
     },
 )
 TRADE_STATE_TABLES = ("strategy_versions", "trade_plans", "trades", "positions")
+SHADOW_BLOCKED_MUTATION_TARGETS = (
+    "active_cpb_params",
+    "strategy_versions",
+    "trade_plans",
+    "trades",
+    "positions",
+    "paper_live_behavior",
+    "broker_execution",
+    "timer_state",
+)
 
 
 @dataclass(frozen=True)
@@ -120,6 +132,13 @@ class RegisterShadowStrategyCandidatesRequest:
 @dataclass(frozen=True)
 class BuildShadowThresholdCalibrationRequest:
     as_of_date: str | None = None
+    output_path: str | None = None
+
+
+@dataclass(frozen=True)
+class BuildShadowExperimentRegistryRequest:
+    as_of_date: str | None = None
+    calibration_artifact_path: str | None = None
     output_path: str | None = None
 
 
@@ -189,6 +208,24 @@ class BuildShadowThresholdCalibrationResult:
     wrote_artifact: bool = False
     artifact_path: str | None = None
     markdown_path: str | None = None
+    artifact: dict[str, Any] = field(default_factory=dict)
+    summary: dict[str, Any] = field(default_factory=dict)
+    active_params_mutated: bool = False
+    wrote_strategy_version: bool = False
+    wrote_strategy_versions: bool = False
+    writes_trade_state: bool = False
+    writes_paper_live_behavior: bool = False
+    timer_mutated: bool = False
+
+
+@dataclass(frozen=True)
+class BuildShadowExperimentRegistryResult:
+    as_of_date: str | None = None
+    would_write_artifact: bool = False
+    wrote_artifact: bool = False
+    artifact_path: str | None = None
+    markdown_path: str | None = None
+    calibration_artifact_path: str | None = None
     artifact: dict[str, Any] = field(default_factory=dict)
     summary: dict[str, Any] = field(default_factory=dict)
     active_params_mutated: bool = False
@@ -349,6 +386,29 @@ class ShadowThresholdCalibrationArtifactReview:
     rejected_variant_count: int = 0
     artifact_only: bool | None = None
     promotion_allowed: bool | None = None
+    active_params_mutated: bool | None = None
+    wrote_strategy_version: bool | None = None
+    wrote_strategy_versions: bool | None = None
+    writes_trade_state: bool | None = None
+    writes_paper_live_behavior: bool | None = None
+    timer_mutated: bool | None = None
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class ShadowExperimentRegistryArtifactReview:
+    path: str
+    exists: bool
+    valid: bool
+    artifact_type: str | None = None
+    registry_contract: str | None = None
+    source_calibration_contract: str | None = None
+    as_of_date: str | None = None
+    experiment_count: int = 0
+    candidate_count: int = 0
+    artifact_only: bool | None = None
+    promotion_allowed: bool | None = None
+    strategy_version_publication_allowed: bool | None = None
     active_params_mutated: bool | None = None
     wrote_strategy_version: bool | None = None
     wrote_strategy_versions: bool | None = None
@@ -710,6 +770,136 @@ class StrategyEvolutionService:
                 "artifact_path": str(artifact_path),
                 "markdown_path": str(markdown_path),
                 "calibration_contract": SHADOW_THRESHOLD_CALIBRATION_CONTRACT,
+            },
+        )
+
+    def build_shadow_experiment_registry(
+        self,
+        request: BuildShadowExperimentRegistryRequest,
+        ctx: RequestContext,
+    ) -> ServiceResult[BuildShadowExperimentRegistryResult]:
+        validation_errors = _validate_shadow_experiment_registry_request(request)
+        if validation_errors:
+            return ServiceResult(
+                status="validation_failed",
+                request_id=ctx.request_id,
+                data=BuildShadowExperimentRegistryResult(as_of_date=request.as_of_date),
+                errors=validation_errors,
+            )
+
+        calibration_path = _shadow_experiment_registry_calibration_path(self.reports_dir, request)
+        if calibration_path is None:
+            return ServiceResult(
+                status="validation_failed",
+                request_id=ctx.request_id,
+                data=BuildShadowExperimentRegistryResult(as_of_date=request.as_of_date),
+                errors=[
+                    ServiceError(
+                        code="SHADOW_THRESHOLD_CALIBRATION_NOT_FOUND",
+                        message="shadow threshold calibration artifact was not found for the requested date.",
+                        entity_type="shadow_threshold_calibration",
+                    )
+                ],
+            )
+        calibration_review = review_shadow_threshold_calibration_artifact(calibration_path)
+        if not calibration_review.valid:
+            return ServiceResult(
+                status="validation_failed",
+                request_id=ctx.request_id,
+                data=BuildShadowExperimentRegistryResult(
+                    as_of_date=request.as_of_date,
+                    calibration_artifact_path=str(calibration_path),
+                ),
+                errors=[
+                    ServiceError(
+                        code="SHADOW_THRESHOLD_CALIBRATION_INVALID",
+                        message=calibration_review.error
+                        or "shadow threshold calibration artifact failed artifact-only review.",
+                        entity_type="shadow_threshold_calibration",
+                    )
+                ],
+            )
+
+        calibration_artifact = _read_json_object_or_empty(calibration_path)
+        trade_counts_before = _trade_state_counts(self.db_path)
+        artifact = _build_shadow_experiment_registry_artifact(
+            calibration_artifact=calibration_artifact,
+            calibration_path=calibration_path,
+            calibration_review=calibration_review,
+            operator=ctx.operator,
+            trade_counts_before=trade_counts_before,
+            trade_counts_after=_trade_state_counts(self.db_path),
+        )
+        summary = _mapping(artifact.get("summary"))
+        artifact_path = self._shadow_experiment_registry_artifact_path(request, artifact)
+        markdown_path = artifact_path.with_suffix(".md")
+
+        if ctx.dry_run:
+            return ServiceResult(
+                status="success",
+                request_id=ctx.request_id,
+                data=BuildShadowExperimentRegistryResult(
+                    as_of_date=_optional_text(artifact.get("as_of_date")),
+                    would_write_artifact=True,
+                    wrote_artifact=False,
+                    artifact_path=None,
+                    markdown_path=None,
+                    calibration_artifact_path=str(calibration_path),
+                    artifact=artifact,
+                    summary=summary,
+                    active_params_mutated=False,
+                    wrote_strategy_version=False,
+                    wrote_strategy_versions=False,
+                    writes_trade_state=False,
+                    writes_paper_live_behavior=False,
+                    timer_mutated=False,
+                ),
+                warnings=[
+                    ServiceWarning(
+                        code="SHADOW_EXPERIMENT_REGISTRY_DRY_RUN",
+                        message=(
+                            "Shadow experiment registry artifact was built in memory only; no strategy "
+                            "params, strategy versions, trade state, paper/live behavior, or timers were changed."
+                        ),
+                    )
+                ],
+                lineage={
+                    "as_of_date": artifact.get("as_of_date"),
+                    "artifact_path": str(artifact_path),
+                    "markdown_path": str(markdown_path),
+                    "calibration_artifact_path": str(calibration_path),
+                    "registry_contract": SHADOW_EXPERIMENT_REGISTRY_CONTRACT,
+                },
+            )
+
+        self._write_shadow_experiment_registry_artifact(artifact_path, artifact)
+        self._write_shadow_experiment_registry_markdown(markdown_path, artifact)
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data=BuildShadowExperimentRegistryResult(
+                as_of_date=_optional_text(artifact.get("as_of_date")),
+                would_write_artifact=True,
+                wrote_artifact=True,
+                artifact_path=str(artifact_path),
+                markdown_path=str(markdown_path),
+                calibration_artifact_path=str(calibration_path),
+                artifact=artifact,
+                summary=summary,
+                active_params_mutated=False,
+                wrote_strategy_version=False,
+                wrote_strategy_versions=False,
+                writes_trade_state=False,
+                writes_paper_live_behavior=False,
+                timer_mutated=False,
+            ),
+            created_ids={"shadow_strategy_experiment_registry_artifact": _optional_text(artifact.get("as_of_date"))},
+            lineage={
+                "as_of_date": artifact.get("as_of_date"),
+                "artifact_path": str(artifact_path),
+                "markdown_path": str(markdown_path),
+                "calibration_artifact_path": str(calibration_path),
+                "registry_contract": SHADOW_EXPERIMENT_REGISTRY_CONTRACT,
             },
         )
 
@@ -1282,6 +1472,24 @@ class StrategyEvolutionService:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(_render_shadow_threshold_calibration_markdown(artifact), encoding="utf-8")
 
+    def _shadow_experiment_registry_artifact_path(
+        self,
+        request: BuildShadowExperimentRegistryRequest,
+        artifact: Mapping[str, Any],
+    ) -> Path:
+        if request.output_path is not None:
+            return Path(request.output_path).expanduser()
+        as_of_date = _optional_text(artifact.get("as_of_date")) or "latest"
+        return self.reports_dir / f"shadow_strategy_experiment_registry_{as_of_date}.json"
+
+    def _write_shadow_experiment_registry_artifact(self, path: Path, artifact: dict[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_json_dumps(artifact) + "\n", encoding="utf-8")
+
+    def _write_shadow_experiment_registry_markdown(self, path: Path, artifact: dict[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_render_shadow_experiment_registry_markdown(artifact), encoding="utf-8")
+
 
 def _validate_propose_request(request: ProposeStrategyHypothesesRequest) -> list[ServiceError]:
     if not is_yyyymmdd(request.as_of_date):
@@ -1331,6 +1539,19 @@ def _validate_shadow_threshold_calibration_request(
     errors: list[ServiceError] = []
     if request.as_of_date is not None and not is_yyyymmdd(request.as_of_date):
         errors.append(ServiceError(code="VALIDATION_ERROR", message="as_of_date must use YYYYMMDD format."))
+    if request.output_path is not None and not str(request.output_path).strip():
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="output_path must not be blank."))
+    return errors
+
+
+def _validate_shadow_experiment_registry_request(
+    request: BuildShadowExperimentRegistryRequest,
+) -> list[ServiceError]:
+    errors: list[ServiceError] = []
+    if request.as_of_date is not None and not is_yyyymmdd(request.as_of_date):
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="as_of_date must use YYYYMMDD format."))
+    if request.calibration_artifact_path is not None and not str(request.calibration_artifact_path).strip():
+        errors.append(ServiceError(code="VALIDATION_ERROR", message="calibration_artifact_path must not be blank."))
     if request.output_path is not None and not str(request.output_path).strip():
         errors.append(ServiceError(code="VALIDATION_ERROR", message="output_path must not be blank."))
     return errors
@@ -2245,6 +2466,171 @@ def review_shadow_threshold_calibration_artifact(
     )
 
 
+def review_shadow_strategy_experiment_registry_artifact(
+    artifact_path: str | Path,
+) -> ShadowExperimentRegistryArtifactReview:
+    path = Path(artifact_path).expanduser()
+    if not path.exists():
+        return ShadowExperimentRegistryArtifactReview(
+            path=str(path),
+            exists=False,
+            valid=False,
+            error="shadow strategy experiment registry artifact was not found.",
+        )
+    try:
+        artifact = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return ShadowExperimentRegistryArtifactReview(
+            path=str(path),
+            exists=True,
+            valid=False,
+            error=f"shadow strategy experiment registry artifact is not valid JSON: {exc}",
+        )
+    if not isinstance(artifact, dict):
+        return ShadowExperimentRegistryArtifactReview(
+            path=str(path),
+            exists=True,
+            valid=False,
+            error="shadow strategy experiment registry artifact must be a JSON object.",
+        )
+
+    artifact_type = _optional_text(artifact.get("artifact_type"))
+    registry_contract = _optional_text(artifact.get("registry_contract"))
+    source_calibration = _mapping(artifact.get("source_calibration"))
+    source_calibration_contract = _optional_text(source_calibration.get("calibration_contract"))
+    summary = _mapping(artifact.get("summary"))
+    release_gate = _mapping(artifact.get("release_gate"))
+    safety = _mapping(artifact.get("safety"))
+    manual_boundaries = _mapping(artifact.get("manual_approval_boundaries"))
+    experiments = _list_mapping(artifact.get("experiments"))
+    experiment_safeties = [_mapping(experiment.get("safety")) for experiment in experiments]
+    experiment_boundaries = [
+        _mapping(experiment.get("manual_approval_boundaries"))
+        for experiment in experiments
+    ]
+    experiment_release_gates = [_mapping(experiment.get("release_gate")) for experiment in experiments]
+    safety_contexts = [
+        summary,
+        release_gate,
+        safety,
+        manual_boundaries,
+        *experiment_safeties,
+        *experiment_boundaries,
+        *experiment_release_gates,
+    ]
+
+    artifact_only = (
+        bool(summary.get("artifact_only"))
+        and bool(safety.get("artifact_only"))
+        and all(bool(experiment.get("artifact_only")) for experiment in experiments)
+    )
+    promotion_allowed = _any_truthy_flag(
+        safety_contexts,
+        "promotion_allowed",
+        "active_promotion_allowed",
+        "paper_observation_allowed",
+        "review_approval_allowed",
+    )
+    strategy_version_publication_allowed = _any_truthy_flag(
+        safety_contexts,
+        "strategy_version_publication_allowed",
+        "creates_strategy_version_row",
+        "wrote_strategy_version",
+        "wrote_strategy_versions",
+        "future_strategy_version_publication_allowed",
+    )
+    active_params_mutated = _any_truthy_flag(
+        safety_contexts,
+        "active_params_mutated",
+        "active_params_mutation_allowed",
+    )
+    wrote_strategy_version = _any_truthy_flag(safety_contexts, "wrote_strategy_version")
+    wrote_strategy_versions = _any_truthy_flag(safety_contexts, "wrote_strategy_versions")
+    writes_trade_state = _any_truthy_flag(
+        safety_contexts,
+        "writes_trade_state",
+        "trade_state_writes_allowed",
+        "trade_plan_writes_allowed",
+    )
+    writes_paper_live_behavior = _any_truthy_flag(
+        safety_contexts,
+        "writes_paper_live_behavior",
+        "paper_live_behavior_change_allowed",
+        "broker_execution_allowed",
+    )
+    timer_mutated = _any_truthy_flag(safety_contexts, "timer_mutated", "timer_mutation_allowed")
+    manual_required = bool(manual_boundaries.get("manual_promotion_approval_required"))
+    experiment_manual_required = all(
+        bool(boundary.get("manual_promotion_approval_required"))
+        for boundary in experiment_boundaries
+    )
+    valid_safety = artifact_only and manual_required and experiment_manual_required and not any(
+        [
+            promotion_allowed,
+            strategy_version_publication_allowed,
+            active_params_mutated,
+            wrote_strategy_version,
+            wrote_strategy_versions,
+            writes_trade_state,
+            writes_paper_live_behavior,
+            timer_mutated,
+        ]
+    )
+
+    candidate_keys = {
+        str(experiment.get("candidate_key"))
+        for experiment in experiments
+        if experiment.get("candidate_key") is not None
+    }
+    error = None
+    if artifact_type != SHADOW_EXPERIMENT_REGISTRY_ARTIFACT_TYPE:
+        error = (
+            "shadow strategy experiment registry artifact must use "
+            "artifact_type=shadow_strategy_experiment_registry."
+        )
+    elif registry_contract != SHADOW_EXPERIMENT_REGISTRY_CONTRACT:
+        error = (
+            "shadow strategy experiment registry artifact must use "
+            "registry_contract=shadow_strategy_experiment_registry_v1."
+        )
+    elif source_calibration_contract != SHADOW_THRESHOLD_CALIBRATION_CONTRACT:
+        error = "shadow strategy experiment registry must reference shadow_threshold_calibration_v1."
+    elif not experiments:
+        error = "shadow strategy experiment registry must include experiments."
+    elif not all(_optional_text(experiment.get("experiment_key")) for experiment in experiments):
+        error = "shadow strategy experiment registry experiments must include experiment_key."
+    elif not all(_list_mapping(experiment.get("required_evidence")) for experiment in experiments):
+        error = "shadow strategy experiment registry experiments must include required evidence."
+    elif not all(_list_mapping(experiment.get("stop_rules")) for experiment in experiments):
+        error = "shadow strategy experiment registry experiments must include stop rules."
+    elif not all(_list_mapping(experiment.get("rollback_rules")) for experiment in experiments):
+        error = "shadow strategy experiment registry experiments must include rollback rules."
+    elif not valid_safety:
+        error = "shadow strategy experiment registry reports mutation or promotion permission."
+
+    return ShadowExperimentRegistryArtifactReview(
+        path=str(path),
+        exists=True,
+        valid=error is None,
+        artifact_type=artifact_type,
+        registry_contract=registry_contract,
+        source_calibration_contract=source_calibration_contract,
+        as_of_date=_optional_text(artifact.get("as_of_date")),
+        experiment_count=_optional_int(summary.get("experiment_count")) or len(experiments),
+        candidate_count=_optional_int(summary.get("candidate_count")) or len(candidate_keys),
+        artifact_only=artifact_only,
+        promotion_allowed=promotion_allowed,
+        strategy_version_publication_allowed=strategy_version_publication_allowed,
+        active_params_mutated=active_params_mutated,
+        wrote_strategy_version=wrote_strategy_version,
+        wrote_strategy_versions=wrote_strategy_versions,
+        writes_trade_state=writes_trade_state,
+        writes_paper_live_behavior=writes_paper_live_behavior,
+        timer_mutated=timer_mutated,
+        error=error,
+    )
+
+
 def _build_shadow_threshold_calibration_artifact(
     *,
     reports_dir: Path,
@@ -2361,6 +2747,424 @@ def _build_shadow_threshold_calibration_artifact(
             ],
         },
         "safety": safety,
+    }
+
+
+def _build_shadow_experiment_registry_artifact(
+    *,
+    calibration_artifact: Mapping[str, Any],
+    calibration_path: Path,
+    calibration_review: ShadowThresholdCalibrationArtifactReview,
+    operator: str | None,
+    trade_counts_before: Mapping[str, int],
+    trade_counts_after: Mapping[str, int],
+) -> dict[str, Any]:
+    as_of_date = _optional_text(calibration_artifact.get("as_of_date")) or calibration_review.as_of_date
+    candidates = _list_mapping(calibration_artifact.get("candidates"))
+    candidate_by_key = {
+        str(candidate.get("candidate_key")): candidate
+        for candidate in candidates
+        if candidate.get("candidate_key") is not None
+    }
+    recommendations = _list_mapping(calibration_artifact.get("recommended_next_experiments"))
+    experiments = [
+        _shadow_experiment_payload(recommendation, candidate_by_key.get(str(recommendation.get("candidate_key")), {}))
+        for recommendation in recommendations
+    ]
+    evidence_status_counts: dict[str, int] = {}
+    for experiment in experiments:
+        status = str(_mapping(experiment.get("replay_evidence")).get("status") or "missing")
+        evidence_status_counts[status] = evidence_status_counts.get(status, 0) + 1
+    candidate_keys = sorted(
+        {
+            str(experiment.get("candidate_key"))
+            for experiment in experiments
+            if experiment.get("candidate_key") is not None
+        }
+    )
+    safety = _shadow_experiment_registry_safety(trade_counts_before, trade_counts_after)
+    manual_boundaries = _shadow_experiment_manual_boundaries()
+    summary = {
+        "status": "artifact_only",
+        "candidate_count": len(candidate_keys),
+        "experiment_count": len(experiments),
+        "calibration_recommended_next_experiment_count": len(recommendations),
+        "replay_evidence_status_counts": evidence_status_counts,
+        "blocked_by_replay_evidence_count": sum(
+            1
+            for experiment in experiments
+            if _mapping(experiment.get("replay_evidence")).get("status") != "accepted"
+        ),
+        "blocked_by_sample_count": sum(
+            1
+            for experiment in experiments
+            if not bool(_mapping(experiment.get("sample_requirements")).get("meets_min_sample_size"))
+        ),
+        "blocked_by_frozen_cpb_count": sum(
+            1
+            for experiment in experiments
+            if _mapping(experiment.get("frozen_cpb_comparison")).get("status") != "compared"
+        ),
+        "artifact_only": True,
+        "promotion_allowed": False,
+        "active_params_mutated": False,
+        "writes_trade_state": False,
+        "timer_mutated": False,
+    }
+    return {
+        "artifact_type": SHADOW_EXPERIMENT_REGISTRY_ARTIFACT_TYPE,
+        "registry_contract": SHADOW_EXPERIMENT_REGISTRY_CONTRACT,
+        "artifact_version": 1,
+        "generated_at": _utc_timestamp(),
+        "operator": operator,
+        "as_of_date": as_of_date,
+        "source_calibration": {
+            "artifact_path": str(calibration_path),
+            "artifact_type": calibration_review.artifact_type,
+            "calibration_contract": calibration_review.calibration_contract,
+            "as_of_date": calibration_review.as_of_date,
+            "valid": calibration_review.valid,
+            "candidate_count": calibration_review.candidate_count,
+            "recommended_next_experiment_count": calibration_review.recommended_next_experiment_count,
+            "artifact_only": calibration_review.artifact_only,
+            "promotion_allowed": calibration_review.promotion_allowed,
+        },
+        "source_artifacts": {
+            "shadow_threshold_calibration": str(calibration_path),
+            **_mapping(calibration_artifact.get("source_artifacts")),
+        },
+        "summary": summary,
+        "manual_approval_boundaries": manual_boundaries,
+        "experiments": experiments,
+        "release_gate": {
+            "status": "blocked",
+            "artifact_only": True,
+            "registry_is_not_approval": True,
+            "manual_promotion_approval_required": True,
+            "promotion_allowed": False,
+            "paper_observation_allowed": False,
+            "strategy_version_publication_allowed": False,
+            "blocked_mutation_targets": list(SHADOW_BLOCKED_MUTATION_TARGETS),
+        },
+        "read_only_guard": {
+            "trade_state_tables": list(TRADE_STATE_TABLES),
+            "trade_state_counts_before": dict(trade_counts_before),
+            "trade_state_counts_after": dict(trade_counts_after),
+            "trade_state_counts_unchanged": dict(trade_counts_before) == dict(trade_counts_after),
+            "changed_tables": [
+                table
+                for table in TRADE_STATE_TABLES
+                if trade_counts_before.get(table) != trade_counts_after.get(table)
+            ],
+        },
+        "safety": safety,
+    }
+
+
+def _shadow_experiment_payload(
+    recommendation: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+) -> dict[str, Any]:
+    candidate_key = (
+        _optional_text(recommendation.get("candidate_key"))
+        or _optional_text(candidate.get("candidate_key"))
+        or "unknown"
+    )
+    candidate_family = (
+        _optional_text(recommendation.get("candidate_family"))
+        or _optional_text(candidate.get("candidate_family"))
+        or _candidate_family_for_key(candidate_key)
+    )
+    metrics = _mapping(candidate.get("metrics"))
+    replay_evidence = _shadow_experiment_replay_evidence(metrics, candidate_key)
+    variant_result = _shadow_experiment_variant_result(candidate, _optional_text(recommendation.get("recommended_variant")))
+    thresholds = _mapping(variant_result.get("thresholds"))
+    sample_requirements = _shadow_experiment_sample_requirements(metrics, thresholds)
+    frozen_cpb_comparison = _mapping(metrics.get("frozen_cpb_comparison"))
+    missing_metrics = _shadow_experiment_missing_metrics(metrics, frozen_cpb_comparison, thresholds)
+    manual_boundaries = _shadow_experiment_manual_boundaries()
+    required_evidence = _shadow_experiment_required_evidence(
+        replay_evidence=replay_evidence,
+        sample_requirements=sample_requirements,
+        frozen_cpb_comparison=frozen_cpb_comparison,
+        missing_metrics=missing_metrics,
+    )
+    stop_rules = _shadow_experiment_stop_rules(
+        replay_evidence=replay_evidence,
+        sample_requirements=sample_requirements,
+        frozen_cpb_comparison=frozen_cpb_comparison,
+        variant_result=variant_result,
+        missing_metrics=missing_metrics,
+    )
+    return {
+        "experiment_key": _optional_text(recommendation.get("experiment_key"))
+        or f"{candidate_key}:shadow_experiment",
+        "status": "blocked",
+        "candidate_key": candidate_key,
+        "candidate_family": candidate_family,
+        "calibration_recommendation": {
+            "recommended_variant": recommendation.get("recommended_variant"),
+            "reason": recommendation.get("reason"),
+            "next_step": recommendation.get("next_step"),
+            "artifact_only": True,
+            "promotion_allowed": False,
+        },
+        "calibration_variant": {
+            "variant_key": recommendation.get("recommended_variant") or "collect_replay_evidence",
+            "source_threshold_variant": variant_result.get("variant_key"),
+            "source_threshold_variant_status": variant_result.get("status"),
+            "source_threshold_variant_passed": bool(variant_result.get("passed")),
+            "thresholds": thresholds,
+            "blockers": _list_text(variant_result.get("blockers")),
+            "artifact_only": True,
+            "promotion_allowed": False,
+        },
+        "replay_evidence": replay_evidence,
+        "sample_requirements": sample_requirements,
+        "frozen_cpb_comparison": frozen_cpb_comparison,
+        "calibration_metrics": {
+            "sample_size": metrics.get("sample_size"),
+            "win_rate_pct": metrics.get("win_rate_pct"),
+            "mean_return_pct": metrics.get("mean_return_pct"),
+            "median_return_pct": metrics.get("median_return_pct"),
+            "drawdown_proxy_pct": metrics.get("drawdown_proxy_pct"),
+            "missing_metric_keys": missing_metrics,
+            "metric_source_artifact": metrics.get("metric_source_artifact"),
+            "source_metric_keys": _list_text(metrics.get("source_metric_keys")),
+        },
+        "required_evidence": required_evidence,
+        "stop_rules": stop_rules,
+        "rollback_rules": _shadow_experiment_rollback_rules(),
+        "manual_approval_boundaries": manual_boundaries,
+        "release_gate": {
+            "status": "blocked",
+            "artifact_only": True,
+            "registry_is_not_approval": True,
+            "manual_promotion_approval_required": True,
+            "promotion_allowed": False,
+            "strategy_version_publication_allowed": False,
+            "paper_observation_allowed": False,
+        },
+        "safety": _shadow_experiment_item_safety(),
+        "artifact_only": True,
+        "promotion_allowed": False,
+    }
+
+
+def _shadow_experiment_variant_result(
+    candidate: Mapping[str, Any],
+    recommended_variant: str | None,
+) -> dict[str, Any]:
+    variant_results = _list_mapping(candidate.get("threshold_variant_results"))
+    if recommended_variant is not None:
+        for result in variant_results:
+            if result.get("variant_key") == recommended_variant:
+                return result
+    for result in variant_results:
+        if result.get("variant_key") == "current_shadow_review_gate":
+            return result
+    return variant_results[0] if variant_results else {}
+
+
+def _shadow_experiment_replay_evidence(metrics: Mapping[str, Any], candidate_key: str) -> dict[str, Any]:
+    evidence = _mapping(metrics.get("evidence_coverage"))
+    return {
+        "status": _optional_text(evidence.get("status")) or "missing",
+        "valid": bool(evidence.get("valid")),
+        "candidate_key": _optional_text(evidence.get("candidate_key")) or candidate_key,
+        "evidence_contract": evidence.get("evidence_contract") or "shadow_replay_backtest_evidence_v1",
+        "artifact_path": evidence.get("artifact_path"),
+        "source_hash": evidence.get("source_hash"),
+        "source_artifacts": _list_text(evidence.get("source_artifacts")),
+        "source_artifact_count": _int_value(evidence.get("source_artifact_count"), 0),
+        "blockers": _list_text(evidence.get("blockers")),
+        "advisory_only": True,
+        "promotion_allowed": False,
+    }
+
+
+def _shadow_experiment_sample_requirements(
+    metrics: Mapping[str, Any],
+    thresholds: Mapping[str, Any],
+) -> dict[str, Any]:
+    current_sample_size = _int_value(metrics.get("sample_size"), 0)
+    min_sample_size = _int_value(thresholds.get("min_sample_size"), 20)
+    return {
+        "current_sample_size": current_sample_size,
+        "min_sample_size": min_sample_size,
+        "remaining_sample_size": max(min_sample_size - current_sample_size, 0),
+        "meets_min_sample_size": current_sample_size >= min_sample_size,
+        "requires_accepted_replay_evidence": bool(thresholds.get("requires_accepted_replay_evidence", True)),
+        "artifact_only": True,
+        "promotion_allowed": False,
+    }
+
+
+def _shadow_experiment_missing_metrics(
+    metrics: Mapping[str, Any],
+    frozen_cpb_comparison: Mapping[str, Any],
+    thresholds: Mapping[str, Any],
+) -> list[str]:
+    required = ["sample_size", "win_rate_pct", "mean_return_pct", "drawdown_proxy_pct"]
+    if thresholds.get("min_median_return_pct") is not None:
+        required.append("median_return_pct")
+    missing = [key for key in required if metrics.get(key) is None]
+    if thresholds.get("min_frozen_cpb_delta_pct") is not None and frozen_cpb_comparison.get("mean_return_delta_pct") is None:
+        missing.append("frozen_cpb_delta_pct")
+    return missing
+
+
+def _shadow_experiment_required_evidence(
+    *,
+    replay_evidence: Mapping[str, Any],
+    sample_requirements: Mapping[str, Any],
+    frozen_cpb_comparison: Mapping[str, Any],
+    missing_metrics: list[str],
+) -> list[dict[str, Any]]:
+    replay_status = _optional_text(replay_evidence.get("status")) or "missing"
+    return [
+        {
+            "evidence_key": "accepted_replay_backtest_evidence",
+            "required": True,
+            "status": "clear" if replay_status == "accepted" else "blocking",
+            "evidence_contract": replay_evidence.get("evidence_contract"),
+            "artifact_path": replay_evidence.get("artifact_path"),
+            "blockers": _list_text(replay_evidence.get("blockers")),
+        },
+        {
+            "evidence_key": "minimum_sample_size",
+            "required": True,
+            "status": "clear" if sample_requirements.get("meets_min_sample_size") else "blocking",
+            "current_sample_size": sample_requirements.get("current_sample_size"),
+            "min_sample_size": sample_requirements.get("min_sample_size"),
+        },
+        {
+            "evidence_key": "metric_completeness",
+            "required": True,
+            "status": "clear" if not missing_metrics else "blocking",
+            "missing_metric_keys": missing_metrics,
+        },
+        {
+            "evidence_key": "frozen_cpb_comparison",
+            "required": True,
+            "status": "clear" if frozen_cpb_comparison.get("status") == "compared" else "blocking",
+            "comparison_status": frozen_cpb_comparison.get("status") or "missing",
+            "mean_return_delta_pct": frozen_cpb_comparison.get("mean_return_delta_pct"),
+            "source_artifact": frozen_cpb_comparison.get("source_artifact"),
+        },
+        {
+            "evidence_key": "manual_approval_boundary",
+            "required": True,
+            "status": "required",
+            "manual_promotion_approval_required": True,
+            "promotion_allowed": False,
+        },
+    ]
+
+
+def _shadow_experiment_stop_rules(
+    *,
+    replay_evidence: Mapping[str, Any],
+    sample_requirements: Mapping[str, Any],
+    frozen_cpb_comparison: Mapping[str, Any],
+    variant_result: Mapping[str, Any],
+    missing_metrics: list[str],
+) -> list[dict[str, Any]]:
+    replay_status = _optional_text(replay_evidence.get("status")) or "missing"
+    rules = [
+        {
+            "rule_key": "stop_if_replay_evidence_not_accepted",
+            "status": "clear" if replay_status == "accepted" else "blocking",
+            "trigger": "shadow_replay_backtest_evidence_v1 is missing or rejected",
+        },
+        {
+            "rule_key": "stop_if_sample_size_below_required",
+            "status": "clear" if sample_requirements.get("meets_min_sample_size") else "blocking",
+            "trigger": "current sample size is below the registry threshold",
+        },
+        {
+            "rule_key": "stop_if_metric_completeness_fails",
+            "status": "clear" if not missing_metrics else "blocking",
+            "trigger": "required calibration metrics are missing",
+            "missing_metric_keys": missing_metrics,
+        },
+        {
+            "rule_key": "stop_if_frozen_cpb_comparison_missing",
+            "status": "clear" if frozen_cpb_comparison.get("status") == "compared" else "blocking",
+            "trigger": "frozen-CPB comparison is missing or not comparable",
+        },
+        {
+            "rule_key": "stop_if_manual_approval_boundary_changes",
+            "status": "blocking",
+            "trigger": "promotion_allowed, strategy_version_publication_allowed, trade_state_writes_allowed, or timer_mutation_allowed becomes true",
+        },
+    ]
+    for blocker in _list_text(variant_result.get("blockers")):
+        rules.append(
+            {
+                "rule_key": f"calibration_blocker:{blocker}",
+                "status": "blocking",
+                "trigger": f"calibration blocker remains unresolved: {blocker}",
+            }
+        )
+    return rules
+
+
+def _shadow_experiment_rollback_rules() -> list[dict[str, Any]]:
+    return [
+        {
+            "rule_key": "rollback_by_rebuilding_artifact",
+            "action": "discard this registry artifact and rebuild from the latest valid calibration artifact",
+            "writes_trade_state": False,
+        },
+        {
+            "rule_key": "rollback_by_preserving_current_cpb",
+            "action": "keep active CPB params, strategy_versions, trade_plans, trades, positions, paper/live behavior, and timer state unchanged",
+            "writes_trade_state": False,
+        },
+    ]
+
+
+def _shadow_experiment_manual_boundaries() -> dict[str, Any]:
+    return {
+        "manual_promotion_approval_required": True,
+        "future_strategy_version_task_required": True,
+        "registry_is_not_approval": True,
+        "promotion_allowed": False,
+        "active_promotion_allowed": False,
+        "strategy_version_publication_allowed": False,
+        "active_params_mutation_allowed": False,
+        "trade_state_writes_allowed": False,
+        "paper_live_behavior_change_allowed": False,
+        "broker_execution_allowed": False,
+        "timer_mutation_allowed": False,
+        "blocked_mutation_targets": list(SHADOW_BLOCKED_MUTATION_TARGETS),
+    }
+
+
+def _shadow_experiment_item_safety() -> dict[str, Any]:
+    return {
+        "read_only": True,
+        "artifact_only": True,
+        "promotion_allowed": False,
+        "paper_observation_allowed": False,
+        "active_params_mutated": False,
+        "wrote_strategy_version": False,
+        "wrote_strategy_versions": False,
+        "writes_trade_state": False,
+        "writes_paper_live_behavior": False,
+        "timer_mutated": False,
+        "strategy_version_publication_allowed": False,
+    }
+
+
+def _shadow_experiment_registry_safety(
+    trade_counts_before: Mapping[str, int],
+    trade_counts_after: Mapping[str, int],
+) -> dict[str, Any]:
+    return {
+        **_shadow_experiment_item_safety(),
+        "trade_state_counts_unchanged": dict(trade_counts_before) == dict(trade_counts_after),
     }
 
 
@@ -2876,6 +3680,19 @@ def _latest_matching_artifact_path(reports_dir: Path, pattern: str, as_of_date: 
     return paths[-1] if paths else None
 
 
+def _shadow_experiment_registry_calibration_path(
+    reports_dir: Path,
+    request: BuildShadowExperimentRegistryRequest,
+) -> Path | None:
+    if request.calibration_artifact_path is not None:
+        return Path(request.calibration_artifact_path).expanduser()
+    return _latest_matching_artifact_path(
+        reports_dir,
+        "shadow_threshold_calibration_*.json",
+        request.as_of_date,
+    )
+
+
 def _read_json_object_or_empty(path: Path) -> dict[str, Any]:
     try:
         loaded = json.loads(path.read_text(encoding="utf-8"))
@@ -2946,6 +3763,83 @@ def _render_shadow_threshold_calibration_markdown(artifact: Mapping[str, Any]) -
             f"{', '.join(_list_text(item.get('reasons')))}"
         )
     lines.append("")
+    return "\n".join(lines)
+
+
+def _render_shadow_experiment_registry_markdown(artifact: Mapping[str, Any]) -> str:
+    summary = _mapping(artifact.get("summary"))
+    experiments = _list_mapping(artifact.get("experiments"))
+    lines = [
+        "# M97 Shadow Strategy Experiment Registry",
+        "",
+        f"- as_of_date: {artifact.get('as_of_date') or 'unknown'}",
+        "- registry_contract=shadow_strategy_experiment_registry_v1",
+        "- artifact_only=true",
+        "- promotion_allowed=false",
+        "- active_params_mutated=false",
+        "- writes_trade_state=false",
+        "- timer_mutated=false",
+        f"- experiments: {summary.get('experiment_count', len(experiments))}",
+        f"- blocked_by_replay_evidence: {summary.get('blocked_by_replay_evidence_count', 0)}",
+        f"- blocked_by_sample: {summary.get('blocked_by_sample_count', 0)}",
+        "",
+        "## Experiments",
+        "",
+    ]
+    lines.extend(
+        _markdown_table(
+            [
+                "Experiment",
+                "Candidate",
+                "Family",
+                "Variant",
+                "Replay",
+                "Sample",
+                "CPB Delta",
+                "Status",
+            ],
+            [
+                [
+                    experiment.get("experiment_key"),
+                    experiment.get("candidate_key"),
+                    experiment.get("candidate_family"),
+                    _mapping(experiment.get("calibration_variant")).get("variant_key"),
+                    _mapping(experiment.get("replay_evidence")).get("status"),
+                    (
+                        f"{_mapping(experiment.get('sample_requirements')).get('current_sample_size', 0)}"
+                        f"/{_mapping(experiment.get('sample_requirements')).get('min_sample_size', 0)}"
+                    ),
+                    _fmt_metric(_mapping(experiment.get("frozen_cpb_comparison")).get("mean_return_delta_pct")),
+                    experiment.get("status"),
+                ]
+                for experiment in experiments
+            ],
+        )
+    )
+    lines.extend(["", "## Stop Rules", ""])
+    for experiment in experiments:
+        blocking_rules = [
+            rule
+            for rule in _list_mapping(experiment.get("stop_rules"))
+            if rule.get("status") == "blocking"
+        ]
+        lines.append(
+            f"- {experiment.get('experiment_key')}: "
+            f"{', '.join(str(rule.get('rule_key')) for rule in blocking_rules) or 'none'}"
+        )
+    lines.extend(
+        [
+            "",
+            "## Manual Boundaries",
+            "",
+            "- manual_promotion_approval_required=true",
+            "- strategy_version_publication_allowed=false",
+            "- trade_state_writes_allowed=false",
+            "- paper_live_behavior_change_allowed=false",
+            "- timer_mutation_allowed=false",
+            "",
+        ]
+    )
     return "\n".join(lines)
 
 
@@ -3686,6 +4580,10 @@ def _list_text(value: object) -> list[str]:
     if value in (None, ""):
         return []
     return [str(value)]
+
+
+def _any_truthy_flag(contexts: list[Mapping[str, Any]], *keys: str) -> bool:
+    return any(bool(context.get(key)) for context in contexts for key in keys)
 
 
 def _first_float_value(*sources_and_keys: object) -> float | None:

@@ -22,6 +22,7 @@ from pgc_trading.services.common import RequestContext
 from pgc_trading.services.shadow_observation_service import (
     BuildShadowPromotionDossierRequest,
     BuildShadowPromotionReviewRequest,
+    BuildShadowWalkForwardOutcomesRequest,
     ShadowObservationService,
     apply_shadow_replay_backtest_evidence_to_blockers,
     load_shadow_replay_backtest_evidence_index,
@@ -150,6 +151,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--frozen-cpb-artifact", type=Path, default=DEFAULT_FROZEN_CPB_ARTIFACT)
     parser.add_argument("--preconfirm-watchlist-artifact", type=Path, default=DEFAULT_PRECONFIRM_ARTIFACT)
     parser.add_argument("--dip-buy-artifact", type=Path, default=DEFAULT_DIP_BUY_ARTIFACT)
+    parser.add_argument("--compact", action="store_true", help="Keep CLI output to the generated artifact paths.")
     return parser.parse_args()
 
 
@@ -299,6 +301,31 @@ def generate_shadow_monitor(
     write_csv(prior_csv_path, outcome_rows)
     write_csv(walk_csv_path, walk_forward["rows"])
     write_csv(watch_csv_path, [item.to_dict() for item in today_combined])
+    walk_forward_outcome_result = ShadowObservationService(db_path, reports_dir=reports_dir).build_walk_forward_outcomes(
+        BuildShadowWalkForwardOutcomesRequest(as_of_date=review_date),
+        RequestContext(
+            request_id=f"shadow-walk-forward-outcomes-{review_date}",
+            dry_run=False,
+            source="monitor-script",
+        ),
+    )
+    summary["shadow_walk_forward_outcomes"] = (
+        walk_forward_outcome_result.data.artifact
+        if walk_forward_outcome_result.ok and walk_forward_outcome_result.data is not None
+        else {
+            "artifact_type": "shadow_walk_forward_outcomes",
+            "outcomes_contract": "shadow_walk_forward_outcomes_v1",
+            "as_of_date": review_date,
+            "summary": {
+                "status": walk_forward_outcome_result.status,
+                "candidate_count": 0,
+                "signal_count": 0,
+                "promotion_allowed": False,
+            },
+            "errors": [error.code for error in walk_forward_outcome_result.errors],
+            "safety": artifact_safety_flags(),
+        }
+    )
     dossier_result = ShadowObservationService(db_path, reports_dir=reports_dir).build_promotion_dossier(
         BuildShadowPromotionDossierRequest(as_of_date=review_date),
         RequestContext(request_id=f"shadow-promotion-dossier-{review_date}", dry_run=False, source="monitor-script"),
@@ -348,12 +375,23 @@ def generate_shadow_monitor(
         "promotion_review_request_json": (
             review_request_result.data.artifact_path if review_request_result.data else None
         ),
+        "shadow_walk_forward_outcomes_report": (
+            walk_forward_outcome_result.data.markdown_path if walk_forward_outcome_result.data else None
+        ),
+        "shadow_walk_forward_outcomes_json": (
+            walk_forward_outcome_result.data.artifact_path if walk_forward_outcome_result.data else None
+        ),
         "shadow_observation_scorecard_report": str(scorecard_md_path),
         "shadow_observation_scorecard_json": str(scorecard_json_path),
         "prior_outcome_csv": str(prior_csv_path),
         "walk_forward_csv": str(walk_csv_path),
         "watchlist_csv": str(watch_csv_path),
     }
+    json_path.write_text(
+        json.dumps(repo_portable_payload(summary), ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    md_path.write_text(render_markdown(repo_portable_payload(summary)), encoding="utf-8")
     return summary
 
 
@@ -1519,6 +1557,18 @@ def render_markdown(summary: dict[str, Any]) -> str:
             candidate_monitor_rows(summary),
         )
     )
+    if isinstance(summary.get("shadow_walk_forward_outcomes"), dict):
+        outcome_summary = summary["shadow_walk_forward_outcomes"].get("summary", {})
+        lines.extend(["", "## Walk-forward Outcome Accumulator", ""])
+        lines.append(
+            "- 状态："
+            f"{outcome_summary.get('status', 'unknown')}；"
+            f"signals {outcome_summary.get('signal_count', 0)}；"
+            f"complete {outcome_summary.get('complete_count', 0)}；"
+            f"partial {outcome_summary.get('partial_horizon_count', 0)}；"
+            f"missing_bars {outcome_summary.get('missing_market_bar_count', 0)}。"
+        )
+        lines.append("- 边界：只追加 market_bars 标签，不写 strategy/trade/position/paper-live/timer。")
     lines.extend(["", "## 冻结 CPB 对照", ""])
     baseline = summary["frozen_cpb_baseline"]
     lines.append(f"- 来源：`{baseline.get('source_artifact')}`")

@@ -27,8 +27,13 @@ SHADOW_OBSERVATION_HISTORY_CONTRACT = "shadow_observation_history_v1"
 SHADOW_PROMOTION_DOSSIER_CONTRACT = "shadow_promotion_dossier_v1"
 SHADOW_PROMOTION_REVIEW_REQUEST_CONTRACT = "shadow_promotion_review_request_v1"
 SHADOW_REPLAY_BACKTEST_EVIDENCE_CONTRACT = "shadow_replay_backtest_evidence_v1"
+SHADOW_DECISION_MEMO_CONTRACT = "shadow_decision_memo_v1"
+SHADOW_WALK_FORWARD_OUTCOMES_CONTRACT = "shadow_walk_forward_outcomes_v1"
+SHADOW_WALK_FORWARD_OUTCOMES_PROVIDER = "pgc_shadow_walk_forward_outcome_accumulator_v1"
 SHADOW_REPLAY_BACKTEST_EVIDENCE_PATTERN = "shadow_replay_backtest_evidence*.json"
 SHADOW_REPLAY_BACKTEST_EVIDENCE_PROVIDER = "pgc_shadow_replay_backtest_evidence_producer_v1"
+SHADOW_THRESHOLD_CALIBRATION_PATTERN = "shadow_threshold_calibration_*.json"
+SHADOW_STRATEGY_EXPERIMENT_REGISTRY_PATTERN = "shadow_strategy_experiment_registry_*.json"
 DEFAULT_REQUIRED_SAMPLE_SIZE = 20
 DEFAULT_MIN_FROZEN_CPB_DELTA_PCT = 0.0
 DEFAULT_MAX_DRAWDOWN_PCT = -8.0
@@ -89,7 +94,19 @@ class BuildShadowReplayBacktestEvidenceRequest:
 
 
 @dataclass(frozen=True)
+class BuildShadowWalkForwardOutcomesRequest:
+    as_of_date: str | None = None
+    output_path: str | None = None
+    horizon_days: int = 5
+
+
+@dataclass(frozen=True)
 class GetShadowPromotionReviewRequest:
+    as_of_date: str | None = None
+
+
+@dataclass(frozen=True)
+class GetShadowDecisionMemoRequest:
     as_of_date: str | None = None
 
 
@@ -203,6 +220,30 @@ class ShadowPromotionReviewWorkbenchResult:
 
 
 @dataclass(frozen=True)
+class ShadowDecisionMemoResult:
+    memo_contract: str = SHADOW_DECISION_MEMO_CONTRACT
+    generated_at: str = ""
+    db_path: str = ""
+    reports_dir: str = ""
+    as_of_date: str | None = None
+    status: str = "blocked"
+    language: str = "zh-CN"
+    read_only: bool = True
+    artifact_only: bool = True
+    summary: dict[str, Any] = field(default_factory=dict)
+    sections: dict[str, Any] = field(default_factory=dict)
+    candidate_memos: list[dict[str, Any]] = field(default_factory=list)
+    promotion_review: dict[str, Any] = field(default_factory=dict)
+    walk_forward: dict[str, Any] = field(default_factory=dict)
+    replay_backtest_evidence: dict[str, Any] = field(default_factory=dict)
+    calibration: dict[str, Any] = field(default_factory=dict)
+    experiment_registry: dict[str, Any] = field(default_factory=dict)
+    source_artifacts: dict[str, str | None] = field(default_factory=dict)
+    source_status: dict[str, Any] = field(default_factory=dict)
+    safety: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class ShadowReplayBacktestEvidenceGenerationResult:
     evidence_contract: str = SHADOW_REPLAY_BACKTEST_EVIDENCE_CONTRACT
     generated_at: str = ""
@@ -220,6 +261,39 @@ class ShadowReplayBacktestEvidenceGenerationResult:
     artifacts: list[dict[str, Any]] = field(default_factory=list)
     summary: dict[str, Any] = field(default_factory=dict)
     safety: dict[str, Any] = field(default_factory=dict)
+    active_params_mutated: bool = False
+    wrote_strategy_version: bool = False
+    wrote_strategy_versions: bool = False
+    writes_trade_state: bool = False
+    writes_paper_live_behavior: bool = False
+    timer_mutated: bool = False
+
+
+@dataclass(frozen=True)
+class ShadowWalkForwardOutcomesResult:
+    outcomes_contract: str = SHADOW_WALK_FORWARD_OUTCOMES_CONTRACT
+    generated_at: str = ""
+    db_path: str = ""
+    reports_dir: str = ""
+    as_of_date: str | None = None
+    provider: str = SHADOW_WALK_FORWARD_OUTCOMES_PROVIDER
+    source_monitor_path: str | None = None
+    would_write_artifact: bool = True
+    wrote_artifact: bool = False
+    artifact_path: str | None = None
+    markdown_path: str | None = None
+    status: str = "unknown"
+    candidate_count: int = 0
+    signal_count: int = 0
+    complete_count: int = 0
+    partial_horizon_count: int = 0
+    missing_market_bar_count: int = 0
+    summary: dict[str, Any] = field(default_factory=dict)
+    candidates: list[dict[str, Any]] = field(default_factory=list)
+    rows: list[dict[str, Any]] = field(default_factory=list)
+    no_future_boundary: dict[str, Any] = field(default_factory=dict)
+    safety: dict[str, Any] = field(default_factory=dict)
+    artifact: dict[str, Any] = field(default_factory=dict)
     active_params_mutated: bool = False
     wrote_strategy_version: bool = False
     wrote_strategy_versions: bool = False
@@ -894,6 +968,166 @@ class ShadowObservationService:
             },
         )
 
+    def build_walk_forward_outcomes(
+        self,
+        request: BuildShadowWalkForwardOutcomesRequest,
+        ctx: RequestContext,
+    ) -> ServiceResult[ShadowWalkForwardOutcomesResult]:
+        """Accumulate post-close walk-forward outcomes from shadow monitor signals and market bars."""
+
+        as_of_date = _compact_history_date(request.as_of_date)
+        if request.as_of_date is not None and as_of_date is None:
+            return ServiceResult(
+                status="validation_failed",
+                request_id=ctx.request_id,
+                data=_empty_walk_forward_outcomes_result(
+                    self.db_path,
+                    self.reports_dir,
+                    request.as_of_date,
+                    status="invalid_date",
+                ),
+                errors=[ServiceError("INVALID_AS_OF_DATE", "as_of_date must be YYYYMMDD or YYYY-MM-DD.")],
+            )
+
+        before_counts = _trade_state_counts(self.db_path)
+        snapshot_result = self._snapshot_service.get_snapshot(
+            GetShadowStrategySnapshotRequest(as_of_date=as_of_date),
+            RequestContext(
+                request_id=ctx.request_id,
+                dry_run=True,
+                operator=ctx.operator,
+                source=ctx.source,
+            ),
+        )
+        if not snapshot_result.ok or snapshot_result.data is None:
+            return ServiceResult(
+                status=snapshot_result.status,
+                request_id=ctx.request_id,
+                data=_empty_walk_forward_outcomes_result(
+                    self.db_path,
+                    self.reports_dir,
+                    as_of_date,
+                    status="source_unavailable",
+                ),
+                warnings=snapshot_result.warnings,
+                errors=snapshot_result.errors,
+                lineage={"read_only": "true", "artifact_only": "true", "wrote_artifact": "false"},
+            )
+
+        snapshot = snapshot_result.data
+        generation_date = str(getattr(snapshot, "as_of_date", None) or as_of_date or "")
+        monitor_path = _resolve_shadow_artifact_path(
+            _mapping(getattr(snapshot, "source_artifacts", {})).get("monitor_json"),
+            self.reports_dir.parent,
+        )
+        if monitor_path is None:
+            return ServiceResult(
+                status="validation_failed",
+                request_id=ctx.request_id,
+                data=_empty_walk_forward_outcomes_result(
+                    self.db_path,
+                    self.reports_dir,
+                    generation_date,
+                    status="source_unavailable",
+                ),
+                errors=[
+                    ServiceError(
+                        "SHADOW_MONITOR_ARTIFACT_NOT_FOUND",
+                        "shadow monitor artifact path was not available from the snapshot.",
+                    )
+                ],
+            )
+        monitor, monitor_error = _load_json_object(monitor_path, artifact_label="shadow monitor artifact")
+        if monitor_error is not None:
+            return ServiceResult(
+                status="validation_failed",
+                request_id=ctx.request_id,
+                data=_empty_walk_forward_outcomes_result(
+                    self.db_path,
+                    self.reports_dir,
+                    generation_date,
+                    status="source_invalid",
+                    source_monitor_path=str(monitor_path),
+                ),
+                errors=[ServiceError("SHADOW_MONITOR_ARTIFACT_INVALID", monitor_error)],
+            )
+
+        safety = _walk_forward_outcomes_safety(before_counts, _trade_state_counts(self.db_path))
+        artifact = _shadow_walk_forward_outcomes_artifact(
+            db_path=self.db_path,
+            reports_dir=self.reports_dir,
+            monitor=monitor,
+            as_of_date=generation_date,
+            source_monitor_path=monitor_path,
+            horizon_days=max(1, int(request.horizon_days or 5)),
+            safety=safety,
+        )
+        artifact_path = (
+            Path(request.output_path).expanduser()
+            if request.output_path
+            else self.reports_dir / f"shadow_walk_forward_outcomes_{generation_date}.json"
+        )
+        markdown_path = artifact_path.with_suffix(".md")
+        wrote_artifact = False
+        if not ctx.dry_run:
+            self.reports_dir.mkdir(parents=True, exist_ok=True)
+            artifact_path.write_text(
+                json.dumps(artifact, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            markdown_path.write_text(_shadow_walk_forward_outcomes_markdown(artifact), encoding="utf-8")
+            wrote_artifact = True
+
+        after_counts = _trade_state_counts(self.db_path)
+        final_safety = _walk_forward_outcomes_safety(before_counts, after_counts)
+        if final_safety["changed_tables"]:
+            return ServiceResult(
+                status="validation_failed",
+                request_id=ctx.request_id,
+                data=_walk_forward_outcomes_result(
+                    self.db_path,
+                    self.reports_dir,
+                    artifact,
+                    monitor_path,
+                    artifact_path,
+                    markdown_path,
+                    wrote_artifact=wrote_artifact,
+                    safety=final_safety,
+                ),
+                errors=[
+                    ServiceError(
+                        "SHADOW_WALK_FORWARD_OUTCOMES_MUTATION_RISK",
+                        "shadow walk-forward outcome accumulation changed protected trade state tables.",
+                    )
+                ],
+            )
+
+        result = _walk_forward_outcomes_result(
+            self.db_path,
+            self.reports_dir,
+            artifact,
+            monitor_path,
+            artifact_path,
+            markdown_path,
+            wrote_artifact=wrote_artifact,
+            safety=final_safety,
+        )
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data=result,
+            lineage={
+                "as_of_date": result.as_of_date,
+                "outcomes_contract": SHADOW_WALK_FORWARD_OUTCOMES_CONTRACT,
+                "candidate_count": str(result.candidate_count),
+                "signal_count": str(result.signal_count),
+                "status": result.status,
+                "wrote_artifact": str(wrote_artifact).lower(),
+                "read_only": "true",
+                "artifact_only": "true",
+            },
+        )
+
     def get_promotion_review_request(
         self,
         request: GetShadowPromotionReviewRequest,
@@ -1047,6 +1281,709 @@ class ShadowObservationService:
                 "artifact_only": "true",
             },
         )
+
+    def get_decision_memo(
+        self,
+        request: GetShadowDecisionMemoRequest,
+        ctx: RequestContext,
+    ) -> ServiceResult[ShadowDecisionMemoResult]:
+        """Build a Chinese, read-only operator memo from shadow review artifacts."""
+
+        as_of_date = _compact_history_date(request.as_of_date)
+        if request.as_of_date is not None and as_of_date is None:
+            return ServiceResult(
+                status="validation_failed",
+                request_id=ctx.request_id,
+                data=_empty_shadow_decision_memo(
+                    self.db_path,
+                    self.reports_dir,
+                    request.as_of_date,
+                    status="invalid",
+                    source_error="as_of_date must be YYYYMMDD or YYYY-MM-DD.",
+                ),
+                errors=[ServiceError("INVALID_AS_OF_DATE", "as_of_date must be YYYYMMDD or YYYY-MM-DD.")],
+            )
+
+        memo_date = as_of_date
+        promotion_result = self.get_promotion_review_request(
+            GetShadowPromotionReviewRequest(as_of_date=as_of_date),
+            RequestContext(
+                request_id=ctx.request_id,
+                dry_run=True,
+                operator=ctx.operator,
+                source=ctx.source,
+            ),
+        )
+        promotion = promotion_result.data or _empty_promotion_review_workbench(
+            self.db_path,
+            self.reports_dir,
+            as_of_date,
+            artifact_error="shadow promotion review request artifact was not available.",
+        )
+        memo_date = memo_date or promotion.as_of_date
+
+        snapshot_result = self._snapshot_service.get_snapshot(
+            GetShadowStrategySnapshotRequest(as_of_date=memo_date),
+            RequestContext(
+                request_id=ctx.request_id,
+                dry_run=True,
+                operator=ctx.operator,
+                source=ctx.source,
+            ),
+        )
+        snapshot = snapshot_result.data if snapshot_result.ok else None
+        memo_date = memo_date or getattr(snapshot, "as_of_date", None)
+
+        artifact_root = self.reports_dir.parent
+        calibration = _load_shadow_decision_source_artifact(
+            self.reports_dir,
+            pattern=SHADOW_THRESHOLD_CALIBRATION_PATTERN,
+            as_of_date=memo_date,
+            artifact_root=artifact_root,
+            expected_contract_key="calibration_contract",
+            expected_contract="shadow_threshold_calibration_v1",
+            missing_status="missing",
+        )
+        registry = _load_shadow_decision_source_artifact(
+            self.reports_dir,
+            pattern=SHADOW_STRATEGY_EXPERIMENT_REGISTRY_PATTERN,
+            as_of_date=memo_date,
+            artifact_root=artifact_root,
+            expected_contract_key="registry_contract",
+            expected_contract="shadow_strategy_experiment_registry_v1",
+            missing_status="missing",
+        )
+
+        promotion_payload = _shadow_promotion_workbench_payload(promotion)
+        snapshot_payload = _shadow_snapshot_payload(snapshot, snapshot_result)
+        memo_date = memo_date or _optional_text(promotion_payload.get("as_of_date")) or _optional_text(
+            snapshot_payload.get("as_of_date")
+        )
+        result = _build_shadow_decision_memo_result(
+            db_path=self.db_path,
+            reports_dir=self.reports_dir,
+            as_of_date=memo_date,
+            promotion=promotion_payload,
+            snapshot=snapshot_payload,
+            calibration=calibration,
+            registry=registry,
+            promotion_status=promotion_result.status,
+            snapshot_status=snapshot_result.status,
+        )
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data=result,
+            warnings=[*promotion_result.warnings, *snapshot_result.warnings],
+            lineage={
+                "as_of_date": result.as_of_date,
+                "memo_contract": SHADOW_DECISION_MEMO_CONTRACT,
+                "status": result.status,
+                "candidate_count": str(result.summary.get("candidate_count", 0)),
+                "read_only": "true",
+                "artifact_only": "true",
+                "promotion_allowed": "false",
+            },
+        )
+
+
+def _empty_walk_forward_outcomes_result(
+    db_path: Path,
+    reports_dir: Path,
+    as_of_date: str | None,
+    *,
+    status: str,
+    source_monitor_path: str | None = None,
+) -> ShadowWalkForwardOutcomesResult:
+    safety = _walk_forward_outcomes_safety({}, {})
+    summary = {
+        "status": status,
+        "candidate_count": 0,
+        "signal_count": 0,
+        "complete_count": 0,
+        "partial_horizon_count": 0,
+        "missing_market_bar_count": 0,
+        "promotion_allowed": False,
+        "operator_note": "Walk-forward outcomes were not accumulated; shadow candidates remain review-only.",
+    }
+    return ShadowWalkForwardOutcomesResult(
+        generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        db_path=str(db_path),
+        reports_dir=str(reports_dir),
+        as_of_date=as_of_date,
+        source_monitor_path=source_monitor_path,
+        status=status,
+        summary=summary,
+        safety=safety,
+        artifact={
+            "artifact_type": "shadow_walk_forward_outcomes",
+            "outcomes_contract": SHADOW_WALK_FORWARD_OUTCOMES_CONTRACT,
+            "provider": SHADOW_WALK_FORWARD_OUTCOMES_PROVIDER,
+            "as_of_date": as_of_date,
+            "summary": summary,
+            "safety": safety,
+        },
+    )
+
+
+def _walk_forward_outcomes_result(
+    db_path: Path,
+    reports_dir: Path,
+    artifact: Mapping[str, Any],
+    source_monitor_path: Path,
+    artifact_path: Path,
+    markdown_path: Path,
+    *,
+    wrote_artifact: bool,
+    safety: Mapping[str, Any],
+) -> ShadowWalkForwardOutcomesResult:
+    summary = _mapping(artifact.get("summary"))
+    rows = _list_mapping(artifact.get("rows"))
+    candidates = _list_mapping(artifact.get("candidates"))
+    return ShadowWalkForwardOutcomesResult(
+        generated_at=str(artifact.get("generated_at") or datetime.now(timezone.utc).isoformat(timespec="seconds")),
+        db_path=str(db_path),
+        reports_dir=str(reports_dir),
+        as_of_date=str(artifact.get("as_of_date") or "") or None,
+        source_monitor_path=str(source_monitor_path),
+        wrote_artifact=wrote_artifact,
+        artifact_path=str(artifact_path) if wrote_artifact else None,
+        markdown_path=str(markdown_path) if wrote_artifact else None,
+        status=str(summary.get("status") or artifact.get("status") or "unknown"),
+        candidate_count=_int_value(summary.get("candidate_count"), len(candidates)),
+        signal_count=_int_value(summary.get("signal_count"), len(rows)),
+        complete_count=_int_value(summary.get("complete_count"), 0),
+        partial_horizon_count=_int_value(summary.get("partial_horizon_count"), 0),
+        missing_market_bar_count=_int_value(summary.get("missing_market_bar_count"), 0),
+        summary=summary,
+        candidates=candidates,
+        rows=rows,
+        no_future_boundary=_mapping(artifact.get("no_future_boundary")),
+        safety=dict(safety),
+        artifact=dict(artifact),
+        active_params_mutated=False,
+        wrote_strategy_version=False,
+        wrote_strategy_versions=False,
+        writes_trade_state=False,
+        writes_paper_live_behavior=False,
+        timer_mutated=False,
+    )
+
+
+def _shadow_walk_forward_outcomes_artifact(
+    *,
+    db_path: Path,
+    reports_dir: Path,
+    monitor: Mapping[str, Any],
+    as_of_date: str,
+    source_monitor_path: Path,
+    horizon_days: int,
+    safety: Mapping[str, Any],
+) -> dict[str, Any]:
+    rows: list[dict[str, Any]] = []
+    candidates: list[dict[str, Any]] = []
+    for candidate in _list_mapping(monitor.get("candidate_monitors")):
+        candidate_key = str(candidate.get("candidate_key") or "").strip()
+        if not candidate_key:
+            continue
+        candidate_family = str(candidate.get("candidate_family") or "unknown")
+        source_rows = _monitor_walk_forward_rows_for_candidate(monitor, candidate_key)
+        outcome_rows = _walk_forward_outcome_rows(
+            db_path=db_path,
+            source_rows=source_rows,
+            as_of_date=as_of_date,
+            candidate_key=candidate_key,
+            candidate_family=candidate_family,
+            horizon_days=horizon_days,
+        )
+        rows.extend(outcome_rows)
+        candidates.append(
+            _walk_forward_candidate_summary(
+                candidate=candidate,
+                source_rows=source_rows,
+                outcome_rows=outcome_rows,
+                horizon_days=horizon_days,
+            )
+        )
+
+    no_future_boundary = _walk_forward_no_future_boundary(rows, as_of_date)
+    complete_count = sum(1 for row in rows if row.get("outcome_availability") == "complete")
+    partial_count = sum(1 for row in rows if row.get("partial_horizon"))
+    missing_count = sum(1 for row in rows if row.get("missing_market_bars"))
+    signal_count = len(rows)
+    candidate_state_counts: dict[str, int] = {}
+    for candidate in candidates:
+        state = str(candidate.get("status") or "unknown")
+        candidate_state_counts[state] = candidate_state_counts.get(state, 0) + 1
+    status = _walk_forward_outcomes_status(candidates, no_future_boundary)
+    summary = {
+        "status": status,
+        "candidate_count": len(candidates),
+        "signal_count": signal_count,
+        "complete_count": complete_count,
+        "partial_horizon_count": partial_count,
+        "missing_market_bar_count": missing_count,
+        "candidate_state_counts": dict(sorted(candidate_state_counts.items())),
+        "horizon_days": horizon_days,
+        "provider": SHADOW_WALK_FORWARD_OUTCOMES_PROVIDER,
+        "outcomes_contract": SHADOW_WALK_FORWARD_OUTCOMES_CONTRACT,
+        "read_only": True,
+        "artifact_only": True,
+        "promotion_allowed": False,
+        "operator_note": (
+            "Walk-forward outcomes append market-bar labels only; they do not create paper trades, "
+            "strategy versions, trade plans, positions, or timers."
+        ),
+    }
+    return _portable_artifact_paths(
+        {
+            "artifact_type": "shadow_walk_forward_outcomes",
+            "outcomes_contract": SHADOW_WALK_FORWARD_OUTCOMES_CONTRACT,
+            "provider": SHADOW_WALK_FORWARD_OUTCOMES_PROVIDER,
+            "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "as_of_date": as_of_date,
+            "source_monitor_path": str(source_monitor_path),
+            "source_artifacts": {
+                "monitor_json": str(source_monitor_path),
+            },
+            "summary": summary,
+            "no_future_boundary": no_future_boundary,
+            "candidates": candidates,
+            "rows": rows,
+            "safety": dict(safety),
+            "notice": (
+                "This artifact is an advisory post-close label accumulator. It is not a promotion approval "
+                "and cannot mutate active CPB params, strategy versions, trades, positions, paper/live behavior, or timers."
+            ),
+        },
+        reports_dir.parent,
+    )
+
+
+def _walk_forward_outcome_rows(
+    *,
+    db_path: Path,
+    source_rows: list[dict[str, Any]],
+    as_of_date: str,
+    candidate_key: str,
+    candidate_family: str,
+    horizon_days: int,
+) -> list[dict[str, Any]]:
+    if not source_rows:
+        return []
+    if not db_path.exists():
+        return [
+            _missing_walk_forward_outcome_row(
+                row,
+                candidate_key,
+                candidate_family,
+                as_of_date,
+                horizon_days,
+                "market_bars_db_missing",
+            )
+            for row in source_rows
+        ]
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            if not _table_exists(conn, "market_bars"):
+                return [
+                    _missing_walk_forward_outcome_row(
+                        row,
+                        candidate_key,
+                        candidate_family,
+                        as_of_date,
+                        horizon_days,
+                        "market_bars_table_missing",
+                    )
+                    for row in source_rows
+                ]
+            return [
+                _walk_forward_outcome_row_from_market(
+                    conn,
+                    row,
+                    as_of_date,
+                    candidate_key,
+                    candidate_family,
+                    horizon_days,
+                )
+                for row in source_rows
+            ]
+    except sqlite3.Error as exc:
+        return [
+            _missing_walk_forward_outcome_row(
+                row,
+                candidate_key,
+                candidate_family,
+                as_of_date,
+                horizon_days,
+                f"market_bars_query_failed:{exc}",
+            )
+            for row in source_rows
+        ]
+
+
+def _walk_forward_outcome_row_from_market(
+    conn: sqlite3.Connection,
+    source_row: Mapping[str, Any],
+    as_of_date: str,
+    candidate_key: str,
+    candidate_family: str,
+    horizon_days: int,
+) -> dict[str, Any]:
+    ts_code = str(source_row.get("ts_code") or "").strip()
+    planned_buy_date = str(source_row.get("planned_buy_date") or source_row.get("outcome_date") or "").strip()
+    signal_date = str(source_row.get("signal_date") or source_row.get("review_date") or "").strip()
+    if not ts_code or not planned_buy_date:
+        return _missing_walk_forward_outcome_row(
+            source_row,
+            candidate_key,
+            candidate_family,
+            as_of_date,
+            horizon_days,
+            "shadow_walk_forward_signal_row_incomplete",
+        )
+    if planned_buy_date > as_of_date:
+        return _missing_walk_forward_outcome_row(
+            source_row,
+            candidate_key,
+            candidate_family,
+            as_of_date,
+            horizon_days,
+            "shadow_walk_forward_outcome_not_due",
+        )
+    bars = list(
+        conn.execute(
+            """
+            SELECT trade_date, open, high, low, close
+            FROM market_bars
+            WHERE ts_code = ?
+              AND trade_date >= ?
+              AND trade_date <= ?
+            ORDER BY trade_date
+            LIMIT ?
+            """,
+            (ts_code, planned_buy_date, as_of_date, horizon_days),
+        )
+    )
+    if not bars:
+        return _missing_walk_forward_outcome_row(
+            source_row,
+            candidate_key,
+            candidate_family,
+            as_of_date,
+            horizon_days,
+            "market_bars_missing",
+        )
+    entry_price = _float_or_none(source_row.get("outcome_open")) or _float_or_none(bars[0]["open"]) or _float_or_none(bars[0]["close"])
+    if entry_price is None or entry_price <= 0:
+        return _missing_walk_forward_outcome_row(
+            source_row,
+            candidate_key,
+            candidate_family,
+            as_of_date,
+            horizon_days,
+            "market_bars_entry_price_missing",
+        )
+    lows = [_float_or_none(bar["low"]) for bar in bars]
+    highs = [_float_or_none(bar["high"]) for bar in bars]
+    max_input_date = max(str(bar["trade_date"]) for bar in bars)
+    partial = len(bars) < horizon_days
+    availability = "complete" if not partial else "partial"
+    return {
+        "candidate_key": candidate_key,
+        "candidate_family": candidate_family,
+        "ts_code": ts_code,
+        "name": source_row.get("name"),
+        "bucket": source_row.get("bucket") or candidate_key,
+        "signal_date": signal_date or None,
+        "planned_buy_date": planned_buy_date,
+        "data_cutoff_date": as_of_date,
+        "available_bar_count": len(bars),
+        "required_horizon_days": horizon_days,
+        "missing_bar_count": max(0, horizon_days - len(bars)),
+        "missing_market_bars": False,
+        "partial_horizon": partial,
+        "outcome_availability": availability,
+        "t1_available": True,
+        "t5_available": len(bars) >= 5,
+        "max_input_date": max_input_date,
+        "available_dates": [str(bar["trade_date"]) for bar in bars],
+        "metrics": {
+            "entry_open": round(entry_price, 4),
+            "t1_close_pct": _bar_close_pct(bars, 0, entry_price),
+            "t1_high_pct": _bar_high_pct(bars, 0, entry_price),
+            "t1_low_pct": _bar_low_pct(bars, 0, entry_price),
+            "t5_close_pct": _bar_close_pct(bars, 4, entry_price),
+            "max_runup_pct": max((_pct_change(high, entry_price) for high in highs if high is not None), default=None),
+            "max_drawdown_pct": min((_pct_change(low, entry_price) for low in lows if low is not None), default=None),
+        },
+        "no_future_boundary": {
+            "passed": max_input_date <= as_of_date and (not signal_date or signal_date <= as_of_date),
+            "signal_date": signal_date or None,
+            "max_input_date": max_input_date,
+            "data_cutoff_date": as_of_date,
+            "query_cutoff_enforced": True,
+        },
+        "source_signal": _compact_walk_forward_source_signal(source_row),
+        "advisory_only": True,
+        "promotion_allowed": False,
+    }
+
+
+def _missing_walk_forward_outcome_row(
+    source_row: Mapping[str, Any],
+    candidate_key: str,
+    candidate_family: str,
+    as_of_date: str,
+    horizon_days: int,
+    reason: str,
+) -> dict[str, Any]:
+    signal_date = str(source_row.get("signal_date") or source_row.get("review_date") or "").strip()
+    planned_buy_date = str(source_row.get("planned_buy_date") or source_row.get("outcome_date") or "").strip()
+    return {
+        "candidate_key": candidate_key,
+        "candidate_family": candidate_family,
+        "ts_code": source_row.get("ts_code"),
+        "name": source_row.get("name"),
+        "bucket": source_row.get("bucket") or candidate_key,
+        "signal_date": signal_date or None,
+        "planned_buy_date": planned_buy_date or None,
+        "data_cutoff_date": as_of_date,
+        "available_bar_count": 0,
+        "required_horizon_days": horizon_days,
+        "missing_bar_count": horizon_days,
+        "missing_market_bars": True,
+        "missing_reason": reason,
+        "partial_horizon": False,
+        "outcome_availability": "missing",
+        "t1_available": False,
+        "t5_available": False,
+        "max_input_date": signal_date or planned_buy_date or as_of_date,
+        "available_dates": [],
+        "metrics": {
+            "entry_open": None,
+            "t1_close_pct": None,
+            "t1_high_pct": None,
+            "t1_low_pct": None,
+            "t5_close_pct": None,
+            "max_runup_pct": None,
+            "max_drawdown_pct": None,
+        },
+        "no_future_boundary": {
+            "passed": True,
+            "signal_date": signal_date or None,
+            "max_input_date": signal_date or planned_buy_date or as_of_date,
+            "data_cutoff_date": as_of_date,
+            "query_cutoff_enforced": True,
+        },
+        "source_signal": _compact_walk_forward_source_signal(source_row),
+        "advisory_only": True,
+        "promotion_allowed": False,
+    }
+
+
+def _compact_walk_forward_source_signal(source_row: Mapping[str, Any]) -> dict[str, Any]:
+    keys = (
+        "ts_code",
+        "name",
+        "bucket",
+        "score",
+        "signal_date",
+        "review_date",
+        "planned_buy_date",
+        "outcome_date",
+        "review_close",
+    )
+    return {key: source_row.get(key) for key in keys if source_row.get(key) not in (None, "")}
+
+
+def _walk_forward_candidate_summary(
+    *,
+    candidate: Mapping[str, Any],
+    source_rows: list[dict[str, Any]],
+    outcome_rows: list[dict[str, Any]],
+    horizon_days: int,
+) -> dict[str, Any]:
+    candidate_key = str(candidate.get("candidate_key") or "unknown")
+    t1_close = _walk_forward_metric_values(outcome_rows, "t1_close_pct")
+    t1_high = _walk_forward_metric_values(outcome_rows, "t1_high_pct")
+    t5_close = _walk_forward_metric_values(outcome_rows, "t5_close_pct")
+    drawdowns = _walk_forward_metric_values(outcome_rows, "max_drawdown_pct")
+    missing_count = sum(1 for row in outcome_rows if row.get("missing_market_bars"))
+    partial_count = sum(1 for row in outcome_rows if row.get("partial_horizon"))
+    complete_count = sum(1 for row in outcome_rows if row.get("outcome_availability") == "complete")
+    blockers: list[str] = []
+    if not source_rows:
+        blockers.append("shadow_walk_forward_source_rows_missing")
+    if missing_count:
+        blockers.append("shadow_walk_forward_market_bars_missing")
+    if partial_count:
+        blockers.append("shadow_walk_forward_partial_horizon")
+    status = "complete"
+    if not source_rows:
+        status = "missing"
+    elif missing_count >= len(source_rows):
+        status = "missing"
+    elif partial_count or missing_count:
+        status = "partial"
+    return {
+        "candidate_key": candidate_key,
+        "candidate_family": candidate.get("candidate_family") or "unknown",
+        "status": status,
+        "source_signal_count": len(source_rows),
+        "evaluated_signal_count": len(outcome_rows),
+        "complete_count": complete_count,
+        "partial_horizon_count": partial_count,
+        "missing_market_bar_count": missing_count,
+        "required_horizon_days": horizon_days,
+        "metrics": {
+            "t1_sample_size": len(t1_close),
+            "t1_close_mean_pct": _mean(t1_close),
+            "t1_close_win_rate_pct": _hit_rate(t1_close),
+            "t1_high_mean_pct": _mean(t1_high),
+            "t5_sample_size": len(t5_close),
+            "t5_close_mean_pct": _mean(t5_close),
+            "t5_close_win_rate_pct": _hit_rate(t5_close),
+            "max_drawdown_pct": min(drawdowns) if drawdowns else None,
+        },
+        "latest_signal_date": max((str(row.get("signal_date") or "") for row in outcome_rows), default=None),
+        "latest_outcome_input_date": max((str(row.get("max_input_date") or "") for row in outcome_rows), default=None),
+        "blockers": blockers,
+        "advisory_only": True,
+        "promotion_allowed": False,
+    }
+
+
+def _walk_forward_metric_values(rows: list[dict[str, Any]], key: str) -> list[float]:
+    values = []
+    for row in rows:
+        value = _float_or_none(_mapping(row.get("metrics")).get(key))
+        if value is not None:
+            values.append(value)
+    return values
+
+
+def _walk_forward_no_future_boundary(rows: list[dict[str, Any]], as_of_date: str) -> dict[str, Any]:
+    max_input_date = max((str(row.get("max_input_date") or "") for row in rows), default=None)
+    max_signal_date = max((str(row.get("signal_date") or "") for row in rows if row.get("signal_date")), default=None)
+    future_rows = [
+        {
+            "candidate_key": row.get("candidate_key"),
+            "ts_code": row.get("ts_code"),
+            "max_input_date": row.get("max_input_date"),
+        }
+        for row in rows
+        if str(row.get("max_input_date") or "") > as_of_date
+    ]
+    return {
+        "passed": not future_rows,
+        "as_of_date": as_of_date,
+        "max_signal_date": max_signal_date,
+        "max_input_date": max_input_date,
+        "future_row_count": len(future_rows),
+        "future_rows": future_rows[:10],
+        "query_cutoff_enforced": True,
+        "operator_note": "Outcome queries use market_bars.trade_date <= as_of_date.",
+    }
+
+
+def _walk_forward_outcomes_status(
+    candidates: list[dict[str, Any]],
+    no_future_boundary: Mapping[str, Any],
+) -> str:
+    if not candidates:
+        return "missing"
+    if not bool(no_future_boundary.get("passed", False)):
+        return "blocked"
+    states = {str(candidate.get("status") or "unknown") for candidate in candidates}
+    if states == {"complete"}:
+        return "complete"
+    if states <= {"complete", "partial"}:
+        return "partial"
+    return "partial"
+
+
+def _walk_forward_outcomes_safety(
+    before_counts: Mapping[str, int],
+    after_counts: Mapping[str, int],
+) -> dict[str, Any]:
+    changed_tables = [
+        table
+        for table in ("strategy_versions", "trade_plans", "trades", "positions")
+        if before_counts.get(table, 0) != after_counts.get(table, before_counts.get(table, 0))
+    ]
+    return {
+        "read_only": True,
+        "artifact_only": True,
+        "advisory_only": True,
+        "outcome_accumulation_only": True,
+        "trade_state_counts_before": dict(before_counts),
+        "trade_state_counts_after": dict(after_counts),
+        "trade_state_counts_unchanged": not changed_tables,
+        "changed_tables": changed_tables,
+        "active_params_mutated": False,
+        "wrote_strategy_version": False,
+        "wrote_strategy_versions": False,
+        "writes_trade_state": False,
+        "writes_paper_live_behavior": False,
+        "paper_live_deployment_changed": False,
+        "timer_mutated": False,
+        "promotion_allowed": False,
+        "paper_observation_allowed": False,
+    }
+
+
+def _shadow_walk_forward_outcomes_markdown(artifact: Mapping[str, Any]) -> str:
+    summary = _mapping(artifact.get("summary"))
+    lines = [
+        f"# {artifact.get('as_of_date')} Shadow Walk-forward Outcomes",
+        "",
+        "> Read-only post-close labels from market bars. This artifact does not promote strategies or create trading state.",
+        "",
+        "## Summary",
+        "",
+        f"- Status: {summary.get('status', 'unknown')}",
+        f"- Candidates: {summary.get('candidate_count', 0)}",
+        f"- Signals: {summary.get('signal_count', 0)}",
+        f"- Complete horizons: {summary.get('complete_count', 0)}",
+        f"- Partial horizons: {summary.get('partial_horizon_count', 0)}",
+        f"- Missing market bars: {summary.get('missing_market_bar_count', 0)}",
+        f"- Promotion allowed: {str(bool(summary.get('promotion_allowed'))).lower()}",
+        "",
+        "## Candidate Metrics",
+        "",
+        "| candidate | status | signals | complete | partial | missing | T+1 mean | T+5 mean | blockers |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+    ]
+    for candidate in _list_mapping(artifact.get("candidates")):
+        metrics = _mapping(candidate.get("metrics"))
+        lines.append(
+            "| "
+            f"{candidate.get('candidate_key')} | "
+            f"{candidate.get('status')} | "
+            f"{candidate.get('source_signal_count', 0)} | "
+            f"{candidate.get('complete_count', 0)} | "
+            f"{candidate.get('partial_horizon_count', 0)} | "
+            f"{candidate.get('missing_market_bar_count', 0)} | "
+            f"{_display_pct(metrics.get('t1_close_mean_pct'))} | "
+            f"{_display_pct(metrics.get('t5_close_mean_pct'))} | "
+            f"{';'.join(_list_text(candidate.get('blockers'))) or 'none'} |"
+        )
+    boundary = _mapping(artifact.get("no_future_boundary"))
+    lines.extend(
+        [
+            "",
+            "## No-future Boundary",
+            "",
+            f"- Passed: {str(bool(boundary.get('passed'))).lower()}",
+            f"- Max signal date: {boundary.get('max_signal_date') or '-'}",
+            f"- Max input date: {boundary.get('max_input_date') or '-'}",
+            f"- Data cutoff date: {boundary.get('as_of_date') or artifact.get('as_of_date')}",
+            "",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def _empty_replay_backtest_generation_result(
@@ -1428,29 +2365,43 @@ def _dip_buy_replay_evidence_source(
     row = _summary_row_by_key(payload.get("variants"), "variant_id", str(selected_variant or ""))
     if not row and _list_mapping(payload.get("variants")):
         row = _list_mapping(payload.get("variants"))[0]
+    freshness = _mapping(payload.get("source_freshness"))
     current_dates = [
         str(item.get("review_date"))
         for item in _list_mapping(payload.get("current_levels"))
         if _is_compact_date(item.get("review_date"))
     ]
     sample_size = _int_value(row.get("ret_5d_n"), _int_value(row.get("fill_n"), 0))
+    t1_sample_size = _int_value(row.get("ret_1d_n"), 0)
     metrics = {
-        "t1_close_mean_pct": None,
-        "t1_close_win_rate_pct": None,
+        "t1_close_mean_pct": _ratio_to_pct(row.get("ret_1d_mean")),
+        "t1_close_win_rate_pct": _ratio_to_pct(row.get("ret_1d_win_rate")),
+        "t1_high_mean_pct": _ratio_to_pct(row.get("mfe_1d_mean")),
         "t5_close_mean_pct": _ratio_to_pct(row.get("ret_5d_mean")),
         "t5_close_win_rate_pct": _ratio_to_pct(row.get("ret_5d_win_rate")),
         "max_drawdown_pct": _ratio_to_pct(row.get("mae_10d_median")),
-        "t1_sample_size": 0,
+        "t1_sample_size": t1_sample_size,
         "t5_sample_size": sample_size,
         "source_row_count": _int_value(row.get("fill_n"), sample_size),
     }
-    blockers = ["shadow_replay_backtest_metric_gap"]
+    blockers = []
     if sample_size < required_sample_size:
         blockers.append("shadow_replay_backtest_sample_size_insufficient")
-    end_date = max(current_dates) if current_dates else as_of_date
+    if any(metrics.get(key) in (None, "") for key in REQUIRED_REPLAY_BACKTEST_METRICS):
+        blockers.append("shadow_replay_backtest_metric_gap")
+    start_date = (
+        _compact_history_date(_optional_text(freshness.get("market_data_start_date")))
+        or (min(current_dates) if current_dates else None)
+        or as_of_date
+    )
+    end_date = (
+        _compact_history_date(_optional_text(freshness.get("market_data_end_date")))
+        or (max(current_dates) if current_dates else None)
+        or as_of_date
+    )
     return {
         "source_kind": "pullback_dip_buy_artifact_summary",
-        "start_date": min(current_dates) if current_dates else end_date,
+        "start_date": start_date,
         "end_date": end_date,
         "sample_size": sample_size,
         "source_row_count": metrics["source_row_count"],
@@ -1586,6 +2537,15 @@ def _bar_high_pct(bars: list[sqlite3.Row], index: int, entry_price: float) -> fl
     if high is None:
         return None
     return _pct_change(high, entry_price)
+
+
+def _bar_low_pct(bars: list[sqlite3.Row], index: int, entry_price: float) -> float | None:
+    if len(bars) <= index:
+        return None
+    low = _float_or_none(bars[index]["low"])
+    if low is None:
+        return None
+    return _pct_change(low, entry_price)
 
 
 def _candidate_progress_source_artifact(candidate: Mapping[str, Any], reports_dir: Path) -> Path | None:
@@ -2160,6 +3120,650 @@ def _empty_promotion_review_workbench(
             "safety": safety,
         },
     )
+
+
+def _empty_shadow_decision_memo(
+    db_path: Path,
+    reports_dir: Path,
+    as_of_date: str | None,
+    *,
+    status: str = "blocked",
+    source_error: str | None = None,
+) -> ShadowDecisionMemoResult:
+    safety = _shadow_decision_memo_safety()
+    blockers = ["shadow_decision_memo_source_unavailable"]
+    if source_error:
+        blockers.append(source_error)
+    return ShadowDecisionMemoResult(
+        generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        db_path=str(db_path),
+        reports_dir=str(reports_dir),
+        as_of_date=_compact_history_date(as_of_date) or as_of_date,
+        status=status,
+        summary={
+            "status": status,
+            "candidate_count": 0,
+            "blocker_count": len(blockers),
+            "conclusion_zh": "影子决策备忘录来源不可用，所有候选保持阻断。",
+            "promotion_allowed": False,
+            "manual_review_required": True,
+        },
+        sections=_shadow_decision_sections(
+            candidate_overview=[],
+            evidence_items=[],
+            blockers=blockers,
+            next_experiments=[],
+            human_decisions=[],
+            rollback_notes=["来源不可用时禁止晋升、交易、写计划或改 timer。"],
+            safety=safety,
+        ),
+        source_status={
+            "promotion_review": status,
+            "snapshot": status,
+            "calibration": "missing",
+            "experiment_registry": "missing",
+            "source_error": source_error,
+        },
+        safety=safety,
+    )
+
+
+def _build_shadow_decision_memo_result(
+    *,
+    db_path: Path,
+    reports_dir: Path,
+    as_of_date: str | None,
+    promotion: Mapping[str, Any],
+    snapshot: Mapping[str, Any],
+    calibration: Mapping[str, Any],
+    registry: Mapping[str, Any],
+    promotion_status: str,
+    snapshot_status: str,
+) -> ShadowDecisionMemoResult:
+    artifact_root = reports_dir.parent
+    safety = _shadow_decision_memo_safety()
+    review_request = _mapping(promotion.get("review_request"))
+    promotion_summary = _mapping(promotion.get("summary"))
+    replay = _mapping(promotion.get("replay_backtest_evidence"))
+    replay_summary = _mapping(_mapping(promotion_summary.get("replay_backtest_evidence")) or replay.get("summary"))
+    candidate_memos = _shadow_decision_candidate_memos(
+        promotion=promotion,
+        snapshot=snapshot,
+        calibration=calibration,
+        registry=registry,
+    )
+    blockers = _shadow_decision_blockers(
+        promotion=promotion,
+        calibration=calibration,
+        registry=registry,
+        candidate_memos=candidate_memos,
+    )
+    next_experiments = _shadow_decision_next_experiments(calibration=calibration, registry=registry)
+    human_decisions = _list_mapping(review_request.get("required_human_decisions"))
+    rollback_notes = _unique_texts(
+        [
+            *_list_text(review_request.get("rollback_notes")),
+            *_list_text(review_request.get("safety_notes")),
+            *_shadow_decision_blocked_mutation_targets(calibration=calibration, registry=registry),
+        ]
+    )
+    evidence_items = _shadow_decision_evidence_items(
+        promotion=promotion,
+        snapshot=snapshot,
+        calibration=calibration,
+        registry=registry,
+        replay_summary=replay_summary,
+    )
+    status = "blocked" if blockers else "manual_review_required"
+    review_ready_count = _int_value(promotion_summary.get("review_ready_count"), 0)
+    source_artifacts = {
+        "promotion_review_request": _optional_text(_mapping(promotion.get("source_artifacts")).get("review_request_json"))
+        or _optional_text(promotion.get("artifact_path")),
+        "shadow_snapshot_monitor": _optional_text(_mapping(snapshot.get("source_artifacts")).get("monitor_artifact")),
+        "shadow_snapshot_preflight": _optional_text(
+            _mapping(snapshot.get("source_artifacts")).get("promotion_preflight_artifact")
+        ),
+        "threshold_calibration": _optional_text(calibration.get("artifact_path")),
+        "experiment_registry": _optional_text(registry.get("artifact_path")),
+    }
+    source_artifacts = _portable_artifact_paths(source_artifacts, artifact_root)
+    summary = {
+        "status": status,
+        "candidate_count": len(candidate_memos),
+        "review_ready_count": review_ready_count,
+        "blocker_count": len(blockers),
+        "next_experiment_count": len(next_experiments),
+        "accepted_replay_evidence_count": _int_value(replay_summary.get("accepted_count"), 0),
+        "rejected_replay_evidence_count": _int_value(replay_summary.get("rejected_count"), 0),
+        "missing_replay_evidence_count": _int_value(replay_summary.get("missing_count"), 0),
+        "conclusion_zh": _shadow_decision_conclusion_zh(
+            status=status,
+            review_ready_count=review_ready_count,
+            blocker_count=len(blockers),
+            registry_status=str(registry.get("status") or "missing"),
+        ),
+        "promotion_allowed": False,
+        "manual_review_required": True,
+        "memo_is_not_approval": True,
+    }
+    return ShadowDecisionMemoResult(
+        generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        db_path=str(db_path),
+        reports_dir=str(reports_dir),
+        as_of_date=as_of_date,
+        status=status,
+        summary=summary,
+        sections=_shadow_decision_sections(
+            candidate_overview=candidate_memos,
+            evidence_items=evidence_items,
+            blockers=blockers,
+            next_experiments=next_experiments,
+            human_decisions=human_decisions,
+            rollback_notes=rollback_notes,
+            safety=safety,
+        ),
+        candidate_memos=candidate_memos,
+        promotion_review={
+            "status": promotion.get("status"),
+            "artifact_valid": bool(promotion.get("artifact_valid")),
+            "summary": promotion_summary,
+            "review_request": review_request,
+        },
+        walk_forward=_mapping(snapshot.get("walk_forward")),
+        replay_backtest_evidence=replay,
+        calibration=calibration,
+        experiment_registry=registry,
+        source_artifacts=source_artifacts,
+        source_status={
+            "promotion_review": promotion_status,
+            "snapshot": snapshot_status,
+            "calibration": calibration.get("status"),
+            "experiment_registry": registry.get("status"),
+        },
+        safety=safety,
+    )
+
+
+def _shadow_promotion_workbench_payload(value: object) -> dict[str, Any]:
+    if isinstance(value, Mapping):
+        return dict(value)
+    return {
+        "review_request_contract": getattr(value, "review_request_contract", SHADOW_PROMOTION_REVIEW_REQUEST_CONTRACT),
+        "generated_at": getattr(value, "generated_at", None),
+        "as_of_date": getattr(value, "as_of_date", None),
+        "status": getattr(value, "status", "missing"),
+        "artifact_path": getattr(value, "artifact_path", None),
+        "markdown_path": getattr(value, "markdown_path", None),
+        "artifact_exists": getattr(value, "artifact_exists", False),
+        "artifact_valid": getattr(value, "artifact_valid", False),
+        "artifact_error": getattr(value, "artifact_error", None),
+        "summary": dict(getattr(value, "summary", {}) or {}),
+        "review_request": dict(getattr(value, "review_request", {}) or {}),
+        "candidate_readiness": list(getattr(value, "candidate_readiness", []) or []),
+        "replay_backtest_evidence": dict(getattr(value, "replay_backtest_evidence", {}) or {}),
+        "source_dossier_review": dict(getattr(value, "source_dossier_review", {}) or {}),
+        "source_artifacts": dict(getattr(value, "source_artifacts", {}) or {}),
+        "safety": dict(getattr(value, "safety", {}) or {}),
+        "artifact": dict(getattr(value, "artifact", {}) or {}),
+    }
+
+
+def _shadow_snapshot_payload(value: object, result: ServiceResult[Any]) -> dict[str, Any]:
+    if value is None:
+        return {
+            "status": "missing",
+            "errors": [error.code for error in result.errors],
+            "source_artifacts": {},
+            "counts": {},
+            "walk_forward": {},
+            "candidates": [],
+            "safety": {},
+        }
+    if isinstance(value, Mapping):
+        return dict(value)
+    return {
+        "snapshot_contract": getattr(value, "snapshot_contract", "shadow_strategy_snapshot_v1"),
+        "as_of_date": getattr(value, "as_of_date", None),
+        "next_trade_date": getattr(value, "next_trade_date", None),
+        "status": getattr(value, "status", "unknown"),
+        "source_artifacts": dict(getattr(value, "source_artifacts", {}) or {}),
+        "counts": dict(getattr(value, "counts", {}) or {}),
+        "walk_forward": dict(getattr(value, "walk_forward", {}) or {}),
+        "frozen_cpb_comparison": dict(getattr(value, "frozen_cpb_comparison", {}) or {}),
+        "candidates": list(getattr(value, "candidates", []) or []),
+        "safety": dict(getattr(value, "safety", {}) or {}),
+        "release_gate": dict(getattr(value, "release_gate", {}) or {}),
+        "errors": [error.code for error in result.errors],
+    }
+
+
+def _load_shadow_decision_source_artifact(
+    reports_dir: Path,
+    *,
+    pattern: str,
+    as_of_date: str | None,
+    artifact_root: Path,
+    expected_contract_key: str,
+    expected_contract: str,
+    missing_status: str,
+) -> dict[str, Any]:
+    path = _latest_shadow_decision_source_path(reports_dir, pattern, as_of_date)
+    source_key = pattern.replace("_*.json", "")
+    if path is None:
+        return {
+            "status": missing_status,
+            "valid": False,
+            "artifact_path": None,
+            "summary": {},
+            "payload": {},
+            "blockers": [f"{source_key}_missing"],
+            "safety": _shadow_decision_memo_safety(),
+        }
+    artifact, load_error = _load_json_object(path, artifact_label=source_key)
+    if load_error is not None:
+        return {
+            "status": "invalid",
+            "valid": False,
+            "artifact_path": _portable_artifact_path(str(path), artifact_root),
+            "summary": {},
+            "payload": {},
+            "blockers": [f"{source_key}_invalid"],
+            "error": load_error,
+            "safety": _shadow_decision_memo_safety(),
+        }
+    artifact = _portable_artifact_paths(artifact, artifact_root)
+    contract = _optional_text(artifact.get(expected_contract_key))
+    contract_valid = contract == expected_contract
+    safety = _mapping(artifact.get("safety"))
+    blockers = _shadow_decision_artifact_blockers(artifact, contract_valid=contract_valid, source_key=source_key)
+    return {
+        "status": "available" if not blockers else "blocked",
+        "valid": not blockers,
+        "artifact_path": _portable_artifact_path(str(path), artifact_root),
+        "contract": contract,
+        "summary": _mapping(artifact.get("summary")),
+        "payload": artifact,
+        "blockers": blockers,
+        "safety": {
+            **safety,
+            "promotion_allowed": False,
+            "writes_trade_state": False,
+            "writes_paper_live_behavior": False,
+            "timer_mutated": False,
+        },
+    }
+
+
+def _latest_shadow_decision_source_path(reports_dir: Path, pattern: str, as_of_date: str | None) -> Path | None:
+    candidates = [path for path in reports_dir.glob(pattern) if path.is_file()]
+    if as_of_date is not None:
+        exact = [path for path in candidates if _shadow_decision_artifact_date(path.name) == as_of_date]
+        return sorted(exact, key=lambda path: (path.stat().st_mtime, path.name))[-1] if exact else None
+    if not candidates:
+        return None
+    return sorted(
+        candidates,
+        key=lambda path: (_shadow_decision_artifact_date(path.name) or "", path.stat().st_mtime, path.name),
+    )[-1]
+
+
+def _shadow_decision_artifact_date(name: str) -> str | None:
+    stem = name[:-5] if name.endswith(".json") else name
+    candidate = stem.rsplit("_", 1)[-1]
+    return candidate if len(candidate) == 8 and candidate.isdigit() else None
+
+
+def _shadow_decision_artifact_blockers(
+    artifact: Mapping[str, Any],
+    *,
+    contract_valid: bool,
+    source_key: str,
+) -> list[str]:
+    blockers = []
+    if not contract_valid:
+        blockers.append(f"{source_key}_contract_invalid")
+    safety = _mapping(artifact.get("safety"))
+    release_gate = _mapping(artifact.get("release_gate"))
+    if bool(safety.get("promotion_allowed")) or bool(release_gate.get("promotion_allowed")):
+        blockers.append(f"{source_key}_reports_promotion_allowed")
+    for key in (
+        "active_params_mutated",
+        "active_params_mutated_by_calibration",
+        "wrote_strategy_version",
+        "wrote_strategy_versions",
+        "writes_trade_state",
+        "writes_paper_live_behavior",
+        "timer_mutated",
+    ):
+        if bool(safety.get(key)):
+            blockers.append(f"{source_key}_{key}")
+    return blockers
+
+
+def _shadow_decision_candidate_memos(
+    *,
+    promotion: Mapping[str, Any],
+    snapshot: Mapping[str, Any],
+    calibration: Mapping[str, Any],
+    registry: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    promotion_candidates = _list_mapping(promotion.get("candidate_readiness"))
+    snapshot_candidates = _list_mapping(snapshot.get("candidates"))
+    candidates = promotion_candidates or snapshot_candidates
+    evidence_by_candidate = _mapping(_mapping(promotion.get("replay_backtest_evidence")).get("by_candidate"))
+    walk_by_candidate = _shadow_decision_walk_by_candidate(snapshot)
+    calibration_by_candidate = {
+        str(item.get("candidate_key")): item
+        for item in _list_mapping(_mapping(calibration.get("payload")).get("candidates"))
+        if item.get("candidate_key") is not None
+    }
+    registry_by_candidate = _shadow_decision_experiments_by_candidate(registry)
+    rows = []
+    for candidate in candidates:
+        candidate_key = _optional_text(candidate.get("candidate_key")) or "-"
+        evidence = _mapping(evidence_by_candidate.get(candidate_key))
+        walk = _mapping(walk_by_candidate.get(candidate_key))
+        calibration_candidate = _mapping(calibration_by_candidate.get(candidate_key))
+        blockers = _unique_texts(
+            [
+                *_list_text(candidate.get("blocked_reasons")),
+                *_list_text(candidate.get("blockers")),
+                *_list_text(_mapping(_mapping(candidate.get("readiness_checks")).get("blocker_clearance")).get("blockers")),
+                *_list_text(evidence.get("blockers")),
+                *_shadow_decision_calibration_blockers(calibration_candidate),
+            ]
+        )
+        experiments = registry_by_candidate.get(candidate_key) or _shadow_decision_calibration_experiments(
+            calibration,
+            candidate_key,
+        )
+        rows.append(
+            {
+                "candidate_key": candidate_key,
+                "candidate_family": candidate.get("candidate_family") or calibration_candidate.get("candidate_family") or "shadow_candidate",
+                "summary_zh": _shadow_decision_candidate_summary_zh(candidate_key, evidence, walk, blockers),
+                "review_status": candidate.get("review_status") or candidate.get("promotion_readiness") or "blocked",
+                "evidence_status": evidence.get("status") or "missing",
+                "walk_forward_status": walk.get("status") or candidate.get("walk_forward_status") or "unknown",
+                "sample_size": evidence.get("sample_size"),
+                "required_sample_size": evidence.get("required_sample_size"),
+                "t1_close_mean_pct": _mapping(evidence.get("metrics")).get("t1_close_mean_pct")
+                or _mapping(calibration_candidate.get("metrics")).get("mean_return_pct"),
+                "t1_close_win_rate_pct": _mapping(evidence.get("metrics")).get("t1_close_win_rate_pct")
+                or _mapping(calibration_candidate.get("metrics")).get("win_rate_pct"),
+                "frozen_cpb_delta_pct": _mapping(_mapping(calibration_candidate.get("metrics")).get("frozen_cpb_comparison")).get(
+                    "mean_return_delta_pct"
+                ),
+                "blockers": blockers,
+                "next_experiments": experiments,
+                "manual_decision_zh": "保持影子观察；如需推进，先补齐证据并另开人工 strategy-version 任务。",
+                "promotion_allowed": False,
+            }
+        )
+    return rows
+
+
+def _shadow_decision_walk_by_candidate(snapshot: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+    rows: dict[str, dict[str, Any]] = {}
+    walk_forward = _mapping(snapshot.get("walk_forward"))
+    for item in _list_mapping(walk_forward.get("by_candidate")) + _list_mapping(walk_forward.get("summary")):
+        key = _optional_text(item.get("candidate_key") or item.get("bucket"))
+        if key:
+            rows[key] = item
+    for candidate in _list_mapping(snapshot.get("candidates")):
+        key = _optional_text(candidate.get("candidate_key"))
+        if key and key not in rows:
+            rows[key] = _mapping(candidate.get("walk_forward"))
+    return rows
+
+
+def _shadow_decision_experiments_by_candidate(registry: Mapping[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    payload = _mapping(registry.get("payload"))
+    experiments = _list_mapping(payload.get("experiments")) or _list_mapping(payload.get("recommended_next_experiments"))
+    result: dict[str, list[dict[str, Any]]] = {}
+    for experiment in experiments:
+        key = _optional_text(experiment.get("candidate_key"))
+        if key:
+            result.setdefault(key, []).append(_shadow_decision_experiment_payload(experiment, source="registry"))
+    return result
+
+
+def _shadow_decision_calibration_experiments(calibration: Mapping[str, Any], candidate_key: str) -> list[dict[str, Any]]:
+    payload = _mapping(calibration.get("payload"))
+    experiments = [
+        item
+        for item in _list_mapping(payload.get("recommended_next_experiments"))
+        if str(item.get("candidate_key") or "") == candidate_key
+    ]
+    return [_shadow_decision_experiment_payload(item, source="calibration") for item in experiments]
+
+
+def _shadow_decision_next_experiments(
+    *,
+    calibration: Mapping[str, Any],
+    registry: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    registry_payload = _mapping(registry.get("payload"))
+    registry_experiments = _list_mapping(registry_payload.get("experiments"))
+    if registry_experiments:
+        return [_shadow_decision_experiment_payload(item, source="registry") for item in registry_experiments]
+    calibration_payload = _mapping(calibration.get("payload"))
+    experiments = _list_mapping(calibration_payload.get("recommended_next_experiments"))
+    return [_shadow_decision_experiment_payload(item, source="calibration") for item in experiments]
+
+
+def _shadow_decision_experiment_payload(experiment: Mapping[str, Any], *, source: str) -> dict[str, Any]:
+    return {
+        "experiment_key": experiment.get("experiment_key") or experiment.get("key") or experiment.get("candidate_key"),
+        "candidate_key": experiment.get("candidate_key"),
+        "candidate_family": experiment.get("candidate_family"),
+        "source": source,
+        "next_step_zh": _shadow_decision_next_step_zh(experiment),
+        "reason": experiment.get("reason"),
+        "recommended_variant": experiment.get("recommended_variant"),
+        "required_evidence": _list_text(experiment.get("required_evidence")),
+        "stop_rules": _list_text(experiment.get("stop_rules")),
+        "promotion_allowed": False,
+        "artifact_only": True,
+    }
+
+
+def _shadow_decision_next_step_zh(experiment: Mapping[str, Any]) -> str:
+    next_step = _optional_text(experiment.get("next_step"))
+    if next_step:
+        return next_step
+    candidate_key = _optional_text(experiment.get("candidate_key")) or "候选"
+    return f"{candidate_key} 继续补齐 replay/backtest 证据、样本和 frozen-CPB 对照后再进入人工复核。"
+
+
+def _shadow_decision_calibration_blockers(candidate: Mapping[str, Any]) -> list[str]:
+    blockers: list[str] = []
+    for variant in _list_mapping(candidate.get("threshold_variant_results")):
+        blockers.extend(_list_text(variant.get("blockers")))
+    return _unique_texts(blockers)
+
+
+def _shadow_decision_blockers(
+    *,
+    promotion: Mapping[str, Any],
+    calibration: Mapping[str, Any],
+    registry: Mapping[str, Any],
+    candidate_memos: list[dict[str, Any]],
+) -> list[str]:
+    review_request = _mapping(promotion.get("review_request"))
+    blockers = [
+        *_list_text(review_request.get("blocking_reason")),
+        *_list_text(promotion.get("artifact_error")),
+        *_list_text(calibration.get("blockers")),
+        *_list_text(registry.get("blockers")),
+    ]
+    for candidate in candidate_memos:
+        blockers.extend(_list_text(candidate.get("blockers")))
+    if registry.get("status") == "missing":
+        blockers.append("shadow_strategy_experiment_registry_missing")
+    return _unique_texts(blockers)
+
+
+def _shadow_decision_blocked_mutation_targets(
+    *,
+    calibration: Mapping[str, Any],
+    registry: Mapping[str, Any],
+) -> list[str]:
+    targets = []
+    for source in (calibration, registry):
+        release_gate = _mapping(_mapping(source.get("payload")).get("release_gate"))
+        targets.extend(_list_text(release_gate.get("blocked_mutation_targets")))
+    return [f"禁止修改：{target}" for target in _unique_texts(targets)]
+
+
+def _shadow_decision_evidence_items(
+    *,
+    promotion: Mapping[str, Any],
+    snapshot: Mapping[str, Any],
+    calibration: Mapping[str, Any],
+    registry: Mapping[str, Any],
+    replay_summary: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    walk = _mapping(snapshot.get("walk_forward"))
+    return [
+        {
+            "name": "promotion review request",
+            "status": promotion.get("status") or _mapping(promotion.get("summary")).get("status") or "missing",
+            "summary_zh": "人工评审请求只作为复核上下文，不是批准。",
+            "artifact_path": promotion.get("artifact_path"),
+        },
+        {
+            "name": "replay/backtest evidence",
+            "status": "accepted" if _int_value(replay_summary.get("accepted_count"), 0) else "blocked",
+            "summary_zh": (
+                f"accepted {_int_value(replay_summary.get('accepted_count'), 0)} / "
+                f"rejected {_int_value(replay_summary.get('rejected_count'), 0)} / "
+                f"missing {_int_value(replay_summary.get('missing_count'), 0)}"
+            ),
+        },
+        {
+            "name": "walk-forward outcomes",
+            "status": walk.get("status") or snapshot.get("status") or "missing",
+            "summary_zh": (
+                f"{_int_value(walk.get('evaluable_signal_days'), 0)}/"
+                f"{_int_value(walk.get('required_days'), 0)} 个观察交易日；最新 outcome "
+                f"{walk.get('latest_outcome_date') or '-'}"
+            ),
+        },
+        {
+            "name": "threshold calibration",
+            "status": calibration.get("status") or "missing",
+            "summary_zh": _shadow_decision_source_summary_zh(calibration, "calibration"),
+            "artifact_path": calibration.get("artifact_path"),
+        },
+        {
+            "name": "experiment registry",
+            "status": registry.get("status") or "missing",
+            "summary_zh": _shadow_decision_source_summary_zh(registry, "experiment registry"),
+            "artifact_path": registry.get("artifact_path"),
+        },
+    ]
+
+
+def _shadow_decision_source_summary_zh(source: Mapping[str, Any], label: str) -> str:
+    if source.get("status") == "missing":
+        return f"{label} artifact 未找到；不能据此放行晋升。"
+    if source.get("status") == "invalid":
+        return f"{label} artifact 无效；不能据此放行晋升。"
+    summary = _mapping(source.get("summary"))
+    count = summary.get("recommended_next_experiment_count") or summary.get("experiment_count")
+    return f"{label} artifact 已读取；next experiments {count if count is not None else '-'}；仍为 artifact-only。"
+
+
+def _shadow_decision_sections(
+    *,
+    candidate_overview: list[dict[str, Any]],
+    evidence_items: list[dict[str, Any]],
+    blockers: list[str],
+    next_experiments: list[dict[str, Any]],
+    human_decisions: list[dict[str, Any]],
+    rollback_notes: list[str],
+    safety: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        "候选概览": {
+            "summary_zh": f"当前纳入备忘录的 shadow 候选 {len(candidate_overview)} 个，全部保持人工复核边界。",
+            "items": candidate_overview,
+        },
+        "证据状态": {
+            "summary_zh": "证据只用于判断下一步研究，不触发 approve、promote、trade、plan 或 timer。",
+            "items": evidence_items,
+        },
+        "阻断原因": {
+            "summary_zh": "存在任一 blocker 时不得进入策略发布或交易链路。",
+            "items": blockers,
+        },
+        "下一步实验": {
+            "summary_zh": "下一步只允许补证据、扩样本、重跑 artifact-only 实验。",
+            "items": next_experiments,
+        },
+        "人工决策": {
+            "summary_zh": "人工决策是后续复核任务输入，不是本备忘录内的批准动作。",
+            "items": human_decisions,
+        },
+        "风险/回滚边界": {
+            "summary_zh": "所有 active CPB、strategy_versions、trade state、paper/live 行为和 timers 必须保持不变。",
+            "items": rollback_notes,
+            "safety": dict(safety),
+        },
+    }
+
+
+def _shadow_decision_candidate_summary_zh(
+    candidate_key: str,
+    evidence: Mapping[str, Any],
+    walk: Mapping[str, Any],
+    blockers: list[str],
+) -> str:
+    evidence_status = evidence.get("status") or "missing"
+    walk_status = walk.get("status") or "unknown"
+    return (
+        f"{candidate_key}：replay/backtest={evidence_status}，walk-forward={walk_status}，"
+        f"blockers={len(blockers)}；结论为继续人工复核/补证据，不允许晋升。"
+    )
+
+
+def _shadow_decision_conclusion_zh(
+    *,
+    status: str,
+    review_ready_count: int,
+    blocker_count: int,
+    registry_status: str,
+) -> str:
+    if status == "blocked":
+        return (
+            f"当前仍为阻断：review_ready {review_ready_count} 个，blocker {blocker_count} 个，"
+            f"experiment registry 状态 {registry_status}。"
+        )
+    return "证据可进入人工复核讨论，但本备忘录仍不批准晋升、交易或改参数。"
+
+
+def _shadow_decision_memo_safety() -> dict[str, Any]:
+    return {
+        "read_only": True,
+        "artifact_only": True,
+        "memo_is_not_approval": True,
+        "manual_review_required": True,
+        "no_approve_controls": True,
+        "no_promotion_controls": True,
+        "no_trade_controls": True,
+        "no_trade_plan_controls": True,
+        "no_timer_controls": True,
+        "promotion_allowed": False,
+        "paper_observation_allowed": False,
+        "trade_plan_allowed": False,
+        "active_params_mutated": False,
+        "wrote_strategy_version": False,
+        "wrote_strategy_versions": False,
+        "writes_trade_state": False,
+        "writes_paper_live_behavior": False,
+        "timer_mutated": False,
+    }
 
 
 def _promotion_dossier_artifact(

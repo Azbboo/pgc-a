@@ -393,6 +393,34 @@ class OperationalRunbookStaticTest(unittest.TestCase):
         ]:
             self.assertIn(text, source)
 
+    def test_m97_runbook_documents_shadow_experiment_registry(self) -> None:
+        source = RUNBOOK.read_text(encoding="utf-8")
+
+        for text in [
+            "M97 影子策略 experiment registry",
+            "shadow_strategy_experiment_registry_YYYYMMDD.json",
+            "shadow_strategy_experiment_registry_v1",
+            "artifact_type=shadow_strategy_experiment_registry",
+            "source_calibration.calibration_contract=shadow_threshold_calibration_v1",
+            "calibration_variant",
+            "replay_evidence",
+            "sample_requirements",
+            "frozen_cpb_comparison",
+            "required_evidence",
+            "stop_rules",
+            "rollback_rules",
+            "manual_approval_boundaries",
+            "strategy_version_publication_allowed=false",
+            "artifact_only=true",
+            "promotion_allowed=false",
+            "active_params_mutated=false",
+            "writes_trade_state=false",
+            "timer_mutated=false",
+            "python3 scripts/build_shadow_experiment_registry.py --date YYYYMMDD --reports-dir reports --compact",
+            "PYTHONPATH=src:. pytest -q tests/test_strategy_evolution_service.py tests/test_shadow_experiment_registry_script.py tests/test_operational_runbook_static.py",
+        ]:
+            self.assertIn(text, source)
+
     def test_m20_deploy_script_is_guarded_and_parseable(self) -> None:
         self.assertTrue(DEPLOY_SCRIPT.exists(), f"missing {DEPLOY_SCRIPT}")
         source = DEPLOY_SCRIPT.read_text(encoding="utf-8")

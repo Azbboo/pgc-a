@@ -2,7 +2,7 @@
   "artifact_type": "shadow_replay_backtest_evidence",
   "as_of_date": "20260513",
   "evidence_contract": "shadow_replay_backtest_evidence_v1",
-  "generated_at": "2026-05-13T14:37:01+00:00",
+  "generated_at": "2026-05-13T15:38:15+00:00",
   "provider": "pgc_shadow_replay_backtest_evidence_producer_v1",
   "results": [
     {

@@ -1593,6 +1593,52 @@ PYTHONPATH=src:. pytest -q
 git diff --check
 ```
 
+## 31. M97 影子策略 experiment registry
+
+M97 生成 `shadow_strategy_experiment_registry_YYYYMMDD.json` 和对应 Markdown 报告，使用
+`shadow_strategy_experiment_registry_v1` 合同。该 registry 只把 M94 的
+`recommended_next_experiments` 转成可复核的实验登记表；它记录 candidate family、calibration
+variant、replay evidence status、sample requirements、frozen-CPB comparison、required evidence、
+stop rules、rollback rules 和 manual approval boundaries，不发布 strategy version，也不允许交易状态写入。
+
+provider artifact 必须包含：
+
+- `artifact_type=shadow_strategy_experiment_registry`
+- `registry_contract=shadow_strategy_experiment_registry_v1`
+- `source_calibration.calibration_contract=shadow_threshold_calibration_v1`
+- 每个 experiment 的 `candidate_key`、`candidate_family`、`calibration_variant`、
+  `replay_evidence`、`sample_requirements`、`frozen_cpb_comparison`
+- `required_evidence`
+- `stop_rules`
+- `rollback_rules`
+- `manual_approval_boundaries`
+- safety flags：`artifact_only=true`、`promotion_allowed=false`、`active_params_mutated=false`、
+  `writes_trade_state=false`、`writes_paper_live_behavior=false`、`timer_mutated=false`
+
+标准命令：
+
+```bash
+python3 scripts/build_shadow_experiment_registry.py --date YYYYMMDD --reports-dir reports --compact
+```
+
+发布门禁：
+
+1. registry 只能作为下一轮 shadow 实验输入，不得解除 `manual_promotion_approval_required`。
+2. `promotion_allowed=false` 必须保持；任何 experiment 也不是 approval。
+3. `strategy_version_publication_allowed=false` 必须保持，不能创建或发布 `strategy_versions`。
+4. `strategy_versions, trade_plans, trades, positions` 不得因 registry 生成而新增、删除或改状态。
+5. active CPB params/hash、paper/live behavior 和 `pgc-daily-pipeline.timer` 不得变化。
+6. replay evidence missing/rejected、sample 不足、frozen-CPB comparison 缺失或 metric 缺失必须保留为 stop rule。
+
+最小验证：
+
+```bash
+python3 scripts/build_shadow_experiment_registry.py --date YYYYMMDD --reports-dir reports --compact
+PYTHONPATH=src:. pytest -q tests/test_strategy_evolution_service.py tests/test_shadow_experiment_registry_script.py tests/test_operational_runbook_static.py
+PYTHONPATH=src:. pytest -q
+git diff --check
+```
+
 ## 24. M46 收盘后定时流水线
 
 M46 把 M42 的全市场复盘流水线固化为远端 systemd timer。只在 M42 已验收、远端 API write token 由部署脚本保留、并且手工 dry-run 通过后启用 apply 定时任务。

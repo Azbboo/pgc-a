@@ -41,9 +41,13 @@ from pgc_trading.services.operational_readiness_service import (
 from pgc_trading.services.open_execution_service import OpenExecutionRequest, OpenExecutionService
 from pgc_trading.services.shadow_observation_service import (
     DEFAULT_REQUIRED_SAMPLE_SIZE,
+    GetShadowDecisionMemoRequest,
+    SHADOW_DECISION_MEMO_CONTRACT,
     SHADOW_OBSERVATION_SCORECARD_CONTRACT,
     SHADOW_PROMOTION_DOSSIER_CONTRACT,
     SHADOW_PROMOTION_REVIEW_REQUEST_CONTRACT,
+    SHADOW_WALK_FORWARD_OUTCOMES_CONTRACT,
+    ShadowObservationService,
     load_shadow_replay_backtest_evidence_index,
 )
 from pgc_trading.services.shadow_strategy_service import GetShadowStrategySnapshotRequest, ShadowStrategyService
@@ -648,7 +652,9 @@ class DailyReport:
     positions: list[PositionReport]
     due_positions: list[PositionReport]
     lineage: ReportLineage
+    shadow_walk_forward_outcomes: dict[str, Any] = field(default_factory=dict)
     shadow_evidence: dict[str, Any] = field(default_factory=dict)
+    shadow_decision_memo: dict[str, Any] = field(default_factory=dict)
 
 
 class ReportingQueryService:
@@ -755,6 +761,16 @@ class ReportingQueryService:
             as_of_date=request.as_of_date,
             shadow=shadow_observation,
         )
+        shadow_walk_forward_outcomes = _shadow_walk_forward_outcomes_report(
+            reports_dir=self.reports_dir,
+            as_of_date=request.as_of_date,
+        )
+        shadow_decision_memo = _shadow_decision_memo_report(
+            db_path=self.db_path,
+            reports_dir=self.reports_dir,
+            as_of_date=request.as_of_date,
+            context=context,
+        )
         report = DailyReport(
             generated_at=datetime.now(UTC).isoformat(),
             as_of_date=request.as_of_date,
@@ -774,7 +790,9 @@ class ReportingQueryService:
             evidence_coverage_ledger=evidence_coverage_ledger,
             shadow_observation=shadow_observation,
             shadow_strategy=shadow_observation,
+            shadow_walk_forward_outcomes=shadow_walk_forward_outcomes,
             shadow_evidence=shadow_evidence,
+            shadow_decision_memo=shadow_decision_memo,
             agent_advice=agent_advice,
             positions=positions,
             due_positions=[position for position in positions if position.action_due != "none"],
@@ -1163,7 +1181,9 @@ def render_daily_report_markdown(report: DailyReport) -> str:
     lines.extend(_market_plan_context_lines(report.market_plan_context))
     lines.extend(_evidence_coverage_ledger_lines(report.evidence_coverage_ledger))
     lines.extend(_shadow_strategy_lines(report.shadow_observation))
+    lines.extend(_shadow_walk_forward_outcomes_lines(report.shadow_walk_forward_outcomes))
     lines.extend(_shadow_evidence_lines(report.shadow_evidence))
+    lines.extend(_shadow_decision_memo_lines(report.shadow_decision_memo))
 
     lines.extend(["", "## Agent 复核", ""])
     lines.extend(
@@ -1737,6 +1757,59 @@ _SHADOW_EVIDENCE_FORBIDDEN_TRUE_FLAGS = (
 )
 
 
+def _shadow_decision_memo_report(
+    *,
+    db_path: Path,
+    reports_dir: Path,
+    as_of_date: str,
+    context: RequestContext,
+) -> dict[str, Any]:
+    result = ShadowObservationService(db_path, reports_dir=reports_dir).get_decision_memo(
+        GetShadowDecisionMemoRequest(as_of_date=as_of_date),
+        RequestContext(
+            request_id=f"{context.request_id}:shadow-decision-memo",
+            dry_run=True,
+            operator=context.operator,
+            source=context.source,
+        ),
+    )
+    if result.data is None:
+        return {
+            "memo_contract": SHADOW_DECISION_MEMO_CONTRACT,
+            "as_of_date": as_of_date,
+            "status": result.status,
+            "summary": {
+                "status": result.status,
+                "candidate_count": 0,
+                "conclusion_zh": "Shadow 决策备忘录暂不可用；候选保持人工复核边界。",
+                "promotion_allowed": False,
+            },
+            "sections": {},
+            "candidate_memos": [],
+            "source_status": {"errors": [error.code for error in result.errors]},
+            "safety": {
+                "read_only": True,
+                "artifact_only": True,
+                "promotion_allowed": False,
+                "writes_trade_state": False,
+                "writes_paper_live_behavior": False,
+                "timer_mutated": False,
+            },
+        }
+    payload = asdict(result.data)
+    safety = _dict_value(payload.get("safety")) or {}
+    payload["safety"] = {
+        **safety,
+        "read_only": True,
+        "artifact_only": True,
+        "promotion_allowed": False,
+        "writes_trade_state": False,
+        "writes_paper_live_behavior": False,
+        "timer_mutated": False,
+    }
+    return payload
+
+
 def _shadow_evidence_report(
     *,
     reports_dir: Path,
@@ -1771,6 +1844,15 @@ def _shadow_evidence_report(
             "artifact_type": "shadow_promotion_review_request",
             "contract_key": "review_request_contract",
             "contract": SHADOW_PROMOTION_REVIEW_REQUEST_CONTRACT,
+            "date_keys": ("as_of_date", "review_date"),
+        },
+        {
+            "key": "walk_forward_outcomes",
+            "json_name": f"shadow_walk_forward_outcomes_{as_of_date}.json",
+            "markdown_name": f"shadow_walk_forward_outcomes_{as_of_date}.md",
+            "artifact_type": "shadow_walk_forward_outcomes",
+            "contract_key": "outcomes_contract",
+            "contract": SHADOW_WALK_FORWARD_OUTCOMES_CONTRACT,
             "date_keys": ("as_of_date", "review_date"),
         },
     ]
@@ -1820,6 +1902,76 @@ def _shadow_evidence_report(
             "Shadow evidence is review context only; review_ready is not approval and this section "
             "does not promote candidates, create trade plans, write trades, change positions, or touch timers."
         ),
+    }
+
+
+def _shadow_walk_forward_outcomes_report(*, reports_dir: Path, as_of_date: str) -> dict[str, Any]:
+    spec = {
+        "key": "walk_forward_outcomes",
+        "json_name": f"shadow_walk_forward_outcomes_{as_of_date}.json",
+        "markdown_name": f"shadow_walk_forward_outcomes_{as_of_date}.md",
+        "artifact_type": "shadow_walk_forward_outcomes",
+        "contract_key": "outcomes_contract",
+        "contract": SHADOW_WALK_FORWARD_OUTCOMES_CONTRACT,
+        "date_keys": ("as_of_date", "review_date"),
+    }
+    check = _shadow_evidence_artifact_check(reports_dir=reports_dir, as_of_date=as_of_date, spec=spec)
+    artifact: dict[str, Any] = {}
+    json_path = reports_dir / str(spec["json_name"])
+    if json_path.exists():
+        try:
+            decoded = json.loads(json_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            artifact = {"error": str(exc)}
+        else:
+            artifact = decoded if isinstance(decoded, dict) else {"error": "artifact JSON root must be an object"}
+    summary = _dict_value(artifact.get("summary")) or {
+        "status": "missing",
+        "candidate_count": 0,
+        "signal_count": 0,
+        "complete_count": 0,
+        "partial_horizon_count": 0,
+        "missing_market_bar_count": 0,
+        "promotion_allowed": False,
+    }
+    boundary = _dict_value(artifact.get("no_future_boundary")) or {
+        "passed": False,
+        "as_of_date": as_of_date,
+        "blockers": ["shadow_walk_forward_outcomes_missing"],
+    }
+    blockers = _unique_shadow_blockers(
+        [
+            *_shadow_text_list(check.get("blockers")),
+            *[
+                f"{candidate.get('candidate_key')}:{blocker}"
+                for candidate in _dict_list(artifact.get("candidates"))
+                for blocker in _shadow_text_list(candidate.get("blockers"))
+            ],
+        ]
+    )
+    return {
+        "status": str(summary.get("status") or check.get("status") or "unknown")
+        if check.get("status") == "pass"
+        else str(check.get("status") or "missing"),
+        "as_of_date": as_of_date,
+        "artifact_contract": SHADOW_WALK_FORWARD_OUTCOMES_CONTRACT,
+        "artifact_check": check,
+        "summary": summary,
+        "candidate_summary": _dict_list(artifact.get("candidates")),
+        "no_future_boundary": boundary,
+        "source_artifacts": _dict_value(artifact.get("source_artifacts")) or {},
+        "blockers": blockers,
+        "blocker_count": len(blockers),
+        "safety": {
+            **(_dict_value(artifact.get("safety")) or {}),
+            "read_only": True,
+            "artifact_only": True,
+            "promotion_allowed": False,
+            "writes_trade_state": False,
+            "writes_paper_live_behavior": False,
+            "timer_mutated": False,
+        },
+        "notice": "Walk-forward outcomes are post-close labels only; they do not promote or mutate trading state.",
     }
 
 
@@ -1975,7 +2127,7 @@ def _shadow_evidence_source_parity(
         blockers.append("monitor_json_missing")
     if not source_artifacts.get("promotion_preflight_json"):
         blockers.append("promotion_preflight_json_missing")
-    for key in ("scorecard", "dossier", "review_request"):
+    for key in ("scorecard", "dossier", "review_request", "walk_forward_outcomes"):
         if artifacts.get(key, {}).get("status") != "pass":
             blockers.append(f"{key}_local_artifact_not_ready")
     status = "pass" if not blockers else "blocked"
@@ -5255,6 +5407,53 @@ def _shadow_source_artifact_lines(source_artifacts: dict[str, str | None]) -> li
     return ["", f"source_refs：{'; '.join(refs)}"]
 
 
+def _shadow_walk_forward_outcomes_lines(outcomes: dict[str, Any]) -> list[str]:
+    if not outcomes:
+        return []
+    summary = _dict_value(outcomes.get("summary")) or {}
+    boundary = _dict_value(outcomes.get("no_future_boundary")) or {}
+    blockers = _shadow_text_list(outcomes.get("blockers"))
+    lines = [
+        "",
+        "## Shadow Walk-forward Outcomes",
+        "",
+        (
+            "- 状态："
+            f"{outcomes.get('status', 'unknown')}；"
+            f"candidate {summary.get('candidate_count', 0)}；"
+            f"signals {summary.get('signal_count', 0)}；"
+            f"complete {summary.get('complete_count', 0)}；"
+            f"partial {summary.get('partial_horizon_count', 0)}；"
+            f"missing_bars {summary.get('missing_market_bar_count', 0)}"
+        ),
+        (
+            "- no-future boundary："
+            f"passed={str(bool(boundary.get('passed'))).lower()}；"
+            f"max_input_date={boundary.get('max_input_date') or '-'}；"
+            f"cutoff={boundary.get('as_of_date') or outcomes.get('as_of_date')}"
+        ),
+        f"- blockers：{';'.join(blockers) if blockers else 'none'}",
+        "- 边界：post-close label accumulator only；不会写策略版本、交易计划、成交、持仓或 timer。",
+        "",
+        "| candidate | status | signals | complete | partial | missing | T+1 mean | T+5 mean |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+    ]
+    for candidate in _dict_list(outcomes.get("candidate_summary")):
+        metrics = _dict_value(candidate.get("metrics")) or {}
+        lines.append(
+            "| "
+            f"{candidate.get('candidate_key')} | "
+            f"{candidate.get('status')} | "
+            f"{candidate.get('source_signal_count', 0)} | "
+            f"{candidate.get('complete_count', 0)} | "
+            f"{candidate.get('partial_horizon_count', 0)} | "
+            f"{candidate.get('missing_market_bar_count', 0)} | "
+            f"{_shadow_pct_text(metrics.get('t1_close_mean_pct'))} | "
+            f"{_shadow_pct_text(metrics.get('t5_close_mean_pct'))} |"
+        )
+    return lines
+
+
 def _shadow_evidence_lines(evidence: dict[str, Any]) -> list[str]:
     if not evidence:
         return []
@@ -5292,6 +5491,62 @@ def _shadow_evidence_lines(evidence: dict[str, Any]) -> list[str]:
         f"- missing blockers：{';'.join(blockers) if blockers else 'none'}",
         "- 边界：review package only；review_ready 不是批准；不会 promote、写交易计划、成交、持仓或 timer。",
     ]
+    return lines
+
+
+def _shadow_decision_memo_lines(memo: dict[str, Any]) -> list[str]:
+    if not memo:
+        return []
+    summary = _dict_value(memo.get("summary")) or {}
+    sections = _dict_value(memo.get("sections")) or {}
+    evidence_section = _dict_value(sections.get("证据状态")) or {}
+    blocker_section = _dict_value(sections.get("阻断原因")) or {}
+    experiment_section = _dict_value(sections.get("下一步实验")) or {}
+    decision_section = _dict_value(sections.get("人工决策")) or {}
+    rollback_section = _dict_value(sections.get("风险/回滚边界")) or {}
+    blockers = _shadow_text_list(blocker_section.get("items"))
+    experiments = _dict_list(experiment_section.get("items"))
+    decisions = _dict_list(decision_section.get("items"))
+    candidates = _dict_list(memo.get("candidate_memos"))
+    evidence_items = _dict_list(evidence_section.get("items"))
+    lines = [
+        "",
+        "## Shadow 中文决策备忘录",
+        "",
+        f"- contract：{memo.get('memo_contract') or SHADOW_DECISION_MEMO_CONTRACT}",
+        f"- 状态：{summary.get('status') or memo.get('status', 'unknown')}；候选 {summary.get('candidate_count', len(candidates))}",
+        f"- 结论：{summary.get('conclusion_zh') or '候选保持人工复核边界。'}",
+        (
+            "- replay/backtest："
+            f"accepted {summary.get('accepted_replay_evidence_count', 0)} / "
+            f"rejected {summary.get('rejected_replay_evidence_count', 0)} / "
+            f"missing {summary.get('missing_replay_evidence_count', 0)}"
+        ),
+        f"- 阻断原因：{';'.join(blockers[:8]) if blockers else 'none'}",
+        f"- 下一步实验：{len(experiments)} 项；来源只允许 artifact-only 补证据/扩样本。",
+        f"- 人工决策：{len(decisions)} 项；本备忘录不是 approval。",
+        "- 风险/回滚边界：不 approve、不 promote、不创建交易计划、不记录成交、不改持仓、不改 paper/live、不改 timer。",
+    ]
+    if evidence_items:
+        lines.extend(["", "证据状态：", ""])
+        for item in evidence_items[:5]:
+            lines.append(f"- {item.get('name')}: {item.get('status')}；{item.get('summary_zh') or ''}".rstrip())
+    if candidates:
+        lines.extend(["", "| candidate | evidence | walk_forward | blockers | 下一步 |", "| --- | --- | --- | ---: | --- |"])
+        for candidate in candidates[:5]:
+            next_steps = _dict_list(candidate.get("next_experiments"))
+            next_step = next_steps[0].get("next_step_zh") if next_steps else "补齐证据后再人工复核"
+            lines.append(
+                "| "
+                f"{candidate.get('candidate_key')} | "
+                f"{candidate.get('evidence_status')} | "
+                f"{candidate.get('walk_forward_status')} | "
+                f"{len(_shadow_text_list(candidate.get('blockers')))} | "
+                f"{next_step} |"
+            )
+    rollback_items = _shadow_text_list(rollback_section.get("items"))
+    if rollback_items:
+        lines.extend(["", f"回滚/安全 notes：{';'.join(rollback_items[:8])}"])
     return lines
 
 
@@ -5550,6 +5805,15 @@ def _date_text(value: str | None) -> str:
 
 def _none_dash(value: object) -> str:
     return "-" if value is None else str(value)
+
+
+def _shadow_pct_text(value: object) -> str:
+    if value in (None, ""):
+        return "-"
+    try:
+        return f"{float(value):.2f}%"
+    except (TypeError, ValueError):
+        return str(value)
 
 
 def _money(value: float | None) -> str:

@@ -11,6 +11,7 @@ from pgc_trading.services.shadow_observation_service import (
     BuildShadowPromotionDossierRequest,
     BuildShadowPromotionReviewRequest,
     BuildShadowReplayBacktestEvidenceRequest,
+    BuildShadowWalkForwardOutcomesRequest,
     GetShadowObservationScorecardRequest,
     GetShadowPromotionReviewRequest,
     ListShadowObservationHistoryRequest,
@@ -388,13 +389,13 @@ class ShadowObservationServiceTest(unittest.TestCase):
             self.assertEqual(result.data.evidence_contract, "shadow_replay_backtest_evidence_v1")
             self.assertTrue(result.data.wrote_artifacts)
             self.assertEqual(result.data.candidate_count, 2)
-            self.assertEqual(result.data.accepted_count, 1)
-            self.assertEqual(result.data.rejected_count, 1)
+            self.assertEqual(result.data.accepted_count, 2)
+            self.assertEqual(result.data.rejected_count, 0)
             self.assertFalse(result.data.safety["writes_trade_state"])
             accepted_path = reports_dir / "shadow_replay_backtest_evidence_20260512_trend_extension_shadow.json"
-            rejected_path = reports_dir / "shadow_replay_backtest_evidence_20260512_pullback_dip_buy.json"
+            dip_path = reports_dir / "shadow_replay_backtest_evidence_20260512_pullback_dip_buy.json"
             self.assertTrue(accepted_path.exists())
-            self.assertTrue(rejected_path.exists())
+            self.assertTrue(dip_path.exists())
             accepted_review = review_shadow_replay_backtest_evidence_artifact(
                 accepted_path,
                 expected_candidate_key="trend_extension_shadow",
@@ -403,19 +404,53 @@ class ShadowObservationServiceTest(unittest.TestCase):
             )
             self.assertTrue(accepted_review.valid, accepted_review.blockers)
             self.assertEqual(accepted_review.status, "accepted")
-            rejected_review = review_shadow_replay_backtest_evidence_artifact(
-                rejected_path,
+            dip_review = review_shadow_replay_backtest_evidence_artifact(
+                dip_path,
                 expected_candidate_key="pullback_dip_buy",
                 expected_as_of_date="20260512",
                 required_sample_size=3,
             )
-            self.assertEqual(rejected_review.status, "rejected")
-            self.assertIn("shadow_replay_backtest_metric_completeness_missing", rejected_review.blockers)
+            self.assertTrue(dip_review.valid, dip_review.blockers)
+            self.assertEqual(dip_review.status, "accepted")
+            self.assertEqual(dip_review.metrics["t1_close_mean_pct"], 1.2)
+            self.assertEqual(dip_review.metrics["t1_sample_size"], 6)
             artifact = json.loads(accepted_path.read_text(encoding="utf-8"))
             generation = artifact["results"][0]["generation"]
             self.assertEqual(generation["source_kind"], "shadow_monitor_walk_forward_market_bars")
             self.assertEqual(generation["t1_sample_size"], 4)
             self.assertFalse(artifact["safety"]["promotion_allowed"])
+
+    def test_dip_buy_replay_evidence_keeps_metric_gap_when_t1_metrics_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "pgc.db"
+            reports_dir = root / "reports"
+            reports_dir.mkdir()
+            run_migrations(db_path)
+            _seed_shadow_replay_market(db_path, sample_days=4)
+            _seed_shadow_replay_monitor_artifacts(reports_dir, sample_days=4, dip_has_t1_metrics=False)
+
+            result = ShadowObservationService(db_path, reports_dir=reports_dir).build_replay_backtest_evidence(
+                BuildShadowReplayBacktestEvidenceRequest(
+                    as_of_date="20260512",
+                    required_sample_size=3,
+                    candidate_keys=("pullback_dip_buy",),
+                ),
+                RequestContext(request_id="req-shadow-replay-dip-metric-gap", dry_run=False, source="test"),
+            )
+
+            self.assertTrue(result.ok, result.errors)
+            assert result.data is not None
+            self.assertEqual(result.data.accepted_count, 0)
+            self.assertEqual(result.data.rejected_count, 1)
+            review = review_shadow_replay_backtest_evidence_artifact(
+                reports_dir / "shadow_replay_backtest_evidence_20260512_pullback_dip_buy.json",
+                expected_candidate_key="pullback_dip_buy",
+                expected_as_of_date="20260512",
+                required_sample_size=3,
+            )
+            self.assertEqual(review.status, "rejected")
+            self.assertIn("shadow_replay_backtest_metric_completeness_missing", review.blockers)
 
     def test_replay_backtest_evidence_generation_keeps_missing_bars_as_blocker(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -454,6 +489,70 @@ class ShadowObservationServiceTest(unittest.TestCase):
             )
             self.assertEqual(review.status, "rejected")
             self.assertIn("shadow_replay_backtest_sample_size_insufficient", review.blockers)
+
+    def test_builds_walk_forward_outcomes_artifact_without_trade_state_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "pgc.db"
+            reports_dir = root / "reports"
+            reports_dir.mkdir()
+            run_migrations(db_path)
+            _seed_shadow_replay_market(db_path, sample_days=4)
+            _seed_shadow_replay_monitor_artifacts(reports_dir, sample_days=4)
+            before_counts = _state_counts(db_path)
+
+            result = ShadowObservationService(db_path, reports_dir=reports_dir).build_walk_forward_outcomes(
+                BuildShadowWalkForwardOutcomesRequest(as_of_date="20260512"),
+                RequestContext(request_id="req-shadow-walk-forward-outcomes", dry_run=False, source="test"),
+            )
+
+            self.assertTrue(result.ok, result.errors)
+            self.assertEqual(_state_counts(db_path), before_counts)
+            assert result.data is not None
+            self.assertEqual(result.data.outcomes_contract, "shadow_walk_forward_outcomes_v1")
+            self.assertTrue(result.data.wrote_artifact)
+            self.assertEqual(result.data.status, "partial")
+            self.assertGreater(result.data.signal_count, 0)
+            self.assertTrue(result.data.no_future_boundary["passed"])
+            self.assertFalse(result.data.safety["writes_trade_state"])
+            artifact_path = reports_dir / "shadow_walk_forward_outcomes_20260512.json"
+            self.assertTrue(artifact_path.exists())
+            artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+            self.assertEqual(artifact["artifact_type"], "shadow_walk_forward_outcomes")
+            self.assertEqual(artifact["outcomes_contract"], "shadow_walk_forward_outcomes_v1")
+            trend = next(item for item in artifact["candidates"] if item["candidate_key"] == "trend_extension_shadow")
+            self.assertEqual(trend["status"], "complete")
+            self.assertEqual(trend["metrics"]["t1_sample_size"], 4)
+            dip = next(item for item in artifact["candidates"] if item["candidate_key"] == "pullback_dip_buy")
+            self.assertEqual(dip["status"], "missing")
+            self.assertIn("shadow_walk_forward_source_rows_missing", dip["blockers"])
+
+    def test_walk_forward_outcomes_records_missing_market_bars_and_partial_horizons(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "pgc.db"
+            reports_dir = root / "reports"
+            reports_dir.mkdir()
+            run_migrations(db_path)
+            _seed_shadow_replay_market(db_path, sample_days=2)
+            _seed_shadow_replay_monitor_artifacts(reports_dir, sample_days=4, include_dip=False)
+
+            result = ShadowObservationService(db_path, reports_dir=reports_dir).build_walk_forward_outcomes(
+                BuildShadowWalkForwardOutcomesRequest(as_of_date="20260512", horizon_days=10),
+                RequestContext(request_id="req-shadow-walk-forward-partial", dry_run=False, source="test"),
+            )
+
+            self.assertTrue(result.ok, result.errors)
+            assert result.data is not None
+            self.assertEqual(result.data.status, "partial")
+            self.assertGreater(result.data.partial_horizon_count, 0)
+            self.assertGreater(result.data.missing_market_bar_count, 0)
+            artifact = json.loads(
+                (reports_dir / "shadow_walk_forward_outcomes_20260512.json").read_text(encoding="utf-8")
+            )
+            trend = artifact["candidates"][0]
+            self.assertIn("shadow_walk_forward_market_bars_missing", trend["blockers"])
+            self.assertIn("shadow_walk_forward_partial_horizon", trend["blockers"])
 
 
 def _seed_shadow_history_artifacts(reports_dir: Path) -> None:
@@ -703,6 +802,7 @@ def _seed_shadow_replay_monitor_artifacts(
     *,
     sample_days: int,
     include_dip: bool = True,
+    dip_has_t1_metrics: bool = True,
 ) -> None:
     rows = []
     for day in range(1, sample_days + 1):
@@ -756,11 +856,25 @@ def _seed_shadow_replay_monitor_artifacts(
         dip_path.write_text(
             json.dumps(
                 {
+                    "source_freshness": {
+                        "market_data_start_date": "20260501",
+                        "market_data_end_date": "20260512",
+                    },
                     "selected_variant": "dip_r15_a6_run05",
                     "variants": [
                         {
                             "variant_id": "dip_r15_a6_run05",
                             "fill_n": 6,
+                            **(
+                                {
+                                    "ret_1d_n": 6,
+                                    "ret_1d_mean": 0.012,
+                                    "ret_1d_win_rate": 0.5,
+                                    "mfe_1d_mean": 0.024,
+                                }
+                                if dip_has_t1_metrics
+                                else {}
+                            ),
                             "ret_5d_n": 6,
                             "ret_5d_mean": 0.03,
                             "ret_5d_win_rate": 0.66,

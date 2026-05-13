@@ -2,7 +2,7 @@
   "artifact_type": "shadow_replay_backtest_evidence",
   "as_of_date": "20260513",
   "evidence_contract": "shadow_replay_backtest_evidence_v1",
-  "generated_at": "2026-05-13T14:37:01+00:00",
+  "generated_at": "2026-05-13T15:38:15+00:00",
   "provider": "pgc_shadow_replay_backtest_evidence_producer_v1",
   "results": [
     {
@@ -10,37 +10,36 @@
       "candidate_family": "dip_buy",
       "candidate_key": "pullback_dip_buy",
       "date_range": {
-        "end_date": "20260511",
-        "start_date": "20260511"
+        "end_date": "20260513",
+        "start_date": "20250714"
       },
       "generation": {
         "advisory_only": true,
-        "blockers": [
-          "shadow_replay_backtest_metric_gap"
-        ],
+        "blockers": [],
         "missing_market_bar_count": 0,
         "partial_horizon_count": 0,
         "promotion_allowed": false,
         "source_kind": "pullback_dip_buy_artifact_summary",
-        "source_row_count": 107,
-        "status": "generated_with_blockers",
-        "t1_sample_size": 0,
-        "t5_sample_size": 99
+        "source_row_count": 110,
+        "status": "generated",
+        "t1_sample_size": 108,
+        "t5_sample_size": 105
       },
       "metrics": {
-        "max_drawdown_pct": -7.86,
-        "source_row_count": 107,
-        "t1_close_mean_pct": null,
-        "t1_close_win_rate_pct": null,
-        "t1_sample_size": 0,
-        "t5_close_mean_pct": 1.23,
-        "t5_close_win_rate_pct": 53.54,
-        "t5_sample_size": 99
+        "max_drawdown_pct": -7.16,
+        "source_row_count": 110,
+        "t1_close_mean_pct": 0.46,
+        "t1_close_win_rate_pct": 44.44,
+        "t1_high_mean_pct": 3.2,
+        "t1_sample_size": 108,
+        "t5_close_mean_pct": 0.95,
+        "t5_close_win_rate_pct": 47.62,
+        "t5_sample_size": 105
       },
       "no_future_boundary": {
-        "data_cutoff_date": "20260511",
-        "latest_market_date": "20260511",
-        "max_input_date": "20260511",
+        "data_cutoff_date": "20260513",
+        "latest_market_date": "20260513",
+        "max_input_date": "20260513",
         "passed": true
       },
       "provider": "pgc_shadow_replay_backtest_evidence_producer_v1",
@@ -59,11 +58,11 @@
         "wrote_strategy_version": false,
         "wrote_strategy_versions": false
       },
-      "sample_size": 99,
+      "sample_size": 105,
       "source_artifacts": [
         "reports/pgc_pullback_dip_buy.json"
       ],
-      "source_hash": "e22e87538f05c920792566750193c108001fb019ad6dadcb046de1c754703f96"
+      "source_hash": "42d431db43a3dd08bfdb413565617c1396f9180afb8f04f0fb7e327f767c93df"
     }
   ],
   "safety": {
@@ -85,9 +84,7 @@
     "advisory_only": true,
     "candidate_count": 1,
     "candidate_key": "pullback_dip_buy",
-    "generation_blockers": [
-      "shadow_replay_backtest_metric_gap"
-    ],
+    "generation_blockers": [],
     "promotion_allowed": false,
     "required_sample_size": 20
   }

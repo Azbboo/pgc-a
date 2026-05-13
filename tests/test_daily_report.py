@@ -250,11 +250,17 @@ class DailyReportTest(unittest.TestCase):
             self.assertIn("research-only", markdown)
             self.assertIn("不会进入今日候选、生成交易计划或开启 timer", markdown)
             self.assertIn("## Shadow Evidence Closure", markdown)
+            self.assertIn("## Shadow Walk-forward Outcomes", markdown)
+            self.assertIn("signals 3", markdown)
             self.assertIn("artifact parity：dossier=pass", markdown)
             self.assertIn("review_request=pass", markdown)
             self.assertIn("scorecard=pass", markdown)
+            self.assertIn("walk_forward_outcomes=pass", markdown)
             self.assertIn("Dashboard history parity：pass", markdown)
             self.assertIn("review_ready 不是批准", markdown)
+            self.assertIn("## Shadow 中文决策备忘录", markdown)
+            self.assertIn("shadow_decision_memo_v1", markdown)
+            self.assertIn("不 approve、不 promote、不创建交易计划、不记录成交、不改持仓、不改 paper/live、不改 timer", markdown)
 
             payload = json.loads(render_daily_report_json(result.data))
             self.assertEqual(payload["shadow_observation"]["status"], "blocked")
@@ -268,8 +274,21 @@ class DailyReportTest(unittest.TestCase):
             self.assertEqual(payload["shadow_evidence"]["artifact_summary"]["scorecard"], "pass")
             self.assertEqual(payload["shadow_evidence"]["artifact_summary"]["dossier"], "pass")
             self.assertEqual(payload["shadow_evidence"]["artifact_summary"]["review_request"], "pass")
+            self.assertEqual(payload["shadow_evidence"]["artifact_summary"]["walk_forward_outcomes"], "pass")
+            self.assertEqual(payload["shadow_walk_forward_outcomes"]["summary"]["signal_count"], 3)
+            self.assertTrue(payload["shadow_walk_forward_outcomes"]["no_future_boundary"]["passed"])
             self.assertEqual(payload["shadow_evidence"]["dashboard_history_parity"]["status"], "pass")
             self.assertIn("preconfirm_watchlist", ";".join(payload["shadow_evidence"]["missing_blockers"]))
+            self.assertEqual(payload["shadow_decision_memo"]["memo_contract"], "shadow_decision_memo_v1")
+            self.assertIn("候选概览", payload["shadow_decision_memo"]["sections"])
+            self.assertIn("证据状态", payload["shadow_decision_memo"]["sections"])
+            self.assertIn("阻断原因", payload["shadow_decision_memo"]["sections"])
+            self.assertIn("下一步实验", payload["shadow_decision_memo"]["sections"])
+            self.assertIn("人工决策", payload["shadow_decision_memo"]["sections"])
+            self.assertIn("风险/回滚边界", payload["shadow_decision_memo"]["sections"])
+            self.assertFalse(payload["shadow_decision_memo"]["safety"]["promotion_allowed"])
+            self.assertFalse(payload["shadow_decision_memo"]["safety"]["writes_trade_state"])
+            self.assertFalse(payload["shadow_decision_memo"]["safety"]["timer_mutated"])
             self.assertEqual(payload["candidate"]["name"], "Report Pick")
             self.assertFalse(payload["shadow_strategy"]["safety"]["promotion_allowed"])
 
@@ -1286,10 +1305,65 @@ class DailyReportTest(unittest.TestCase):
                 "paper_observation_allowed": False,
             },
         }
+        walk_forward_outcomes = {
+            "artifact_type": "shadow_walk_forward_outcomes",
+            "outcomes_contract": "shadow_walk_forward_outcomes_v1",
+            "generated_at": "2026-05-12T00:00:05+00:00",
+            "as_of_date": AS_OF_DATE,
+            "summary": {
+                "status": "complete",
+                "candidate_count": 2,
+                "signal_count": 3,
+                "complete_count": 3,
+                "partial_horizon_count": 0,
+                "missing_market_bar_count": 0,
+                "promotion_allowed": False,
+            },
+            "no_future_boundary": {
+                "passed": True,
+                "as_of_date": AS_OF_DATE,
+                "max_input_date": AS_OF_DATE,
+                "query_cutoff_enforced": True,
+            },
+            "candidates": [
+                {
+                    "candidate_key": "trend_extension_shadow",
+                    "status": "complete",
+                    "source_signal_count": 2,
+                    "complete_count": 2,
+                    "partial_horizon_count": 0,
+                    "missing_market_bar_count": 0,
+                    "metrics": {"t1_close_mean_pct": 2.0, "t5_close_mean_pct": 4.0},
+                    "blockers": [],
+                    "promotion_allowed": False,
+                },
+                {
+                    "candidate_key": "preconfirm_watchlist",
+                    "status": "complete",
+                    "source_signal_count": 1,
+                    "complete_count": 1,
+                    "partial_horizon_count": 0,
+                    "missing_market_bar_count": 0,
+                    "metrics": {"t1_close_mean_pct": 1.0, "t5_close_mean_pct": 2.0},
+                    "blockers": [],
+                    "promotion_allowed": False,
+                },
+            ],
+            "safety": {
+                "read_only": True,
+                "artifact_only": True,
+                "writes_trade_state": False,
+                "writes_paper_live_behavior": False,
+                "timer_mutated": False,
+                "promotion_allowed": False,
+                "paper_observation_allowed": False,
+            },
+        }
         artifacts = {
             f"shadow_observation_scorecard_{AS_OF_DATE}": scorecard,
             f"shadow_promotion_dossier_{AS_OF_DATE}": dossier,
             f"shadow_promotion_review_request_{AS_OF_DATE}": review_request,
+            f"shadow_walk_forward_outcomes_{AS_OF_DATE}": walk_forward_outcomes,
         }
         for stem, payload in artifacts.items():
             (reports_dir / f"{stem}.json").write_text(
