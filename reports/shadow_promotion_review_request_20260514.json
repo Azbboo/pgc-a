@@ -1,0 +1,1548 @@
+{
+  "artifact_type": "shadow_promotion_review_request",
+  "as_of_date": "20260514",
+  "generated_at": "2026-05-14T10:54:58+00:00",
+  "replay_backtest_evidence": {
+    "by_candidate": {
+      "breakout_pressure_shadow": {
+        "advisory_only": true,
+        "artifact_path": "reports/shadow_replay_backtest_evidence_20260514_breakout_pressure_shadow.json",
+        "artifact_type": "shadow_replay_backtest_evidence",
+        "as_of_date": "20260514",
+        "blockers": [],
+        "candidate_key": "breakout_pressure_shadow",
+        "date_range": {
+          "end_date": "20260514",
+          "start_date": "20260413"
+        },
+        "error": null,
+        "evidence_contract": "shadow_replay_backtest_evidence_v1",
+        "expected_source_hash": "d6a01524075e80f625e3885a294dbaea7050fea050847484d08cf0818b2dd625",
+        "metrics": {
+          "max_drawdown_pct": -15.66,
+          "source_row_count": 20,
+          "t1_close_mean_pct": 0.45,
+          "t1_close_win_rate_pct": 65.0,
+          "t1_high_mean_pct": 3.21,
+          "t1_sample_size": 20,
+          "t5_close_mean_pct": 8.25,
+          "t5_close_win_rate_pct": 56.25,
+          "t5_sample_size": 16
+        },
+        "no_future_boundary": {
+          "data_cutoff_date": "20260514",
+          "latest_market_date": "20260514",
+          "max_input_date": "20260514",
+          "passed": true
+        },
+        "paper_observation_allowed": false,
+        "promotion_allowed": false,
+        "provider": "pgc_shadow_replay_backtest_evidence_producer_v1",
+        "required_sample_size": 20,
+        "safety": {
+          "active_params_mutated": false,
+          "advisory_only": true,
+          "artifact_only": true,
+          "paper_live_deployment_changed": false,
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "read_only": true,
+          "timer_mutated": false,
+          "writes_paper_live_behavior": false,
+          "writes_trade_state": false,
+          "wrote_strategy_version": false,
+          "wrote_strategy_versions": false
+        },
+        "sample_size": 20,
+        "source_hash": "d6a01524075e80f625e3885a294dbaea7050fea050847484d08cf0818b2dd625",
+        "status": "accepted",
+        "valid": true
+      },
+      "low_price_momentum_shadow": {
+        "advisory_only": true,
+        "artifact_path": "reports/shadow_replay_backtest_evidence_20260514_low_price_momentum_shadow.json",
+        "artifact_type": "shadow_replay_backtest_evidence",
+        "as_of_date": "20260514",
+        "blockers": [],
+        "candidate_key": "low_price_momentum_shadow",
+        "date_range": {
+          "end_date": "20260514",
+          "start_date": "20260413"
+        },
+        "error": null,
+        "evidence_contract": "shadow_replay_backtest_evidence_v1",
+        "expected_source_hash": "024ea0df693bd634ad4e42fed11006c37e308dfc63cdc1fdb37cc4126ccb9a2e",
+        "metrics": {
+          "max_drawdown_pct": -18.0,
+          "source_row_count": 20,
+          "t1_close_mean_pct": 2.08,
+          "t1_close_win_rate_pct": 60.0,
+          "t1_high_mean_pct": 5.88,
+          "t1_sample_size": 20,
+          "t5_close_mean_pct": 2.76,
+          "t5_close_win_rate_pct": 50.0,
+          "t5_sample_size": 16
+        },
+        "no_future_boundary": {
+          "data_cutoff_date": "20260514",
+          "latest_market_date": "20260514",
+          "max_input_date": "20260514",
+          "passed": true
+        },
+        "paper_observation_allowed": false,
+        "promotion_allowed": false,
+        "provider": "pgc_shadow_replay_backtest_evidence_producer_v1",
+        "required_sample_size": 20,
+        "safety": {
+          "active_params_mutated": false,
+          "advisory_only": true,
+          "artifact_only": true,
+          "paper_live_deployment_changed": false,
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "read_only": true,
+          "timer_mutated": false,
+          "writes_paper_live_behavior": false,
+          "writes_trade_state": false,
+          "wrote_strategy_version": false,
+          "wrote_strategy_versions": false
+        },
+        "sample_size": 20,
+        "source_hash": "024ea0df693bd634ad4e42fed11006c37e308dfc63cdc1fdb37cc4126ccb9a2e",
+        "status": "accepted",
+        "valid": true
+      },
+      "preconfirm_watchlist": {
+        "advisory_only": true,
+        "artifact_path": "reports/shadow_replay_backtest_evidence_20260514_preconfirm_watchlist.json",
+        "artifact_type": "shadow_replay_backtest_evidence",
+        "as_of_date": "20260514",
+        "blockers": [],
+        "candidate_key": "preconfirm_watchlist",
+        "date_range": {
+          "end_date": "20260514",
+          "start_date": "20251110"
+        },
+        "error": null,
+        "evidence_contract": "shadow_replay_backtest_evidence_v1",
+        "expected_source_hash": "f96e0ffb156a7fc6814095e435fbc70642917686f1767d9e4eaccdc350a317eb",
+        "metrics": {
+          "max_drawdown_pct": -15.1,
+          "source_row_count": 42,
+          "t1_close_mean_pct": 1.36,
+          "t1_close_win_rate_pct": 63.41,
+          "t1_high_mean_pct": 4.55,
+          "t1_sample_size": 41,
+          "t5_close_mean_pct": 6.99,
+          "t5_close_win_rate_pct": 75.68,
+          "t5_sample_size": 37
+        },
+        "no_future_boundary": {
+          "data_cutoff_date": "20260514",
+          "latest_market_date": "20260514",
+          "max_input_date": "20260514",
+          "passed": true
+        },
+        "paper_observation_allowed": false,
+        "promotion_allowed": false,
+        "provider": "pgc_shadow_replay_backtest_evidence_producer_v1",
+        "required_sample_size": 20,
+        "safety": {
+          "active_params_mutated": false,
+          "advisory_only": true,
+          "artifact_only": true,
+          "paper_live_deployment_changed": false,
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "read_only": true,
+          "timer_mutated": false,
+          "writes_paper_live_behavior": false,
+          "writes_trade_state": false,
+          "wrote_strategy_version": false,
+          "wrote_strategy_versions": false
+        },
+        "sample_size": 41,
+        "source_hash": "f96e0ffb156a7fc6814095e435fbc70642917686f1767d9e4eaccdc350a317eb",
+        "status": "accepted",
+        "valid": true
+      },
+      "pullback_dip_buy": {
+        "advisory_only": true,
+        "artifact_path": "reports/shadow_replay_backtest_evidence_20260514_pullback_dip_buy.json",
+        "artifact_type": "shadow_replay_backtest_evidence",
+        "as_of_date": "20260514",
+        "blockers": [],
+        "candidate_key": "pullback_dip_buy",
+        "date_range": {
+          "end_date": "20260514",
+          "start_date": "20250714"
+        },
+        "error": null,
+        "evidence_contract": "shadow_replay_backtest_evidence_v1",
+        "expected_source_hash": "1734b04ed1156a541510c2ab613a4251845862b53f2de19185ce0f9c6b158f08",
+        "metrics": {
+          "max_drawdown_pct": -6.69,
+          "source_row_count": 111,
+          "t1_close_mean_pct": 0.43,
+          "t1_close_win_rate_pct": 44.55,
+          "t1_high_mean_pct": 3.23,
+          "t1_sample_size": 110,
+          "t5_close_mean_pct": 0.95,
+          "t5_close_win_rate_pct": 47.62,
+          "t5_sample_size": 105
+        },
+        "no_future_boundary": {
+          "data_cutoff_date": "20260514",
+          "latest_market_date": "20260514",
+          "max_input_date": "20260514",
+          "passed": true
+        },
+        "paper_observation_allowed": false,
+        "promotion_allowed": false,
+        "provider": "pgc_shadow_replay_backtest_evidence_producer_v1",
+        "required_sample_size": 20,
+        "safety": {
+          "active_params_mutated": false,
+          "advisory_only": true,
+          "artifact_only": true,
+          "paper_live_deployment_changed": false,
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "read_only": true,
+          "timer_mutated": false,
+          "writes_paper_live_behavior": false,
+          "writes_trade_state": false,
+          "wrote_strategy_version": false,
+          "wrote_strategy_versions": false
+        },
+        "sample_size": 105,
+        "source_hash": "1734b04ed1156a541510c2ab613a4251845862b53f2de19185ce0f9c6b158f08",
+        "status": "accepted",
+        "valid": true
+      },
+      "trend_extension_shadow": {
+        "advisory_only": true,
+        "artifact_path": "reports/shadow_replay_backtest_evidence_20260514_trend_extension_shadow.json",
+        "artifact_type": "shadow_replay_backtest_evidence",
+        "as_of_date": "20260514",
+        "blockers": [],
+        "candidate_key": "trend_extension_shadow",
+        "date_range": {
+          "end_date": "20260514",
+          "start_date": "20260413"
+        },
+        "error": null,
+        "evidence_contract": "shadow_replay_backtest_evidence_v1",
+        "expected_source_hash": "1c3e92d2a04edaff256306387cfbdedc7cd2c7e1c96b0a814d7f8342ae76c05b",
+        "metrics": {
+          "max_drawdown_pct": -14.79,
+          "source_row_count": 20,
+          "t1_close_mean_pct": 1.49,
+          "t1_close_win_rate_pct": 45.0,
+          "t1_high_mean_pct": 4.59,
+          "t1_sample_size": 20,
+          "t5_close_mean_pct": 2.46,
+          "t5_close_win_rate_pct": 62.5,
+          "t5_sample_size": 16
+        },
+        "no_future_boundary": {
+          "data_cutoff_date": "20260514",
+          "latest_market_date": "20260514",
+          "max_input_date": "20260514",
+          "passed": true
+        },
+        "paper_observation_allowed": false,
+        "promotion_allowed": false,
+        "provider": "pgc_shadow_replay_backtest_evidence_producer_v1",
+        "required_sample_size": 20,
+        "safety": {
+          "active_params_mutated": false,
+          "advisory_only": true,
+          "artifact_only": true,
+          "paper_live_deployment_changed": false,
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "read_only": true,
+          "timer_mutated": false,
+          "writes_paper_live_behavior": false,
+          "writes_trade_state": false,
+          "wrote_strategy_version": false,
+          "wrote_strategy_versions": false
+        },
+        "sample_size": 20,
+        "source_hash": "1c3e92d2a04edaff256306387cfbdedc7cd2c7e1c96b0a814d7f8342ae76c05b",
+        "status": "accepted",
+        "valid": true
+      }
+    },
+    "orphaned": [],
+    "source_file_count": 10,
+    "summary": {
+      "accepted_count": 5,
+      "advisory_only": true,
+      "candidate_count": 5,
+      "clears_only": [
+        "replay_backtest_result_artifact_required"
+      ],
+      "evidence_contract": "shadow_replay_backtest_evidence_v1",
+      "missing_count": 0,
+      "promotion_allowed": false,
+      "rejected_count": 0,
+      "state_counts": {
+        "accepted": 5
+      }
+    }
+  },
+  "review_request": {
+    "blocked_candidate_keys": [
+      "trend_extension_shadow",
+      "breakout_pressure_shadow",
+      "low_price_momentum_shadow",
+      "preconfirm_watchlist",
+      "pullback_dip_buy"
+    ],
+    "blocking_reason": "no_review_ready_candidates",
+    "request_key": "shadow-promotion-review-request:20260514",
+    "request_status": "blocked",
+    "required_human_decisions": [
+      {
+        "decision_key": "manual_promotion_approval_required",
+        "note": "review_ready is not approval; manual approval remains required before any follow-up.",
+        "required": true,
+        "status": "required"
+      },
+      {
+        "decision_key": "future_strategy_version_task_required",
+        "note": "Any follow-up must be a separate strategy-version review task and must not mutate active strategy state.",
+        "required": true,
+        "status": "required"
+      },
+      {
+        "candidate_keys": [],
+        "decision_key": "candidate_selection",
+        "note": "No candidate is review_ready, so promotion review should not proceed.",
+        "required": false,
+        "status": "blocked"
+      },
+      {
+        "blocked_mutation_targets": [
+          "active_cpb_params",
+          "strategy_versions",
+          "trade_plans",
+          "trades",
+          "positions",
+          "paper_live_behavior",
+          "broker_execution",
+          "timer_state"
+        ],
+        "decision_key": "rollback_scope_confirmation",
+        "note": "Confirm that the blocked mutation targets remain unchanged during any follow-up work.",
+        "required": true,
+        "status": "required"
+      }
+    ],
+    "required_replay_backtest_evidence": [
+      {
+        "advisory_only": true,
+        "artifact_path": "reports/shadow_replay_backtest_evidence_20260514_breakout_pressure_shadow.json",
+        "artifact_type": "shadow_replay_backtest_evidence",
+        "as_of_date": "20260514",
+        "blockers": [],
+        "candidate_key": "breakout_pressure_shadow",
+        "date_range": {
+          "end_date": "20260514",
+          "start_date": "20260413"
+        },
+        "error": null,
+        "evidence_contract": "shadow_replay_backtest_evidence_v1",
+        "expected_source_hash": "d6a01524075e80f625e3885a294dbaea7050fea050847484d08cf0818b2dd625",
+        "metrics": {
+          "max_drawdown_pct": -15.66,
+          "source_row_count": 20,
+          "t1_close_mean_pct": 0.45,
+          "t1_close_win_rate_pct": 65.0,
+          "t1_high_mean_pct": 3.21,
+          "t1_sample_size": 20,
+          "t5_close_mean_pct": 8.25,
+          "t5_close_win_rate_pct": 56.25,
+          "t5_sample_size": 16
+        },
+        "no_future_boundary": {
+          "data_cutoff_date": "20260514",
+          "latest_market_date": "20260514",
+          "max_input_date": "20260514",
+          "passed": true
+        },
+        "paper_observation_allowed": false,
+        "promotion_allowed": false,
+        "provider": "pgc_shadow_replay_backtest_evidence_producer_v1",
+        "required_sample_size": 20,
+        "safety": {
+          "active_params_mutated": false,
+          "advisory_only": true,
+          "artifact_only": true,
+          "paper_live_deployment_changed": false,
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "read_only": true,
+          "timer_mutated": false,
+          "writes_paper_live_behavior": false,
+          "writes_trade_state": false,
+          "wrote_strategy_version": false,
+          "wrote_strategy_versions": false
+        },
+        "sample_size": 20,
+        "source_hash": "d6a01524075e80f625e3885a294dbaea7050fea050847484d08cf0818b2dd625",
+        "status": "accepted",
+        "valid": true
+      },
+      {
+        "advisory_only": true,
+        "artifact_path": "reports/shadow_replay_backtest_evidence_20260514_low_price_momentum_shadow.json",
+        "artifact_type": "shadow_replay_backtest_evidence",
+        "as_of_date": "20260514",
+        "blockers": [],
+        "candidate_key": "low_price_momentum_shadow",
+        "date_range": {
+          "end_date": "20260514",
+          "start_date": "20260413"
+        },
+        "error": null,
+        "evidence_contract": "shadow_replay_backtest_evidence_v1",
+        "expected_source_hash": "024ea0df693bd634ad4e42fed11006c37e308dfc63cdc1fdb37cc4126ccb9a2e",
+        "metrics": {
+          "max_drawdown_pct": -18.0,
+          "source_row_count": 20,
+          "t1_close_mean_pct": 2.08,
+          "t1_close_win_rate_pct": 60.0,
+          "t1_high_mean_pct": 5.88,
+          "t1_sample_size": 20,
+          "t5_close_mean_pct": 2.76,
+          "t5_close_win_rate_pct": 50.0,
+          "t5_sample_size": 16
+        },
+        "no_future_boundary": {
+          "data_cutoff_date": "20260514",
+          "latest_market_date": "20260514",
+          "max_input_date": "20260514",
+          "passed": true
+        },
+        "paper_observation_allowed": false,
+        "promotion_allowed": false,
+        "provider": "pgc_shadow_replay_backtest_evidence_producer_v1",
+        "required_sample_size": 20,
+        "safety": {
+          "active_params_mutated": false,
+          "advisory_only": true,
+          "artifact_only": true,
+          "paper_live_deployment_changed": false,
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "read_only": true,
+          "timer_mutated": false,
+          "writes_paper_live_behavior": false,
+          "writes_trade_state": false,
+          "wrote_strategy_version": false,
+          "wrote_strategy_versions": false
+        },
+        "sample_size": 20,
+        "source_hash": "024ea0df693bd634ad4e42fed11006c37e308dfc63cdc1fdb37cc4126ccb9a2e",
+        "status": "accepted",
+        "valid": true
+      },
+      {
+        "advisory_only": true,
+        "artifact_path": "reports/shadow_replay_backtest_evidence_20260514_preconfirm_watchlist.json",
+        "artifact_type": "shadow_replay_backtest_evidence",
+        "as_of_date": "20260514",
+        "blockers": [],
+        "candidate_key": "preconfirm_watchlist",
+        "date_range": {
+          "end_date": "20260514",
+          "start_date": "20251110"
+        },
+        "error": null,
+        "evidence_contract": "shadow_replay_backtest_evidence_v1",
+        "expected_source_hash": "f96e0ffb156a7fc6814095e435fbc70642917686f1767d9e4eaccdc350a317eb",
+        "metrics": {
+          "max_drawdown_pct": -15.1,
+          "source_row_count": 42,
+          "t1_close_mean_pct": 1.36,
+          "t1_close_win_rate_pct": 63.41,
+          "t1_high_mean_pct": 4.55,
+          "t1_sample_size": 41,
+          "t5_close_mean_pct": 6.99,
+          "t5_close_win_rate_pct": 75.68,
+          "t5_sample_size": 37
+        },
+        "no_future_boundary": {
+          "data_cutoff_date": "20260514",
+          "latest_market_date": "20260514",
+          "max_input_date": "20260514",
+          "passed": true
+        },
+        "paper_observation_allowed": false,
+        "promotion_allowed": false,
+        "provider": "pgc_shadow_replay_backtest_evidence_producer_v1",
+        "required_sample_size": 20,
+        "safety": {
+          "active_params_mutated": false,
+          "advisory_only": true,
+          "artifact_only": true,
+          "paper_live_deployment_changed": false,
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "read_only": true,
+          "timer_mutated": false,
+          "writes_paper_live_behavior": false,
+          "writes_trade_state": false,
+          "wrote_strategy_version": false,
+          "wrote_strategy_versions": false
+        },
+        "sample_size": 41,
+        "source_hash": "f96e0ffb156a7fc6814095e435fbc70642917686f1767d9e4eaccdc350a317eb",
+        "status": "accepted",
+        "valid": true
+      },
+      {
+        "advisory_only": true,
+        "artifact_path": "reports/shadow_replay_backtest_evidence_20260514_pullback_dip_buy.json",
+        "artifact_type": "shadow_replay_backtest_evidence",
+        "as_of_date": "20260514",
+        "blockers": [],
+        "candidate_key": "pullback_dip_buy",
+        "date_range": {
+          "end_date": "20260514",
+          "start_date": "20250714"
+        },
+        "error": null,
+        "evidence_contract": "shadow_replay_backtest_evidence_v1",
+        "expected_source_hash": "1734b04ed1156a541510c2ab613a4251845862b53f2de19185ce0f9c6b158f08",
+        "metrics": {
+          "max_drawdown_pct": -6.69,
+          "source_row_count": 111,
+          "t1_close_mean_pct": 0.43,
+          "t1_close_win_rate_pct": 44.55,
+          "t1_high_mean_pct": 3.23,
+          "t1_sample_size": 110,
+          "t5_close_mean_pct": 0.95,
+          "t5_close_win_rate_pct": 47.62,
+          "t5_sample_size": 105
+        },
+        "no_future_boundary": {
+          "data_cutoff_date": "20260514",
+          "latest_market_date": "20260514",
+          "max_input_date": "20260514",
+          "passed": true
+        },
+        "paper_observation_allowed": false,
+        "promotion_allowed": false,
+        "provider": "pgc_shadow_replay_backtest_evidence_producer_v1",
+        "required_sample_size": 20,
+        "safety": {
+          "active_params_mutated": false,
+          "advisory_only": true,
+          "artifact_only": true,
+          "paper_live_deployment_changed": false,
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "read_only": true,
+          "timer_mutated": false,
+          "writes_paper_live_behavior": false,
+          "writes_trade_state": false,
+          "wrote_strategy_version": false,
+          "wrote_strategy_versions": false
+        },
+        "sample_size": 105,
+        "source_hash": "1734b04ed1156a541510c2ab613a4251845862b53f2de19185ce0f9c6b158f08",
+        "status": "accepted",
+        "valid": true
+      },
+      {
+        "advisory_only": true,
+        "artifact_path": "reports/shadow_replay_backtest_evidence_20260514_trend_extension_shadow.json",
+        "artifact_type": "shadow_replay_backtest_evidence",
+        "as_of_date": "20260514",
+        "blockers": [],
+        "candidate_key": "trend_extension_shadow",
+        "date_range": {
+          "end_date": "20260514",
+          "start_date": "20260413"
+        },
+        "error": null,
+        "evidence_contract": "shadow_replay_backtest_evidence_v1",
+        "expected_source_hash": "1c3e92d2a04edaff256306387cfbdedc7cd2c7e1c96b0a814d7f8342ae76c05b",
+        "metrics": {
+          "max_drawdown_pct": -14.79,
+          "source_row_count": 20,
+          "t1_close_mean_pct": 1.49,
+          "t1_close_win_rate_pct": 45.0,
+          "t1_high_mean_pct": 4.59,
+          "t1_sample_size": 20,
+          "t5_close_mean_pct": 2.46,
+          "t5_close_win_rate_pct": 62.5,
+          "t5_sample_size": 16
+        },
+        "no_future_boundary": {
+          "data_cutoff_date": "20260514",
+          "latest_market_date": "20260514",
+          "max_input_date": "20260514",
+          "passed": true
+        },
+        "paper_observation_allowed": false,
+        "promotion_allowed": false,
+        "provider": "pgc_shadow_replay_backtest_evidence_producer_v1",
+        "required_sample_size": 20,
+        "safety": {
+          "active_params_mutated": false,
+          "advisory_only": true,
+          "artifact_only": true,
+          "paper_live_deployment_changed": false,
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "read_only": true,
+          "timer_mutated": false,
+          "writes_paper_live_behavior": false,
+          "writes_trade_state": false,
+          "wrote_strategy_version": false,
+          "wrote_strategy_versions": false
+        },
+        "sample_size": 20,
+        "source_hash": "1c3e92d2a04edaff256306387cfbdedc7cd2c7e1c96b0a814d7f8342ae76c05b",
+        "status": "accepted",
+        "valid": true
+      }
+    ],
+    "review_ready_candidates": [],
+    "rollback_notes": [
+      "review_ready is not approval",
+      "keep active CPB params/hash unchanged",
+      "do not create or update strategy_versions, trade_plans, trades, positions, paper/live behavior, broker execution, or timers",
+      "blocked_mutation_targets=active_cpb_params,strategy_versions,trade_plans,trades,positions,paper_live_behavior,broker_execution,timer_state"
+    ],
+    "safety_notes": [
+      "review_ready is not approval",
+      "promotion_allowed=false",
+      "manual review only; no active strategy, trade, or timer mutation"
+    ]
+  },
+  "review_request_contract": "shadow_promotion_review_request_v1",
+  "safety": {
+    "active_params_mutated": false,
+    "artifact_only": true,
+    "manual_review_required": true,
+    "promotion_allowed": false,
+    "read_only": true,
+    "review_request_is_not_approval": true,
+    "timer_mutated": false,
+    "writes_paper_live_behavior": false,
+    "writes_trade_state": false,
+    "wrote_strategy_version": false,
+    "wrote_strategy_versions": false
+  },
+  "source_dossier": {
+    "artifact_type": "shadow_promotion_dossier",
+    "as_of_date": "20260514",
+    "candidates": [
+      {
+        "blocked_reasons": [
+          "frozen_cpb_delta_not_positive",
+          "drawdown_proxy_missing",
+          "candidate_blockers_not_cleared"
+        ],
+        "candidate_family": "shadow_bucket",
+        "candidate_key": "trend_extension_shadow",
+        "drawdown_proxy_pct": null,
+        "frozen_cpb_delta_pct": -8.08,
+        "linked_hypothesis": {
+          "as_of_date": "20260512",
+          "hypothesis_id": 4,
+          "status": "proposed",
+          "title": "Shadow candidate: trend-extension continuation bucket."
+        },
+        "next_step": "clear_observation_blockers",
+        "promotion_gate": {
+          "artifact_only": true,
+          "blockers": [
+            "manual_promotion_approval_required",
+            "future_strategy_version_task_required",
+            "paper_live_deployment_not_authorized"
+          ],
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "status": "blocked"
+        },
+        "readiness_checks": {
+          "blocker_clearance": {
+            "blocker_count": 9,
+            "blockers": [
+              "chase_gap_guard_required",
+              "operator_promotion_approval_required",
+              "operator_review_required",
+              "paper_observation_not_authorized",
+              "proposal_review_required",
+              "sector_evidence_confirmation_required",
+              "separate_trend_extension_candidate_required",
+              "strategy_version_proposal_not_authorized",
+              "walk_forward_shadow_monitor_20_trading_days_required"
+            ],
+            "passed": false
+          },
+          "drawdown_cap": {
+            "actual_pct": null,
+            "passed": false,
+            "threshold_pct": -8.0
+          },
+          "evidence_coverage": {
+            "linked_hypothesis": {
+              "as_of_date": "20260512",
+              "hypothesis_id": 4,
+              "status": "proposed",
+              "title": "Shadow candidate: trend-extension continuation bucket."
+            },
+            "minimum_source_artifacts": 2,
+            "passed": true,
+            "source_artifact_count": 6
+          },
+          "minimum_sample": {
+            "actual": 20,
+            "passed": true,
+            "threshold": 20
+          },
+          "positive_frozen_cpb_delta": {
+            "actual_pct": -8.08,
+            "passed": false,
+            "threshold_pct": 0.0
+          },
+          "replay_backtest_evidence": {
+            "advisory_only": true,
+            "artifact_path": "reports/shadow_replay_backtest_evidence_20260514_trend_extension_shadow.json",
+            "blockers": [],
+            "evidence_contract": "shadow_replay_backtest_evidence_v1",
+            "passed": true,
+            "source_hash": "1c3e92d2a04edaff256306387cfbdedc7cd2c7e1c96b0a814d7f8342ae76c05b",
+            "status": "accepted"
+          }
+        },
+        "replay_backtest_evidence": {
+          "advisory_only": true,
+          "artifact_path": "reports/shadow_replay_backtest_evidence_20260514_trend_extension_shadow.json",
+          "artifact_type": "shadow_replay_backtest_evidence",
+          "as_of_date": "20260514",
+          "blockers": [],
+          "candidate_key": "trend_extension_shadow",
+          "date_range": {
+            "end_date": "20260514",
+            "start_date": "20260413"
+          },
+          "error": null,
+          "evidence_contract": "shadow_replay_backtest_evidence_v1",
+          "expected_source_hash": "1c3e92d2a04edaff256306387cfbdedc7cd2c7e1c96b0a814d7f8342ae76c05b",
+          "metrics": {
+            "max_drawdown_pct": -14.79,
+            "source_row_count": 20,
+            "t1_close_mean_pct": 1.49,
+            "t1_close_win_rate_pct": 45.0,
+            "t1_high_mean_pct": 4.59,
+            "t1_sample_size": 20,
+            "t5_close_mean_pct": 2.46,
+            "t5_close_win_rate_pct": 62.5,
+            "t5_sample_size": 16
+          },
+          "no_future_boundary": {
+            "data_cutoff_date": "20260514",
+            "latest_market_date": "20260514",
+            "max_input_date": "20260514",
+            "passed": true
+          },
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "provider": "pgc_shadow_replay_backtest_evidence_producer_v1",
+          "required_sample_size": 20,
+          "safety": {
+            "active_params_mutated": false,
+            "advisory_only": true,
+            "artifact_only": true,
+            "paper_live_deployment_changed": false,
+            "paper_observation_allowed": false,
+            "promotion_allowed": false,
+            "read_only": true,
+            "timer_mutated": false,
+            "writes_paper_live_behavior": false,
+            "writes_trade_state": false,
+            "wrote_strategy_version": false,
+            "wrote_strategy_versions": false
+          },
+          "sample_size": 20,
+          "source_hash": "1c3e92d2a04edaff256306387cfbdedc7cd2c7e1c96b0a814d7f8342ae76c05b",
+          "status": "accepted",
+          "valid": true
+        },
+        "review_status": "blocked",
+        "sample_size": 20,
+        "source_artifacts": [
+          "reports/strategy_shadow_backtest_20260401_20260508.json",
+          "reports/strategy_shadow_monitor_20260514.json",
+          "reports/strategy_shadow_monitor_20260514.md",
+          "reports/strategy_shadow_promotion_preflight_20260514.json",
+          "reports/strategy_shadow_promotion_preflight_20260514.md",
+          "reports/strategy_shadow_review_20260511.json"
+        ]
+      },
+      {
+        "blocked_reasons": [
+          "frozen_cpb_delta_not_positive",
+          "drawdown_proxy_missing",
+          "candidate_blockers_not_cleared"
+        ],
+        "candidate_family": "shadow_bucket",
+        "candidate_key": "breakout_pressure_shadow",
+        "drawdown_proxy_pct": null,
+        "frozen_cpb_delta_pct": -9.12,
+        "linked_hypothesis": {
+          "as_of_date": "20260512",
+          "hypothesis_id": 5,
+          "status": "proposed",
+          "title": "Shadow candidate: breakout-pressure bucket."
+        },
+        "next_step": "clear_observation_blockers",
+        "promotion_gate": {
+          "artifact_only": true,
+          "blockers": [
+            "manual_promotion_approval_required",
+            "future_strategy_version_task_required",
+            "paper_live_deployment_not_authorized"
+          ],
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "status": "blocked"
+        },
+        "readiness_checks": {
+          "blocker_clearance": {
+            "blocker_count": 9,
+            "blockers": [
+              "close_return_stability_required",
+              "operator_promotion_approval_required",
+              "operator_review_required",
+              "paper_observation_not_authorized",
+              "proposal_review_required",
+              "separate_breakout_pressure_candidate_required",
+              "strategy_version_proposal_not_authorized",
+              "volume_overheat_guard_required",
+              "walk_forward_shadow_monitor_20_trading_days_required"
+            ],
+            "passed": false
+          },
+          "drawdown_cap": {
+            "actual_pct": null,
+            "passed": false,
+            "threshold_pct": -8.0
+          },
+          "evidence_coverage": {
+            "linked_hypothesis": {
+              "as_of_date": "20260512",
+              "hypothesis_id": 5,
+              "status": "proposed",
+              "title": "Shadow candidate: breakout-pressure bucket."
+            },
+            "minimum_source_artifacts": 2,
+            "passed": true,
+            "source_artifact_count": 6
+          },
+          "minimum_sample": {
+            "actual": 20,
+            "passed": true,
+            "threshold": 20
+          },
+          "positive_frozen_cpb_delta": {
+            "actual_pct": -9.12,
+            "passed": false,
+            "threshold_pct": 0.0
+          },
+          "replay_backtest_evidence": {
+            "advisory_only": true,
+            "artifact_path": "reports/shadow_replay_backtest_evidence_20260514_breakout_pressure_shadow.json",
+            "blockers": [],
+            "evidence_contract": "shadow_replay_backtest_evidence_v1",
+            "passed": true,
+            "source_hash": "d6a01524075e80f625e3885a294dbaea7050fea050847484d08cf0818b2dd625",
+            "status": "accepted"
+          }
+        },
+        "replay_backtest_evidence": {
+          "advisory_only": true,
+          "artifact_path": "reports/shadow_replay_backtest_evidence_20260514_breakout_pressure_shadow.json",
+          "artifact_type": "shadow_replay_backtest_evidence",
+          "as_of_date": "20260514",
+          "blockers": [],
+          "candidate_key": "breakout_pressure_shadow",
+          "date_range": {
+            "end_date": "20260514",
+            "start_date": "20260413"
+          },
+          "error": null,
+          "evidence_contract": "shadow_replay_backtest_evidence_v1",
+          "expected_source_hash": "d6a01524075e80f625e3885a294dbaea7050fea050847484d08cf0818b2dd625",
+          "metrics": {
+            "max_drawdown_pct": -15.66,
+            "source_row_count": 20,
+            "t1_close_mean_pct": 0.45,
+            "t1_close_win_rate_pct": 65.0,
+            "t1_high_mean_pct": 3.21,
+            "t1_sample_size": 20,
+            "t5_close_mean_pct": 8.25,
+            "t5_close_win_rate_pct": 56.25,
+            "t5_sample_size": 16
+          },
+          "no_future_boundary": {
+            "data_cutoff_date": "20260514",
+            "latest_market_date": "20260514",
+            "max_input_date": "20260514",
+            "passed": true
+          },
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "provider": "pgc_shadow_replay_backtest_evidence_producer_v1",
+          "required_sample_size": 20,
+          "safety": {
+            "active_params_mutated": false,
+            "advisory_only": true,
+            "artifact_only": true,
+            "paper_live_deployment_changed": false,
+            "paper_observation_allowed": false,
+            "promotion_allowed": false,
+            "read_only": true,
+            "timer_mutated": false,
+            "writes_paper_live_behavior": false,
+            "writes_trade_state": false,
+            "wrote_strategy_version": false,
+            "wrote_strategy_versions": false
+          },
+          "sample_size": 20,
+          "source_hash": "d6a01524075e80f625e3885a294dbaea7050fea050847484d08cf0818b2dd625",
+          "status": "accepted",
+          "valid": true
+        },
+        "review_status": "blocked",
+        "sample_size": 20,
+        "source_artifacts": [
+          "reports/strategy_shadow_backtest_20260401_20260508.json",
+          "reports/strategy_shadow_monitor_20260514.json",
+          "reports/strategy_shadow_monitor_20260514.md",
+          "reports/strategy_shadow_promotion_preflight_20260514.json",
+          "reports/strategy_shadow_promotion_preflight_20260514.md",
+          "reports/strategy_shadow_review_20260511.json"
+        ]
+      },
+      {
+        "blocked_reasons": [
+          "frozen_cpb_delta_not_positive",
+          "drawdown_proxy_missing",
+          "candidate_blockers_not_cleared"
+        ],
+        "candidate_family": "shadow_bucket",
+        "candidate_key": "low_price_momentum_shadow",
+        "drawdown_proxy_pct": null,
+        "frozen_cpb_delta_pct": -7.49,
+        "linked_hypothesis": {
+          "as_of_date": "20260512",
+          "hypothesis_id": 6,
+          "status": "proposed",
+          "title": "Shadow candidate: low-price momentum micro-sleeve."
+        },
+        "next_step": "clear_observation_blockers",
+        "promotion_gate": {
+          "artifact_only": true,
+          "blockers": [
+            "manual_promotion_approval_required",
+            "future_strategy_version_task_required",
+            "paper_live_deployment_not_authorized"
+          ],
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "status": "blocked"
+        },
+        "readiness_checks": {
+          "blocker_clearance": {
+            "blocker_count": 9,
+            "blockers": [
+              "liquidity_slippage_review_required",
+              "micro_sleeve_risk_model_required",
+              "operator_promotion_approval_required",
+              "operator_review_required",
+              "paper_observation_not_authorized",
+              "proposal_review_required",
+              "separate_low_price_micro_sleeve_required",
+              "strategy_version_proposal_not_authorized",
+              "walk_forward_shadow_monitor_20_trading_days_required"
+            ],
+            "passed": false
+          },
+          "drawdown_cap": {
+            "actual_pct": null,
+            "passed": false,
+            "threshold_pct": -8.0
+          },
+          "evidence_coverage": {
+            "linked_hypothesis": {
+              "as_of_date": "20260512",
+              "hypothesis_id": 6,
+              "status": "proposed",
+              "title": "Shadow candidate: low-price momentum micro-sleeve."
+            },
+            "minimum_source_artifacts": 2,
+            "passed": true,
+            "source_artifact_count": 6
+          },
+          "minimum_sample": {
+            "actual": 20,
+            "passed": true,
+            "threshold": 20
+          },
+          "positive_frozen_cpb_delta": {
+            "actual_pct": -7.49,
+            "passed": false,
+            "threshold_pct": 0.0
+          },
+          "replay_backtest_evidence": {
+            "advisory_only": true,
+            "artifact_path": "reports/shadow_replay_backtest_evidence_20260514_low_price_momentum_shadow.json",
+            "blockers": [],
+            "evidence_contract": "shadow_replay_backtest_evidence_v1",
+            "passed": true,
+            "source_hash": "024ea0df693bd634ad4e42fed11006c37e308dfc63cdc1fdb37cc4126ccb9a2e",
+            "status": "accepted"
+          }
+        },
+        "replay_backtest_evidence": {
+          "advisory_only": true,
+          "artifact_path": "reports/shadow_replay_backtest_evidence_20260514_low_price_momentum_shadow.json",
+          "artifact_type": "shadow_replay_backtest_evidence",
+          "as_of_date": "20260514",
+          "blockers": [],
+          "candidate_key": "low_price_momentum_shadow",
+          "date_range": {
+            "end_date": "20260514",
+            "start_date": "20260413"
+          },
+          "error": null,
+          "evidence_contract": "shadow_replay_backtest_evidence_v1",
+          "expected_source_hash": "024ea0df693bd634ad4e42fed11006c37e308dfc63cdc1fdb37cc4126ccb9a2e",
+          "metrics": {
+            "max_drawdown_pct": -18.0,
+            "source_row_count": 20,
+            "t1_close_mean_pct": 2.08,
+            "t1_close_win_rate_pct": 60.0,
+            "t1_high_mean_pct": 5.88,
+            "t1_sample_size": 20,
+            "t5_close_mean_pct": 2.76,
+            "t5_close_win_rate_pct": 50.0,
+            "t5_sample_size": 16
+          },
+          "no_future_boundary": {
+            "data_cutoff_date": "20260514",
+            "latest_market_date": "20260514",
+            "max_input_date": "20260514",
+            "passed": true
+          },
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "provider": "pgc_shadow_replay_backtest_evidence_producer_v1",
+          "required_sample_size": 20,
+          "safety": {
+            "active_params_mutated": false,
+            "advisory_only": true,
+            "artifact_only": true,
+            "paper_live_deployment_changed": false,
+            "paper_observation_allowed": false,
+            "promotion_allowed": false,
+            "read_only": true,
+            "timer_mutated": false,
+            "writes_paper_live_behavior": false,
+            "writes_trade_state": false,
+            "wrote_strategy_version": false,
+            "wrote_strategy_versions": false
+          },
+          "sample_size": 20,
+          "source_hash": "024ea0df693bd634ad4e42fed11006c37e308dfc63cdc1fdb37cc4126ccb9a2e",
+          "status": "accepted",
+          "valid": true
+        },
+        "review_status": "blocked",
+        "sample_size": 20,
+        "source_artifacts": [
+          "reports/strategy_shadow_backtest_20260401_20260508.json",
+          "reports/strategy_shadow_monitor_20260514.json",
+          "reports/strategy_shadow_monitor_20260514.md",
+          "reports/strategy_shadow_promotion_preflight_20260514.json",
+          "reports/strategy_shadow_promotion_preflight_20260514.md",
+          "reports/strategy_shadow_review_20260511.json"
+        ]
+      },
+      {
+        "blocked_reasons": [
+          "frozen_cpb_delta_not_positive",
+          "drawdown_proxy_missing",
+          "candidate_blockers_not_cleared"
+        ],
+        "candidate_family": "preconfirm_watchlist",
+        "candidate_key": "preconfirm_watchlist",
+        "drawdown_proxy_pct": null,
+        "frozen_cpb_delta_pct": -7.96,
+        "linked_hypothesis": {
+          "as_of_date": "20260512",
+          "hypothesis_id": 7,
+          "status": "proposed",
+          "title": "Shadow candidate: pre-confirm watchlist observation lane."
+        },
+        "next_step": "clear_observation_blockers",
+        "promotion_gate": {
+          "artifact_only": true,
+          "blockers": [
+            "manual_promotion_approval_required",
+            "future_strategy_version_task_required",
+            "paper_live_deployment_not_authorized"
+          ],
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "status": "blocked"
+        },
+        "readiness_checks": {
+          "blocker_clearance": {
+            "blocker_count": 9,
+            "blockers": [
+              "next_day_confirmation_rule_required",
+              "operator_promotion_approval_required",
+              "operator_review_required",
+              "paper_observation_not_authorized",
+              "proposal_review_required",
+              "strategy_version_proposal_not_authorized",
+              "walk_forward_shadow_monitor_20_trading_days_required",
+              "watchlist_only_ui_lane_required",
+              "watchlist_to_signal_contract_required"
+            ],
+            "passed": false
+          },
+          "drawdown_cap": {
+            "actual_pct": null,
+            "passed": false,
+            "threshold_pct": -8.0
+          },
+          "evidence_coverage": {
+            "linked_hypothesis": {
+              "as_of_date": "20260512",
+              "hypothesis_id": 7,
+              "status": "proposed",
+              "title": "Shadow candidate: pre-confirm watchlist observation lane."
+            },
+            "minimum_source_artifacts": 2,
+            "passed": true,
+            "source_artifact_count": 8
+          },
+          "minimum_sample": {
+            "actual": 30,
+            "passed": true,
+            "threshold": 20
+          },
+          "positive_frozen_cpb_delta": {
+            "actual_pct": -7.96,
+            "passed": false,
+            "threshold_pct": 0.0
+          },
+          "replay_backtest_evidence": {
+            "advisory_only": true,
+            "artifact_path": "reports/shadow_replay_backtest_evidence_20260514_preconfirm_watchlist.json",
+            "blockers": [],
+            "evidence_contract": "shadow_replay_backtest_evidence_v1",
+            "passed": true,
+            "source_hash": "f96e0ffb156a7fc6814095e435fbc70642917686f1767d9e4eaccdc350a317eb",
+            "status": "accepted"
+          }
+        },
+        "replay_backtest_evidence": {
+          "advisory_only": true,
+          "artifact_path": "reports/shadow_replay_backtest_evidence_20260514_preconfirm_watchlist.json",
+          "artifact_type": "shadow_replay_backtest_evidence",
+          "as_of_date": "20260514",
+          "blockers": [],
+          "candidate_key": "preconfirm_watchlist",
+          "date_range": {
+            "end_date": "20260514",
+            "start_date": "20251110"
+          },
+          "error": null,
+          "evidence_contract": "shadow_replay_backtest_evidence_v1",
+          "expected_source_hash": "f96e0ffb156a7fc6814095e435fbc70642917686f1767d9e4eaccdc350a317eb",
+          "metrics": {
+            "max_drawdown_pct": -15.1,
+            "source_row_count": 42,
+            "t1_close_mean_pct": 1.36,
+            "t1_close_win_rate_pct": 63.41,
+            "t1_high_mean_pct": 4.55,
+            "t1_sample_size": 41,
+            "t5_close_mean_pct": 6.99,
+            "t5_close_win_rate_pct": 75.68,
+            "t5_sample_size": 37
+          },
+          "no_future_boundary": {
+            "data_cutoff_date": "20260514",
+            "latest_market_date": "20260514",
+            "max_input_date": "20260514",
+            "passed": true
+          },
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "provider": "pgc_shadow_replay_backtest_evidence_producer_v1",
+          "required_sample_size": 20,
+          "safety": {
+            "active_params_mutated": false,
+            "advisory_only": true,
+            "artifact_only": true,
+            "paper_live_deployment_changed": false,
+            "paper_observation_allowed": false,
+            "promotion_allowed": false,
+            "read_only": true,
+            "timer_mutated": false,
+            "writes_paper_live_behavior": false,
+            "writes_trade_state": false,
+            "wrote_strategy_version": false,
+            "wrote_strategy_versions": false
+          },
+          "sample_size": 41,
+          "source_hash": "f96e0ffb156a7fc6814095e435fbc70642917686f1767d9e4eaccdc350a317eb",
+          "status": "accepted",
+          "valid": true
+        },
+        "review_status": "blocked",
+        "sample_size": 30,
+        "source_artifacts": [
+          "data/preconfirm_watchlist_backtest_summary.csv",
+          "data/preconfirm_watchlist_backtest_trades.csv",
+          "reports/preconfirm_watchlist_backtest.json",
+          "reports/preconfirm_watchlist_backtest.md",
+          "reports/strategy_shadow_monitor_20260514.json",
+          "reports/strategy_shadow_monitor_20260514.md",
+          "reports/strategy_shadow_promotion_preflight_20260514.json",
+          "reports/strategy_shadow_promotion_preflight_20260514.md"
+        ]
+      },
+      {
+        "blocked_reasons": [
+          "frozen_cpb_delta_missing",
+          "candidate_blockers_not_cleared"
+        ],
+        "candidate_family": "dip_buy",
+        "candidate_key": "pullback_dip_buy",
+        "drawdown_proxy_pct": -6.69,
+        "frozen_cpb_delta_pct": null,
+        "linked_hypothesis": {
+          "as_of_date": "20260512",
+          "hypothesis_id": 8,
+          "status": "proposed",
+          "title": "Shadow candidate: pullback dip-buy observation lane."
+        },
+        "next_step": "clear_observation_blockers",
+        "promotion_gate": {
+          "artifact_only": true,
+          "blockers": [
+            "manual_promotion_approval_required",
+            "future_strategy_version_task_required",
+            "paper_live_deployment_not_authorized"
+          ],
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "status": "blocked"
+        },
+        "readiness_checks": {
+          "blocker_clearance": {
+            "blocker_count": 10,
+            "blockers": [
+              "daily_walk_forward_monitor_required_for_dip_buy",
+              "dip_buy_stop_and_sizing_required",
+              "falling_knife_guard_required",
+              "operator_promotion_approval_required",
+              "operator_review_required",
+              "paper_observation_not_authorized",
+              "proposal_review_required",
+              "separate_dip_buy_candidate_required",
+              "strategy_version_proposal_not_authorized",
+              "walk_forward_shadow_monitor_20_trading_days_required"
+            ],
+            "passed": false
+          },
+          "drawdown_cap": {
+            "actual_pct": -6.69,
+            "passed": true,
+            "threshold_pct": -8.0
+          },
+          "evidence_coverage": {
+            "linked_hypothesis": {
+              "as_of_date": "20260512",
+              "hypothesis_id": 8,
+              "status": "proposed",
+              "title": "Shadow candidate: pullback dip-buy observation lane."
+            },
+            "minimum_source_artifacts": 2,
+            "passed": true,
+            "source_artifact_count": 5
+          },
+          "minimum_sample": {
+            "actual": 105,
+            "passed": true,
+            "threshold": 20
+          },
+          "positive_frozen_cpb_delta": {
+            "actual_pct": null,
+            "passed": false,
+            "threshold_pct": 0.0
+          },
+          "replay_backtest_evidence": {
+            "advisory_only": true,
+            "artifact_path": "reports/shadow_replay_backtest_evidence_20260514_pullback_dip_buy.json",
+            "blockers": [],
+            "evidence_contract": "shadow_replay_backtest_evidence_v1",
+            "passed": true,
+            "source_hash": "1734b04ed1156a541510c2ab613a4251845862b53f2de19185ce0f9c6b158f08",
+            "status": "accepted"
+          }
+        },
+        "replay_backtest_evidence": {
+          "advisory_only": true,
+          "artifact_path": "reports/shadow_replay_backtest_evidence_20260514_pullback_dip_buy.json",
+          "artifact_type": "shadow_replay_backtest_evidence",
+          "as_of_date": "20260514",
+          "blockers": [],
+          "candidate_key": "pullback_dip_buy",
+          "date_range": {
+            "end_date": "20260514",
+            "start_date": "20250714"
+          },
+          "error": null,
+          "evidence_contract": "shadow_replay_backtest_evidence_v1",
+          "expected_source_hash": "1734b04ed1156a541510c2ab613a4251845862b53f2de19185ce0f9c6b158f08",
+          "metrics": {
+            "max_drawdown_pct": -6.69,
+            "source_row_count": 111,
+            "t1_close_mean_pct": 0.43,
+            "t1_close_win_rate_pct": 44.55,
+            "t1_high_mean_pct": 3.23,
+            "t1_sample_size": 110,
+            "t5_close_mean_pct": 0.95,
+            "t5_close_win_rate_pct": 47.62,
+            "t5_sample_size": 105
+          },
+          "no_future_boundary": {
+            "data_cutoff_date": "20260514",
+            "latest_market_date": "20260514",
+            "max_input_date": "20260514",
+            "passed": true
+          },
+          "paper_observation_allowed": false,
+          "promotion_allowed": false,
+          "provider": "pgc_shadow_replay_backtest_evidence_producer_v1",
+          "required_sample_size": 20,
+          "safety": {
+            "active_params_mutated": false,
+            "advisory_only": true,
+            "artifact_only": true,
+            "paper_live_deployment_changed": false,
+            "paper_observation_allowed": false,
+            "promotion_allowed": false,
+            "read_only": true,
+            "timer_mutated": false,
+            "writes_paper_live_behavior": false,
+            "writes_trade_state": false,
+            "wrote_strategy_version": false,
+            "wrote_strategy_versions": false
+          },
+          "sample_size": 105,
+          "source_hash": "1734b04ed1156a541510c2ab613a4251845862b53f2de19185ce0f9c6b158f08",
+          "status": "accepted",
+          "valid": true
+        },
+        "review_status": "blocked",
+        "sample_size": 105,
+        "source_artifacts": [
+          "reports/pgc_pullback_dip_buy.json",
+          "reports/strategy_shadow_monitor_20260514.json",
+          "reports/strategy_shadow_monitor_20260514.md",
+          "reports/strategy_shadow_promotion_preflight_20260514.json",
+          "reports/strategy_shadow_promotion_preflight_20260514.md"
+        ]
+      }
+    ],
+    "dossier_contract": "shadow_promotion_dossier_v1",
+    "generated_at": "2026-05-14T10:54:58+00:00",
+    "next_trade_date": "20260515",
+    "release_gate": {
+      "active_params_mutated": false,
+      "artifact_only": true,
+      "blocked_mutation_targets": [
+        "active_cpb_params",
+        "strategy_versions",
+        "trade_plans",
+        "trades",
+        "positions",
+        "paper_live_behavior",
+        "broker_execution",
+        "timer_state"
+      ],
+      "blocked_paths": [
+        "active_cpb_params",
+        "strategy_versions",
+        "trade_plans",
+        "trades",
+        "positions",
+        "paper_live_behavior",
+        "pgc-daily-pipeline.timer"
+      ],
+      "displayed_surfaces": [
+        "strategy_shadow_monitor artifact",
+        "strategy_shadow_promotion_preflight artifact",
+        "shadow_observation_scorecard artifact",
+        "shadow_strategy_snapshot API/CLI",
+        "Dashboard Shadow Lab",
+        "daily review shadow_observation section"
+      ],
+      "manual_approval_contract": "future_strategy_version_task_required",
+      "manual_promotion_approval_required": true,
+      "paper_observation_allowed": false,
+      "promotion_allowed": false,
+      "requires_explicit_blocker_clearance": true,
+      "review_ready_is_not_approval": true,
+      "status": "blocked",
+      "timer_mutated": false,
+      "trade_state_counts_unchanged": true,
+      "writes_paper_live_behavior": false,
+      "writes_trade_state": false
+    },
+    "safety": {
+      "active_params_mutated": false,
+      "artifact_only": true,
+      "dossier_is_review_evidence_only": true,
+      "paper_observation_allowed": false,
+      "promotion_allowed": false,
+      "read_only": true,
+      "timer_mutated": false,
+      "writes_paper_live_behavior": false,
+      "writes_trade_state": false,
+      "wrote_strategy_version": false,
+      "wrote_strategy_versions": false
+    },
+    "source_artifacts": {
+      "monitor_json": "reports/strategy_shadow_monitor_20260514.json",
+      "monitor_markdown": "reports/strategy_shadow_monitor_20260514.md",
+      "promotion_preflight_json": "reports/strategy_shadow_promotion_preflight_20260514.json",
+      "promotion_preflight_markdown": "reports/strategy_shadow_promotion_preflight_20260514.md"
+    },
+    "summary": {
+      "artifact_only": true,
+      "blocked_count": 5,
+      "candidate_count": 5,
+      "promotion_allowed": false,
+      "read_only": true,
+      "replay_backtest_evidence": {
+        "accepted_count": 5,
+        "advisory_only": true,
+        "candidate_count": 5,
+        "clears_only": [
+          "replay_backtest_result_artifact_required"
+        ],
+        "evidence_contract": "shadow_replay_backtest_evidence_v1",
+        "missing_count": 0,
+        "promotion_allowed": false,
+        "rejected_count": 0,
+        "state_counts": {
+          "accepted": 5
+        }
+      },
+      "review_ready_count": 0,
+      "review_ready_is_not_approval": true,
+      "status": "blocked"
+    },
+    "threshold_metadata": {
+      "blocker_clearance": {
+        "manual_promotion_blocker_still_required": true,
+        "requires_zero_candidate_blockers": true
+      },
+      "drawdown_cap": {
+        "metric": "max_drawdown_pct or mae_10d_median_pct",
+        "minimum_drawdown_proxy_pct": -8.0
+      },
+      "evidence_coverage": {
+        "minimum_source_artifacts": 2,
+        "requires_linked_shadow_hypothesis": true
+      },
+      "minimum_sample": {
+        "reason": "minimum observation sample before promotion review readiness",
+        "required_days": 20
+      },
+      "positive_frozen_cpb_delta": {
+        "metric": "comparison_vs_frozen_cpb.t1_close_mean_delta_pct",
+        "minimum_delta_pct": 0.0
+      },
+      "replay_backtest_evidence": {
+        "advisory_only": true,
+        "clears_blocker": "replay_backtest_result_artifact_required",
+        "evidence_contract": "shadow_replay_backtest_evidence_v1",
+        "required": true,
+        "required_metrics": [
+          "t1_close_mean_pct",
+          "t1_close_win_rate_pct",
+          "t5_close_mean_pct",
+          "max_drawdown_pct"
+        ]
+      }
+    }
+  },
+  "source_dossier_contract": "shadow_promotion_dossier_v1",
+  "source_dossier_path": "reports/shadow_promotion_dossier_20260514.json",
+  "source_dossier_review": {
+    "artifact_type": "shadow_promotion_dossier",
+    "blocked_count": 5,
+    "candidate_count": 5,
+    "dossier_contract": "shadow_promotion_dossier_v1",
+    "error": null,
+    "exists": true,
+    "path": "reports/shadow_promotion_dossier_20260514.json",
+    "promotion_allowed": false,
+    "review_ready_candidates": [],
+    "review_ready_count": 0,
+    "valid": true
+  },
+  "summary": {
+    "blocked_candidate_keys": [
+      "trend_extension_shadow",
+      "breakout_pressure_shadow",
+      "low_price_momentum_shadow",
+      "preconfirm_watchlist",
+      "pullback_dip_buy"
+    ],
+    "blocked_count": 5,
+    "candidate_count": 5,
+    "manual_review_required": true,
+    "promotion_allowed": false,
+    "replay_backtest_evidence": {
+      "accepted_count": 5,
+      "advisory_only": true,
+      "candidate_count": 5,
+      "clears_only": [
+        "replay_backtest_result_artifact_required"
+      ],
+      "evidence_contract": "shadow_replay_backtest_evidence_v1",
+      "missing_count": 0,
+      "promotion_allowed": false,
+      "rejected_count": 0,
+      "state_counts": {
+        "accepted": 5
+      }
+    },
+    "review_ready_candidate_keys": [],
+    "review_ready_count": 0,
+    "review_ready_is_not_approval": true,
+    "source_dossier_error": null,
+    "source_dossier_status": "valid",
+    "source_dossier_valid": true,
+    "status": "blocked"
+  }
+}

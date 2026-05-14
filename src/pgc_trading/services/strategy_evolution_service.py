@@ -46,6 +46,8 @@ SHADOW_THRESHOLD_CALIBRATION_CONTRACT = "shadow_threshold_calibration_v1"
 SHADOW_THRESHOLD_CALIBRATION_ARTIFACT_TYPE = "shadow_threshold_calibration"
 SHADOW_EXPERIMENT_REGISTRY_CONTRACT = "shadow_strategy_experiment_registry_v1"
 SHADOW_EXPERIMENT_REGISTRY_ARTIFACT_TYPE = "shadow_strategy_experiment_registry"
+SHADOW_PAPER_PREFLIGHT_CONTRACT = "shadow_paper_preflight_v1"
+SHADOW_PAPER_PREFLIGHT_ARTIFACT_TYPE = "shadow_paper_preflight"
 SHADOW_THRESHOLD_CALIBRATION_CANDIDATES = (
     "trend_extension_shadow",
     "breakout_pressure_shadow",
@@ -369,6 +371,32 @@ class ShadowPromotionReviewRequestArtifactReview:
     writes_trade_state: bool | None = None
     writes_paper_live_behavior: bool | None = None
     timer_mutated: bool | None = None
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class ShadowPaperPreflightArtifactReview:
+    path: str
+    exists: bool
+    valid: bool
+    artifact_type: str | None = None
+    paper_preflight_contract: str | None = None
+    as_of_date: str | None = None
+    candidate_count: int = 0
+    future_paper_task_ready_count: int = 0
+    paper_candidate_allowed: bool | None = None
+    manual_promotion_approval_required: bool | None = None
+    future_strategy_version_task_required: bool | None = None
+    risk_rollback_note_count: int = 0
+    required_human_approval_count: int = 0
+    active_params_mutated: bool | None = None
+    wrote_strategy_version: bool | None = None
+    wrote_strategy_versions: bool | None = None
+    writes_trade_state: bool | None = None
+    writes_paper_live_behavior: bool | None = None
+    broker_execution_allowed: bool | None = None
+    timer_mutated: bool | None = None
+    promotion_allowed: bool | None = None
     error: str | None = None
 
 
@@ -2366,6 +2394,162 @@ def review_shadow_promotion_review_request_artifact(
         writes_trade_state=writes_trade_state,
         writes_paper_live_behavior=writes_paper_live_behavior,
         timer_mutated=timer_mutated,
+        error=error,
+    )
+
+
+def review_shadow_paper_preflight_artifact(
+    artifact_path: str | Path,
+) -> ShadowPaperPreflightArtifactReview:
+    path = Path(artifact_path).expanduser()
+    if not path.exists():
+        return ShadowPaperPreflightArtifactReview(
+            path=str(path),
+            exists=False,
+            valid=False,
+            error="shadow paper preflight artifact was not found.",
+        )
+    try:
+        artifact = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return ShadowPaperPreflightArtifactReview(
+            path=str(path),
+            exists=True,
+            valid=False,
+            error=f"shadow paper preflight artifact is not valid JSON: {exc}",
+        )
+    if not isinstance(artifact, dict):
+        return ShadowPaperPreflightArtifactReview(
+            path=str(path),
+            exists=True,
+            valid=False,
+            error="shadow paper preflight artifact must be a JSON object.",
+        )
+
+    artifact_type = _optional_text(artifact.get("artifact_type"))
+    paper_preflight_contract = _optional_text(artifact.get("paper_preflight_contract"))
+    summary = _mapping(artifact.get("summary"))
+    source_memo = _mapping(artifact.get("source_memo"))
+    safety = _mapping(artifact.get("safety"))
+    release_boundary = _mapping(artifact.get("release_boundary"))
+    candidates = _list_mapping(artifact.get("candidates"))
+    required_human_approvals = _list_mapping(artifact.get("required_human_approvals"))
+    risk_rollback_notes = _list_text(artifact.get("risk_rollback_notes"))
+    candidate_boundaries = [_mapping(candidate.get("promotion_boundary")) for candidate in candidates]
+    candidate_evidence = [_mapping(candidate.get("evidence_sufficiency")) for candidate in candidates]
+    candidate_walk = [_mapping(candidate.get("walk_forward_sufficiency")) for candidate in candidates]
+    candidate_stop_rules = [_mapping(candidate.get("stop_rule_status")) for candidate in candidates]
+    safety_contexts = [
+        summary,
+        source_memo,
+        safety,
+        release_boundary,
+        *candidates,
+        *candidate_boundaries,
+        *candidate_evidence,
+        *candidate_walk,
+        *candidate_stop_rules,
+    ]
+
+    candidate_count = _optional_int(summary.get("candidate_count")) or len(candidates)
+    future_paper_task_ready_count = _optional_int(summary.get("future_paper_task_ready_count")) or sum(
+        1 for candidate in candidates if bool(candidate.get("future_paper_task_ready"))
+    )
+    paper_candidate_allowed = _any_truthy_flag(
+        safety_contexts,
+        "paper_candidate_allowed",
+        "paper_observation_allowed",
+        "trade_plan_allowed",
+        "strategy_version_publication_allowed",
+        "trade_state_writes_allowed",
+        "broker_execution_allowed",
+        "timer_allowed",
+    )
+    promotion_allowed = _any_truthy_flag(safety_contexts, "promotion_allowed")
+    active_params_mutated = bool(safety.get("active_params_mutated"))
+    wrote_strategy_version = bool(safety.get("wrote_strategy_version"))
+    wrote_strategy_versions = bool(safety.get("wrote_strategy_versions"))
+    writes_trade_state = bool(safety.get("writes_trade_state"))
+    writes_paper_live_behavior = bool(safety.get("writes_paper_live_behavior")) or bool(
+        safety.get("paper_live_deployment_changed")
+    )
+    broker_execution_allowed = _any_truthy_flag(safety_contexts, "broker_execution_allowed")
+    timer_mutated = bool(safety.get("timer_mutated"))
+    manual_promotion_approval_required = bool(summary.get("manual_promotion_approval_required")) or any(
+        str(item.get("approval_key") or "").startswith("manual_promotion_approval_required")
+        for item in required_human_approvals
+    )
+    future_strategy_version_task_required = bool(summary.get("future_strategy_version_task_required")) or any(
+        str(item.get("approval_key") or "").startswith("future_strategy_version_task_required")
+        for item in required_human_approvals
+    )
+    candidates_have_preflight_fields = all(
+        _mapping(candidate.get("evidence_sufficiency"))
+        and _mapping(candidate.get("walk_forward_sufficiency"))
+        and _mapping(candidate.get("stop_rule_status"))
+        and candidate.get("readiness_score") is not None
+        for candidate in candidates
+    )
+    valid_safety = not any(
+        [
+            paper_candidate_allowed,
+            promotion_allowed,
+            active_params_mutated,
+            wrote_strategy_version,
+            wrote_strategy_versions,
+            writes_trade_state,
+            writes_paper_live_behavior,
+            broker_execution_allowed,
+            timer_mutated,
+        ]
+    )
+
+    error = None
+    if artifact_type != SHADOW_PAPER_PREFLIGHT_ARTIFACT_TYPE:
+        error = "shadow paper preflight artifact must use artifact_type=shadow_paper_preflight."
+    elif paper_preflight_contract != SHADOW_PAPER_PREFLIGHT_CONTRACT:
+        error = "shadow paper preflight artifact must use paper_preflight_contract=shadow_paper_preflight_v1."
+    elif not summary:
+        error = "shadow paper preflight artifact must include a summary object."
+    elif summary.get("status") != "blocked":
+        error = "shadow paper preflight summary status must remain blocked."
+    elif summary.get("candidate_count") is not None and int(summary.get("candidate_count") or 0) != len(candidates):
+        error = "shadow paper preflight candidate count does not match candidates."
+    elif not required_human_approvals:
+        error = "shadow paper preflight artifact must include required human approvals."
+    elif not manual_promotion_approval_required:
+        error = "shadow paper preflight artifact must require manual promotion approval."
+    elif not future_strategy_version_task_required:
+        error = "shadow paper preflight artifact must require a future strategy-version task."
+    elif not risk_rollback_notes:
+        error = "shadow paper preflight artifact must include risk/rollback notes."
+    elif candidates and not candidates_have_preflight_fields:
+        error = "shadow paper preflight candidates must include readiness, evidence, walk-forward, and stop-rule fields."
+    elif not valid_safety:
+        error = "shadow paper preflight artifact reports mutation or paper-candidate permission."
+
+    return ShadowPaperPreflightArtifactReview(
+        path=str(path),
+        exists=True,
+        valid=error is None,
+        artifact_type=artifact_type,
+        paper_preflight_contract=paper_preflight_contract,
+        as_of_date=_optional_text(artifact.get("as_of_date")),
+        candidate_count=candidate_count,
+        future_paper_task_ready_count=future_paper_task_ready_count,
+        paper_candidate_allowed=paper_candidate_allowed,
+        manual_promotion_approval_required=manual_promotion_approval_required,
+        future_strategy_version_task_required=future_strategy_version_task_required,
+        risk_rollback_note_count=len(risk_rollback_notes),
+        required_human_approval_count=len(required_human_approvals),
+        active_params_mutated=active_params_mutated,
+        wrote_strategy_version=wrote_strategy_version,
+        wrote_strategy_versions=wrote_strategy_versions,
+        writes_trade_state=writes_trade_state,
+        writes_paper_live_behavior=writes_paper_live_behavior,
+        broker_execution_allowed=broker_execution_allowed,
+        timer_mutated=timer_mutated,
+        promotion_allowed=promotion_allowed,
         error=error,
     )
 

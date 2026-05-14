@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-14T01:21:16+00:00",
+  "generated_at": "2026-05-14T07:56:41+00:00",
   "review_date": "20260513",
   "prior_review_date": "20260512",
   "next_trade_date": "20260514",
@@ -3515,7 +3515,7 @@
   ],
   "promotion_preflight": {
     "artifact_type": "shadow_strategy_promotion_preflight",
-    "generated_at": "2026-05-14T01:21:16+00:00",
+    "generated_at": "2026-05-14T07:56:41+00:00",
     "review_date": "20260513",
     "next_trade_date": "20260514",
     "status": "blocked",
@@ -9591,7 +9591,7 @@
     "artifact_type": "shadow_walk_forward_outcomes",
     "outcomes_contract": "shadow_walk_forward_outcomes_v1",
     "provider": "pgc_shadow_walk_forward_outcome_accumulator_v1",
-    "generated_at": "2026-05-14T01:21:16+00:00",
+    "generated_at": "2026-05-14T07:56:41+00:00",
     "as_of_date": "20260513",
     "source_monitor_path": "reports/strategy_shadow_monitor_20260513.json",
     "source_artifacts": {
@@ -13074,7 +13074,7 @@
   "promotion_dossier": {
     "artifact_type": "shadow_promotion_dossier",
     "dossier_contract": "shadow_promotion_dossier_v1",
-    "generated_at": "2026-05-14T01:21:16+00:00",
+    "generated_at": "2026-05-14T07:56:41+00:00",
     "as_of_date": "20260513",
     "next_trade_date": "20260514",
     "threshold_metadata": {
@@ -13304,11 +13304,11 @@
           "paper_observation_allowed": false
         },
         "source_artifacts": [
+          "reports/strategy_shadow_backtest_20260401_20260508.json",
           "reports/strategy_shadow_monitor_20260513.json",
           "reports/strategy_shadow_monitor_20260513.md",
           "reports/strategy_shadow_promotion_preflight_20260513.json",
           "reports/strategy_shadow_promotion_preflight_20260513.md",
-          "reports/strategy_shadow_backtest_20260401_20260508.json",
           "reports/strategy_shadow_review_20260511.json"
         ],
         "linked_hypothesis": {
@@ -13449,11 +13449,11 @@
           "paper_observation_allowed": false
         },
         "source_artifacts": [
+          "reports/strategy_shadow_backtest_20260401_20260508.json",
           "reports/strategy_shadow_monitor_20260513.json",
           "reports/strategy_shadow_monitor_20260513.md",
           "reports/strategy_shadow_promotion_preflight_20260513.json",
           "reports/strategy_shadow_promotion_preflight_20260513.md",
-          "reports/strategy_shadow_backtest_20260401_20260508.json",
           "reports/strategy_shadow_review_20260511.json"
         ],
         "linked_hypothesis": {
@@ -13594,11 +13594,11 @@
           "paper_observation_allowed": false
         },
         "source_artifacts": [
+          "reports/strategy_shadow_backtest_20260401_20260508.json",
           "reports/strategy_shadow_monitor_20260513.json",
           "reports/strategy_shadow_monitor_20260513.md",
           "reports/strategy_shadow_promotion_preflight_20260513.json",
           "reports/strategy_shadow_promotion_preflight_20260513.md",
-          "reports/strategy_shadow_backtest_20260401_20260508.json",
           "reports/strategy_shadow_review_20260511.json"
         ],
         "linked_hypothesis": {
@@ -13739,14 +13739,14 @@
           "paper_observation_allowed": false
         },
         "source_artifacts": [
-          "reports/strategy_shadow_monitor_20260513.json",
-          "reports/strategy_shadow_monitor_20260513.md",
-          "reports/strategy_shadow_promotion_preflight_20260513.json",
-          "reports/strategy_shadow_promotion_preflight_20260513.md",
           "data/preconfirm_watchlist_backtest_summary.csv",
           "data/preconfirm_watchlist_backtest_trades.csv",
           "reports/preconfirm_watchlist_backtest.json",
-          "reports/preconfirm_watchlist_backtest.md"
+          "reports/preconfirm_watchlist_backtest.md",
+          "reports/strategy_shadow_monitor_20260513.json",
+          "reports/strategy_shadow_monitor_20260513.md",
+          "reports/strategy_shadow_promotion_preflight_20260513.json",
+          "reports/strategy_shadow_promotion_preflight_20260513.md"
         ],
         "linked_hypothesis": {
           "hypothesis_id": 7,
@@ -13886,11 +13886,11 @@
           "paper_observation_allowed": false
         },
         "source_artifacts": [
+          "reports/pgc_pullback_dip_buy.json",
           "reports/strategy_shadow_monitor_20260513.json",
           "reports/strategy_shadow_monitor_20260513.md",
           "reports/strategy_shadow_promotion_preflight_20260513.json",
-          "reports/strategy_shadow_promotion_preflight_20260513.md",
-          "reports/pgc_pullback_dip_buy.json"
+          "reports/strategy_shadow_promotion_preflight_20260513.md"
         ],
         "linked_hypothesis": {
           "hypothesis_id": 8,
@@ -13929,7 +13929,7 @@
   "promotion_review_request": {
     "artifact_type": "shadow_promotion_review_request",
     "review_request_contract": "shadow_promotion_review_request_v1",
-    "generated_at": "2026-05-14T01:21:16+00:00",
+    "generated_at": "2026-05-14T07:56:41+00:00",
     "as_of_date": "20260513",
     "source_dossier_path": "reports/shadow_promotion_dossier_20260513.json",
     "source_dossier_contract": "shadow_promotion_dossier_v1",
@@ -14087,11 +14087,11 @@
           "review_status": "blocked",
           "sample_size": 20,
           "source_artifacts": [
+            "reports/strategy_shadow_backtest_20260401_20260508.json",
             "reports/strategy_shadow_monitor_20260513.json",
             "reports/strategy_shadow_monitor_20260513.md",
             "reports/strategy_shadow_promotion_preflight_20260513.json",
             "reports/strategy_shadow_promotion_preflight_20260513.md",
-            "reports/strategy_shadow_backtest_20260401_20260508.json",
             "reports/strategy_shadow_review_20260511.json"
           ]
         },
@@ -14232,11 +14232,11 @@
           "review_status": "blocked",
           "sample_size": 20,
           "source_artifacts": [
+            "reports/strategy_shadow_backtest_20260401_20260508.json",
             "reports/strategy_shadow_monitor_20260513.json",
             "reports/strategy_shadow_monitor_20260513.md",
             "reports/strategy_shadow_promotion_preflight_20260513.json",
             "reports/strategy_shadow_promotion_preflight_20260513.md",
-            "reports/strategy_shadow_backtest_20260401_20260508.json",
             "reports/strategy_shadow_review_20260511.json"
           ]
         },
@@ -14377,11 +14377,11 @@
           "review_status": "blocked",
           "sample_size": 20,
           "source_artifacts": [
+            "reports/strategy_shadow_backtest_20260401_20260508.json",
             "reports/strategy_shadow_monitor_20260513.json",
             "reports/strategy_shadow_monitor_20260513.md",
             "reports/strategy_shadow_promotion_preflight_20260513.json",
             "reports/strategy_shadow_promotion_preflight_20260513.md",
-            "reports/strategy_shadow_backtest_20260401_20260508.json",
             "reports/strategy_shadow_review_20260511.json"
           ]
         },
@@ -14522,14 +14522,14 @@
           "review_status": "blocked",
           "sample_size": 29,
           "source_artifacts": [
-            "reports/strategy_shadow_monitor_20260513.json",
-            "reports/strategy_shadow_monitor_20260513.md",
-            "reports/strategy_shadow_promotion_preflight_20260513.json",
-            "reports/strategy_shadow_promotion_preflight_20260513.md",
             "data/preconfirm_watchlist_backtest_summary.csv",
             "data/preconfirm_watchlist_backtest_trades.csv",
             "reports/preconfirm_watchlist_backtest.json",
-            "reports/preconfirm_watchlist_backtest.md"
+            "reports/preconfirm_watchlist_backtest.md",
+            "reports/strategy_shadow_monitor_20260513.json",
+            "reports/strategy_shadow_monitor_20260513.md",
+            "reports/strategy_shadow_promotion_preflight_20260513.json",
+            "reports/strategy_shadow_promotion_preflight_20260513.md"
           ]
         },
         {
@@ -14669,16 +14669,16 @@
           "review_status": "blocked",
           "sample_size": 105,
           "source_artifacts": [
+            "reports/pgc_pullback_dip_buy.json",
             "reports/strategy_shadow_monitor_20260513.json",
             "reports/strategy_shadow_monitor_20260513.md",
             "reports/strategy_shadow_promotion_preflight_20260513.json",
-            "reports/strategy_shadow_promotion_preflight_20260513.md",
-            "reports/pgc_pullback_dip_buy.json"
+            "reports/strategy_shadow_promotion_preflight_20260513.md"
           ]
         }
       ],
       "dossier_contract": "shadow_promotion_dossier_v1",
-      "generated_at": "2026-05-14T01:21:16+00:00",
+      "generated_at": "2026-05-14T07:56:41+00:00",
       "next_trade_date": "20260514",
       "release_gate": {
         "active_params_mutated": false,
@@ -15474,6 +15474,1734 @@
       "timer_mutated": false
     }
   },
+  "paper_preflight": {
+    "artifact_type": "shadow_paper_preflight",
+    "paper_preflight_contract": "shadow_paper_preflight_v1",
+    "generated_at": "2026-05-14T07:56:41+00:00",
+    "as_of_date": "20260513",
+    "language": "zh-CN",
+    "status": "blocked",
+    "summary": {
+      "status": "blocked",
+      "candidate_count": 5,
+      "future_paper_task_ready_count": 0,
+      "blocked_candidate_count": 5,
+      "max_readiness_score": 80,
+      "top_candidate_key": "breakout_pressure_shadow",
+      "required_human_approval_count": 3,
+      "manual_promotion_approval_required": true,
+      "future_strategy_version_task_required": true,
+      "paper_candidate_allowed": false,
+      "promotion_allowed": false,
+      "read_only": true,
+      "artifact_only": true,
+      "conclusion_zh": "当前 5 个 shadow 候选均不得进入纸面候选；最高预检分 breakout_pressure_shadow=80/100，仍需独立人工 strategy-version 任务和风险/回滚确认。"
+    },
+    "source_artifacts": {
+      "promotion_review_request": "reports/shadow_promotion_review_request_20260513.json",
+      "shadow_snapshot_monitor": "reports/strategy_shadow_monitor_20260513.json",
+      "shadow_snapshot_preflight": "reports/strategy_shadow_promotion_preflight_20260513.json",
+      "threshold_calibration": "reports/shadow_threshold_calibration_20260513.json",
+      "experiment_registry": "reports/shadow_strategy_experiment_registry_20260513.json",
+      "shadow_observation_scorecard": "reports/shadow_observation_scorecard_20260513.json",
+      "shadow_walk_forward_outcomes": "reports/shadow_walk_forward_outcomes_20260513.json"
+    },
+    "source_memo": {
+      "memo_contract": "shadow_decision_memo_v1",
+      "status": "blocked",
+      "decision_queue_contract": "shadow_strategy_decision_queue_v1",
+      "promotion_allowed": false
+    },
+    "required_human_approvals": [
+      {
+        "approval_key": "manual_promotion_approval_required",
+        "status": "required",
+        "required": true,
+        "approval_zh": "人工批准只允许在后续独立任务中记录；本预检不批准晋升。"
+      },
+      {
+        "approval_key": "future_strategy_version_task_required",
+        "status": "required",
+        "required": true,
+        "approval_zh": "若要推进，必须另开 strategy-version proposal/review 任务。"
+      },
+      {
+        "approval_key": "paper_risk_rollback_confirmation_required",
+        "status": "required",
+        "required": true,
+        "approval_zh": "确认 active CPB、交易状态、paper/live 行为、券商执行和 timer 均保持不变。"
+      }
+    ],
+    "risk_rollback_notes": [
+      "review_ready is not approval",
+      "keep active CPB params/hash unchanged",
+      "do not create or update strategy_versions, trade_plans, trades, positions, paper/live behavior, broker execution, or timers",
+      "blocked_mutation_targets=active_cpb_params,strategy_versions,trade_plans,trades,positions,paper_live_behavior,broker_execution,timer_state",
+      "promotion_allowed=false",
+      "manual review only; no active strategy, trade, or timer mutation",
+      "禁止修改：active_cpb_params",
+      "禁止修改：strategy_versions",
+      "禁止修改：trade_plans",
+      "禁止修改：trades",
+      "禁止修改：positions",
+      "禁止修改：paper_live_behavior",
+      "禁止修改：broker_execution",
+      "禁止修改：timer_state",
+      "paper_candidate_allowed=false",
+      "future paper candidate work requires a separate strategy-version proposal/review task"
+    ],
+    "candidates": [
+      {
+        "candidate_key": "breakout_pressure_shadow",
+        "candidate_family": "shadow_bucket",
+        "readiness_status": "blocked",
+        "readiness_score": 80,
+        "readiness_components": {
+          "accepted_replay_backtest_evidence": 30,
+          "walk_forward_sufficient": 30,
+          "experiment_registered": 20,
+          "stop_rules_clear": 0,
+          "human_approval_complete": 0
+        },
+        "evidence_sufficiency": {
+          "status": "accepted",
+          "accepted": true,
+          "sample_size": 20,
+          "required_sample_size": 20,
+          "artifact_path": "reports/shadow_replay_backtest_evidence_20260513_breakout_pressure_shadow.json",
+          "blockers": [],
+          "advisory_only": true,
+          "promotion_allowed": false,
+          "sufficient": true,
+          "paper_candidate_allowed": false
+        },
+        "walk_forward_sufficiency": {
+          "status": "sufficient",
+          "walk_forward_status": "complete",
+          "observed_days": 20,
+          "required_days": 20,
+          "outcome_status": "partial",
+          "promotion_allowed": false,
+          "paper_candidate_allowed": false
+        },
+        "experiment_status": {
+          "status": "registered",
+          "experiment_count": 1,
+          "experiment_keys": [
+            "breakout_pressure_shadow:collect_replay_evidence"
+          ],
+          "blocking_stop_rule_count": 21,
+          "promotion_allowed": false,
+          "paper_candidate_allowed": false
+        },
+        "stop_rule_status": {
+          "status": "blocking",
+          "rule_count": 25,
+          "rule_keys": [
+            "stop_if_replay_evidence_not_accepted",
+            "stop_if_sample_size_below_required",
+            "stop_if_metric_completeness_fails",
+            "stop_if_frozen_cpb_comparison_missing",
+            "stop_if_manual_approval_boundary_changes",
+            "calibration_blocker:accepted_replay_backtest_evidence_required",
+            "calibration_blocker:win_rate_below_threshold",
+            "calibration_blocker:frozen_cpb_delta_below_threshold",
+            "current_blocker:paper_observation_not_authorized",
+            "current_blocker:walk_forward_shadow_monitor_20_trading_days_required",
+            "current_blocker:operator_review_required",
+            "current_blocker:volume_overheat_guard_required",
+            "current_blocker:close_return_stability_required",
+            "current_blocker:strategy_version_proposal_not_authorized",
+            "current_blocker:proposal_review_required",
+            "current_blocker:operator_promotion_approval_required",
+            "current_blocker:separate_breakout_pressure_candidate_required",
+            "current_blocker:frozen_cpb_delta_not_positive",
+            "current_blocker:drawdown_proxy_missing",
+            "current_blocker:candidate_blockers_not_cleared",
+            "current_blocker:replay_backtest_result_artifact_required",
+            "current_blocker:accepted_replay_backtest_evidence_required",
+            "current_blocker:win_rate_below_threshold",
+            "current_blocker:frozen_cpb_delta_below_threshold",
+            "manual_promotion_approval_required"
+          ],
+          "rules": [
+            {
+              "rule_key": "stop_if_replay_evidence_not_accepted",
+              "status": "blocking",
+              "trigger": "shadow_replay_backtest_evidence_v1 is missing or rejected",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "stop_if_sample_size_below_required",
+              "status": "clear",
+              "trigger": "current sample size is below the registry threshold",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "stop_if_metric_completeness_fails",
+              "status": "clear",
+              "trigger": "required calibration metrics are missing",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "stop_if_frozen_cpb_comparison_missing",
+              "status": "clear",
+              "trigger": "frozen-CPB comparison is missing or not comparable",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "stop_if_manual_approval_boundary_changes",
+              "status": "blocking",
+              "trigger": "promotion_allowed, strategy_version_publication_allowed, trade_state_writes_allowed, or timer_mutation_allowed becomes true",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "calibration_blocker:accepted_replay_backtest_evidence_required",
+              "status": "blocking",
+              "trigger": "calibration blocker remains unresolved: accepted_replay_backtest_evidence_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "calibration_blocker:win_rate_below_threshold",
+              "status": "blocking",
+              "trigger": "calibration blocker remains unresolved: win_rate_below_threshold",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "calibration_blocker:frozen_cpb_delta_below_threshold",
+              "status": "blocking",
+              "trigger": "calibration blocker remains unresolved: frozen_cpb_delta_below_threshold",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:paper_observation_not_authorized",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: paper_observation_not_authorized",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:walk_forward_shadow_monitor_20_trading_days_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: walk_forward_shadow_monitor_20_trading_days_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:operator_review_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: operator_review_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:volume_overheat_guard_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: volume_overheat_guard_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:close_return_stability_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: close_return_stability_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:strategy_version_proposal_not_authorized",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: strategy_version_proposal_not_authorized",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:proposal_review_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: proposal_review_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:operator_promotion_approval_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: operator_promotion_approval_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:separate_breakout_pressure_candidate_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: separate_breakout_pressure_candidate_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:frozen_cpb_delta_not_positive",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: frozen_cpb_delta_not_positive",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:drawdown_proxy_missing",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: drawdown_proxy_missing",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:candidate_blockers_not_cleared",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: candidate_blockers_not_cleared",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:replay_backtest_result_artifact_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: replay_backtest_result_artifact_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:accepted_replay_backtest_evidence_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: accepted_replay_backtest_evidence_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:win_rate_below_threshold",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: win_rate_below_threshold",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:frozen_cpb_delta_below_threshold",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: frozen_cpb_delta_below_threshold",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "manual_promotion_approval_required",
+              "status": "blocking",
+              "trigger": "manual approval must happen in a separate future strategy-version task",
+              "promotion_allowed": false
+            }
+          ],
+          "promotion_allowed": false,
+          "paper_candidate_allowed": false
+        },
+        "required_human_approvals": [
+          {
+            "approval_key": "manual_promotion_approval_required:breakout_pressure_shadow",
+            "status": "required",
+            "required": true,
+            "approval_zh": "人工批准只允许在后续独立任务中记录；本预检不批准晋升。"
+          },
+          {
+            "approval_key": "future_strategy_version_task_required:breakout_pressure_shadow",
+            "status": "required",
+            "required": true,
+            "approval_zh": "若要推进，必须另开 strategy-version proposal/review 任务。"
+          },
+          {
+            "approval_key": "paper_risk_rollback_confirmation_required:breakout_pressure_shadow",
+            "status": "required",
+            "required": true,
+            "approval_zh": "确认 active CPB、交易状态、paper/live 行为、券商执行和 timer 均保持不变。"
+          }
+        ],
+        "required_human_decision": {
+          "decision_key": "manual_shadow_decision_required:breakout_pressure_shadow",
+          "source_decision_keys": [
+            "manual_promotion_approval_required",
+            "future_strategy_version_task_required",
+            "candidate_selection",
+            "rollback_scope_confirmation"
+          ],
+          "status": "required",
+          "decision_zh": "人工只能决定是否进入后续独立复核/补证据任务；本队列不批准晋升或交易。",
+          "manual_promotion_approval_required": true,
+          "future_strategy_version_task_required": true,
+          "promotion_allowed": false,
+          "paper_candidate_allowed": false
+        },
+        "risk_rollback_notes": [
+          "review_ready is not approval",
+          "paper_candidate_allowed=false",
+          "do not create or update strategy_versions, trade_plans, trades, positions, paper/live behavior, broker execution, or timers",
+          "future paper candidate work requires a separate strategy-version proposal/review task"
+        ],
+        "promotion_boundary": {
+          "status": "blocked",
+          "boundary_zh": "晋升、发版、交易、paper/live 行为和 timer 改动必须由单独批准任务处理；当前队列禁止。",
+          "manual_promotion_approval_required": true,
+          "future_strategy_version_task_required": true,
+          "promotion_allowed": false,
+          "paper_observation_allowed": false,
+          "strategy_version_publication_allowed": false,
+          "trade_state_writes_allowed": false,
+          "broker_execution_allowed": false,
+          "timer_mutation_allowed": false,
+          "blocked_mutation_targets": [
+            "active_cpb_params",
+            "strategy_versions",
+            "trade_plans",
+            "trades",
+            "positions",
+            "paper_live_behavior",
+            "broker_execution",
+            "timer_state"
+          ],
+          "paper_candidate_allowed": false,
+          "timer_allowed": false
+        },
+        "blockers": [
+          "stop_rules_blocking",
+          "stop_if_replay_evidence_not_accepted",
+          "stop_if_sample_size_below_required",
+          "stop_if_metric_completeness_fails",
+          "stop_if_frozen_cpb_comparison_missing",
+          "stop_if_manual_approval_boundary_changes",
+          "calibration_blocker:accepted_replay_backtest_evidence_required",
+          "calibration_blocker:win_rate_below_threshold",
+          "calibration_blocker:frozen_cpb_delta_below_threshold",
+          "current_blocker:paper_observation_not_authorized",
+          "current_blocker:walk_forward_shadow_monitor_20_trading_days_required",
+          "current_blocker:operator_review_required",
+          "current_blocker:volume_overheat_guard_required",
+          "current_blocker:close_return_stability_required",
+          "current_blocker:strategy_version_proposal_not_authorized",
+          "current_blocker:proposal_review_required",
+          "current_blocker:operator_promotion_approval_required",
+          "current_blocker:separate_breakout_pressure_candidate_required",
+          "current_blocker:frozen_cpb_delta_not_positive",
+          "current_blocker:drawdown_proxy_missing",
+          "current_blocker:candidate_blockers_not_cleared",
+          "current_blocker:replay_backtest_result_artifact_required",
+          "current_blocker:accepted_replay_backtest_evidence_required",
+          "current_blocker:win_rate_below_threshold",
+          "current_blocker:frozen_cpb_delta_below_threshold",
+          "manual_promotion_approval_required",
+          "future_strategy_version_task_required",
+          "paper_candidate_authorization_missing",
+          "paper_live_deployment_not_authorized"
+        ],
+        "future_paper_task_ready": false,
+        "paper_candidate_allowed": false,
+        "paper_observation_allowed": false,
+        "strategy_version_publication_allowed": false,
+        "trade_state_writes_allowed": false,
+        "broker_execution_allowed": false,
+        "timer_allowed": false,
+        "summary_zh": "breakout_pressure_shadow 预检分 80/100；只能作为后续人工 strategy-version 任务输入，当前不得进入纸面候选。"
+      },
+      {
+        "candidate_key": "low_price_momentum_shadow",
+        "candidate_family": "shadow_bucket",
+        "readiness_status": "blocked",
+        "readiness_score": 80,
+        "readiness_components": {
+          "accepted_replay_backtest_evidence": 30,
+          "walk_forward_sufficient": 30,
+          "experiment_registered": 20,
+          "stop_rules_clear": 0,
+          "human_approval_complete": 0
+        },
+        "evidence_sufficiency": {
+          "status": "accepted",
+          "accepted": true,
+          "sample_size": 20,
+          "required_sample_size": 20,
+          "artifact_path": "reports/shadow_replay_backtest_evidence_20260513_low_price_momentum_shadow.json",
+          "blockers": [],
+          "advisory_only": true,
+          "promotion_allowed": false,
+          "sufficient": true,
+          "paper_candidate_allowed": false
+        },
+        "walk_forward_sufficiency": {
+          "status": "sufficient",
+          "walk_forward_status": "complete",
+          "observed_days": 20,
+          "required_days": 20,
+          "outcome_status": "partial",
+          "promotion_allowed": false,
+          "paper_candidate_allowed": false
+        },
+        "experiment_status": {
+          "status": "registered",
+          "experiment_count": 1,
+          "experiment_keys": [
+            "low_price_momentum_shadow:collect_replay_evidence"
+          ],
+          "blocking_stop_rule_count": 19,
+          "promotion_allowed": false,
+          "paper_candidate_allowed": false
+        },
+        "stop_rule_status": {
+          "status": "blocking",
+          "rule_count": 23,
+          "rule_keys": [
+            "stop_if_replay_evidence_not_accepted",
+            "stop_if_sample_size_below_required",
+            "stop_if_metric_completeness_fails",
+            "stop_if_frozen_cpb_comparison_missing",
+            "stop_if_manual_approval_boundary_changes",
+            "calibration_blocker:accepted_replay_backtest_evidence_required",
+            "calibration_blocker:frozen_cpb_delta_below_threshold",
+            "current_blocker:paper_observation_not_authorized",
+            "current_blocker:walk_forward_shadow_monitor_20_trading_days_required",
+            "current_blocker:operator_review_required",
+            "current_blocker:micro_sleeve_risk_model_required",
+            "current_blocker:liquidity_slippage_review_required",
+            "current_blocker:strategy_version_proposal_not_authorized",
+            "current_blocker:proposal_review_required",
+            "current_blocker:operator_promotion_approval_required",
+            "current_blocker:separate_low_price_micro_sleeve_required",
+            "current_blocker:frozen_cpb_delta_not_positive",
+            "current_blocker:drawdown_proxy_missing",
+            "current_blocker:candidate_blockers_not_cleared",
+            "current_blocker:replay_backtest_result_artifact_required",
+            "current_blocker:accepted_replay_backtest_evidence_required",
+            "current_blocker:frozen_cpb_delta_below_threshold",
+            "manual_promotion_approval_required"
+          ],
+          "rules": [
+            {
+              "rule_key": "stop_if_replay_evidence_not_accepted",
+              "status": "blocking",
+              "trigger": "shadow_replay_backtest_evidence_v1 is missing or rejected",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "stop_if_sample_size_below_required",
+              "status": "clear",
+              "trigger": "current sample size is below the registry threshold",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "stop_if_metric_completeness_fails",
+              "status": "clear",
+              "trigger": "required calibration metrics are missing",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "stop_if_frozen_cpb_comparison_missing",
+              "status": "clear",
+              "trigger": "frozen-CPB comparison is missing or not comparable",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "stop_if_manual_approval_boundary_changes",
+              "status": "blocking",
+              "trigger": "promotion_allowed, strategy_version_publication_allowed, trade_state_writes_allowed, or timer_mutation_allowed becomes true",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "calibration_blocker:accepted_replay_backtest_evidence_required",
+              "status": "blocking",
+              "trigger": "calibration blocker remains unresolved: accepted_replay_backtest_evidence_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "calibration_blocker:frozen_cpb_delta_below_threshold",
+              "status": "blocking",
+              "trigger": "calibration blocker remains unresolved: frozen_cpb_delta_below_threshold",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:paper_observation_not_authorized",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: paper_observation_not_authorized",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:walk_forward_shadow_monitor_20_trading_days_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: walk_forward_shadow_monitor_20_trading_days_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:operator_review_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: operator_review_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:micro_sleeve_risk_model_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: micro_sleeve_risk_model_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:liquidity_slippage_review_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: liquidity_slippage_review_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:strategy_version_proposal_not_authorized",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: strategy_version_proposal_not_authorized",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:proposal_review_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: proposal_review_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:operator_promotion_approval_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: operator_promotion_approval_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:separate_low_price_micro_sleeve_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: separate_low_price_micro_sleeve_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:frozen_cpb_delta_not_positive",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: frozen_cpb_delta_not_positive",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:drawdown_proxy_missing",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: drawdown_proxy_missing",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:candidate_blockers_not_cleared",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: candidate_blockers_not_cleared",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:replay_backtest_result_artifact_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: replay_backtest_result_artifact_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:accepted_replay_backtest_evidence_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: accepted_replay_backtest_evidence_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:frozen_cpb_delta_below_threshold",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: frozen_cpb_delta_below_threshold",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "manual_promotion_approval_required",
+              "status": "blocking",
+              "trigger": "manual approval must happen in a separate future strategy-version task",
+              "promotion_allowed": false
+            }
+          ],
+          "promotion_allowed": false,
+          "paper_candidate_allowed": false
+        },
+        "required_human_approvals": [
+          {
+            "approval_key": "manual_promotion_approval_required:low_price_momentum_shadow",
+            "status": "required",
+            "required": true,
+            "approval_zh": "人工批准只允许在后续独立任务中记录；本预检不批准晋升。"
+          },
+          {
+            "approval_key": "future_strategy_version_task_required:low_price_momentum_shadow",
+            "status": "required",
+            "required": true,
+            "approval_zh": "若要推进，必须另开 strategy-version proposal/review 任务。"
+          },
+          {
+            "approval_key": "paper_risk_rollback_confirmation_required:low_price_momentum_shadow",
+            "status": "required",
+            "required": true,
+            "approval_zh": "确认 active CPB、交易状态、paper/live 行为、券商执行和 timer 均保持不变。"
+          }
+        ],
+        "required_human_decision": {
+          "decision_key": "manual_shadow_decision_required:low_price_momentum_shadow",
+          "source_decision_keys": [
+            "manual_promotion_approval_required",
+            "future_strategy_version_task_required",
+            "candidate_selection",
+            "rollback_scope_confirmation"
+          ],
+          "status": "required",
+          "decision_zh": "人工只能决定是否进入后续独立复核/补证据任务；本队列不批准晋升或交易。",
+          "manual_promotion_approval_required": true,
+          "future_strategy_version_task_required": true,
+          "promotion_allowed": false,
+          "paper_candidate_allowed": false
+        },
+        "risk_rollback_notes": [
+          "review_ready is not approval",
+          "paper_candidate_allowed=false",
+          "do not create or update strategy_versions, trade_plans, trades, positions, paper/live behavior, broker execution, or timers",
+          "future paper candidate work requires a separate strategy-version proposal/review task"
+        ],
+        "promotion_boundary": {
+          "status": "blocked",
+          "boundary_zh": "晋升、发版、交易、paper/live 行为和 timer 改动必须由单独批准任务处理；当前队列禁止。",
+          "manual_promotion_approval_required": true,
+          "future_strategy_version_task_required": true,
+          "promotion_allowed": false,
+          "paper_observation_allowed": false,
+          "strategy_version_publication_allowed": false,
+          "trade_state_writes_allowed": false,
+          "broker_execution_allowed": false,
+          "timer_mutation_allowed": false,
+          "blocked_mutation_targets": [
+            "active_cpb_params",
+            "strategy_versions",
+            "trade_plans",
+            "trades",
+            "positions",
+            "paper_live_behavior",
+            "broker_execution",
+            "timer_state"
+          ],
+          "paper_candidate_allowed": false,
+          "timer_allowed": false
+        },
+        "blockers": [
+          "stop_rules_blocking",
+          "stop_if_replay_evidence_not_accepted",
+          "stop_if_sample_size_below_required",
+          "stop_if_metric_completeness_fails",
+          "stop_if_frozen_cpb_comparison_missing",
+          "stop_if_manual_approval_boundary_changes",
+          "calibration_blocker:accepted_replay_backtest_evidence_required",
+          "calibration_blocker:frozen_cpb_delta_below_threshold",
+          "current_blocker:paper_observation_not_authorized",
+          "current_blocker:walk_forward_shadow_monitor_20_trading_days_required",
+          "current_blocker:operator_review_required",
+          "current_blocker:micro_sleeve_risk_model_required",
+          "current_blocker:liquidity_slippage_review_required",
+          "current_blocker:strategy_version_proposal_not_authorized",
+          "current_blocker:proposal_review_required",
+          "current_blocker:operator_promotion_approval_required",
+          "current_blocker:separate_low_price_micro_sleeve_required",
+          "current_blocker:frozen_cpb_delta_not_positive",
+          "current_blocker:drawdown_proxy_missing",
+          "current_blocker:candidate_blockers_not_cleared",
+          "current_blocker:replay_backtest_result_artifact_required",
+          "current_blocker:accepted_replay_backtest_evidence_required",
+          "current_blocker:frozen_cpb_delta_below_threshold",
+          "manual_promotion_approval_required",
+          "future_strategy_version_task_required",
+          "paper_candidate_authorization_missing",
+          "paper_live_deployment_not_authorized"
+        ],
+        "future_paper_task_ready": false,
+        "paper_candidate_allowed": false,
+        "paper_observation_allowed": false,
+        "strategy_version_publication_allowed": false,
+        "trade_state_writes_allowed": false,
+        "broker_execution_allowed": false,
+        "timer_allowed": false,
+        "summary_zh": "low_price_momentum_shadow 预检分 80/100；只能作为后续人工 strategy-version 任务输入，当前不得进入纸面候选。"
+      },
+      {
+        "candidate_key": "preconfirm_watchlist",
+        "candidate_family": "preconfirm_watchlist",
+        "readiness_status": "blocked",
+        "readiness_score": 80,
+        "readiness_components": {
+          "accepted_replay_backtest_evidence": 30,
+          "walk_forward_sufficient": 30,
+          "experiment_registered": 20,
+          "stop_rules_clear": 0,
+          "human_approval_complete": 0
+        },
+        "evidence_sufficiency": {
+          "status": "accepted",
+          "accepted": true,
+          "sample_size": 40,
+          "required_sample_size": 20,
+          "artifact_path": "reports/shadow_replay_backtest_evidence_20260513_preconfirm_watchlist.json",
+          "blockers": [],
+          "advisory_only": true,
+          "promotion_allowed": false,
+          "sufficient": true,
+          "paper_candidate_allowed": false
+        },
+        "walk_forward_sufficiency": {
+          "status": "sufficient",
+          "walk_forward_status": "complete",
+          "observed_days": 29,
+          "required_days": 20,
+          "outcome_status": "missing",
+          "promotion_allowed": false,
+          "paper_candidate_allowed": false
+        },
+        "experiment_status": {
+          "status": "registered",
+          "experiment_count": 1,
+          "experiment_keys": [
+            "preconfirm_watchlist:collect_replay_evidence"
+          ],
+          "blocking_stop_rule_count": 21,
+          "promotion_allowed": false,
+          "paper_candidate_allowed": false
+        },
+        "stop_rule_status": {
+          "status": "blocking",
+          "rule_count": 24,
+          "rule_keys": [
+            "stop_if_replay_evidence_not_accepted",
+            "stop_if_sample_size_below_required",
+            "stop_if_metric_completeness_fails",
+            "stop_if_frozen_cpb_comparison_missing",
+            "stop_if_manual_approval_boundary_changes",
+            "calibration_blocker:accepted_replay_backtest_evidence_required",
+            "calibration_blocker:frozen_cpb_delta_below_threshold",
+            "calibration_blocker:drawdown_proxy_missing",
+            "current_blocker:paper_observation_not_authorized",
+            "current_blocker:walk_forward_shadow_monitor_20_trading_days_required",
+            "current_blocker:operator_review_required",
+            "current_blocker:next_day_confirmation_rule_required",
+            "current_blocker:watchlist_only_ui_lane_required",
+            "current_blocker:strategy_version_proposal_not_authorized",
+            "current_blocker:proposal_review_required",
+            "current_blocker:operator_promotion_approval_required",
+            "current_blocker:watchlist_to_signal_contract_required",
+            "current_blocker:frozen_cpb_delta_not_positive",
+            "current_blocker:drawdown_proxy_missing",
+            "current_blocker:candidate_blockers_not_cleared",
+            "current_blocker:replay_backtest_result_artifact_required",
+            "current_blocker:accepted_replay_backtest_evidence_required",
+            "current_blocker:frozen_cpb_delta_below_threshold",
+            "manual_promotion_approval_required"
+          ],
+          "rules": [
+            {
+              "rule_key": "stop_if_replay_evidence_not_accepted",
+              "status": "blocking",
+              "trigger": "shadow_replay_backtest_evidence_v1 is missing or rejected",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "stop_if_sample_size_below_required",
+              "status": "clear",
+              "trigger": "current sample size is below the registry threshold",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "stop_if_metric_completeness_fails",
+              "status": "blocking",
+              "trigger": "required calibration metrics are missing",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "stop_if_frozen_cpb_comparison_missing",
+              "status": "clear",
+              "trigger": "frozen-CPB comparison is missing or not comparable",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "stop_if_manual_approval_boundary_changes",
+              "status": "blocking",
+              "trigger": "promotion_allowed, strategy_version_publication_allowed, trade_state_writes_allowed, or timer_mutation_allowed becomes true",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "calibration_blocker:accepted_replay_backtest_evidence_required",
+              "status": "blocking",
+              "trigger": "calibration blocker remains unresolved: accepted_replay_backtest_evidence_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "calibration_blocker:frozen_cpb_delta_below_threshold",
+              "status": "blocking",
+              "trigger": "calibration blocker remains unresolved: frozen_cpb_delta_below_threshold",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "calibration_blocker:drawdown_proxy_missing",
+              "status": "blocking",
+              "trigger": "calibration blocker remains unresolved: drawdown_proxy_missing",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:paper_observation_not_authorized",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: paper_observation_not_authorized",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:walk_forward_shadow_monitor_20_trading_days_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: walk_forward_shadow_monitor_20_trading_days_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:operator_review_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: operator_review_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:next_day_confirmation_rule_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: next_day_confirmation_rule_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:watchlist_only_ui_lane_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: watchlist_only_ui_lane_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:strategy_version_proposal_not_authorized",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: strategy_version_proposal_not_authorized",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:proposal_review_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: proposal_review_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:operator_promotion_approval_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: operator_promotion_approval_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:watchlist_to_signal_contract_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: watchlist_to_signal_contract_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:frozen_cpb_delta_not_positive",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: frozen_cpb_delta_not_positive",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:drawdown_proxy_missing",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: drawdown_proxy_missing",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:candidate_blockers_not_cleared",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: candidate_blockers_not_cleared",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:replay_backtest_result_artifact_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: replay_backtest_result_artifact_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:accepted_replay_backtest_evidence_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: accepted_replay_backtest_evidence_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:frozen_cpb_delta_below_threshold",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: frozen_cpb_delta_below_threshold",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "manual_promotion_approval_required",
+              "status": "blocking",
+              "trigger": "manual approval must happen in a separate future strategy-version task",
+              "promotion_allowed": false
+            }
+          ],
+          "promotion_allowed": false,
+          "paper_candidate_allowed": false
+        },
+        "required_human_approvals": [
+          {
+            "approval_key": "manual_promotion_approval_required:preconfirm_watchlist",
+            "status": "required",
+            "required": true,
+            "approval_zh": "人工批准只允许在后续独立任务中记录；本预检不批准晋升。"
+          },
+          {
+            "approval_key": "future_strategy_version_task_required:preconfirm_watchlist",
+            "status": "required",
+            "required": true,
+            "approval_zh": "若要推进，必须另开 strategy-version proposal/review 任务。"
+          },
+          {
+            "approval_key": "paper_risk_rollback_confirmation_required:preconfirm_watchlist",
+            "status": "required",
+            "required": true,
+            "approval_zh": "确认 active CPB、交易状态、paper/live 行为、券商执行和 timer 均保持不变。"
+          }
+        ],
+        "required_human_decision": {
+          "decision_key": "manual_shadow_decision_required:preconfirm_watchlist",
+          "source_decision_keys": [
+            "manual_promotion_approval_required",
+            "future_strategy_version_task_required",
+            "candidate_selection",
+            "rollback_scope_confirmation"
+          ],
+          "status": "required",
+          "decision_zh": "人工只能决定是否进入后续独立复核/补证据任务；本队列不批准晋升或交易。",
+          "manual_promotion_approval_required": true,
+          "future_strategy_version_task_required": true,
+          "promotion_allowed": false,
+          "paper_candidate_allowed": false
+        },
+        "risk_rollback_notes": [
+          "review_ready is not approval",
+          "paper_candidate_allowed=false",
+          "do not create or update strategy_versions, trade_plans, trades, positions, paper/live behavior, broker execution, or timers",
+          "future paper candidate work requires a separate strategy-version proposal/review task"
+        ],
+        "promotion_boundary": {
+          "status": "blocked",
+          "boundary_zh": "晋升、发版、交易、paper/live 行为和 timer 改动必须由单独批准任务处理；当前队列禁止。",
+          "manual_promotion_approval_required": true,
+          "future_strategy_version_task_required": true,
+          "promotion_allowed": false,
+          "paper_observation_allowed": false,
+          "strategy_version_publication_allowed": false,
+          "trade_state_writes_allowed": false,
+          "broker_execution_allowed": false,
+          "timer_mutation_allowed": false,
+          "blocked_mutation_targets": [
+            "active_cpb_params",
+            "strategy_versions",
+            "trade_plans",
+            "trades",
+            "positions",
+            "paper_live_behavior",
+            "broker_execution",
+            "timer_state"
+          ],
+          "paper_candidate_allowed": false,
+          "timer_allowed": false
+        },
+        "blockers": [
+          "stop_rules_blocking",
+          "stop_if_replay_evidence_not_accepted",
+          "stop_if_sample_size_below_required",
+          "stop_if_metric_completeness_fails",
+          "stop_if_frozen_cpb_comparison_missing",
+          "stop_if_manual_approval_boundary_changes",
+          "calibration_blocker:accepted_replay_backtest_evidence_required",
+          "calibration_blocker:frozen_cpb_delta_below_threshold",
+          "calibration_blocker:drawdown_proxy_missing",
+          "current_blocker:paper_observation_not_authorized",
+          "current_blocker:walk_forward_shadow_monitor_20_trading_days_required",
+          "current_blocker:operator_review_required",
+          "current_blocker:next_day_confirmation_rule_required",
+          "current_blocker:watchlist_only_ui_lane_required",
+          "current_blocker:strategy_version_proposal_not_authorized",
+          "current_blocker:proposal_review_required",
+          "current_blocker:operator_promotion_approval_required",
+          "current_blocker:watchlist_to_signal_contract_required",
+          "current_blocker:frozen_cpb_delta_not_positive",
+          "current_blocker:drawdown_proxy_missing",
+          "current_blocker:candidate_blockers_not_cleared",
+          "current_blocker:replay_backtest_result_artifact_required",
+          "current_blocker:accepted_replay_backtest_evidence_required",
+          "current_blocker:frozen_cpb_delta_below_threshold",
+          "manual_promotion_approval_required",
+          "future_strategy_version_task_required",
+          "paper_candidate_authorization_missing",
+          "paper_live_deployment_not_authorized"
+        ],
+        "future_paper_task_ready": false,
+        "paper_candidate_allowed": false,
+        "paper_observation_allowed": false,
+        "strategy_version_publication_allowed": false,
+        "trade_state_writes_allowed": false,
+        "broker_execution_allowed": false,
+        "timer_allowed": false,
+        "summary_zh": "preconfirm_watchlist 预检分 80/100；只能作为后续人工 strategy-version 任务输入，当前不得进入纸面候选。"
+      },
+      {
+        "candidate_key": "trend_extension_shadow",
+        "candidate_family": "shadow_bucket",
+        "readiness_status": "blocked",
+        "readiness_score": 80,
+        "readiness_components": {
+          "accepted_replay_backtest_evidence": 30,
+          "walk_forward_sufficient": 30,
+          "experiment_registered": 20,
+          "stop_rules_clear": 0,
+          "human_approval_complete": 0
+        },
+        "evidence_sufficiency": {
+          "status": "accepted",
+          "accepted": true,
+          "sample_size": 20,
+          "required_sample_size": 20,
+          "artifact_path": "reports/shadow_replay_backtest_evidence_20260513_trend_extension_shadow.json",
+          "blockers": [],
+          "advisory_only": true,
+          "promotion_allowed": false,
+          "sufficient": true,
+          "paper_candidate_allowed": false
+        },
+        "walk_forward_sufficiency": {
+          "status": "sufficient",
+          "walk_forward_status": "complete",
+          "observed_days": 20,
+          "required_days": 20,
+          "outcome_status": "partial",
+          "promotion_allowed": false,
+          "paper_candidate_allowed": false
+        },
+        "experiment_status": {
+          "status": "registered",
+          "experiment_count": 1,
+          "experiment_keys": [
+            "trend_extension_shadow:collect_replay_evidence"
+          ],
+          "blocking_stop_rule_count": 19,
+          "promotion_allowed": false,
+          "paper_candidate_allowed": false
+        },
+        "stop_rule_status": {
+          "status": "blocking",
+          "rule_count": 23,
+          "rule_keys": [
+            "stop_if_replay_evidence_not_accepted",
+            "stop_if_sample_size_below_required",
+            "stop_if_metric_completeness_fails",
+            "stop_if_frozen_cpb_comparison_missing",
+            "stop_if_manual_approval_boundary_changes",
+            "calibration_blocker:accepted_replay_backtest_evidence_required",
+            "calibration_blocker:frozen_cpb_delta_below_threshold",
+            "current_blocker:paper_observation_not_authorized",
+            "current_blocker:walk_forward_shadow_monitor_20_trading_days_required",
+            "current_blocker:operator_review_required",
+            "current_blocker:sector_evidence_confirmation_required",
+            "current_blocker:chase_gap_guard_required",
+            "current_blocker:strategy_version_proposal_not_authorized",
+            "current_blocker:proposal_review_required",
+            "current_blocker:operator_promotion_approval_required",
+            "current_blocker:separate_trend_extension_candidate_required",
+            "current_blocker:frozen_cpb_delta_not_positive",
+            "current_blocker:drawdown_proxy_missing",
+            "current_blocker:candidate_blockers_not_cleared",
+            "current_blocker:replay_backtest_result_artifact_required",
+            "current_blocker:accepted_replay_backtest_evidence_required",
+            "current_blocker:frozen_cpb_delta_below_threshold",
+            "manual_promotion_approval_required"
+          ],
+          "rules": [
+            {
+              "rule_key": "stop_if_replay_evidence_not_accepted",
+              "status": "blocking",
+              "trigger": "shadow_replay_backtest_evidence_v1 is missing or rejected",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "stop_if_sample_size_below_required",
+              "status": "clear",
+              "trigger": "current sample size is below the registry threshold",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "stop_if_metric_completeness_fails",
+              "status": "clear",
+              "trigger": "required calibration metrics are missing",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "stop_if_frozen_cpb_comparison_missing",
+              "status": "clear",
+              "trigger": "frozen-CPB comparison is missing or not comparable",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "stop_if_manual_approval_boundary_changes",
+              "status": "blocking",
+              "trigger": "promotion_allowed, strategy_version_publication_allowed, trade_state_writes_allowed, or timer_mutation_allowed becomes true",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "calibration_blocker:accepted_replay_backtest_evidence_required",
+              "status": "blocking",
+              "trigger": "calibration blocker remains unresolved: accepted_replay_backtest_evidence_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "calibration_blocker:frozen_cpb_delta_below_threshold",
+              "status": "blocking",
+              "trigger": "calibration blocker remains unresolved: frozen_cpb_delta_below_threshold",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:paper_observation_not_authorized",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: paper_observation_not_authorized",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:walk_forward_shadow_monitor_20_trading_days_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: walk_forward_shadow_monitor_20_trading_days_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:operator_review_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: operator_review_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:sector_evidence_confirmation_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: sector_evidence_confirmation_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:chase_gap_guard_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: chase_gap_guard_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:strategy_version_proposal_not_authorized",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: strategy_version_proposal_not_authorized",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:proposal_review_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: proposal_review_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:operator_promotion_approval_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: operator_promotion_approval_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:separate_trend_extension_candidate_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: separate_trend_extension_candidate_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:frozen_cpb_delta_not_positive",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: frozen_cpb_delta_not_positive",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:drawdown_proxy_missing",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: drawdown_proxy_missing",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:candidate_blockers_not_cleared",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: candidate_blockers_not_cleared",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:replay_backtest_result_artifact_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: replay_backtest_result_artifact_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:accepted_replay_backtest_evidence_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: accepted_replay_backtest_evidence_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:frozen_cpb_delta_below_threshold",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: frozen_cpb_delta_below_threshold",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "manual_promotion_approval_required",
+              "status": "blocking",
+              "trigger": "manual approval must happen in a separate future strategy-version task",
+              "promotion_allowed": false
+            }
+          ],
+          "promotion_allowed": false,
+          "paper_candidate_allowed": false
+        },
+        "required_human_approvals": [
+          {
+            "approval_key": "manual_promotion_approval_required:trend_extension_shadow",
+            "status": "required",
+            "required": true,
+            "approval_zh": "人工批准只允许在后续独立任务中记录；本预检不批准晋升。"
+          },
+          {
+            "approval_key": "future_strategy_version_task_required:trend_extension_shadow",
+            "status": "required",
+            "required": true,
+            "approval_zh": "若要推进，必须另开 strategy-version proposal/review 任务。"
+          },
+          {
+            "approval_key": "paper_risk_rollback_confirmation_required:trend_extension_shadow",
+            "status": "required",
+            "required": true,
+            "approval_zh": "确认 active CPB、交易状态、paper/live 行为、券商执行和 timer 均保持不变。"
+          }
+        ],
+        "required_human_decision": {
+          "decision_key": "manual_shadow_decision_required:trend_extension_shadow",
+          "source_decision_keys": [
+            "manual_promotion_approval_required",
+            "future_strategy_version_task_required",
+            "candidate_selection",
+            "rollback_scope_confirmation"
+          ],
+          "status": "required",
+          "decision_zh": "人工只能决定是否进入后续独立复核/补证据任务；本队列不批准晋升或交易。",
+          "manual_promotion_approval_required": true,
+          "future_strategy_version_task_required": true,
+          "promotion_allowed": false,
+          "paper_candidate_allowed": false
+        },
+        "risk_rollback_notes": [
+          "review_ready is not approval",
+          "paper_candidate_allowed=false",
+          "do not create or update strategy_versions, trade_plans, trades, positions, paper/live behavior, broker execution, or timers",
+          "future paper candidate work requires a separate strategy-version proposal/review task"
+        ],
+        "promotion_boundary": {
+          "status": "blocked",
+          "boundary_zh": "晋升、发版、交易、paper/live 行为和 timer 改动必须由单独批准任务处理；当前队列禁止。",
+          "manual_promotion_approval_required": true,
+          "future_strategy_version_task_required": true,
+          "promotion_allowed": false,
+          "paper_observation_allowed": false,
+          "strategy_version_publication_allowed": false,
+          "trade_state_writes_allowed": false,
+          "broker_execution_allowed": false,
+          "timer_mutation_allowed": false,
+          "blocked_mutation_targets": [
+            "active_cpb_params",
+            "strategy_versions",
+            "trade_plans",
+            "trades",
+            "positions",
+            "paper_live_behavior",
+            "broker_execution",
+            "timer_state"
+          ],
+          "paper_candidate_allowed": false,
+          "timer_allowed": false
+        },
+        "blockers": [
+          "stop_rules_blocking",
+          "stop_if_replay_evidence_not_accepted",
+          "stop_if_sample_size_below_required",
+          "stop_if_metric_completeness_fails",
+          "stop_if_frozen_cpb_comparison_missing",
+          "stop_if_manual_approval_boundary_changes",
+          "calibration_blocker:accepted_replay_backtest_evidence_required",
+          "calibration_blocker:frozen_cpb_delta_below_threshold",
+          "current_blocker:paper_observation_not_authorized",
+          "current_blocker:walk_forward_shadow_monitor_20_trading_days_required",
+          "current_blocker:operator_review_required",
+          "current_blocker:sector_evidence_confirmation_required",
+          "current_blocker:chase_gap_guard_required",
+          "current_blocker:strategy_version_proposal_not_authorized",
+          "current_blocker:proposal_review_required",
+          "current_blocker:operator_promotion_approval_required",
+          "current_blocker:separate_trend_extension_candidate_required",
+          "current_blocker:frozen_cpb_delta_not_positive",
+          "current_blocker:drawdown_proxy_missing",
+          "current_blocker:candidate_blockers_not_cleared",
+          "current_blocker:replay_backtest_result_artifact_required",
+          "current_blocker:accepted_replay_backtest_evidence_required",
+          "current_blocker:frozen_cpb_delta_below_threshold",
+          "manual_promotion_approval_required",
+          "future_strategy_version_task_required",
+          "paper_candidate_authorization_missing",
+          "paper_live_deployment_not_authorized"
+        ],
+        "future_paper_task_ready": false,
+        "paper_candidate_allowed": false,
+        "paper_observation_allowed": false,
+        "strategy_version_publication_allowed": false,
+        "trade_state_writes_allowed": false,
+        "broker_execution_allowed": false,
+        "timer_allowed": false,
+        "summary_zh": "trend_extension_shadow 预检分 80/100；只能作为后续人工 strategy-version 任务输入，当前不得进入纸面候选。"
+      },
+      {
+        "candidate_key": "pullback_dip_buy",
+        "candidate_family": "dip_buy",
+        "readiness_status": "blocked",
+        "readiness_score": 50,
+        "readiness_components": {
+          "accepted_replay_backtest_evidence": 30,
+          "walk_forward_sufficient": 0,
+          "experiment_registered": 20,
+          "stop_rules_clear": 0,
+          "human_approval_complete": 0
+        },
+        "evidence_sufficiency": {
+          "status": "accepted",
+          "accepted": true,
+          "sample_size": 105,
+          "required_sample_size": 20,
+          "artifact_path": "reports/shadow_replay_backtest_evidence_20260513_pullback_dip_buy.json",
+          "blockers": [],
+          "advisory_only": true,
+          "promotion_allowed": false,
+          "sufficient": true,
+          "paper_candidate_allowed": false
+        },
+        "walk_forward_sufficiency": {
+          "status": "insufficient",
+          "walk_forward_status": "artifact_summary_only",
+          "observed_days": 0,
+          "required_days": 20,
+          "outcome_status": "missing",
+          "promotion_allowed": false,
+          "paper_candidate_allowed": false
+        },
+        "experiment_status": {
+          "status": "registered",
+          "experiment_count": 1,
+          "experiment_keys": [
+            "pullback_dip_buy:collect_replay_evidence"
+          ],
+          "blocking_stop_rule_count": 19,
+          "promotion_allowed": false,
+          "paper_candidate_allowed": false
+        },
+        "stop_rule_status": {
+          "status": "blocking",
+          "rule_count": 21,
+          "rule_keys": [
+            "stop_if_replay_evidence_not_accepted",
+            "stop_if_sample_size_below_required",
+            "stop_if_metric_completeness_fails",
+            "stop_if_frozen_cpb_comparison_missing",
+            "stop_if_manual_approval_boundary_changes",
+            "calibration_blocker:accepted_replay_backtest_evidence_required",
+            "calibration_blocker:frozen_cpb_delta_missing",
+            "current_blocker:paper_observation_not_authorized",
+            "current_blocker:walk_forward_shadow_monitor_20_trading_days_required",
+            "current_blocker:operator_review_required",
+            "current_blocker:dip_buy_stop_and_sizing_required",
+            "current_blocker:falling_knife_guard_required",
+            "current_blocker:strategy_version_proposal_not_authorized",
+            "current_blocker:proposal_review_required",
+            "current_blocker:operator_promotion_approval_required",
+            "current_blocker:separate_dip_buy_candidate_required",
+            "current_blocker:frozen_cpb_delta_missing",
+            "current_blocker:candidate_blockers_not_cleared",
+            "current_blocker:replay_backtest_result_artifact_required",
+            "current_blocker:accepted_replay_backtest_evidence_required",
+            "manual_promotion_approval_required"
+          ],
+          "rules": [
+            {
+              "rule_key": "stop_if_replay_evidence_not_accepted",
+              "status": "blocking",
+              "trigger": "shadow_replay_backtest_evidence_v1 is missing or rejected",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "stop_if_sample_size_below_required",
+              "status": "clear",
+              "trigger": "current sample size is below the registry threshold",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "stop_if_metric_completeness_fails",
+              "status": "blocking",
+              "trigger": "required calibration metrics are missing",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "stop_if_frozen_cpb_comparison_missing",
+              "status": "blocking",
+              "trigger": "frozen-CPB comparison is missing or not comparable",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "stop_if_manual_approval_boundary_changes",
+              "status": "blocking",
+              "trigger": "promotion_allowed, strategy_version_publication_allowed, trade_state_writes_allowed, or timer_mutation_allowed becomes true",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "calibration_blocker:accepted_replay_backtest_evidence_required",
+              "status": "blocking",
+              "trigger": "calibration blocker remains unresolved: accepted_replay_backtest_evidence_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "calibration_blocker:frozen_cpb_delta_missing",
+              "status": "blocking",
+              "trigger": "calibration blocker remains unresolved: frozen_cpb_delta_missing",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:paper_observation_not_authorized",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: paper_observation_not_authorized",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:walk_forward_shadow_monitor_20_trading_days_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: walk_forward_shadow_monitor_20_trading_days_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:operator_review_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: operator_review_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:dip_buy_stop_and_sizing_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: dip_buy_stop_and_sizing_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:falling_knife_guard_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: falling_knife_guard_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:strategy_version_proposal_not_authorized",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: strategy_version_proposal_not_authorized",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:proposal_review_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: proposal_review_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:operator_promotion_approval_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: operator_promotion_approval_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:separate_dip_buy_candidate_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: separate_dip_buy_candidate_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:frozen_cpb_delta_missing",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: frozen_cpb_delta_missing",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:candidate_blockers_not_cleared",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: candidate_blockers_not_cleared",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:replay_backtest_result_artifact_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: replay_backtest_result_artifact_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "current_blocker:accepted_replay_backtest_evidence_required",
+              "status": "blocking",
+              "trigger": "latest observation blocker remains unresolved: accepted_replay_backtest_evidence_required",
+              "promotion_allowed": false
+            },
+            {
+              "rule_key": "manual_promotion_approval_required",
+              "status": "blocking",
+              "trigger": "manual approval must happen in a separate future strategy-version task",
+              "promotion_allowed": false
+            }
+          ],
+          "promotion_allowed": false,
+          "paper_candidate_allowed": false
+        },
+        "required_human_approvals": [
+          {
+            "approval_key": "manual_promotion_approval_required:pullback_dip_buy",
+            "status": "required",
+            "required": true,
+            "approval_zh": "人工批准只允许在后续独立任务中记录；本预检不批准晋升。"
+          },
+          {
+            "approval_key": "future_strategy_version_task_required:pullback_dip_buy",
+            "status": "required",
+            "required": true,
+            "approval_zh": "若要推进，必须另开 strategy-version proposal/review 任务。"
+          },
+          {
+            "approval_key": "paper_risk_rollback_confirmation_required:pullback_dip_buy",
+            "status": "required",
+            "required": true,
+            "approval_zh": "确认 active CPB、交易状态、paper/live 行为、券商执行和 timer 均保持不变。"
+          }
+        ],
+        "required_human_decision": {
+          "decision_key": "manual_shadow_decision_required:pullback_dip_buy",
+          "source_decision_keys": [
+            "manual_promotion_approval_required",
+            "future_strategy_version_task_required",
+            "candidate_selection",
+            "rollback_scope_confirmation"
+          ],
+          "status": "required",
+          "decision_zh": "人工只能决定是否进入后续独立复核/补证据任务；本队列不批准晋升或交易。",
+          "manual_promotion_approval_required": true,
+          "future_strategy_version_task_required": true,
+          "promotion_allowed": false,
+          "paper_candidate_allowed": false
+        },
+        "risk_rollback_notes": [
+          "review_ready is not approval",
+          "paper_candidate_allowed=false",
+          "do not create or update strategy_versions, trade_plans, trades, positions, paper/live behavior, broker execution, or timers",
+          "future paper candidate work requires a separate strategy-version proposal/review task"
+        ],
+        "promotion_boundary": {
+          "status": "blocked",
+          "boundary_zh": "晋升、发版、交易、paper/live 行为和 timer 改动必须由单独批准任务处理；当前队列禁止。",
+          "manual_promotion_approval_required": true,
+          "future_strategy_version_task_required": true,
+          "promotion_allowed": false,
+          "paper_observation_allowed": false,
+          "strategy_version_publication_allowed": false,
+          "trade_state_writes_allowed": false,
+          "broker_execution_allowed": false,
+          "timer_mutation_allowed": false,
+          "blocked_mutation_targets": [
+            "active_cpb_params",
+            "strategy_versions",
+            "trade_plans",
+            "trades",
+            "positions",
+            "paper_live_behavior",
+            "broker_execution",
+            "timer_state"
+          ],
+          "paper_candidate_allowed": false,
+          "timer_allowed": false
+        },
+        "blockers": [
+          "walk_forward_insufficient",
+          "stop_rules_blocking",
+          "stop_if_replay_evidence_not_accepted",
+          "stop_if_sample_size_below_required",
+          "stop_if_metric_completeness_fails",
+          "stop_if_frozen_cpb_comparison_missing",
+          "stop_if_manual_approval_boundary_changes",
+          "calibration_blocker:accepted_replay_backtest_evidence_required",
+          "calibration_blocker:frozen_cpb_delta_missing",
+          "current_blocker:paper_observation_not_authorized",
+          "current_blocker:walk_forward_shadow_monitor_20_trading_days_required",
+          "current_blocker:operator_review_required",
+          "current_blocker:dip_buy_stop_and_sizing_required",
+          "current_blocker:falling_knife_guard_required",
+          "current_blocker:strategy_version_proposal_not_authorized",
+          "current_blocker:proposal_review_required",
+          "current_blocker:operator_promotion_approval_required",
+          "current_blocker:separate_dip_buy_candidate_required",
+          "current_blocker:frozen_cpb_delta_missing",
+          "current_blocker:candidate_blockers_not_cleared",
+          "current_blocker:replay_backtest_result_artifact_required",
+          "current_blocker:accepted_replay_backtest_evidence_required",
+          "manual_promotion_approval_required",
+          "future_strategy_version_task_required",
+          "paper_candidate_authorization_missing",
+          "paper_live_deployment_not_authorized"
+        ],
+        "future_paper_task_ready": false,
+        "paper_candidate_allowed": false,
+        "paper_observation_allowed": false,
+        "strategy_version_publication_allowed": false,
+        "trade_state_writes_allowed": false,
+        "broker_execution_allowed": false,
+        "timer_allowed": false,
+        "summary_zh": "pullback_dip_buy 预检分 50/100；只能作为后续人工 strategy-version 任务输入，当前不得进入纸面候选。"
+      }
+    ],
+    "release_boundary": {
+      "status": "blocked",
+      "manual_only": true,
+      "separate_future_task_required": true,
+      "paper_candidate_allowed": false,
+      "paper_observation_allowed": false,
+      "promotion_allowed": false,
+      "strategy_version_publication_allowed": false,
+      "trade_plan_allowed": false,
+      "trade_state_writes_allowed": false,
+      "broker_execution_allowed": false,
+      "timer_allowed": false,
+      "blocked_mutation_targets": [
+        "active_cpb_params",
+        "strategy_versions",
+        "trade_plans",
+        "trades",
+        "positions",
+        "paper_live_behavior",
+        "broker_execution",
+        "timer_state"
+      ]
+    },
+    "safety": {
+      "read_only": true,
+      "artifact_only": true,
+      "manual_only": true,
+      "paper_preflight_is_not_approval": true,
+      "trade_state_counts_before": {
+        "strategy_versions": 2,
+        "trade_plans": 6,
+        "trades": 3,
+        "positions": 2
+      },
+      "trade_state_counts_after": {
+        "strategy_versions": 2,
+        "trade_plans": 6,
+        "trades": 3,
+        "positions": 2
+      },
+      "trade_state_counts_unchanged": true,
+      "changed_tables": [],
+      "active_params_mutated": false,
+      "wrote_strategy_version": false,
+      "wrote_strategy_versions": false,
+      "writes_trade_state": false,
+      "writes_paper_live_behavior": false,
+      "paper_live_deployment_changed": false,
+      "broker_execution_allowed": false,
+      "timer_mutated": false,
+      "promotion_allowed": false,
+      "paper_candidate_allowed": false,
+      "paper_observation_allowed": false,
+      "trade_plan_allowed": false
+    }
+  },
   "outputs": {
     "report": "reports/strategy_shadow_monitor_20260513.md",
     "json": "reports/strategy_shadow_monitor_20260513.json",
@@ -15483,6 +17211,8 @@
     "promotion_dossier_json": "reports/shadow_promotion_dossier_20260513.json",
     "promotion_review_request_report": "reports/shadow_promotion_review_request_20260513.md",
     "promotion_review_request_json": "reports/shadow_promotion_review_request_20260513.json",
+    "shadow_paper_preflight_report": "reports/shadow_paper_preflight_20260513.md",
+    "shadow_paper_preflight_json": "reports/shadow_paper_preflight_20260513.json",
     "shadow_walk_forward_outcomes_report": "reports/shadow_walk_forward_outcomes_20260513.md",
     "shadow_walk_forward_outcomes_json": "reports/shadow_walk_forward_outcomes_20260513.json",
     "shadow_observation_scorecard_report": "reports/shadow_observation_scorecard_20260513.md",

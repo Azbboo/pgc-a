@@ -1,0 +1,179 @@
+[
+  {
+    "page": "execution",
+    "viewport_name": "desktop",
+    "screenshot": "reports/m104_visual_qa_20260514/execution_desktop.png",
+    "h1": "开盘执行",
+    "bodyText": "PGC\n交易操作台\n复盘 / 计划 / 成交 / 持仓\n开盘执行\n2\n决策驾驶舱\n1\n每日复盘\n1\n全市场复盘\n1\n运营验收\n1\n证据/运维\n50\n假设评估\n8\n影子策略\n5\n交易计划\n2\n成交录入\n3\n当前持仓\n1\n数据质量\n0\n智能体复核\n只读\n页面上下文\n可调整\n账户标识\n账户 ID\n复盘日\n策略版本\n操作者\n写入令牌\nAPI 地址\n预演模式\n\n开盘执行通常使用上一交易日作为复盘日；执行日取该复盘日的下一交易日。\n\n刷新上下文\nPG\n纸盘操作台\n预演就绪\n账户\npaper-main / Paper Main (paper)\n复盘日\n2026-05-13\n执行日\n2026-05-14\n最新行情日\n2026-05-13\n仓位容量\n1/3，空闲 2\n数据质量\n可交易\n开盘执行\n\n使用复盘日生成的下一交易日计划，先完成开盘检查，再记录人工纸面成交。\n\n评估退出：生成决策/计划\n刷新执行台\n今日操作导引 · 执行日 2026-05-14\n按 active 退出计划录入 301188.SZ 力诺药包 卖出成交\n\n退出计划来自持仓生命周期；成交录入仍需人工确认日期、价格、股数和写入凭证。\n\n今天该做什么\n2026-05-14 录入人工纸面卖出成交\n为什么不能做\n开盘执行服务找到执行日匹配的有效卖出计划\n下一步点哪里\n点“录入卖出成交”进入成交录入页\n市场计划关系\n未关联计划上下文\n录入卖出成交\n查看交易计划\n执行准备\n开盘检查未完成\n数据质量\n可交易\n当日有效计划\n1 个\n开盘检查\n1/5\n买入录入\n锁定\n\n录入锁定原因：开盘检查未完成\n\n纸盘晋级分数卡\n阻断\n样本交易\n3\n已闭环交易\n1\n累计实现盈亏\n-1,536.00\n胜率\n0.00%\n当前阻断\nMIN_PAPER_TRADES_NOT_MET\n晋级实盘前还差什么\nMIN_PAPER_TRADES_NOT_MET\n\n最近流水线：skipped；平均滑点：0.62%；晋级警告：AGENT_EVIDENCE_MISSING\n\n执行日主动计划\n可执行\n600397.SH 江钨装备\n有效\n计划 ID\n5\n动作\n次一交易日买入\n复盘日\n2026-05-13\n执行日\n2026-05-14\n计划交易日\n2026-05-14\n执行日匹配\n是\n计划股数\n4400\n计划资金\n67,607.00\n录入买入成交\n取消计划\n详情\n\n录入锁定：开盘检查未完成\n\n市场计划关系：未知 / 未知 / 人工复核后再执行\n\n开盘检查清单\n1/5 待确认\n未停牌 / 可交易\n无重大利空\n开盘未极端高开\n现金 / 仓位已核对\n计划日是执行日 2026-05-14\n取消 / 跳过\n取消原因必填\n有效\n计划 6 / 301188.SZ 力诺药包 / 2026-05-14\n取消\n有效\n计划 5 / 600397.SH 江钨装备 / 2026-05-14\n取消\n退出任务\n评估只生成决策/计划，不录入卖出成交\n已有卖出计划\n持仓 2 / 301188.SZ 力诺药包 / T+2 2026-05-13 / T+5 2026-05-18\n卖出录入",
+    "viewport": "1440x1100",
+    "scrollWidth": 1440,
+    "clientWidth": 1440,
+    "overflowOffenders": [],
+    "rawEnglishFlags": []
+  },
+  {
+    "page": "review",
+    "viewport_name": "desktop",
+    "screenshot": "reports/m104_visual_qa_20260514/review_desktop.png",
+    "h1": "每日复盘",
+    "bodyText": "PGC\n交易操作台\n复盘 / 计划 / 成交 / 持仓\n开盘执行\n2\n决策驾驶舱\n1\n每日复盘\n1\n全市场复盘\n1\n运营验收\n1\n证据/运维\n50\n假设评估\n8\n影子策略\n5\n交易计划\n2\n成交录入\n3\n当前持仓\n1\n数据质量\n0\n智能体复核\n只读\n页面上下文\n可调整\n账户标识\n账户 ID\n复盘日\n策略版本\n操作者\n写入令牌\nAPI 地址\n预演模式\n\n开盘执行通常使用上一交易日作为复盘日；执行日取该复盘日的下一交易日。\n\n刷新上下文\nPG\n纸盘操作台\n预演就绪\n账户\npaper-main / Paper Main (paper)\n复盘日\n2026-05-13\n执行日\n2026-05-14\n最新行情日\n2026-05-13\n仓位容量\n1/3，空闲 2\n数据质量\n可交易\n每日复盘\n\n按复盘日生成或查看下一交易日动作、候选、持仓到期和只读智能体意见。当前复盘日：2026-05-13\n\n上一复盘日\n复盘日\n查看\n下一复盘日\n最新可用\n运行日终复盘\n发布计划\n去成交录入\n跨日复盘对比\n只读 · 5 日 · 开盘执行日保持 2026-05-14\n只读\n2026-05-13\n下一交易日 2026-05-14\n候选\n600397.SH 江钨装备 / 评分 121.24\n市场\n中性震荡 / 持续性 0.18\n计划关系\n未知 / 未知 / 人工复核后再执行\n开盘执行\n2026-05-14 / 记录卖出 / 301188.SZ 力诺药包\n复盘完成\n执行就绪\n中性震荡\n人工复核\n2026-05-12\n下一交易日 2026-05-13\n候选\n无复盘候选\n市场\n中性震荡 / 持续性 0.18\n计划关系\n无关联计划\n开盘执行\n2026-05-13 / 等待后续计划 / 600397.SH 江钨装备\n复盘完成\n等待\n中性震荡\n2026-05-11\n下一交易日 2026-05-12\n候选\n无复盘候选\n市场\n中性震荡 / 持续性 0.41\n计划关系\n无关联计划\n开盘执行\n2026-05-12 / 等待后续计划 / 600397.SH 江钨装备\n复盘完成\n等待\n中性震荡\n2026-05-08\n下一交易日 2026-05-11\n候选\n301188.SZ 力诺药包 / 评分 134.50\n市场\n风险偏好回升 / 持续性 0.46\n计划关系\n暂无计划上下文\n开盘执行\n2026-05-11 / 等待后续计划 / 600397.SH 江钨装备\n复盘完成\n等待\n风险偏好回升\n2026-05-07\n下一交易日 2026-05-08\n候选\n002647.SZ 仁东控股 / 评分 138.92\n市场\n风险偏好回升 / 持续性 0.57\n计划关系\n暂无计划上下文\n开盘执行\n2026-05-08 / 等待后续计划 / 600397.SH 江钨装备\n复盘完成\n等待\n风险偏好回升\n复盘历史列表\n最新 2026-05-13 · 5 条\n刷新历史\n2026-05-13\n600397.SH 江钨装备\n执行日 2026-05-14 / 信号 1 / 评分 121.24 / 智能体 无意见\n创建 2026-05-13 08:50 / 智能体 跳过\n复盘完成\n有效\n智能体 跳过\n有候选\n2026-05-12\n无策略候选\n执行日 2026-05-13 / 信号 0\n创建 2026-05-12 12:14\n复盘完成\n无候选\n2026-05-11\n无策略候选\n执行日 2026-05-12 / 信号 0\n创建 2026-05-11 09:15\n复盘完成\n无候选\n2026-05-08\n301188.SZ 力诺药包\n执行日 2026-05-11 / 信号 1 / 评分 134.50 / 智能体 谨慎\n创建 2026-05-08 14:02 / 智能体 已完成\n复盘完成\n已成交\n智能体 已完成\n有候选\n2026-05-07\n002647.SZ 仁东控股\n执行日 2026-05-08 / 信号 4 / 评分 138.92 / 智能体 谨慎\n创建 2026-05-07 11:32 / 智能体 已完成\n复盘完成\n已成交\n智能体 已完成\n有候选\n下一交易日动作\n复盘日 2026-05-13 / 下一交易日 2026-05-14 / 开盘执行日 2026-05-14\n存在买入计划\n\n600397.SH 江钨装备\n\n计划状态\n<span class=\"chip chip-blue\">有效</span>\n计划交易日\n2026-05-14\n计划股数\n4400\n计划资金\n67,607.00\n数据阻断\n复盘日 2026-05-13\n查看数据质量\n当前复盘日没有未处理阻断。\n复盘日候选\n复盘日 2026-05-13\n候选详情\n查看血缘\n股票\n600397.SH 江钨装备\n评分\n121.2435\n计划买入日\n2026-05-14\n胜出信号数\n0\n\n主体只保留候选摘要；特征、血缘和信号排名在详情面板查看。\n\n排名\t股票\t评分\t信号 ID\n1\t600397.SH 江钨装备\t121.2435\t6\nT+2 / T+5 待处理\n复盘日 2026-05-13 / 复盘下一交易日 2026-05-14 / 开盘执行日 2026-05-14\n查看持仓\n股票\t买入日\tT+2\tT+5\t动作\n301188.SZ 力诺药包\t2026-05-11\t2026-05-13\t2026-05-18\t已有卖出计划\n智能体复核意见\n复盘日 2026-05-13\n仅供复核\n智能体详情\nTradingAgents 智能体输出\n未返回可用复核意见\n只读参考\nTradingAgents 输出：意见、置信度、风险和分析摘要\n系统复盘原始数据：候选、计划、数据质量和成交事实\n外部证据：仅展示已缓存的技术、基本面、新闻公告和情绪资料\n运行状态\n跳过\n输出来源\nTradingAgents 不可用 fallback\n意见\n无意见\n风险等级\n未知\n置信度\n-\n外部数据覆盖\n智能体是否影响交易计划：否，仅供参考\n基本面\n部分数据\n新闻面\n未接入\n情绪面\n部分数据\n技术/量价\n已接入\n板块位置\n已接入\n\noptional package 'tradingagents' is not installed; install TauricResearch/TradingAgents to run external advisory\n\n来源边界\n7 个来源\ndaily_picks:3\nstrategy_signals:6\n行情K线：600397.SH:20260513\n日级基础快照：600397.SH:20260513\n+3\n\n风险\noptional package 'tradingagents' is not installed; install TauricResearch/TradingAgents to run external advisory\n\n智能体只提供复核意见，不会自动发布、取消或记录成交，也不会向券商执行。",
+    "viewport": "1440x1100",
+    "scrollWidth": 1440,
+    "clientWidth": 1440,
+    "overflowOffenders": [],
+    "rawEnglishFlags": []
+  },
+  {
+    "page": "market",
+    "viewport_name": "desktop",
+    "screenshot": "reports/m104_visual_qa_20260514/market_desktop.png",
+    "h1": "全市场复盘",
+    "bodyText": "PGC\n交易操作台\n复盘 / 计划 / 成交 / 持仓\n开盘执行\n2\n决策驾驶舱\n1\n每日复盘\n1\n全市场复盘\n1\n运营验收\n1\n证据/运维\n50\n假设评估\n8\n影子策略\n5\n交易计划\n2\n成交录入\n3\n当前持仓\n1\n数据质量\n0\n智能体复核\n只读\n页面上下文\n可调整\n账户标识\n账户 ID\n复盘日\n策略版本\n操作者\n写入令牌\nAPI 地址\n预演模式\n\n开盘执行通常使用上一交易日作为复盘日；执行日取该复盘日的下一交易日。\n\n刷新上下文\nPG\n纸盘操作台\n预演就绪\n账户\npaper-main / Paper Main (paper)\n复盘日\n2026-05-13\n执行日\n2026-05-14\n最新行情日\n2026-05-13\n仓位容量\n1/3，空闲 2\n数据质量\n可交易\n全市场复盘\n\n读取全市场复盘的只读结果，核对市场状态、板块轮动、外部证据和明日计划关系。\n\n上一全市场\n全市场日\n查看\n下一全市场\n最新全市场\n跟随复盘日\n全市场日 2026-05-13\n刷新全市场\n全市场历史\n2026-05-13\n中性震荡\n2026-05-12\n中性震荡\n2026-05-11\n中性震荡\n2026-05-08\n风险偏好回升\n2026-05-07\n风险偏好回升\nAPI 地址 同源\n选中 2026-05-13\n最新 2026-05-13\n跟随复盘日\n源数据库 新鲜 · 2026-05-13 08:50\n全市场复盘运行 1\nmarket_regime_snapshots 1\n板块日快照 0\n板块成分股 0\n市场外部证据 0\n市场计划关系 1\n策略假设 0\n\nSECTOR_SNAPSHOTS_MISSING：sector_daily_snapshots 当前计数为 0; 面板会保持空状态。；MARKET_EXTERNAL_EVIDENCE_MISSING：market_external_items 当前计数为 0; 面板会保持空状态。\n\n全市场复盘\n中性震荡\n\nMarket regime neutral: breadth=0.62 trend=0.56 volume=0.36 persistence=0.18 coverage=1.00.\n\n宽度\n0.62\n趋势\n0.56\n量能\n0.36\n持续性\n0.18\n情绪\n-\n市场状态 -> 板块 -> 个股 -> 证据 -> 连续性 -> 次日计划\n全市场复盘解释链\n证据不足\n来源引用 3\n市场状态\n中性震荡\n\nMarket regime neutral: breadth=0.62 trend=0.56 volume=0.36 persistence=0.18 coverage=1.00.\n\n板块轮动\n缺少板块\n\n未找到 sector_daily_snapshots。\n\n代表个股\n缺少代表个股\n\n按板块成分股排名 / 评分展示，不补造股票证据。\n\n证据新鲜度\n市场 缺失 / 板块 缺失 / 个股 缺失\n\n市场 / 板块 / 个股新闻情绪证据缺失会显式显示。\n\n连续性判断\n证据不足\n\n缺少 sector_daily_snapshots, market_external_items，连续性判断保持证据不足。\n\n明日计划关系\n证据缺失\n\n计划关系缺少可用市场、板块或证据输入，不能当作安全信号。\n\nmarket_review_runs:5 / market_regime_snapshots:5 / market_plan_contexts:5:5\n\n板块轮动\n无板块快照\n排名\t板块\t1日\t5日\t持续性\t情绪\t领涨\t操作\n\n缺少 板块日快照\n明日计划关系\n只读参考\n\n计划上下文只读：市场复盘不会自动改变明日计划，不会发布、取消、修改或执行交易计划。\n\n计划 5\n证据缺失\n未知\n未知\n\n600397.SH lacks sector rotation and market-review external evidence for 20260513; manual review is required before acting on the plan.\n\n计划关系\n证据缺失\n管理建议\n人工复核后再执行\n关系说明\n计划关系缺少可用市场、板块或证据输入，不能当作安全信号。\n创建时间\n2026-05-13 08:50\n相关明日计划\n600397.SH 江钨装备\n计划 ID\n5\n状态\n有效\n交易日\n2026-05-14\n动作\n次一交易日买入\n计划详情\n新闻 / 情绪\n情绪 -\n证据详情\n缺少 市场外部证据\n策略假设\n无策略假设\n打开评估工作台\n缺少 策略假设",
+    "viewport": "1440x1100",
+    "scrollWidth": 1440,
+    "clientWidth": 1440,
+    "overflowOffenders": [],
+    "rawEnglishFlags": []
+  },
+  {
+    "page": "ops",
+    "viewport_name": "desktop",
+    "screenshot": "reports/m104_visual_qa_20260514/ops_desktop.png",
+    "h1": "运维历史",
+    "bodyText": "PGC\n交易操作台\n复盘 / 计划 / 成交 / 持仓\n开盘执行\n2\n决策驾驶舱\n1\n每日复盘\n1\n全市场复盘\n1\n运营验收\n1\n证据/运维\n50\n假设评估\n8\n影子策略\n5\n交易计划\n2\n成交录入\n3\n当前持仓\n1\n数据质量\n0\n智能体复核\n只读\n页面上下文\n可调整\n账户标识\n账户 ID\n复盘日\n策略版本\n操作者\n写入令牌\nAPI 地址\n预演模式\n\n开盘执行通常使用上一交易日作为复盘日；执行日取该复盘日的下一交易日。\n\n刷新上下文\nPG\n纸盘操作台\n预演就绪\n账户\npaper-main / Paper Main (paper)\n复盘日\n2026-05-13\n执行日\n2026-05-14\n最新行情日\n2026-05-13\n仓位容量\n1/3，空闲 2\n数据质量\n可交易\n运维历史\n\n只读运维历史：日终流水线、备份、发布标签、远端健康检查、纸盘验收快照和定时任务预演证据；不会启用定时任务、重跑正式写入、创建交易或修改策略状态。\n\n只读观测\n刷新运维历史\n运维运行历史\nOps history 共 50 条；pipeline log 3 / pipeline step 11 / backup 3 / release 15 / paper acceptance 5 / timer evidence 3。\n日终流水线 3\n流水线步骤 11\n备份 3\n发布 15\n纸盘验收 5\n定时任务证据 3\nPaper acceptance snapshot\n20260513\n纸盘验收\n阻断\n\n纸盘每日运营验收阻断：1 项 blocker 需要先处理。\n\n来源\ncomputed_acceptance_history\n日期\n2026-05-13\nPaper acceptance snapshot\n20260512\n纸盘验收\n阻断\n\n纸盘每日运营验收阻断：1 项 blocker 需要先处理。\n\n来源\ncomputed_acceptance_history\n日期\n2026-05-12\nPaper acceptance snapshot\n20260511\n纸盘验收\n阻断\n\n纸盘每日运营验收阻断：1 项 blocker 需要先处理。\n\n来源\ncomputed_acceptance_history\n日期\n2026-05-11\nPaper acceptance snapshot\n20260508\n纸盘验收\n阻断\n\n纸盘每日运营验收阻断：1 项 blocker 需要先处理。\n\n来源\ncomputed_acceptance_history\n日期\n2026-05-08\nPaper acceptance snapshot\n20260507\n纸盘验收\n阻断\n\n纸盘每日运营验收阻断：1 项 blocker 需要先处理。\n\n来源\ncomputed_acceptance_history\n日期\n2026-05-07\nTimer dry-run evidence\n2026-05-14 07:45\n定时任务证据\n通过\n\ndate=20260513; status=pass; duplicate_apply_count=3\n\n来源\nlocal_log\n日期\n2026-05-13\n操作者\nazboo\n日志\n.pgc-runs/daily-pipeline-20260513-m105-post-apply-review.log\n备份\n无\n重复写入\n3\nRelease artifact\n2026-05-14 03:25\n发布\n产物记录\n\npgc-v0.1.0-20260514-m104-m107-plan-r1 is available in .pgc-release.\n\n来源\nrelease_artifact_dir\n日期\n2026-05-14\n日志\n.pgc-release/pgc-v0.1.0-20260514-m104-m107-plan-r1.tar.gz\n发布标签\npgc-v0.1.0-20260514-m104-m107-plan-r1\nRelease artifact\n2026-05-14 03:21\n发布\n产物记录\n\npgc-v0.1.0-20260514-m100-m103-cn-ops-quality-r1 is available in .pgc-release.\n\n来源\nrelease_artifact_dir\n日期\n2026-05-14\n日志\n.pgc-release/pgc-v0.1.0-20260514-m100-m103-cn-ops-quality-r1.tar.gz\n发布标签\npgc-v0.1.0-20260514-m100-m103-cn-ops-quality-r1\nRelease artifact\n2026-05-13 17:07\n发布\n产物记录\n\npgc-v0.1.0-20260513-m100-m103-plan-r1 is available in .pgc-release.\n\n来源\nrelease_artifact_dir\n日期\n2026-05-13\n日志\n.pgc-release/pgc-v0.1.0-20260513-m100-m103-plan-r1.tar.gz\n发布标签\npgc-v0.1.0-20260513-m100-m103-plan-r1\nRelease artifact\n2026-05-13 17:02\n发布\n产物记录\n\npgc-v0.1.0-20260513-m95-m99-cn-r2 is available in .pgc-release.\n\n来源\nrelease_artifact_dir\n日期\n2026-05-13\n日志\n.pgc-release/pgc-v0.1.0-20260513-m95-m99-cn-r2.tar.gz\n发布标签\npgc-v0.1.0-20260513-m95-m99-cn-r2\nRelease artifact\n2026-05-13 16:59\n发布\n产物记录\n\npgc-v0.1.0-20260513-m95-m99-cn-r1 is available in .pgc-release.\n\n来源\nrelease_artifact_dir\n日期\n2026-05-13\n日志\n.pgc-release/pgc-v0.1.0-20260513-m95-m99-cn-r1.tar.gz\n发布标签\npgc-v0.1.0-20260513-m95-m99-cn-r1\nRelease artifact\n2026-05-13 15:09\n发布\n产物记录\n\npgc-v0.1.0-20260513-m91-m94-r2 is available in .pgc-release.\n\n来源\nrelease_artifact_dir\n日期\n2026-05-13\n日志\n.pgc-release/pgc-v0.1.0-20260513-m91-m94-r2.tar.gz\n发布标签\npgc-v0.1.0-20260513-m91-m94-r2\nRelease artifact\n2026-05-13 15:02\n发布\n产物记录\n\npgc-v0.1.0-20260513-m91-m94-r1 i",
+    "viewport": "1440x1100",
+    "scrollWidth": 1440,
+    "clientWidth": 1440,
+    "overflowOffenders": [],
+    "rawEnglishFlags": []
+  },
+  {
+    "page": "shadow",
+    "viewport_name": "desktop",
+    "screenshot": "reports/m104_visual_qa_20260514/shadow_desktop.png",
+    "h1": "影子策略实验室",
+    "bodyText": "PGC\n交易操作台\n复盘 / 计划 / 成交 / 持仓\n开盘执行\n2\n决策驾驶舱\n1\n每日复盘\n1\n全市场复盘\n1\n运营验收\n1\n证据/运维\n50\n假设评估\n8\n影子策略\n5\n交易计划\n2\n成交录入\n3\n当前持仓\n1\n数据质量\n0\n智能体复核\n只读\n页面上下文\n可调整\n账户标识\n账户 ID\n复盘日\n策略版本\n操作者\n写入令牌\nAPI 地址\n预演模式\n\n开盘执行通常使用上一交易日作为复盘日；执行日取该复盘日的下一交易日。\n\n刷新上下文\nPG\n纸盘操作台\n预演就绪\n账户\npaper-main / Paper Main (paper)\n复盘日\n2026-05-13\n执行日\n2026-05-14\n最新行情日\n2026-05-13\n仓位容量\n1/3，空闲 2\n数据质量\n可交易\n影子策略实验室\n\n影子策略实验室：只读展示候选族群、跟踪验证、晋升阻断和冻结 CPB 对照；仅用于研究观察，不发布策略、不写交易计划。\n\n观察截止日\n窗口\n5 日\n10 日\n20 日\n40 日\n查看历史\n影子快照 2026-05-13 · 历史窗口 20 日 · 监控 2026-05-13 · 晋升预检 2026-05-13\n刷新影子快照\n\n影子实验室是仅研究的可视化页面：展示影子策略快照，不提供晋升、发布计划、成交录入或定时任务操作。\n\n状态\n阻断\n候选数\n5\n被阻断候选\n5\n阻断类型\n23\n影子假设\n5\n仅产物记录\n是\n当前 CPB\n未改变\n接口\n/api/shadow-strategy-snapshot\n中文决策备忘录\n5 个候选 · 阻断\n中文决策备忘录\n\n中文决策备忘录聚合评审申请、回放证据、跟踪验证、校准结果和实验登记；用于人工阅读，不是批准动作。\n\n接口\n/api/shadow-decision-memo\n契约版本\n影子决策备忘录 v1\n状态\n阻断\n候选\n5\n阻断数\n33\n已接受证据\n5\n已拒绝证据\n0\n缺失证据\n0\n下一步实验\n5\n允许晋升\n否\n当前仍为阻断：可复核 0 个，阻断 33 个，实验登记册 状态 可用。\n候选概览\n5 个候选\n\n当前纳入备忘录的 shadow 候选 5 个，全部保持人工复核边界。\n\n趋势延续影子\ntrend_extension_shadow：replay/backtest=accepted，walk-forward=complete，阻断=16；结论为继续人工复核/补证据，不允许晋升。\n突破承压影子\nbreakout_pressure_shadow：replay/backtest=accepted，walk-forward=complete，阻断=16；结论为继续人工复核/补证据，不允许晋升。\n低价动量影子\nlow_price_momentum_shadow：replay/backtest=accepted，walk-forward=complete，阻断=15；结论为继续人工复核/补证据，不允许晋升。\n预确认观察清单\npreconfirm_watchlist：replay/backtest=accepted，walk-forward=complete，阻断=15；结论为继续人工复核/补证据，不允许晋升。\n证据状态\n5 项证据\n\n证据只用于判断下一步研究，不触发 approve、promote、trade、plan 或 timer。\n\npromotion review request\n人工评审请求只作为复核上下文，不是批准。\nreplay/backtest evidence\naccepted 5 / rejected 0 / missing 0\nwalk-forward outcomes\n20/20 个观察交易日；最新 outcome 20260513\nthreshold calibration\ncalibration artifact 已读取；next experiments 5；仍为 artifact-only。\n阻断原因\n33 个阻断\n\n存在任一 阻断 时不得进入策略发布或交易链路。\n\n暂无可复核候选\nfrozen_cpb_delta_not_positive\ndrawdown_proxy_missing\ncandidate_阻断_not_cleared\n下一步实验\n5 项实验\n\n下一步只允许补证据、扩样本、重跑 artifact-only 实验。\n\n趋势延续影子\ntrend_extension_shadow 继续补齐 replay/backtest 证据、样本和 frozen-CPB 对照后再进入人工复核。\n突破承压影子\nbreakout_pressure_shadow 继续补齐 replay/backtest 证据、样本和 frozen-CPB 对照后再进入人工复核。\n低价动量影子\nlow_price_momentum_shadow 继续补齐 replay/backtest 证据、样本和 frozen-CPB 对照后再进入人工复核。\n预确认观察清单\npreconfirm_watchlist 继续补齐 replay/backtest 证据、样本和 frozen-CPB 对照后再进入人工复核。\n人工决策\n4 项确认\n\n人工决策是后续复核任务输入，不是本备忘录内的批准动作。\n\n需要人工晋升审批\n可复核不是批准; manual approval remains required before any follow-up.\nfuture_strategy_version_task_required\nAny follow-up must be a separate strategy-version review task and must not mutate active strategy state.\ncandidate_selection\nNo candidate is 可复核, so promotion review should not proceed.\nrollback_scope_confirmation\nConfirm that the blocked mutation targets remain unchanged during any follow-up work.\n风险/回滚边界\n14 条边界\n\n所有 active CPB、strategy_versions、trade state、paper/live 行为和 timers 必须保持不变。\n\n可复核不是批准\n保持当前 CPB 参数 / 哈希不变\ndo not create or update strategy_versions, trade_plans, trades, positions, paper/live behavior, broker execution, or timers\nblocked_mutation_targets=active_cpb_params,strategy_versions,trade_plans,trades,positions,paper_live_behavior,broker_execution,timer_state\n候选备忘录\n无批准 / 晋升 / 交易 / 计划",
+    "viewport": "1440x1100",
+    "scrollWidth": 1440,
+    "clientWidth": 1440,
+    "overflowOffenders": [],
+    "rawEnglishFlags": []
+  },
+  {
+    "page": "execution",
+    "viewport_name": "mobile",
+    "screenshot": "reports/m104_visual_qa_20260514/execution_mobile.png",
+    "h1": "开盘执行",
+    "bodyText": "PGC\n交易操作台\n复盘 / 计划 / 成交 / 持仓\n开盘执行\n2\n决策驾驶舱\n1\n每日复盘\n1\n全市场复盘\n1\n运营验收\n1\n证据/运维\n50\n假设评估\n8\n影子策略\n5\n交易计划\n2\n成交录入\n3\n当前持仓\n1\n数据质量\n0\n智能体复核\n只读\n页面上下文\n可调整\n账户标识\n账户 ID\n复盘日\n策略版本\n操作者\n写入令牌\nAPI 地址\n预演模式\n\n开盘执行通常使用上一交易日作为复盘日；执行日取该复盘日的下一交易日。\n\n刷新上下文\n账户\npaper-main / Paper Main (paper)\n复盘日\n2026-05-13\n执行日\n2026-05-14\n最新行情日\n2026-05-13\n仓位容量\n1/3，空闲 2\n数据质量\n可交易\n开盘执行\n\n使用复盘日生成的下一交易日计划，先完成开盘检查，再记录人工纸面成交。\n\n评估退出：生成决策/计划\n刷新执行台\n今日操作导引 · 执行日 2026-05-14\n按 active 退出计划录入 301188.SZ 力诺药包 卖出成交\n\n退出计划来自持仓生命周期；成交录入仍需人工确认日期、价格、股数和写入凭证。\n\n今天该做什么\n2026-05-14 录入人工纸面卖出成交\n为什么不能做\n开盘执行服务找到执行日匹配的有效卖出计划\n下一步点哪里\n点“录入卖出成交”进入成交录入页\n市场计划关系\n未关联计划上下文\n录入卖出成交\n查看交易计划\n执行准备\n开盘检查未完成\n数据质量\n可交易\n当日有效计划\n1 个\n开盘检查\n1/5\n买入录入\n锁定\n\n录入锁定原因：开盘检查未完成\n\n纸盘晋级分数卡\n阻断\n样本交易\n3\n已闭环交易\n1\n累计实现盈亏\n-1,536.00\n胜率\n0.00%\n当前阻断\nMIN_PAPER_TRADES_NOT_MET\n晋级实盘前还差什么\nMIN_PAPER_TRADES_NOT_MET\n\n最近流水线：skipped；平均滑点：0.62%；晋级警告：AGENT_EVIDENCE_MISSING\n\n执行日主动计划\n可执行\n600397.SH 江钨装备\n有效\n计划 ID\n5\n动作\n次一交易日买入\n复盘日\n2026-05-13\n执行日\n2026-05-14\n计划交易日\n2026-05-14\n执行日匹配\n是\n计划股数\n4400\n计划资金\n67,607.00\n录入买入成交\n取消计划\n详情\n\n录入锁定：开盘检查未完成\n\n市场计划关系：未知 / 未知 / 人工复核后再执行\n\n开盘检查清单\n1/5 待确认\n未停牌 / 可交易\n无重大利空\n开盘未极端高开\n现金 / 仓位已核对\n计划日是执行日 2026-05-14\n取消 / 跳过\n取消原因必填\n有效\n计划 6 / 301188.SZ 力诺药包 / 2026-05-14\n取消\n有效\n计划 5 / 600397.SH 江钨装备 / 2026-05-14\n取消\n退出任务\n评估只生成决策/计划，不录入卖出成交\n已有卖出计划\n持仓 2 / 301188.SZ 力诺药包 / T+2 2026-05-13 / T+5 2026-05-18\n卖出录入",
+    "viewport": "390x1100",
+    "scrollWidth": 390,
+    "clientWidth": 390,
+    "overflowOffenders": [],
+    "rawEnglishFlags": []
+  },
+  {
+    "page": "review",
+    "viewport_name": "mobile",
+    "screenshot": "reports/m104_visual_qa_20260514/review_mobile.png",
+    "h1": "每日复盘",
+    "bodyText": "PGC\n交易操作台\n复盘 / 计划 / 成交 / 持仓\n开盘执行\n2\n决策驾驶舱\n1\n每日复盘\n1\n全市场复盘\n1\n运营验收\n1\n证据/运维\n50\n假设评估\n8\n影子策略\n5\n交易计划\n2\n成交录入\n3\n当前持仓\n1\n数据质量\n0\n智能体复核\n只读\n页面上下文\n可调整\n账户标识\n账户 ID\n复盘日\n策略版本\n操作者\n写入令牌\nAPI 地址\n预演模式\n\n开盘执行通常使用上一交易日作为复盘日；执行日取该复盘日的下一交易日。\n\n刷新上下文\n账户\npaper-main / Paper Main (paper)\n复盘日\n2026-05-13\n执行日\n2026-05-14\n最新行情日\n2026-05-13\n仓位容量\n1/3，空闲 2\n数据质量\n可交易\n每日复盘\n\n按复盘日生成或查看下一交易日动作、候选、持仓到期和只读智能体意见。当前复盘日：2026-05-13\n\n上一复盘日\n复盘日\n查看\n下一复盘日\n最新可用\n运行日终复盘\n发布计划\n去成交录入\n跨日复盘对比\n只读 · 5 日 · 开盘执行日保持 2026-05-14\n只读\n2026-05-13\n下一交易日 2026-05-14\n候选\n600397.SH 江钨装备 / 评分 121.24\n市场\n中性震荡 / 持续性 0.18\n计划关系\n未知 / 未知 / 人工复核后再执行\n开盘执行\n2026-05-14 / 记录卖出 / 301188.SZ 力诺药包\n复盘完成\n执行就绪\n中性震荡\n人工复核\n2026-05-12\n下一交易日 2026-05-13\n候选\n无复盘候选\n市场\n中性震荡 / 持续性 0.18\n计划关系\n无关联计划\n开盘执行\n2026-05-13 / 等待后续计划 / 600397.SH 江钨装备\n复盘完成\n等待\n中性震荡\n2026-05-11\n下一交易日 2026-05-12\n候选\n无复盘候选\n市场\n中性震荡 / 持续性 0.41\n计划关系\n无关联计划\n开盘执行\n2026-05-12 / 等待后续计划 / 600397.SH 江钨装备\n复盘完成\n等待\n中性震荡\n2026-05-08\n下一交易日 2026-05-11\n候选\n301188.SZ 力诺药包 / 评分 134.50\n市场\n风险偏好回升 / 持续性 0.46\n计划关系\n暂无计划上下文\n开盘执行\n2026-05-11 / 等待后续计划 / 600397.SH 江钨装备\n复盘完成\n等待\n风险偏好回升\n2026-05-07\n下一交易日 2026-05-08\n候选\n002647.SZ 仁东控股 / 评分 138.92\n市场\n风险偏好回升 / 持续性 0.57\n计划关系\n暂无计划上下文\n开盘执行\n2026-05-08 / 等待后续计划 / 600397.SH 江钨装备\n复盘完成\n等待\n风险偏好回升\n复盘历史列表\n最新 2026-05-13 · 5 条\n刷新历史\n2026-05-13\n600397.SH 江钨装备\n执行日 2026-05-14 / 信号 1 / 评分 121.24 / 智能体 无意见\n创建 2026-05-13 08:50 / 智能体 跳过\n复盘完成\n有效\n智能体 跳过\n有候选\n2026-05-12\n无策略候选\n执行日 2026-05-13 / 信号 0\n创建 2026-05-12 12:14\n复盘完成\n无候选\n2026-05-11\n无策略候选\n执行日 2026-05-12 / 信号 0\n创建 2026-05-11 09:15\n复盘完成\n无候选\n2026-05-08\n301188.SZ 力诺药包\n执行日 2026-05-11 / 信号 1 / 评分 134.50 / 智能体 谨慎\n创建 2026-05-08 14:02 / 智能体 已完成\n复盘完成\n已成交\n智能体 已完成\n有候选\n2026-05-07\n002647.SZ 仁东控股\n执行日 2026-05-08 / 信号 4 / 评分 138.92 / 智能体 谨慎\n创建 2026-05-07 11:32 / 智能体 已完成\n复盘完成\n已成交\n智能体 已完成\n有候选\n下一交易日动作\n复盘日 2026-05-13 / 下一交易日 2026-05-14 / 开盘执行日 2026-05-14\n存在买入计划\n\n600397.SH 江钨装备\n\n计划状态\n<span class=\"chip chip-blue\">有效</span>\n计划交易日\n2026-05-14\n计划股数\n4400\n计划资金\n67,607.00\n数据阻断\n复盘日 2026-05-13\n查看数据质量\n当前复盘日没有未处理阻断。\n复盘日候选\n复盘日 2026-05-13\n候选详情\n查看血缘\n股票\n600397.SH 江钨装备\n评分\n121.2435\n计划买入日\n2026-05-14\n胜出信号数\n0\n\n主体只保留候选摘要；特征、血缘和信号排名在详情面板查看。\n\n排名\t股票\t评分\t信号 ID\n1\t600397.SH 江钨装备\t121.2435\t6\nT+2 / T+5 待处理\n复盘日 2026-05-13 / 复盘下一交易日 2026-05-14 / 开盘执行日 2026-05-14\n查看持仓\n股票\t买入日\tT+2\tT+5\t动作\n301188.SZ 力诺药包\t2026-05-11\t2026-05-13\t2026-05-18\t已有卖出计划\n智能体复核意见\n复盘日 2026-05-13\n仅供复核\n智能体详情\nTradingAgents 智能体输出\n未返回可用复核意见\n只读参考\nTradingAgents 输出：意见、置信度、风险和分析摘要\n系统复盘原始数据：候选、计划、数据质量和成交事实\n外部证据：仅展示已缓存的技术、基本面、新闻公告和情绪资料\n运行状态\n跳过\n输出来源\nTradingAgents 不可用 fallback\n意见\n无意见\n风险等级\n未知\n置信度\n-\n外部数据覆盖\n智能体是否影响交易计划：否，仅供参考\n基本面\n部分数据\n新闻面\n未接入\n情绪面\n部分数据\n技术/量价\n已接入\n板块位置\n已接入\n\noptional package 'tradingagents' is not installed; install TauricResearch/TradingAgents to run external advisory\n\n来源边界\n7 个来源\ndaily_picks:3\nstrategy_signals:6\n行情K线：600397.SH:20260513\n日级基础快照：600397.SH:20260513\n+3\n\n风险\noptional package 'tradingagents' is not installed; install TauricResearch/TradingAgents to run external advisory\n\n智能体只提供复核意见，不会自动发布、取消或记录成交，也不会向券商执行。",
+    "viewport": "390x1100",
+    "scrollWidth": 390,
+    "clientWidth": 390,
+    "overflowOffenders": [],
+    "rawEnglishFlags": []
+  },
+  {
+    "page": "market",
+    "viewport_name": "mobile",
+    "screenshot": "reports/m104_visual_qa_20260514/market_mobile.png",
+    "h1": "全市场复盘",
+    "bodyText": "PGC\n交易操作台\n复盘 / 计划 / 成交 / 持仓\n开盘执行\n2\n决策驾驶舱\n1\n每日复盘\n1\n全市场复盘\n1\n运营验收\n1\n证据/运维\n50\n假设评估\n8\n影子策略\n5\n交易计划\n2\n成交录入\n3\n当前持仓\n1\n数据质量\n0\n智能体复核\n只读\n页面上下文\n可调整\n账户标识\n账户 ID\n复盘日\n策略版本\n操作者\n写入令牌\nAPI 地址\n预演模式\n\n开盘执行通常使用上一交易日作为复盘日；执行日取该复盘日的下一交易日。\n\n刷新上下文\n账户\npaper-main / Paper Main (paper)\n复盘日\n2026-05-13\n执行日\n2026-05-14\n最新行情日\n2026-05-13\n仓位容量\n1/3，空闲 2\n数据质量\n可交易\n全市场复盘\n\n读取全市场复盘的只读结果，核对市场状态、板块轮动、外部证据和明日计划关系。\n\n上一全市场\n全市场日\n查看\n下一全市场\n最新全市场\n跟随复盘日\n全市场日 2026-05-13\n刷新全市场\n全市场历史\n2026-05-13\n中性震荡\n2026-05-12\n中性震荡\n2026-05-11\n中性震荡\n2026-05-08\n风险偏好回升\n2026-05-07\n风险偏好回升\nAPI 地址 同源\n选中 2026-05-13\n最新 2026-05-13\n跟随复盘日\n源数据库 新鲜 · 2026-05-13 08:50\n全市场复盘运行 1\nmarket_regime_snapshots 1\n板块日快照 0\n板块成分股 0\n市场外部证据 0\n市场计划关系 1\n策略假设 0\n\nSECTOR_SNAPSHOTS_MISSING：sector_daily_snapshots 当前计数为 0; 面板会保持空状态。；MARKET_EXTERNAL_EVIDENCE_MISSING：market_external_items 当前计数为 0; 面板会保持空状态。\n\n全市场复盘\n中性震荡\n\nMarket regime neutral: breadth=0.62 trend=0.56 volume=0.36 persistence=0.18 coverage=1.00.\n\n宽度\n0.62\n趋势\n0.56\n量能\n0.36\n持续性\n0.18\n情绪\n-\n市场状态 -> 板块 -> 个股 -> 证据 -> 连续性 -> 次日计划\n全市场复盘解释链\n证据不足\n来源引用 3\n市场状态\n中性震荡\n\nMarket regime neutral: breadth=0.62 trend=0.56 volume=0.36 persistence=0.18 coverage=1.00.\n\n板块轮动\n缺少板块\n\n未找到 sector_daily_snapshots。\n\n代表个股\n缺少代表个股\n\n按板块成分股排名 / 评分展示，不补造股票证据。\n\n证据新鲜度\n市场 缺失 / 板块 缺失 / 个股 缺失\n\n市场 / 板块 / 个股新闻情绪证据缺失会显式显示。\n\n连续性判断\n证据不足\n\n缺少 sector_daily_snapshots, market_external_items，连续性判断保持证据不足。\n\n明日计划关系\n证据缺失\n\n计划关系缺少可用市场、板块或证据输入，不能当作安全信号。\n\nmarket_review_runs:5 / market_regime_snapshots:5 / market_plan_contexts:5:5\n\n板块轮动\n无板块快照\n排名\t板块\t1日\t5日\t持续性\t情绪\t领涨\t操作\n\n缺少 板块日快照\n明日计划关系\n只读参考\n\n计划上下文只读：市场复盘不会自动改变明日计划，不会发布、取消、修改或执行交易计划。\n\n计划 5\n证据缺失\n未知\n未知\n\n600397.SH lacks sector rotation and market-review external evidence for 20260513; manual review is required before acting on the plan.\n\n计划关系\n证据缺失\n管理建议\n人工复核后再执行\n关系说明\n计划关系缺少可用市场、板块或证据输入，不能当作安全信号。\n创建时间\n2026-05-13 08:50\n相关明日计划\n600397.SH 江钨装备\n计划 ID\n5\n状态\n有效\n交易日\n2026-05-14\n动作\n次一交易日买入\n计划详情\n新闻 / 情绪\n情绪 -\n证据详情\n缺少 市场外部证据\n策略假设\n无策略假设\n打开评估工作台\n缺少 策略假设",
+    "viewport": "390x1100",
+    "scrollWidth": 390,
+    "clientWidth": 390,
+    "overflowOffenders": [
+      {
+        "tag": "table",
+        "className": "",
+        "text": "排名 板块 1日 5日 持续性 情绪 领涨 操作 缺少 板块日快照",
+        "left": 34,
+        "right": 854
+      },
+      {
+        "tag": "thead",
+        "className": "",
+        "text": "排名 板块 1日 5日 持续性 情绪 领涨 操作",
+        "left": 34,
+        "right": 854
+      },
+      {
+        "tag": "tr",
+        "className": "",
+        "text": "排名 板块 1日 5日 持续性 情绪 领涨 操作",
+        "left": 34,
+        "right": 854
+      },
+      {
+        "tag": "th",
+        "className": "num",
+        "text": "5日",
+        "left": 342,
+        "right": 444
+      },
+      {
+        "tag": "th",
+        "className": "num",
+        "text": "持续性",
+        "left": 444,
+        "right": 547
+      },
+      {
+        "tag": "th",
+        "className": "",
+        "text": "情绪",
+        "left": 547,
+        "right": 649
+      },
+      {
+        "tag": "th",
+        "className": "num",
+        "text": "领涨",
+        "left": 649,
+        "right": 752
+      },
+      {
+        "tag": "th",
+        "className": "",
+        "text": "操作",
+        "left": 752,
+        "right": 854
+      }
+    ],
+    "rawEnglishFlags": []
+  },
+  {
+    "page": "ops",
+    "viewport_name": "mobile",
+    "screenshot": "reports/m104_visual_qa_20260514/ops_mobile.png",
+    "h1": "运维历史",
+    "bodyText": "PGC\n交易操作台\n复盘 / 计划 / 成交 / 持仓\n开盘执行\n2\n决策驾驶舱\n1\n每日复盘\n1\n全市场复盘\n1\n运营验收\n1\n证据/运维\n50\n假设评估\n8\n影子策略\n5\n交易计划\n2\n成交录入\n3\n当前持仓\n1\n数据质量\n0\n智能体复核\n只读\n页面上下文\n可调整\n账户标识\n账户 ID\n复盘日\n策略版本\n操作者\n写入令牌\nAPI 地址\n预演模式\n\n开盘执行通常使用上一交易日作为复盘日；执行日取该复盘日的下一交易日。\n\n刷新上下文\n账户\npaper-main / Paper Main (paper)\n复盘日\n2026-05-13\n执行日\n2026-05-14\n最新行情日\n2026-05-13\n仓位容量\n1/3，空闲 2\n数据质量\n可交易\n运维历史\n\n只读运维历史：日终流水线、备份、发布标签、远端健康检查、纸盘验收快照和定时任务预演证据；不会启用定时任务、重跑正式写入、创建交易或修改策略状态。\n\n只读观测\n刷新运维历史\n运维运行历史\nOps history 共 50 条；pipeline log 3 / pipeline step 11 / backup 3 / release 15 / paper acceptance 5 / timer evidence 3。\n日终流水线 3\n流水线步骤 11\n备份 3\n发布 15\n纸盘验收 5\n定时任务证据 3\nPaper acceptance snapshot\n20260513\n纸盘验收\n阻断\n\n纸盘每日运营验收阻断：1 项 blocker 需要先处理。\n\n来源\ncomputed_acceptance_history\n日期\n2026-05-13\nPaper acceptance snapshot\n20260512\n纸盘验收\n阻断\n\n纸盘每日运营验收阻断：1 项 blocker 需要先处理。\n\n来源\ncomputed_acceptance_history\n日期\n2026-05-12\nPaper acceptance snapshot\n20260511\n纸盘验收\n阻断\n\n纸盘每日运营验收阻断：1 项 blocker 需要先处理。\n\n来源\ncomputed_acceptance_history\n日期\n2026-05-11\nPaper acceptance snapshot\n20260508\n纸盘验收\n阻断\n\n纸盘每日运营验收阻断：1 项 blocker 需要先处理。\n\n来源\ncomputed_acceptance_history\n日期\n2026-05-08\nPaper acceptance snapshot\n20260507\n纸盘验收\n阻断\n\n纸盘每日运营验收阻断：1 项 blocker 需要先处理。\n\n来源\ncomputed_acceptance_history\n日期\n2026-05-07\nTimer dry-run evidence\n2026-05-14 07:45\n定时任务证据\n通过\n\ndate=20260513; status=pass; duplicate_apply_count=3\n\n来源\nlocal_log\n日期\n2026-05-13\n操作者\nazboo\n日志\n.pgc-runs/daily-pipeline-20260513-m105-post-apply-review.log\n备份\n无\n重复写入\n3\nRelease artifact\n2026-05-14 03:25\n发布\n产物记录\n\npgc-v0.1.0-20260514-m104-m107-plan-r1 is available in .pgc-release.\n\n来源\nrelease_artifact_dir\n日期\n2026-05-14\n日志\n.pgc-release/pgc-v0.1.0-20260514-m104-m107-plan-r1.tar.gz\n发布标签\npgc-v0.1.0-20260514-m104-m107-plan-r1\nRelease artifact\n2026-05-14 03:21\n发布\n产物记录\n\npgc-v0.1.0-20260514-m100-m103-cn-ops-quality-r1 is available in .pgc-release.\n\n来源\nrelease_artifact_dir\n日期\n2026-05-14\n日志\n.pgc-release/pgc-v0.1.0-20260514-m100-m103-cn-ops-quality-r1.tar.gz\n发布标签\npgc-v0.1.0-20260514-m100-m103-cn-ops-quality-r1\nRelease artifact\n2026-05-13 17:07\n发布\n产物记录\n\npgc-v0.1.0-20260513-m100-m103-plan-r1 is available in .pgc-release.\n\n来源\nrelease_artifact_dir\n日期\n2026-05-13\n日志\n.pgc-release/pgc-v0.1.0-20260513-m100-m103-plan-r1.tar.gz\n发布标签\npgc-v0.1.0-20260513-m100-m103-plan-r1\nRelease artifact\n2026-05-13 17:02\n发布\n产物记录\n\npgc-v0.1.0-20260513-m95-m99-cn-r2 is available in .pgc-release.\n\n来源\nrelease_artifact_dir\n日期\n2026-05-13\n日志\n.pgc-release/pgc-v0.1.0-20260513-m95-m99-cn-r2.tar.gz\n发布标签\npgc-v0.1.0-20260513-m95-m99-cn-r2\nRelease artifact\n2026-05-13 16:59\n发布\n产物记录\n\npgc-v0.1.0-20260513-m95-m99-cn-r1 is available in .pgc-release.\n\n来源\nrelease_artifact_dir\n日期\n2026-05-13\n日志\n.pgc-release/pgc-v0.1.0-20260513-m95-m99-cn-r1.tar.gz\n发布标签\npgc-v0.1.0-20260513-m95-m99-cn-r1\nRelease artifact\n2026-05-13 15:09\n发布\n产物记录\n\npgc-v0.1.0-20260513-m91-m94-r2 is available in .pgc-release.\n\n来源\nrelease_artifact_dir\n日期\n2026-05-13\n日志\n.pgc-release/pgc-v0.1.0-20260513-m91-m94-r2.tar.gz\n发布标签\npgc-v0.1.0-20260513-m91-m94-r2\nRelease artifact\n2026-05-13 15:02\n发布\n产物记录\n\npgc-v0.1.0-20260513-m91-m94-r1 is available in",
+    "viewport": "390x1100",
+    "scrollWidth": 390,
+    "clientWidth": 390,
+    "overflowOffenders": [],
+    "rawEnglishFlags": []
+  },
+  {
+    "page": "shadow",
+    "viewport_name": "mobile",
+    "screenshot": "reports/m104_visual_qa_20260514/shadow_mobile.png",
+    "h1": "影子策略实验室",
+    "bodyText": "PGC\n交易操作台\n复盘 / 计划 / 成交 / 持仓\n开盘执行\n2\n决策驾驶舱\n1\n每日复盘\n1\n全市场复盘\n1\n运营验收\n1\n证据/运维\n50\n假设评估\n8\n影子策略\n5\n交易计划\n2\n成交录入\n3\n当前持仓\n1\n数据质量\n0\n智能体复核\n只读\n页面上下文\n可调整\n账户标识\n账户 ID\n复盘日\n策略版本\n操作者\n写入令牌\nAPI 地址\n预演模式\n\n开盘执行通常使用上一交易日作为复盘日；执行日取该复盘日的下一交易日。\n\n刷新上下文\n账户\npaper-main / Paper Main (paper)\n复盘日\n2026-05-13\n执行日\n2026-05-14\n最新行情日\n2026-05-13\n仓位容量\n1/3，空闲 2\n数据质量\n可交易\n影子策略实验室\n\n影子策略实验室：只读展示候选族群、跟踪验证、晋升阻断和冻结 CPB 对照；仅用于研究观察，不发布策略、不写交易计划。\n\n观察截止日\n窗口\n5 日\n10 日\n20 日\n40 日\n查看历史\n影子快照 2026-05-13 · 历史窗口 20 日 · 监控 2026-05-13 · 晋升预检 2026-05-13\n刷新影子快照\n\n影子实验室是仅研究的可视化页面：展示影子策略快照，不提供晋升、发布计划、成交录入或定时任务操作。\n\n状态\n阻断\n候选数\n5\n被阻断候选\n5\n阻断类型\n23\n影子假设\n5\n仅产物记录\n是\n当前 CPB\n未改变\n接口\n/api/shadow-strategy-snapshot\n中文决策备忘录\n5 个候选 · 阻断\n中文决策备忘录\n\n中文决策备忘录聚合评审申请、回放证据、跟踪验证、校准结果和实验登记；用于人工阅读，不是批准动作。\n\n接口\n/api/shadow-decision-memo\n契约版本\n影子决策备忘录 v1\n状态\n阻断\n候选\n5\n阻断数\n33\n已接受证据\n5\n已拒绝证据\n0\n缺失证据\n0\n下一步实验\n5\n允许晋升\n否\n当前仍为阻断：可复核 0 个，阻断 33 个，实验登记册 状态 可用。\n候选概览\n5 个候选\n\n当前纳入备忘录的 shadow 候选 5 个，全部保持人工复核边界。\n\n趋势延续影子\ntrend_extension_shadow：replay/backtest=accepted，walk-forward=complete，阻断=16；结论为继续人工复核/补证据，不允许晋升。\n突破承压影子\nbreakout_pressure_shadow：replay/backtest=accepted，walk-forward=complete，阻断=16；结论为继续人工复核/补证据，不允许晋升。\n低价动量影子\nlow_price_momentum_shadow：replay/backtest=accepted，walk-forward=complete，阻断=15；结论为继续人工复核/补证据，不允许晋升。\n预确认观察清单\npreconfirm_watchlist：replay/backtest=accepted，walk-forward=complete，阻断=15；结论为继续人工复核/补证据，不允许晋升。\n证据状态\n5 项证据\n\n证据只用于判断下一步研究，不触发 approve、promote、trade、plan 或 timer。\n\npromotion review request\n人工评审请求只作为复核上下文，不是批准。\nreplay/backtest evidence\naccepted 5 / rejected 0 / missing 0\nwalk-forward outcomes\n20/20 个观察交易日；最新 outcome 20260513\nthreshold calibration\ncalibration artifact 已读取；next experiments 5；仍为 artifact-only。\n阻断原因\n33 个阻断\n\n存在任一 阻断 时不得进入策略发布或交易链路。\n\n暂无可复核候选\nfrozen_cpb_delta_not_positive\ndrawdown_proxy_missing\ncandidate_阻断_not_cleared\n下一步实验\n5 项实验\n\n下一步只允许补证据、扩样本、重跑 artifact-only 实验。\n\n趋势延续影子\ntrend_extension_shadow 继续补齐 replay/backtest 证据、样本和 frozen-CPB 对照后再进入人工复核。\n突破承压影子\nbreakout_pressure_shadow 继续补齐 replay/backtest 证据、样本和 frozen-CPB 对照后再进入人工复核。\n低价动量影子\nlow_price_momentum_shadow 继续补齐 replay/backtest 证据、样本和 frozen-CPB 对照后再进入人工复核。\n预确认观察清单\npreconfirm_watchlist 继续补齐 replay/backtest 证据、样本和 frozen-CPB 对照后再进入人工复核。\n人工决策\n4 项确认\n\n人工决策是后续复核任务输入，不是本备忘录内的批准动作。\n\n需要人工晋升审批\n可复核不是批准; manual approval remains required before any follow-up.\nfuture_strategy_version_task_required\nAny follow-up must be a separate strategy-version review task and must not mutate active strategy state.\ncandidate_selection\nNo candidate is 可复核, so promotion review should not proceed.\nrollback_scope_confirmation\nConfirm that the blocked mutation targets remain unchanged during any follow-up work.\n风险/回滚边界\n14 条边界\n\n所有 active CPB、strategy_versions、trade state、paper/live 行为和 timers 必须保持不变。\n\n可复核不是批准\n保持当前 CPB 参数 / 哈希不变\ndo not create or update strategy_versions, trade_plans, trades, positions, paper/live behavior, broker execution, or timers\nblocked_mutation_targets=active_cpb_params,strategy_versions,trade_plans,trades,positions,paper_live_behavior,broker_execution,timer_state\n候选备忘录\n无批准 / 晋升 / 交易 / 计划 / 定时任务控件\nM69 ",
+    "viewport": "390x1100",
+    "scrollWidth": 390,
+    "clientWidth": 390,
+    "overflowOffenders": [],
+    "rawEnglishFlags": []
+  }
+]

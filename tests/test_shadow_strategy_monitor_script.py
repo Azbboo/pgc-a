@@ -11,6 +11,7 @@ from pathlib import Path
 from pgc_trading.storage.migrate import run_migrations
 from pgc_trading.storage.seed import seed_reference_data
 from pgc_trading.services.shadow_observation_service import build_shadow_replay_backtest_source_hash
+from pgc_trading.services.strategy_evolution_service import review_shadow_paper_preflight_artifact
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -119,15 +120,32 @@ class ShadowStrategyMonitorScriptTest(unittest.TestCase):
             self.assertEqual(review_request["review_request_contract"], "shadow_promotion_review_request_v1")
             self.assertFalse(review_request["summary"]["promotion_allowed"])
             self.assertTrue(review_request["summary"]["review_ready_is_not_approval"])
+            paper_preflight = summary["paper_preflight"]
+            self.assertEqual(paper_preflight["artifact_type"], "shadow_paper_preflight")
+            self.assertEqual(paper_preflight["paper_preflight_contract"], "shadow_paper_preflight_v1")
+            self.assertEqual(paper_preflight["summary"]["status"], "blocked")
+            self.assertEqual(paper_preflight["summary"]["candidate_count"], 5)
+            self.assertFalse(paper_preflight["summary"]["paper_candidate_allowed"])
+            self.assertFalse(paper_preflight["release_boundary"]["strategy_version_publication_allowed"])
+            self.assertFalse(paper_preflight["release_boundary"]["broker_execution_allowed"])
+            self.assertIn("broker_execution", paper_preflight["release_boundary"]["blocked_mutation_targets"])
             self.assertTrue(Path(summary["outputs"]["promotion_preflight_json"]).exists())
             self.assertTrue(Path(summary["outputs"]["promotion_dossier_json"]).exists())
             self.assertTrue(Path(summary["outputs"]["promotion_review_request_json"]).exists())
             self.assertTrue(Path(summary["outputs"]["promotion_review_request_report"]).exists())
+            self.assertTrue(Path(summary["outputs"]["shadow_paper_preflight_json"]).exists())
+            self.assertTrue(Path(summary["outputs"]["shadow_paper_preflight_report"]).exists())
             self.assertTrue(Path(summary["outputs"]["shadow_walk_forward_outcomes_json"]).exists())
             self.assertTrue(Path(summary["outputs"]["shadow_walk_forward_outcomes_report"]).exists())
             self.assertTrue(Path(summary["outputs"]["shadow_observation_scorecard_json"]).exists())
             self.assertTrue(Path(summary["outputs"]["shadow_observation_scorecard_report"]).exists())
             self.assertTrue(Path(summary["outputs"]["walk_forward_csv"]).exists())
+            paper_review = review_shadow_paper_preflight_artifact(
+                Path(summary["outputs"]["shadow_paper_preflight_json"])
+            )
+            self.assertTrue(paper_review.valid, paper_review.error)
+            self.assertFalse(paper_review.paper_candidate_allowed)
+            self.assertFalse(paper_review.writes_trade_state)
             outcomes = json.loads(
                 Path(summary["outputs"]["shadow_walk_forward_outcomes_json"]).read_text(encoding="utf-8")
             )

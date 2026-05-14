@@ -20,6 +20,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from pgc_trading.services.common import RequestContext
 from pgc_trading.services.shadow_observation_service import (
+    BuildShadowPaperPreflightRequest,
     BuildShadowPromotionDossierRequest,
     BuildShadowPromotionReviewRequest,
     BuildShadowWalkForwardOutcomesRequest,
@@ -351,6 +352,14 @@ def generate_shadow_monitor(
             source="monitor-script",
         ),
     )
+    paper_preflight_result = ShadowObservationService(db_path, reports_dir=reports_dir).build_paper_preflight(
+        BuildShadowPaperPreflightRequest(as_of_date=review_date),
+        RequestContext(
+            request_id=f"shadow-paper-preflight-{review_date}",
+            dry_run=False,
+            source="monitor-script",
+        ),
+    )
     summary["promotion_dossier"] = (
         dossier_result.data.artifact
         if dossier_result.ok and dossier_result.data is not None
@@ -374,6 +383,19 @@ def generate_shadow_monitor(
             "promotion_allowed": False,
         }
     )
+    summary["paper_preflight"] = (
+        paper_preflight_result.data.artifact
+        if paper_preflight_result.ok and paper_preflight_result.data is not None
+        else {
+            "artifact_type": "shadow_paper_preflight",
+            "paper_preflight_contract": "shadow_paper_preflight_v1",
+            "as_of_date": review_date,
+            "status": paper_preflight_result.status,
+            "errors": [error.code for error in paper_preflight_result.errors],
+            "paper_candidate_allowed": False,
+            "promotion_allowed": False,
+        }
+    )
 
     summary["outputs"] = {
         "report": str(md_path),
@@ -387,6 +409,12 @@ def generate_shadow_monitor(
         ),
         "promotion_review_request_json": (
             review_request_result.data.artifact_path if review_request_result.data else None
+        ),
+        "shadow_paper_preflight_report": (
+            paper_preflight_result.data.markdown_path if paper_preflight_result.data else None
+        ),
+        "shadow_paper_preflight_json": (
+            paper_preflight_result.data.artifact_path if paper_preflight_result.data else None
         ),
         "shadow_walk_forward_outcomes_report": (
             walk_forward_outcome_result.data.markdown_path if walk_forward_outcome_result.data else None
@@ -1859,6 +1887,14 @@ def render_markdown(summary: dict[str, Any]) -> str:
         f"experiment registry={registry.get('status', 'missing')}；"
         f"候选 {decision_queue.get('candidate_count', 0)} 个，仍不允许晋升。"
     )
+    paper_preflight = summary.get("paper_preflight", {}) if isinstance(summary.get("paper_preflight"), dict) else {}
+    paper_summary = paper_preflight.get("summary", {}) if isinstance(paper_preflight.get("summary"), dict) else {}
+    if paper_preflight:
+        lines.append(
+            f"- 纸面预检：{paper_summary.get('status', paper_preflight.get('status', 'blocked'))}；"
+            f"可进入后续人工纸面任务 {paper_summary.get('future_paper_task_ready_count', 0)} 个；"
+            "paper_candidate_allowed=false。"
+        )
     lines.extend(["", "## 昨日影子候选今日表现", ""])
     lines.extend(table(["桶", "候选数", "T+1收盘均值%", "T+1收盘胜率%", "T+1最高均值%", "最高>=3%"], summary_rows(summary)))
     lines.extend(["", "## 20 日 Walk-forward", ""])
@@ -1911,6 +1947,28 @@ def render_markdown(summary: dict[str, Any]) -> str:
                         item.get("next_review_date") or "-",
                     ]
                     for item in summary["decision_queue"].get("items", [])
+                ],
+            )
+        )
+    if isinstance(summary.get("paper_preflight"), dict):
+        lines.extend(["", "## 手动纸面预检", ""])
+        paper_summary = summary["paper_preflight"].get("summary", {})
+        lines.append(
+            f"- 结论：{paper_summary.get('conclusion_zh', '不得进入纸面候选；必须另开人工任务。')}"
+        )
+        lines.extend(
+            table(
+                ["候选", "预检分", "证据", "Walk-forward", "Stop rules", "纸面候选"],
+                [
+                    [
+                        item.get("candidate_key"),
+                        item.get("readiness_score"),
+                        item.get("evidence_sufficiency", {}).get("status"),
+                        item.get("walk_forward_sufficiency", {}).get("status"),
+                        item.get("stop_rule_status", {}).get("status"),
+                        str(bool(item.get("paper_candidate_allowed"))).lower(),
+                    ]
+                    for item in summary["paper_preflight"].get("candidates", [])
                 ],
             )
         )

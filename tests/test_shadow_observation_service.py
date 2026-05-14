@@ -8,6 +8,7 @@ from pathlib import Path
 
 from pgc_trading.services.common import RequestContext
 from pgc_trading.services.shadow_observation_service import (
+    BuildShadowPaperPreflightRequest,
     BuildShadowPromotionDossierRequest,
     BuildShadowPromotionReviewRequest,
     BuildShadowReplayBacktestEvidenceRequest,
@@ -20,6 +21,7 @@ from pgc_trading.services.shadow_observation_service import (
     build_shadow_replay_backtest_source_hash,
     review_shadow_replay_backtest_evidence_artifact,
 )
+from pgc_trading.services.strategy_evolution_service import review_shadow_paper_preflight_artifact
 from pgc_trading.storage.migrate import run_migrations
 
 
@@ -285,6 +287,86 @@ class ShadowObservationServiceTest(unittest.TestCase):
             self.assertIn("决策队列", memo.data.sections)
             self.assertFalse(memo.data.safety["writes_trade_state"])
             self.assertFalse(memo.data.safety["timer_mutated"])
+
+    def test_builds_manual_shadow_paper_preflight_without_trade_state_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "pgc.db"
+            reports_dir = root / "reports"
+            reports_dir.mkdir()
+            run_migrations(db_path)
+            _seed_market_bar(db_path, "300001.SZ", "20260512")
+            _seed_shadow_observation_artifacts(reports_dir)
+            _write_shadow_replay_backtest_evidence(
+                reports_dir,
+                candidate_key="trend_extension_shadow",
+                as_of_date="20260512",
+            )
+            _write_shadow_decision_governance_source_artifacts(reports_dir)
+            service = ShadowObservationService(db_path, reports_dir=reports_dir)
+            before_counts = _state_counts(db_path)
+            dossier_result = service.build_promotion_dossier(
+                BuildShadowPromotionDossierRequest(as_of_date="20260512"),
+                RequestContext(request_id="req-shadow-dossier-for-paper", dry_run=False, source="test"),
+            )
+            review_result = service.build_promotion_review_request(
+                BuildShadowPromotionReviewRequest(as_of_date="20260512"),
+                RequestContext(request_id="req-shadow-review-for-paper", dry_run=False, source="test"),
+            )
+
+            result = service.build_paper_preflight(
+                BuildShadowPaperPreflightRequest(as_of_date="20260512"),
+                RequestContext(request_id="req-shadow-paper-preflight", dry_run=False, source="test"),
+            )
+
+            self.assertTrue(dossier_result.ok, dossier_result.errors)
+            self.assertTrue(review_result.ok, review_result.errors)
+            self.assertTrue(result.ok, result.errors)
+            self.assertEqual(_state_counts(db_path), before_counts)
+            assert result.data is not None
+            self.assertEqual(result.data.paper_preflight_contract, "shadow_paper_preflight_v1")
+            self.assertTrue(result.data.wrote_artifact)
+            artifact_path = reports_dir / "shadow_paper_preflight_20260512.json"
+            markdown_path = reports_dir / "shadow_paper_preflight_20260512.md"
+            self.assertTrue(artifact_path.exists())
+            self.assertTrue(markdown_path.exists())
+            artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+            self.assertEqual(artifact["artifact_type"], "shadow_paper_preflight")
+            self.assertEqual(artifact["paper_preflight_contract"], "shadow_paper_preflight_v1")
+            self.assertEqual(artifact["summary"]["status"], "blocked")
+            self.assertEqual(artifact["summary"]["candidate_count"], 2)
+            self.assertEqual(artifact["summary"]["future_paper_task_ready_count"], 0)
+            self.assertFalse(artifact["summary"]["paper_candidate_allowed"])
+            trend = next(
+                item
+                for item in artifact["candidates"]
+                if item["candidate_key"] == "trend_extension_shadow"
+            )
+            self.assertGreaterEqual(trend["readiness_score"], 80)
+            self.assertEqual(trend["evidence_sufficiency"]["status"], "accepted")
+            self.assertEqual(trend["walk_forward_sufficiency"]["status"], "sufficient")
+            self.assertFalse(trend["paper_candidate_allowed"])
+            self.assertFalse(trend["strategy_version_publication_allowed"])
+            self.assertFalse(trend["trade_state_writes_allowed"])
+            self.assertFalse(trend["broker_execution_allowed"])
+            self.assertIn("manual_promotion_approval_required", trend["blockers"])
+            approval_keys = [item["approval_key"] for item in artifact["required_human_approvals"]]
+            self.assertIn("manual_promotion_approval_required", approval_keys)
+            self.assertIn("future_strategy_version_task_required", approval_keys)
+            self.assertIn("broker_execution", artifact["release_boundary"]["blocked_mutation_targets"])
+            self.assertFalse(artifact["safety"]["writes_trade_state"])
+            self.assertFalse(artifact["safety"]["writes_paper_live_behavior"])
+            self.assertFalse(artifact["safety"]["timer_mutated"])
+            artifact_json = json.dumps(artifact, ensure_ascii=False)
+            self.assertNotIn(str(root), artifact_json)
+            review = review_shadow_paper_preflight_artifact(artifact_path)
+            self.assertTrue(review.valid, review.error)
+            self.assertFalse(review.paper_candidate_allowed)
+            self.assertFalse(review.writes_trade_state)
+            self.assertFalse(review.broker_execution_allowed)
+            markdown = markdown_path.read_text(encoding="utf-8")
+            self.assertIn("纸面预检", markdown)
+            self.assertIn("paper_candidate_allowed=false", markdown)
 
     def test_shadow_observation_history_indexes_scorecard_and_dossier_artifacts_read_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

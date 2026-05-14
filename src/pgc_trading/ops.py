@@ -201,6 +201,13 @@ class DailyOpsPreflightResult:
     missing_steps: list[str] = field(default_factory=list)
     warning_steps: list[str] = field(default_factory=list)
     checks: list[DailyOpsStepCheck] = field(default_factory=list)
+    pool_intake_status: str = "not_provided"
+    pool_intake_mode: str | None = None
+    pool_intake_input_count: int = 0
+    pool_intake_added_count: int = 0
+    pool_intake_rejected_count: int = 0
+    pool_intake_dedupe_count: int = 0
+    pool_intake_audit_path: str | None = None
 
     @property
     def ok(self) -> bool:
@@ -218,7 +225,26 @@ class DailyOpsPreflightResult:
             "missing_steps": self.missing_steps,
             "warning_steps": self.warning_steps,
             "checks": [check.to_dict() for check in self.checks],
+            "pool_intake_status": self.pool_intake_status,
+            "pool_intake_mode": self.pool_intake_mode,
+            "pool_intake_input_count": self.pool_intake_input_count,
+            "pool_intake_added_count": self.pool_intake_added_count,
+            "pool_intake_rejected_count": self.pool_intake_rejected_count,
+            "pool_intake_dedupe_count": self.pool_intake_dedupe_count,
+            "pool_intake_audit_path": self.pool_intake_audit_path,
         }
+
+
+@dataclass(frozen=True)
+class DailyOpsPoolIntakeSummary:
+    status: str
+    audit_path: str | None = None
+    mode: str | None = None
+    input_count: int = 0
+    added_count: int = 0
+    rejected_count: int = 0
+    dedupe_count: int = 0
+    detail: str | None = None
 
 
 def build_release_tag(
@@ -280,6 +306,7 @@ def run_daily_ops_preflight(
     checks: list[DailyOpsStepCheck] = []
     duplicate_apply_count = 0
     report_root = reports_dir or Path("reports")
+    pool_intake_summary = _daily_ops_pool_intake_summary(pool_intake_summary_path)
 
     if not path.exists():
         checks.append(DailyOpsStepCheck("database", "blocker", True, f"database not found: {path}"))
@@ -291,6 +318,7 @@ def run_daily_ops_preflight(
             include_market_review=include_market_review,
             duplicate_apply_count=0,
             checks=checks,
+            pool_intake_summary=pool_intake_summary,
         )
 
     checks.append(DailyOpsStepCheck("database", "pass", True, "database exists"))
@@ -307,6 +335,7 @@ def run_daily_ops_preflight(
             include_market_review=include_market_review,
             duplicate_apply_count=0,
             checks=checks,
+            pool_intake_summary=pool_intake_summary,
         )
 
     if pending:
@@ -327,6 +356,7 @@ def run_daily_ops_preflight(
             include_market_review=include_market_review,
             duplicate_apply_count=0,
             checks=checks,
+            pool_intake_summary=pool_intake_summary,
         )
     checks.append(DailyOpsStepCheck("migrations", "pass", True, "migrations current", count=0))
 
@@ -357,7 +387,7 @@ def run_daily_ops_preflight(
         )
 
     checks.append(_daily_ops_duplicate_apply_check(duplicate_apply_count, allow_rerun=allow_rerun))
-    checks.append(_daily_ops_pool_intake_check(pool_intake_summary_path, require_pool_intake=require_pool_intake))
+    checks.append(_daily_ops_pool_intake_check(pool_intake_summary, require_pool_intake=require_pool_intake))
 
     return _daily_ops_result(
         as_of_date=as_of_date,
@@ -367,6 +397,7 @@ def run_daily_ops_preflight(
         include_market_review=include_market_review,
         duplicate_apply_count=duplicate_apply_count,
         checks=checks,
+        pool_intake_summary=pool_intake_summary,
     )
 
 
@@ -531,6 +562,7 @@ def _daily_ops_result(
     include_market_review: bool,
     duplicate_apply_count: int,
     checks: list[DailyOpsStepCheck],
+    pool_intake_summary: DailyOpsPoolIntakeSummary,
 ) -> DailyOpsPreflightResult:
     missing_steps = [check.step for check in checks if check.required_for_apply and check.status == "blocker"]
     warning_steps = [check.step for check in checks if check.status == "warning"]
@@ -545,6 +577,13 @@ def _daily_ops_result(
         missing_steps=missing_steps,
         warning_steps=warning_steps,
         checks=checks,
+        pool_intake_status=pool_intake_summary.status,
+        pool_intake_mode=pool_intake_summary.mode,
+        pool_intake_input_count=pool_intake_summary.input_count,
+        pool_intake_added_count=pool_intake_summary.added_count,
+        pool_intake_rejected_count=pool_intake_summary.rejected_count,
+        pool_intake_dedupe_count=pool_intake_summary.dedupe_count,
+        pool_intake_audit_path=pool_intake_summary.audit_path,
     )
 
 
@@ -710,38 +749,79 @@ def _daily_ops_duplicate_apply_check(duplicate_apply_count: int, *, allow_rerun:
     )
 
 
-def _daily_ops_pool_intake_check(
-    pool_intake_summary_path: Path | None,
-    *,
-    require_pool_intake: bool,
-) -> DailyOpsStepCheck:
+def _daily_ops_pool_intake_summary(pool_intake_summary_path: Path | None) -> DailyOpsPoolIntakeSummary:
     if pool_intake_summary_path is None:
-        status = "blocker" if require_pool_intake else "warning"
-        return DailyOpsStepCheck("pool_intake", status, require_pool_intake, "pool intake summary not provided")
+        return DailyOpsPoolIntakeSummary(status="not_provided")
     path = Path(pool_intake_summary_path)
     if not path.exists():
-        status = "blocker" if require_pool_intake else "warning"
-        return DailyOpsStepCheck("pool_intake", status, require_pool_intake, f"pool intake summary not found: {path}")
+        return DailyOpsPoolIntakeSummary(
+            status="missing",
+            audit_path=str(path),
+            detail=f"pool intake summary not found: {path}",
+        )
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        return DailyOpsStepCheck("pool_intake", "blocker", True, f"pool intake summary unreadable: {exc}")
-    invalid_count = int(payload.get("invalid_count") or 0)
-    added_count = int(payload.get("added_count") or 0)
-    duplicate_count = int(payload.get("duplicate_count") or 0)
-    mode = str(payload.get("mode") or "unknown")
-    detail = f"mode={mode} added={added_count} duplicate={duplicate_count} invalid={invalid_count}"
-    if invalid_count:
-        return DailyOpsStepCheck("pool_intake", "blocker", True, detail, count=added_count)
-    if require_pool_intake and mode != "apply":
+        return DailyOpsPoolIntakeSummary(
+            status="unreadable",
+            audit_path=str(path),
+            detail=f"pool intake summary unreadable: {exc}",
+        )
+    if not isinstance(payload, dict):
+        return DailyOpsPoolIntakeSummary(
+            status="unreadable",
+            audit_path=str(path),
+            detail="pool intake summary must be a JSON object",
+        )
+    return DailyOpsPoolIntakeSummary(
+        status="available",
+        audit_path=str(path),
+        mode=str(payload.get("mode") or "unknown"),
+        input_count=_daily_ops_int_value(payload.get("input_count")),
+        added_count=_daily_ops_int_value(payload.get("added_count")),
+        rejected_count=_daily_ops_int_value(payload.get("invalid_count")),
+        dedupe_count=_daily_ops_int_value(payload.get("duplicate_count")),
+    )
+
+
+def _daily_ops_pool_intake_check(
+    summary: DailyOpsPoolIntakeSummary,
+    *,
+    require_pool_intake: bool,
+) -> DailyOpsStepCheck:
+    if summary.status == "not_provided":
+        status = "blocker" if require_pool_intake else "warning"
+        return DailyOpsStepCheck("pool_intake", status, require_pool_intake, "pool intake summary not provided")
+    if summary.status == "missing":
+        status = "blocker" if require_pool_intake else "warning"
+        return DailyOpsStepCheck("pool_intake", status, require_pool_intake, summary.detail or "pool intake summary missing")
+    if summary.status == "unreadable":
+        return DailyOpsStepCheck("pool_intake", "blocker", True, summary.detail or "pool intake summary unreadable")
+    detail = (
+        f"mode={summary.mode or 'unknown'} "
+        f"input={summary.input_count} "
+        f"added={summary.added_count} "
+        f"duplicate={summary.dedupe_count} "
+        f"invalid={summary.rejected_count}"
+    )
+    if summary.rejected_count:
+        return DailyOpsStepCheck("pool_intake", "blocker", True, detail, count=summary.added_count)
+    if require_pool_intake and summary.mode != "apply":
         return DailyOpsStepCheck(
             "pool_intake",
             "blocker",
             True,
             f"{detail}; apply summary required before daily-pipeline apply",
-            count=added_count,
+            count=summary.added_count,
         )
-    return DailyOpsStepCheck("pool_intake", "pass", require_pool_intake, detail, count=added_count)
+    return DailyOpsStepCheck("pool_intake", "pass", require_pool_intake, detail, count=summary.added_count)
+
+
+def _daily_ops_int_value(value: object) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _daily_ops_pipeline_dry_run_count(conn: sqlite3.Connection, as_of_date: str) -> int:

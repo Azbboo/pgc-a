@@ -116,6 +116,52 @@ class DashboardStaticTest(unittest.TestCase):
         ]:
             self.assertNotIn(phrase, source)
 
+    def test_dashboard_m104_production_visual_contracts_are_static(self) -> None:
+        index = (DASHBOARD_DIR / "index.html").read_text(encoding="utf-8")
+        styles = (DASHBOARD_DIR / "styles.css").read_text(encoding="utf-8")
+        source = "\n".join([index, styles])
+
+        for label in [
+            "全市场复盘",
+            "证据/运维",
+            "影子策略实验室",
+            "20260514-m104-production-qa-2",
+        ]:
+            self.assertIn(label, source)
+        for css_contract in [
+            ".nav-item span:not(.nav-glyph)",
+            ".page-heading > div",
+            "flex-wrap: wrap",
+            ".toolbar > *",
+            ".toolbar button",
+            ".panel-heading > *",
+            ".shadow-review-note-list li",
+            ".market-history-strip__items",
+            "overflow-x: visible",
+            "overflow-wrap: anywhere",
+            "white-space: normal",
+            "Avenir Next",
+            "PingFang SC",
+        ]:
+            self.assertIn(css_contract, styles)
+        for dynamic_translation in [
+            "function localizedInlineText",
+            '["review_ready", "可复核"]',
+            '["experiment registry", "实验登记册"]',
+            '["blocker", "阻断"]',
+            "manual_promotion_approval_required: \"需要人工晋升审批\"",
+            "no_review_ready_candidates: \"暂无可复核候选\"",
+            "shadow_promotion_review_request_v1: \"影子晋升评审申请 v1\"",
+        ]:
+            self.assertIn(dynamic_translation, (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8"))
+        for external_dependency in [
+            "@import url(",
+            "fonts.googleapis.com",
+            "fonts.gstatic.com",
+            "Plus Jakarta Sans",
+        ]:
+            self.assertNotIn(external_dependency, styles)
+
     def test_dashboard_m100_detail_surfaces_translate_dense_structures(self) -> None:
         source = "\n".join(
             [

@@ -3335,6 +3335,9 @@ def _write_evidence_provider_pack_result(
         return
 
     manifest = getattr(data, "manifest", {})
+    qa_summary = getattr(data, "qa_summary", None)
+    if not isinstance(qa_summary, dict) and isinstance(manifest, dict):
+        qa_summary = manifest.get("qa_summary", {})
     stdout.write(f"evidence_pack_status={result.status}\n")
     stdout.write(f"pack_contract={getattr(data, 'pack_contract', 'evidence_provider_pack_v1')}\n")
     stdout.write(f"apply={str(bool(getattr(data, 'apply', False))).lower()}\n")
@@ -3344,6 +3347,7 @@ def _write_evidence_provider_pack_result(
     stdout.write(f"ready_date_count={getattr(data, 'ready_date_count', 0)}\n")
     stdout.write(f"blocking_date_count={getattr(data, 'blocking_date_count', 0)}\n")
     stdout.write(f"provider_file_contracts={_json_compact(manifest.get('provider_file_contracts', []))}\n")
+    stdout.write(f"qa_summary_json={_json_compact(qa_summary or {})}\n")
     stdout.write(f"manifest_json={_json_compact(manifest)}\n")
     manifest_path = getattr(data, "manifest_path", None)
     if manifest_path:
@@ -4522,6 +4526,13 @@ def _write_daily_ops_preflight_result(stdout: TextIO, result: object) -> None:
     stdout.write(f"duplicate_apply_count={getattr(result, 'duplicate_apply_count', 0)}\n")
     stdout.write(f"missing_steps={_display_list(getattr(result, 'missing_steps', []))}\n")
     stdout.write(f"warning_steps={_display_list(getattr(result, 'warning_steps', []))}\n")
+    stdout.write(f"pool_intake_status={getattr(result, 'pool_intake_status', None) or 'none'}\n")
+    stdout.write(f"pool_intake_mode={getattr(result, 'pool_intake_mode', None) or 'none'}\n")
+    stdout.write(f"pool_intake_input_count={getattr(result, 'pool_intake_input_count', 0)}\n")
+    stdout.write(f"pool_intake_added_count={getattr(result, 'pool_intake_added_count', 0)}\n")
+    stdout.write(f"pool_intake_rejected_count={getattr(result, 'pool_intake_rejected_count', 0)}\n")
+    stdout.write(f"pool_intake_dedupe_count={getattr(result, 'pool_intake_dedupe_count', 0)}\n")
+    stdout.write(f"pool_intake_audit_path={getattr(result, 'pool_intake_audit_path', None) or 'none'}\n")
     for check in getattr(result, "checks", []):
         stdout.write(
             "daily_step="

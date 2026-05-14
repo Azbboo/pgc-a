@@ -339,6 +339,9 @@ if [[ "$MODE" == "--apply" ]]; then
   fi
 else
   emit_log_line "duplicate_write_guard=dry_run"
+  if [[ "${DUPLICATE_COUNT:-0}" != "0" ]]; then
+    emit_log_line "post_apply_review=dry_run_allowed"
+  fi
 fi
 
 PREFLIGHT_COMMAND=(

@@ -320,6 +320,35 @@ class OperationalRunbookStaticTest(unittest.TestCase):
         ]:
             self.assertIn(text, source)
 
+    def test_m105_runbook_documents_latest_daily_production_sequence(self) -> None:
+        source = RUNBOOK.read_text(encoding="utf-8")
+
+        for text in [
+            "M105 最新交易日生产执行手册",
+            "resolved_date=YYYYMMDD",
+            "market data missing for resolved_date=20260514",
+            "scripts/backup_remote_pgc_db.sh --dry-run",
+            "python3 scripts/fetch_tushare_market_data.py --end-date S",
+            "data/daily_review_S_intake_source.json",
+            "data/daily_review_S_intake_dry_run.json",
+            "data/daily_review_S_intake_apply.json",
+            "ops daily-preflight --date S --account paper-main",
+            "pool_intake_input_count",
+            "pool_intake_added_count",
+            "pool_intake_rejected_count",
+            "pool_intake_dedupe_count",
+            "post_apply_review=dry_run_allowed",
+            "post-apply report review",
+            "duplicate_write_guard=blocked",
+            "duplicate_apply_blocked",
+            "--allow-rerun",
+            ".pgc-runs/daily-pipeline-S.log",
+            "reports/daily_review_S.md",
+            "reports/daily_review_S.json",
+            "pgc-daily-pipeline.timer",
+        ]:
+            self.assertIn(text, source)
+
     def test_m82_runbook_documents_shadow_visibility_release_gate(self) -> None:
         source = RUNBOOK.read_text(encoding="utf-8")
 
@@ -535,6 +564,7 @@ class OperationalRunbookStaticTest(unittest.TestCase):
             "duplicate_apply_count=",
             "duplicate_write_guard=blocked",
             "duplicate_write_guard=dry_run",
+            "post_apply_review=dry_run_allowed",
             'tee -a "$LOG_FILE"',
         ]:
             self.assertIn(text, pipeline_source)

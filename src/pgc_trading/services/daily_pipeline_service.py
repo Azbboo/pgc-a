@@ -816,7 +816,7 @@ def _initial_operating_summary(
         state="dry_run_ready" if ctx.dry_run else "apply_ready",
         can_run_today=True,
         missing_requirements=[],
-        next_command=_next_daily_command(request, ctx),
+        next_command=_next_daily_command(request, ctx, duplicate_apply_count=duplicate_apply_count),
         duplicate_apply_count=duplicate_apply_count,
     )
 
@@ -853,7 +853,7 @@ def _final_operating_summary(
         state="dry_run_ready",
         can_run_today=True,
         missing_requirements=[],
-        next_command=_next_daily_command(request, ctx),
+        next_command=_next_daily_command(request, ctx, duplicate_apply_count=initial.duplicate_apply_count),
         duplicate_apply_count=initial.duplicate_apply_count,
     )
 
@@ -950,10 +950,22 @@ def _make_operating_summary(
     )
 
 
-def _next_daily_command(request: RunDailyPipelineRequest, ctx: RequestContext) -> str:
+def _next_daily_command(
+    request: RunDailyPipelineRequest,
+    ctx: RequestContext,
+    *,
+    duplicate_apply_count: int = 0,
+) -> str:
     account_arg = request.account_key or f"account-id-{request.account_id}"
     market_arg = " --include-market-review" if request.include_market_review else ""
     if ctx.dry_run:
+        if duplicate_apply_count > 0:
+            return (
+                f"已存在 {duplicate_apply_count} 条 apply 写入；"
+                f"本次 dry-run 仅用于 post-apply report review，"
+                f"复核 reports/daily_review_{request.as_of_date}.md、backup_path 和 ops health；"
+                "如确需重跑写库，先人工核对后显式追加 --allow-rerun"
+            )
         return (
             "./scripts/run_daily_pipeline.sh "
             f"--date {request.as_of_date} --account {account_arg} --operator OPERATOR"

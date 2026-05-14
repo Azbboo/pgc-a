@@ -26,6 +26,7 @@ SHADOW_OBSERVATION_SCORECARD_CONTRACT = "shadow_observation_scorecard_v1"
 SHADOW_OBSERVATION_HISTORY_CONTRACT = "shadow_observation_history_v1"
 SHADOW_PROMOTION_DOSSIER_CONTRACT = "shadow_promotion_dossier_v1"
 SHADOW_PROMOTION_REVIEW_REQUEST_CONTRACT = "shadow_promotion_review_request_v1"
+SHADOW_PAPER_PREFLIGHT_CONTRACT = "shadow_paper_preflight_v1"
 SHADOW_REPLAY_BACKTEST_EVIDENCE_CONTRACT = "shadow_replay_backtest_evidence_v1"
 SHADOW_DECISION_MEMO_CONTRACT = "shadow_decision_memo_v1"
 SHADOW_DECISION_QUEUE_CONTRACT = "shadow_strategy_decision_queue_v1"
@@ -84,6 +85,12 @@ class BuildShadowPromotionDossierRequest:
 
 @dataclass(frozen=True)
 class BuildShadowPromotionReviewRequest:
+    as_of_date: str | None = None
+    output_path: str | None = None
+
+
+@dataclass(frozen=True)
+class BuildShadowPaperPreflightRequest:
     as_of_date: str | None = None
     output_path: str | None = None
 
@@ -189,6 +196,27 @@ class ShadowPromotionReviewRequestResult:
     artifact_path: str | None = None
     markdown_path: str | None = None
     artifact: dict[str, Any] = field(default_factory=dict)
+    active_params_mutated: bool = False
+    wrote_strategy_version: bool = False
+    wrote_strategy_versions: bool = False
+    writes_trade_state: bool = False
+    writes_paper_live_behavior: bool = False
+    timer_mutated: bool = False
+
+
+@dataclass(frozen=True)
+class ShadowPaperPreflightResult:
+    paper_preflight_contract: str = SHADOW_PAPER_PREFLIGHT_CONTRACT
+    generated_at: str = ""
+    db_path: str = ""
+    reports_dir: str = ""
+    as_of_date: str | None = None
+    would_write_artifact: bool = True
+    wrote_artifact: bool = False
+    artifact_path: str | None = None
+    markdown_path: str | None = None
+    artifact: dict[str, Any] = field(default_factory=dict)
+    summary: dict[str, Any] = field(default_factory=dict)
     active_params_mutated: bool = False
     wrote_strategy_version: bool = False
     wrote_strategy_versions: bool = False
@@ -753,6 +781,123 @@ class ShadowObservationService:
                 "candidate_count": str(_int_value(summary.get("candidate_count"), 0)),
                 "review_ready_count": str(_int_value(summary.get("review_ready_count"), 0)),
                 "blocked_count": str(_int_value(summary.get("blocked_count"), 0)),
+                "wrote_artifact": str(wrote_artifact).lower(),
+            },
+        )
+
+    def build_paper_preflight(
+        self,
+        request: BuildShadowPaperPreflightRequest,
+        ctx: RequestContext,
+    ) -> ServiceResult[ShadowPaperPreflightResult]:
+        """Write a manual-only shadow-to-paper preflight package."""
+
+        as_of_date = _compact_history_date(request.as_of_date)
+        if request.as_of_date is not None and as_of_date is None:
+            return ServiceResult(
+                status="validation_failed",
+                request_id=ctx.request_id,
+                data=_empty_shadow_paper_preflight_result(
+                    self.db_path,
+                    self.reports_dir,
+                    request.as_of_date,
+                    status="invalid_date",
+                ),
+                errors=[ServiceError("INVALID_AS_OF_DATE", "as_of_date must be YYYYMMDD or YYYY-MM-DD.")],
+            )
+
+        before_counts = _trade_state_counts(self.db_path)
+        memo_result = self.get_decision_memo(
+            GetShadowDecisionMemoRequest(as_of_date=as_of_date),
+            RequestContext(
+                request_id=ctx.request_id,
+                dry_run=True,
+                operator=ctx.operator,
+                source=ctx.source,
+            ),
+        )
+        after_counts = _trade_state_counts(self.db_path)
+        safety = _shadow_paper_preflight_safety(before_counts, after_counts)
+        if not memo_result.ok or memo_result.data is None:
+            return ServiceResult(
+                status=memo_result.status,
+                request_id=ctx.request_id,
+                data=_empty_shadow_paper_preflight_result(
+                    self.db_path,
+                    self.reports_dir,
+                    as_of_date,
+                    status="source_unavailable",
+                    safety=safety,
+                ),
+                warnings=memo_result.warnings,
+                errors=memo_result.errors,
+                lineage={
+                    "read_only": "true",
+                    "artifact_only": "true",
+                    "wrote_artifact": "false",
+                    "paper_candidate_allowed": "false",
+                },
+            )
+
+        artifact = _portable_artifact_paths(
+            _shadow_paper_preflight_artifact(memo_result.data, safety=safety),
+            self.reports_dir.parent,
+        )
+        preflight_date = str(
+            artifact.get("as_of_date")
+            or as_of_date
+            or datetime.now(timezone.utc).strftime("%Y%m%d")
+        )
+        artifact_path = (
+            Path(request.output_path).expanduser()
+            if request.output_path
+            else self.reports_dir / f"shadow_paper_preflight_{preflight_date}.json"
+        )
+        markdown_path = (
+            artifact_path.with_suffix(".md")
+            if request.output_path
+            else self.reports_dir / f"shadow_paper_preflight_{preflight_date}.md"
+        )
+        wrote_artifact = False
+        if not ctx.dry_run:
+            self.reports_dir.mkdir(parents=True, exist_ok=True)
+            artifact_path.parent.mkdir(parents=True, exist_ok=True)
+            artifact_path.write_text(
+                json.dumps(artifact, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            markdown_path.write_text(_shadow_paper_preflight_markdown(artifact), encoding="utf-8")
+            wrote_artifact = True
+
+        summary = _mapping(artifact.get("summary"))
+        return ServiceResult(
+            status="success",
+            request_id=ctx.request_id,
+            data=ShadowPaperPreflightResult(
+                generated_at=str(artifact.get("generated_at") or datetime.now(timezone.utc).isoformat(timespec="seconds")),
+                db_path=str(self.db_path),
+                reports_dir=str(self.reports_dir),
+                as_of_date=preflight_date,
+                wrote_artifact=wrote_artifact,
+                artifact_path=str(artifact_path) if wrote_artifact else None,
+                markdown_path=str(markdown_path) if wrote_artifact else None,
+                artifact=artifact,
+                summary=summary,
+                active_params_mutated=False,
+                wrote_strategy_version=False,
+                wrote_strategy_versions=False,
+                writes_trade_state=False,
+                writes_paper_live_behavior=False,
+                timer_mutated=False,
+            ),
+            lineage={
+                "as_of_date": preflight_date,
+                "paper_preflight_contract": SHADOW_PAPER_PREFLIGHT_CONTRACT,
+                "candidate_count": str(_int_value(summary.get("candidate_count"), 0)),
+                "future_paper_task_ready_count": str(_int_value(summary.get("future_paper_task_ready_count"), 0)),
+                "paper_candidate_allowed": "false",
+                "read_only": "true",
+                "artifact_only": "true",
                 "wrote_artifact": str(wrote_artifact).lower(),
             },
         )
@@ -3037,6 +3182,379 @@ def _observation_history_safety() -> dict[str, Any]:
     }
 
 
+def _empty_shadow_paper_preflight_result(
+    db_path: Path,
+    reports_dir: Path,
+    as_of_date: str | None,
+    *,
+    status: str,
+    safety: Mapping[str, Any] | None = None,
+) -> ShadowPaperPreflightResult:
+    artifact = {
+        "artifact_type": "shadow_paper_preflight",
+        "paper_preflight_contract": SHADOW_PAPER_PREFLIGHT_CONTRACT,
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "as_of_date": as_of_date,
+        "language": "zh-CN",
+        "status": status,
+        "summary": {
+            "status": status,
+            "candidate_count": 0,
+            "future_paper_task_ready_count": 0,
+            "paper_candidate_allowed": False,
+            "conclusion_zh": "影子到纸面预检源数据不可用；不得进入纸面候选。",
+        },
+        "candidates": [],
+        "required_human_approvals": _shadow_paper_preflight_required_approvals(),
+        "risk_rollback_notes": _shadow_paper_preflight_default_rollback_notes(),
+        "safety": dict(safety or _shadow_paper_preflight_safety({}, {})),
+    }
+    return ShadowPaperPreflightResult(
+        generated_at=str(artifact["generated_at"]),
+        db_path=str(db_path),
+        reports_dir=str(reports_dir),
+        as_of_date=as_of_date,
+        artifact=artifact,
+        summary=_mapping(artifact.get("summary")),
+        active_params_mutated=False,
+        wrote_strategy_version=False,
+        wrote_strategy_versions=False,
+        writes_trade_state=False,
+        writes_paper_live_behavior=False,
+        timer_mutated=False,
+    )
+
+
+def _shadow_paper_preflight_artifact(
+    memo: ShadowDecisionMemoResult,
+    *,
+    safety: Mapping[str, Any],
+) -> dict[str, Any]:
+    decision_queue = _mapping(getattr(memo, "decision_queue", {}))
+    queue_items = _list_mapping(decision_queue.get("items"))
+    candidates = [_shadow_paper_preflight_candidate(item) for item in queue_items]
+    candidates.sort(key=lambda item: (-_int_value(item.get("readiness_score"), 0), str(item.get("candidate_key") or "")))
+    future_ready = [item for item in candidates if item.get("future_paper_task_ready")]
+    top_candidate = candidates[0] if candidates else {}
+    required_approvals = _shadow_paper_preflight_required_approvals()
+    rollback_section = _mapping(_mapping(getattr(memo, "sections", {})).get("风险/回滚边界"))
+    rollback_notes = _unique_texts(
+        [
+            *_list_text(rollback_section.get("items")),
+            *_shadow_paper_preflight_default_rollback_notes(),
+        ]
+    )
+    source_artifacts = _portable_artifact_paths(dict(getattr(memo, "source_artifacts", {}) or {}), Path(getattr(memo, "reports_dir", ".")).parent)
+    summary = {
+        "status": "blocked",
+        "candidate_count": len(candidates),
+        "future_paper_task_ready_count": len(future_ready),
+        "blocked_candidate_count": len(candidates) - len(future_ready),
+        "max_readiness_score": _int_value(top_candidate.get("readiness_score"), 0),
+        "top_candidate_key": top_candidate.get("candidate_key"),
+        "required_human_approval_count": len(required_approvals),
+        "manual_promotion_approval_required": True,
+        "future_strategy_version_task_required": True,
+        "paper_candidate_allowed": False,
+        "promotion_allowed": False,
+        "read_only": True,
+        "artifact_only": True,
+        "conclusion_zh": _shadow_paper_preflight_conclusion(candidates, future_ready),
+    }
+    return {
+        "artifact_type": "shadow_paper_preflight",
+        "paper_preflight_contract": SHADOW_PAPER_PREFLIGHT_CONTRACT,
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "as_of_date": getattr(memo, "as_of_date", None),
+        "language": "zh-CN",
+        "status": "blocked",
+        "summary": summary,
+        "source_artifacts": source_artifacts,
+        "source_memo": {
+            "memo_contract": getattr(memo, "memo_contract", SHADOW_DECISION_MEMO_CONTRACT),
+            "status": getattr(memo, "status", "unknown"),
+            "decision_queue_contract": decision_queue.get("queue_contract"),
+            "promotion_allowed": False,
+        },
+        "required_human_approvals": required_approvals,
+        "risk_rollback_notes": rollback_notes,
+        "candidates": candidates,
+        "release_boundary": _shadow_paper_preflight_release_boundary(),
+        "safety": dict(safety),
+    }
+
+
+def _shadow_paper_preflight_candidate(item: Mapping[str, Any]) -> dict[str, Any]:
+    evidence = _mapping(item.get("evidence_status"))
+    walk = _mapping(item.get("walk_forward_sufficiency"))
+    experiment = _mapping(item.get("experiment_status"))
+    stop_rule = _mapping(item.get("stop_rule"))
+    human_decision = _mapping(item.get("required_human_decision"))
+    promotion_boundary = _mapping(item.get("promotion_boundary"))
+    blockers = _shadow_paper_preflight_candidate_blockers(
+        evidence=evidence,
+        walk=walk,
+        experiment=experiment,
+        stop_rule=stop_rule,
+    )
+    score, components = _shadow_paper_preflight_readiness_score(
+        evidence=evidence,
+        walk=walk,
+        experiment=experiment,
+        stop_rule=stop_rule,
+    )
+    return {
+        "candidate_key": item.get("candidate_key"),
+        "candidate_family": item.get("candidate_family"),
+        "readiness_status": "blocked",
+        "readiness_score": score,
+        "readiness_components": components,
+        "evidence_sufficiency": {
+            **evidence,
+            "sufficient": evidence.get("status") == "accepted",
+            "paper_candidate_allowed": False,
+        },
+        "walk_forward_sufficiency": {**walk, "paper_candidate_allowed": False},
+        "experiment_status": {**experiment, "paper_candidate_allowed": False},
+        "stop_rule_status": {
+            **stop_rule,
+            "paper_candidate_allowed": False,
+        },
+        "required_human_approvals": _shadow_paper_preflight_required_approvals(candidate_key=item.get("candidate_key")),
+        "required_human_decision": {**human_decision, "paper_candidate_allowed": False},
+        "risk_rollback_notes": _shadow_paper_preflight_default_rollback_notes(),
+        "promotion_boundary": _shadow_paper_preflight_candidate_boundary(promotion_boundary),
+        "blockers": blockers,
+        "future_paper_task_ready": False,
+        "paper_candidate_allowed": False,
+        "paper_observation_allowed": False,
+        "strategy_version_publication_allowed": False,
+        "trade_state_writes_allowed": False,
+        "broker_execution_allowed": False,
+        "timer_allowed": False,
+        "summary_zh": (
+            f"{item.get('candidate_key') or 'unknown'} 预检分 {score}/100；"
+            "只能作为后续人工 strategy-version 任务输入，当前不得进入纸面候选。"
+        ),
+    }
+
+
+def _shadow_paper_preflight_candidate_blockers(
+    *,
+    evidence: Mapping[str, Any],
+    walk: Mapping[str, Any],
+    experiment: Mapping[str, Any],
+    stop_rule: Mapping[str, Any],
+) -> list[str]:
+    blockers: list[str] = []
+    if evidence.get("status") != "accepted":
+        blockers.append("evidence_not_accepted")
+    blockers.extend(_list_text(evidence.get("blockers")))
+    if walk.get("status") != "sufficient":
+        blockers.append("walk_forward_insufficient")
+    if experiment.get("status") != "registered":
+        blockers.append("experiment_registry_not_ready")
+    if stop_rule.get("status") != "clear":
+        blockers.append("stop_rules_blocking")
+    blockers.extend(_list_text(stop_rule.get("rule_keys")))
+    blockers.extend(
+        [
+            "manual_promotion_approval_required",
+            "future_strategy_version_task_required",
+            "paper_candidate_authorization_missing",
+            "paper_live_deployment_not_authorized",
+        ]
+    )
+    return _unique_texts(blockers)
+
+
+def _shadow_paper_preflight_readiness_score(
+    *,
+    evidence: Mapping[str, Any],
+    walk: Mapping[str, Any],
+    experiment: Mapping[str, Any],
+    stop_rule: Mapping[str, Any],
+) -> tuple[int, dict[str, Any]]:
+    components = {
+        "accepted_replay_backtest_evidence": 30 if evidence.get("status") == "accepted" else 0,
+        "walk_forward_sufficient": 30 if walk.get("status") == "sufficient" else 0,
+        "experiment_registered": 20 if experiment.get("status") == "registered" else 0,
+        "stop_rules_clear": 10 if stop_rule.get("status") == "clear" else 0,
+        "human_approval_complete": 0,
+    }
+    return int(sum(components.values())), components
+
+
+def _shadow_paper_preflight_required_approvals(candidate_key: object | None = None) -> list[dict[str, Any]]:
+    suffix = f":{candidate_key}" if candidate_key else ""
+    return [
+        {
+            "approval_key": f"manual_promotion_approval_required{suffix}",
+            "status": "required",
+            "required": True,
+            "approval_zh": "人工批准只允许在后续独立任务中记录；本预检不批准晋升。",
+        },
+        {
+            "approval_key": f"future_strategy_version_task_required{suffix}",
+            "status": "required",
+            "required": True,
+            "approval_zh": "若要推进，必须另开 strategy-version proposal/review 任务。",
+        },
+        {
+            "approval_key": f"paper_risk_rollback_confirmation_required{suffix}",
+            "status": "required",
+            "required": True,
+            "approval_zh": "确认 active CPB、交易状态、paper/live 行为、券商执行和 timer 均保持不变。",
+        },
+    ]
+
+
+def _shadow_paper_preflight_default_rollback_notes() -> list[str]:
+    return [
+        "review_ready is not approval",
+        "paper_candidate_allowed=false",
+        "do not create or update strategy_versions, trade_plans, trades, positions, paper/live behavior, broker execution, or timers",
+        "future paper candidate work requires a separate strategy-version proposal/review task",
+    ]
+
+
+def _shadow_paper_preflight_candidate_boundary(boundary: Mapping[str, Any]) -> dict[str, Any]:
+    blocked_targets = _list_text(boundary.get("blocked_mutation_targets"))
+    if not blocked_targets:
+        blocked_targets = _shadow_paper_preflight_blocked_targets()
+    return {
+        **dict(boundary),
+        "paper_candidate_allowed": False,
+        "paper_observation_allowed": False,
+        "promotion_allowed": False,
+        "strategy_version_publication_allowed": False,
+        "trade_state_writes_allowed": False,
+        "broker_execution_allowed": False,
+        "timer_allowed": False,
+        "blocked_mutation_targets": blocked_targets,
+    }
+
+
+def _shadow_paper_preflight_release_boundary() -> dict[str, Any]:
+    return {
+        "status": "blocked",
+        "manual_only": True,
+        "separate_future_task_required": True,
+        "paper_candidate_allowed": False,
+        "paper_observation_allowed": False,
+        "promotion_allowed": False,
+        "strategy_version_publication_allowed": False,
+        "trade_plan_allowed": False,
+        "trade_state_writes_allowed": False,
+        "broker_execution_allowed": False,
+        "timer_allowed": False,
+        "blocked_mutation_targets": _shadow_paper_preflight_blocked_targets(),
+    }
+
+
+def _shadow_paper_preflight_blocked_targets() -> list[str]:
+    return [
+        "active_cpb_params",
+        "strategy_versions",
+        "trade_plans",
+        "trades",
+        "positions",
+        "paper_live_behavior",
+        "broker_execution",
+        "timer_state",
+    ]
+
+
+def _shadow_paper_preflight_conclusion(
+    candidates: list[dict[str, Any]],
+    future_ready: list[dict[str, Any]],
+) -> str:
+    if not candidates:
+        return "没有可评估的 shadow 候选；不得进入纸面候选。"
+    if future_ready:
+        return (
+            f"{len(future_ready)} 个候选可进入后续人工纸面候选讨论，但本预检仍不授权晋升或交易。"
+        )
+    top = candidates[0]
+    return (
+        f"当前 {len(candidates)} 个 shadow 候选均不得进入纸面候选；"
+        f"最高预检分 {top.get('candidate_key')}={top.get('readiness_score')}/100，"
+        "仍需独立人工 strategy-version 任务和风险/回滚确认。"
+    )
+
+
+def _shadow_paper_preflight_safety(
+    before_counts: Mapping[str, int],
+    after_counts: Mapping[str, int],
+) -> dict[str, Any]:
+    changed_tables = [
+        table
+        for table in ("strategy_versions", "trade_plans", "trades", "positions")
+        if before_counts.get(table, 0) != after_counts.get(table, before_counts.get(table, 0))
+    ]
+    return {
+        "read_only": True,
+        "artifact_only": True,
+        "manual_only": True,
+        "paper_preflight_is_not_approval": True,
+        "trade_state_counts_before": dict(before_counts),
+        "trade_state_counts_after": dict(after_counts),
+        "trade_state_counts_unchanged": not changed_tables,
+        "changed_tables": changed_tables,
+        "active_params_mutated": False,
+        "wrote_strategy_version": False,
+        "wrote_strategy_versions": False,
+        "writes_trade_state": False,
+        "writes_paper_live_behavior": False,
+        "paper_live_deployment_changed": False,
+        "broker_execution_allowed": False,
+        "timer_mutated": False,
+        "promotion_allowed": False,
+        "paper_candidate_allowed": False,
+        "paper_observation_allowed": False,
+        "trade_plan_allowed": False,
+    }
+
+
+def _shadow_paper_preflight_markdown(artifact: Mapping[str, Any]) -> str:
+    summary = _mapping(artifact.get("summary"))
+    lines = [
+        f"# 影子到纸面预检 Shadow Paper Preflight {artifact.get('as_of_date') or ''}".rstrip(),
+        "",
+        "- contract: shadow_paper_preflight_v1",
+        "- 结论：本预检只生成手动晋级材料，不授权纸面候选、交易计划、paper/live 行为或 timer。",
+        f"- 状态：{summary.get('status') or 'blocked'}",
+        f"- 候选数：{summary.get('candidate_count', 0)}",
+        f"- 可进入后续人工纸面任务：{summary.get('future_paper_task_ready_count', 0)}",
+        f"- paper_candidate_allowed={str(bool(summary.get('paper_candidate_allowed'))).lower()}",
+        f"- 中文结论：{summary.get('conclusion_zh') or '-'}",
+        "",
+        "## 候选预检",
+    ]
+    for candidate in _list_mapping(artifact.get("candidates")):
+        blockers = ", ".join(_list_text(candidate.get("blockers"))[:5]) or "none"
+        lines.append(
+            f"- {candidate.get('candidate_key')}: score={candidate.get('readiness_score')}/100; "
+            f"evidence={_mapping(candidate.get('evidence_sufficiency')).get('status')}; "
+            f"walk_forward={_mapping(candidate.get('walk_forward_sufficiency')).get('status')}; "
+            f"stop_rule={_mapping(candidate.get('stop_rule_status')).get('status')}; "
+            f"paper_candidate_allowed=false; blockers={blockers}"
+        )
+    if not _list_mapping(artifact.get("candidates")):
+        lines.append("- none")
+    lines.extend(["", "## 必需人工批准"])
+    for approval in _list_mapping(artifact.get("required_human_approvals")):
+        lines.append(f"- {approval.get('approval_key')}: {approval.get('status')} - {approval.get('approval_zh')}")
+    lines.extend(["", "## 风险 / 回滚"])
+    for note in _list_text(artifact.get("risk_rollback_notes")):
+        lines.append(f"- {note}")
+    lines.extend(["", "## 禁止修改"])
+    for target in _list_text(_mapping(artifact.get("release_boundary")).get("blocked_mutation_targets")):
+        lines.append(f"- {target}")
+    lines.append("")
+    return "\n".join(lines)
+
+
 def _empty_dossier(as_of_date: str | None) -> ShadowPromotionDossierResult:
     return ShadowPromotionDossierResult(
         generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -3271,8 +3789,12 @@ def _build_shadow_decision_memo_result(
     source_artifacts = {
         "promotion_review_request": _optional_text(_mapping(promotion.get("source_artifacts")).get("review_request_json"))
         or _optional_text(promotion.get("artifact_path")),
-        "shadow_snapshot_monitor": _optional_text(_mapping(snapshot.get("source_artifacts")).get("monitor_artifact")),
+        "shadow_snapshot_monitor": _optional_text(_mapping(snapshot.get("source_artifacts")).get("monitor_json"))
+        or _optional_text(_mapping(snapshot.get("source_artifacts")).get("monitor_artifact")),
         "shadow_snapshot_preflight": _optional_text(
+            _mapping(snapshot.get("source_artifacts")).get("promotion_preflight_json")
+        )
+        or _optional_text(
             _mapping(snapshot.get("source_artifacts")).get("promotion_preflight_artifact")
         ),
         "threshold_calibration": _optional_text(calibration.get("artifact_path")),

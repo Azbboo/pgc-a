@@ -121,6 +121,23 @@ class DailyPipelineServiceTest(unittest.TestCase):
             self.assertIn("duplicate_apply_review", second.data.missing_requirements)
             self.assertGreater(second.data.duplicate_apply_count, 0)
 
+            post_apply_review = service.run_daily_pipeline(
+                request,
+                RequestContext(
+                    request_id="pipeline-post-apply-dry-run",
+                    idempotency_key="daily-pipeline:test",
+                    dry_run=True,
+                    operator="tester",
+                    source="test",
+                ),
+            )
+
+            self.assertTrue(post_apply_review.ok)
+            self.assertEqual(post_apply_review.data.daily_operating_state, "dry_run_ready")
+            self.assertGreater(post_apply_review.data.duplicate_apply_count, 0)
+            self.assertIn("post-apply report review", post_apply_review.data.next_command)
+            self.assertIn("--allow-rerun", post_apply_review.data.next_command)
+
             rerun_request = RunDailyPipelineRequest(
                 as_of_date=AS_OF_DATE,
                 account_key=PAPER_ACCOUNT_KEY,

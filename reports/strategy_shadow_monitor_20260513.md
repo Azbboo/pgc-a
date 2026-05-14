@@ -10,6 +10,7 @@
 - Promotion preflight：blocked；候选 5 类，blocker 23 项，全部仍为 artifact-only。
 - 方向判断可以继续观察，但 paper/proposal/promotion 都必须等 evidence gate 显式清空。
 - 决策队列：blocked；experiment registry=available；候选 5 个，仍不允许晋升。
+- 纸面预检：blocked；可进入后续人工纸面任务 0 个；paper_candidate_allowed=false。
 
 ## 昨日影子候选今日表现
 
@@ -59,6 +60,17 @@
 | low_price_momentum_shadow | accepted | sufficient | registered | stop_if_replay_evidence_not_accepted, stop_if_sample_size_below_required, stop_if_metric_completeness_fails | 20260514 |
 | preconfirm_watchlist | accepted | sufficient | registered | stop_if_replay_evidence_not_accepted, stop_if_sample_size_below_required, stop_if_metric_completeness_fails | 20260514 |
 | pullback_dip_buy | accepted | insufficient | registered | stop_if_replay_evidence_not_accepted, stop_if_sample_size_below_required, stop_if_metric_completeness_fails | 20260514 |
+
+## 手动纸面预检
+
+- 结论：当前 5 个 shadow 候选均不得进入纸面候选；最高预检分 breakout_pressure_shadow=80/100，仍需独立人工 strategy-version 任务和风险/回滚确认。
+| 候选 | 预检分 | 证据 | Walk-forward | Stop rules | 纸面候选 |
+| --- | --- | --- | --- | --- | --- |
+| breakout_pressure_shadow | 80 | accepted | sufficient | blocking | false |
+| low_price_momentum_shadow | 80 | accepted | sufficient | blocking | false |
+| preconfirm_watchlist | 80 | accepted | sufficient | blocking | false |
+| trend_extension_shadow | 80 | accepted | sufficient | blocking | false |
+| pullback_dip_buy | 50 | accepted | insufficient | blocking | false |
 
 ## 昨日各桶 Top1
 

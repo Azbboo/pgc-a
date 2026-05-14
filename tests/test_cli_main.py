@@ -306,10 +306,22 @@ class _FakeEvidenceProviderPackData:
     date_count: int = 2
     ready_date_count: int = 1
     blocking_date_count: int = 1
+    qa_summary: dict[str, object] = field(
+        default_factory=lambda: {
+            "status": "needs_review",
+            "remaining_gap_count": 1,
+            "provider_files_needed": [{"kind": "agent_external", "section": "news"}],
+        }
+    )
     manifest: dict[str, object] = field(
         default_factory=lambda: {
             "pack_contract": "evidence_provider_pack_v1",
             "provider_file_contracts": ["market_external_v1", "agent_external_v1"],
+            "qa_summary": {
+                "status": "needs_review",
+                "remaining_gap_count": 1,
+                "provider_files_needed": [{"kind": "agent_external", "section": "news"}],
+            },
             "groups": [
                 {"kind": "market_external"},
                 {"kind": "agent_external"},
@@ -1270,6 +1282,8 @@ class CliMainTest(unittest.TestCase):
         self.assertIn("output_dir=none", output)
         self.assertIn("source_file_count=3", output)
         self.assertIn('provider_file_contracts=["market_external_v1","agent_external_v1"]', output)
+        self.assertIn("qa_summary_json=", output)
+        self.assertIn('"remaining_gap_count":1', output)
         self.assertIn("manifest_json=", output)
 
     def test_ops_evidence_pack_apply_mode_uses_write_context(self) -> None:
@@ -1720,6 +1734,8 @@ class CliMainTest(unittest.TestCase):
             self.assertIn("daily_step=market_data status=blocker", output)
             self.assertIn("daily_step=pool_intake status=blocker", output)
             self.assertIn("duplicate_apply_count=0", output)
+            self.assertIn("pool_intake_status=missing", output)
+            self.assertIn(f"pool_intake_audit_path={summary}", output)
 
     def test_ops_daily_preflight_passes_when_required_apply_inputs_exist(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1759,6 +1775,10 @@ class CliMainTest(unittest.TestCase):
             output = stdout.getvalue()
             self.assertIn("daily_preflight_status=pass", output)
             self.assertIn("missing_steps=none", output)
+            self.assertIn("pool_intake_status=available", output)
+            self.assertIn("pool_intake_mode=apply", output)
+            self.assertIn("pool_intake_added_count=1", output)
+            self.assertIn(f"pool_intake_audit_path={summary}", output)
             self.assertIn("daily_step=pool_intake status=pass", output)
             self.assertIn("daily_step=report_refresh status=pass", output)
 

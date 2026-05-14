@@ -1,0 +1,89 @@
+{
+  "artifact_type": "shadow_replay_backtest_evidence",
+  "as_of_date": "20260514",
+  "evidence_contract": "shadow_replay_backtest_evidence_v1",
+  "generated_at": "2026-05-14T10:54:52+00:00",
+  "provider": "pgc_shadow_replay_backtest_evidence_producer_v1",
+  "results": [
+    {
+      "as_of_date": "20260514",
+      "candidate_family": "shadow_bucket",
+      "candidate_key": "breakout_pressure_shadow",
+      "date_range": {
+        "end_date": "20260514",
+        "start_date": "20260413"
+      },
+      "generation": {
+        "advisory_only": true,
+        "blockers": [],
+        "missing_market_bar_count": 0,
+        "partial_horizon_count": 4,
+        "promotion_allowed": false,
+        "source_kind": "shadow_monitor_walk_forward_market_bars",
+        "source_row_count": 20,
+        "status": "generated",
+        "t1_sample_size": 20,
+        "t5_sample_size": 16
+      },
+      "metrics": {
+        "max_drawdown_pct": -15.66,
+        "source_row_count": 20,
+        "t1_close_mean_pct": 0.45,
+        "t1_close_win_rate_pct": 65.0,
+        "t1_high_mean_pct": 3.21,
+        "t1_sample_size": 20,
+        "t5_close_mean_pct": 8.25,
+        "t5_close_win_rate_pct": 56.25,
+        "t5_sample_size": 16
+      },
+      "no_future_boundary": {
+        "data_cutoff_date": "20260514",
+        "latest_market_date": "20260514",
+        "max_input_date": "20260514",
+        "passed": true
+      },
+      "provider": "pgc_shadow_replay_backtest_evidence_producer_v1",
+      "required_sample_size": 20,
+      "safety": {
+        "active_params_mutated": false,
+        "advisory_only": true,
+        "artifact_only": true,
+        "paper_live_deployment_changed": false,
+        "paper_observation_allowed": false,
+        "promotion_allowed": false,
+        "read_only": true,
+        "timer_mutated": false,
+        "writes_paper_live_behavior": false,
+        "writes_trade_state": false,
+        "wrote_strategy_version": false,
+        "wrote_strategy_versions": false
+      },
+      "sample_size": 20,
+      "source_artifacts": [],
+      "source_hash": "d6a01524075e80f625e3885a294dbaea7050fea050847484d08cf0818b2dd625"
+    }
+  ],
+  "safety": {
+    "active_params_mutated": false,
+    "advisory_only": true,
+    "artifact_only": true,
+    "paper_live_deployment_changed": false,
+    "paper_observation_allowed": false,
+    "promotion_allowed": false,
+    "read_only": true,
+    "timer_mutated": false,
+    "writes_paper_live_behavior": false,
+    "writes_trade_state": false,
+    "wrote_strategy_version": false,
+    "wrote_strategy_versions": false
+  },
+  "source_monitor_path": "reports/strategy_shadow_monitor_20260514.json",
+  "summary": {
+    "advisory_only": true,
+    "candidate_count": 1,
+    "candidate_key": "breakout_pressure_shadow",
+    "generation_blockers": [],
+    "promotion_allowed": false,
+    "required_sample_size": 20
+  }
+}

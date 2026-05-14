@@ -23,6 +23,10 @@ from pgc_trading.services.market_external_data_service import (
 
 
 EVIDENCE_PROVIDER_PACK_CONTRACT = "evidence_provider_pack_v1"
+MARKET_PROVIDER_PACK_REQUIRED_SECTIONS = ("market", "sector", "stock", "news", "sentiment")
+AGENT_PROVIDER_PACK_REQUIRED_SECTIONS = ("fundamental", "announcement", "news", "sentiment")
+PACK_QA_CLOSED_STATES = {"available", "unavailable"}
+PACK_QA_REVIEW_STATES = {"partial", "stale", "duplicate", "invalid", "source-hash-mismatch"}
 
 
 @dataclass(frozen=True)
@@ -45,6 +49,7 @@ class EvidenceProviderPackResult:
     ready_date_count: int = 0
     blocking_date_count: int = 0
     groups: list[dict[str, Any]] = field(default_factory=list)
+    qa_summary: dict[str, Any] = field(default_factory=dict)
     manifest: dict[str, Any] = field(default_factory=dict)
     manifest_path: str | None = None
     copied_files: list[str] = field(default_factory=list)
@@ -124,6 +129,7 @@ class EvidenceProviderPackService:
             output_dir,
             ctx,
             group_results,
+            errors=errors,
             apply=not ctx.dry_run,
         )
 
@@ -141,6 +147,7 @@ class EvidenceProviderPackService:
                     ready_date_count=manifest["ready_date_count"],
                     blocking_date_count=manifest["blocking_date_count"],
                     groups=group_results,
+                    qa_summary=manifest["qa_summary"],
                     manifest=manifest,
                 ),
                 errors=errors,
@@ -180,6 +187,7 @@ class EvidenceProviderPackService:
                 ready_date_count=manifest["ready_date_count"],
                 blocking_date_count=manifest["blocking_date_count"],
                 groups=group_results,
+                qa_summary=manifest["qa_summary"],
                 manifest=manifest,
                 manifest_path=str(manifest_path),
                 copied_files=copied_files,
@@ -213,6 +221,7 @@ class EvidenceProviderPackService:
             ready_date_count=built_manifest["ready_date_count"],
             blocking_date_count=built_manifest["blocking_date_count"],
             groups=groups or [],
+            qa_summary=built_manifest["qa_summary"],
             manifest=built_manifest,
         )
 
@@ -230,11 +239,13 @@ def _build_pack_manifest(
     groups: Sequence[dict[str, Any]],
     *,
     apply: bool,
+    errors: Sequence[ServiceError] = (),
 ) -> dict[str, Any]:
     source_file_count = sum(group.get("source_file_count", 0) for group in groups)
     date_count = sum(group.get("date_count", 0) for group in groups)
     ready_date_count = sum(len(group.get("ready_dates", [])) for group in groups)
     blocking_date_count = sum(len(group.get("blocking_dates", [])) for group in groups)
+    qa_summary = _build_pack_qa_summary(groups, errors)
     return {
         "pack_contract": EVIDENCE_PROVIDER_PACK_CONTRACT,
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -251,6 +262,7 @@ def _build_pack_manifest(
         "date_count": date_count,
         "ready_date_count": ready_date_count,
         "blocking_date_count": blocking_date_count,
+        "qa_summary": qa_summary,
         "provider_file_contracts": [
             group["provider_file_contract"]
             for group in groups
@@ -271,12 +283,14 @@ def _market_group_manifest(
         return {
             "kind": "market_external",
             "provider_file_contract": "market_external_v1",
+            "source_files": [str(path) for path in source_files],
             "source_file_count": len(source_files),
             "date_count": 0,
             "ready_dates": [],
             "blocking_dates": [],
             "coverage_qa": {},
             "date_results": [],
+            "invalid_records": [],
         }
 
     coverage_qa = dict(getattr(result, "coverage_qa", {}))
@@ -309,12 +323,14 @@ def _market_group_manifest(
     return {
         "kind": "market_external",
         "provider_file_contract": getattr(result, "provider_file_contract", "market_external_v1"),
+        "source_files": [str(path) for path in source_files],
         "source_file_count": len(source_files),
         "date_count": getattr(result, "date_count", len(date_results)),
         "ready_dates": coverage_qa.get("ready_dates", []),
         "blocking_dates": coverage_qa.get("blocking_dates", []),
         "coverage_qa": coverage_qa,
         "date_results": date_results,
+        "invalid_records": _invalid_record_entries(getattr(result, "invalid_records", [])),
     }
 
 
@@ -329,12 +345,14 @@ def _agent_group_manifest(
         return {
             "kind": "agent_external",
             "provider_file_contract": "agent_external_v1",
+            "source_files": [str(path) for path in source_files],
             "source_file_count": len(source_files),
             "date_count": 0,
             "ready_dates": [],
             "blocking_dates": [],
             "coverage_qa": {},
             "date_results": [],
+            "invalid_records": [],
         }
 
     coverage_qa = dict(getattr(result, "coverage_qa", {}))
@@ -367,13 +385,352 @@ def _agent_group_manifest(
     return {
         "kind": "agent_external",
         "provider_file_contract": getattr(result, "provider_file_contract", "agent_external_v1"),
+        "source_files": [str(path) for path in source_files],
         "source_file_count": len(source_files),
         "date_count": getattr(result, "date_count", len(date_results)),
         "ready_dates": coverage_qa.get("ready_dates", []),
         "blocking_dates": coverage_qa.get("blocking_dates", []),
         "coverage_qa": coverage_qa,
         "date_results": date_results,
+        "invalid_records": _invalid_record_entries(getattr(result, "invalid_records", [])),
     }
+
+
+def _build_pack_qa_summary(
+    groups: Sequence[dict[str, Any]],
+    errors: Sequence[ServiceError],
+) -> dict[str, Any]:
+    closed_gaps: list[dict[str, Any]] = []
+    remaining_gaps: list[dict[str, Any]] = []
+    provider_files_needing_review: list[dict[str, Any]] = []
+    provider_files_needed: list[dict[str, Any]] = []
+    ready_dates: set[str] = set()
+    blocking_dates: set[str] = set()
+
+    for group in groups:
+        kind = str(group.get("kind") or "unknown")
+        ready_dates.update(_string_values(group.get("ready_dates")))
+        blocking_dates.update(_string_values(group.get("blocking_dates")))
+        source_files = _string_values(group.get("source_files"))
+
+        for invalid_record in _mapping_values(group.get("invalid_records")):
+            gap = {
+                "kind": kind,
+                "as_of_date": str(invalid_record.get("as_of_date") or "unknown"),
+                "section": str(invalid_record.get("field") or "record"),
+                "state": "invalid",
+                "reason": str(invalid_record.get("code") or "VALIDATION_ERROR"),
+                "message": str(invalid_record.get("message") or ""),
+            }
+            _append_unique(remaining_gaps, gap)
+            for source_file in source_files:
+                _append_unique(
+                    provider_files_needing_review,
+                    {
+                        "kind": kind,
+                        "as_of_date": gap["as_of_date"],
+                        "source_file": source_file,
+                        "state": "invalid",
+                        "reason": gap["reason"],
+                    },
+                )
+
+        for date_result in _mapping_values(group.get("date_results")):
+            as_of_date = str(date_result.get("as_of_date") or "unknown")
+            result_source_files = [
+                str(entry.get("source_file"))
+                for entry in _mapping_values(date_result.get("source_files"))
+                if entry.get("source_file")
+            ] or source_files
+            coverage_summary = _mapping(date_result.get("coverage_summary"))
+            coverage_details = _mapping(date_result.get("coverage_details"))
+            required_sections = (
+                MARKET_PROVIDER_PACK_REQUIRED_SECTIONS
+                if kind == "market_external"
+                else AGENT_PROVIDER_PACK_REQUIRED_SECTIONS
+            )
+
+            for section in required_sections:
+                state = _coverage_section_state(kind, coverage_summary, section)
+                gap = {"kind": kind, "as_of_date": as_of_date, "section": section, "state": state}
+                if state in PACK_QA_CLOSED_STATES:
+                    _append_unique(closed_gaps, gap)
+                else:
+                    _append_unique(remaining_gaps, gap)
+                    if state == "missing":
+                        _append_unique(
+                            provider_files_needed,
+                            {
+                                "kind": kind,
+                                "as_of_date": as_of_date,
+                                "section": section,
+                                "reason": "missing_provider_section",
+                            },
+                        )
+                    elif state in PACK_QA_REVIEW_STATES:
+                        _append_review_files(
+                            provider_files_needing_review,
+                            kind=kind,
+                            as_of_date=as_of_date,
+                            source_files=result_source_files,
+                            state=state,
+                            reason=f"{section}_{state}",
+                        )
+
+            _append_freshness_gaps(
+                kind,
+                as_of_date,
+                coverage_summary,
+                remaining_gaps,
+                provider_files_needing_review,
+                result_source_files,
+            )
+            duplicate_count = _int_value(
+                date_result.get("duplicate_count")
+                or coverage_details.get("duplicate_count")
+                or coverage_summary.get("duplicate_count")
+            )
+            if duplicate_count:
+                _append_unique(
+                    remaining_gaps,
+                    {
+                        "kind": kind,
+                        "as_of_date": as_of_date,
+                        "section": "duplicates",
+                        "state": "duplicate",
+                        "count": duplicate_count,
+                    },
+                )
+                _append_review_files(
+                    provider_files_needing_review,
+                    kind=kind,
+                    as_of_date=as_of_date,
+                    source_files=result_source_files,
+                    state="duplicate",
+                    reason="duplicate_source_hash",
+                )
+            invalid_count = _int_value(date_result.get("invalid_count", 0))
+            if invalid_count:
+                _append_unique(
+                    remaining_gaps,
+                    {
+                        "kind": kind,
+                        "as_of_date": as_of_date,
+                        "section": "invalid_records",
+                        "state": "invalid",
+                        "count": invalid_count,
+                    },
+                )
+                _append_review_files(
+                    provider_files_needing_review,
+                    kind=kind,
+                    as_of_date=as_of_date,
+                    source_files=result_source_files,
+                    state="invalid",
+                    reason="invalid_records",
+                )
+
+            for unavailable_source in _mapping_values(date_result.get("unavailable_sources")):
+                section = _unavailable_section(kind, unavailable_source)
+                _append_unique(
+                    closed_gaps,
+                    {
+                        "kind": kind,
+                        "as_of_date": as_of_date,
+                        "section": section,
+                        "state": "unavailable",
+                        "provider": str(unavailable_source.get("provider") or "unknown"),
+                        "reason": str(unavailable_source.get("reason") or "provider_unavailable"),
+                    },
+                )
+
+    if errors:
+        for group in groups:
+            if not _mapping_values(group.get("invalid_records")) and _mapping_values(group.get("date_results")):
+                continue
+            kind = str(group.get("kind") or "unknown")
+            for source_file in _string_values(group.get("source_files")):
+                _append_unique(
+                    provider_files_needing_review,
+                    {
+                        "kind": kind,
+                        "as_of_date": "unknown",
+                        "source_file": source_file,
+                        "state": "invalid",
+                        "reason": "provider_pack_validation_failed",
+                    },
+                )
+
+    validation_errors = [
+        {
+            "code": error.code,
+            "message": error.message,
+            "severity": error.severity,
+        }
+        for error in errors
+    ]
+    status = "ready" if not remaining_gaps and not provider_files_needing_review and not validation_errors else "needs_review"
+    return {
+        "status": status,
+        "closed_gap_count": len(closed_gaps),
+        "remaining_gap_count": len(remaining_gaps),
+        "review_file_count": len(provider_files_needing_review),
+        "needed_file_count": len(provider_files_needed),
+        "ready_dates": sorted(ready_dates),
+        "blocking_dates": sorted(blocking_dates),
+        "closed_gaps": closed_gaps,
+        "remaining_gaps": remaining_gaps,
+        "provider_files_needing_review": provider_files_needing_review,
+        "provider_files_needed": provider_files_needed,
+        "validation_errors": validation_errors,
+        "safety": {
+            "reviewed_files_only": True,
+            "live_fetches": False,
+            "writes_trade_state": False,
+            "writes_strategy_state": False,
+        },
+    }
+
+
+def _coverage_section_state(kind: str, coverage_summary: Mapping[str, Any], section: str) -> str:
+    value = coverage_summary.get(section)
+    if kind == "market_external" and section == "news" and value is None:
+        value = coverage_summary.get("announcement")
+    state = str(value or "missing").strip().lower()
+    if state in {"available", "unavailable", "missing", "partial", "stale", "duplicate"}:
+        return state
+    if state in {"fresh", "none"}:
+        return "available"
+    return "missing"
+
+
+def _append_freshness_gaps(
+    kind: str,
+    as_of_date: str,
+    coverage_summary: Mapping[str, Any],
+    remaining_gaps: list[dict[str, Any]],
+    provider_files_needing_review: list[dict[str, Any]],
+    source_files: Sequence[str],
+) -> None:
+    freshness = coverage_summary.get("freshness")
+    if isinstance(freshness, Mapping):
+        for scope, raw_state in sorted(freshness.items()):
+            state = str(raw_state or "").strip().lower()
+            if state in {"stale", "partial"}:
+                _append_unique(
+                    remaining_gaps,
+                    {
+                        "kind": kind,
+                        "as_of_date": as_of_date,
+                        "section": f"freshness:{scope}",
+                        "state": state,
+                    },
+                )
+                _append_review_files(
+                    provider_files_needing_review,
+                    kind=kind,
+                    as_of_date=as_of_date,
+                    source_files=source_files,
+                    state=state,
+                    reason=f"freshness_{scope}_{state}",
+                )
+        return
+    state = str(freshness or "").strip().lower()
+    if state in {"stale", "partial"}:
+        _append_unique(
+            remaining_gaps,
+            {
+                "kind": kind,
+                "as_of_date": as_of_date,
+                "section": "freshness",
+                "state": state,
+            },
+        )
+        _append_review_files(
+            provider_files_needing_review,
+            kind=kind,
+            as_of_date=as_of_date,
+            source_files=source_files,
+            state=state,
+            reason=f"freshness_{state}",
+        )
+
+
+def _append_review_files(
+    provider_files_needing_review: list[dict[str, Any]],
+    *,
+    kind: str,
+    as_of_date: str,
+    source_files: Sequence[str],
+    state: str,
+    reason: str,
+) -> None:
+    for source_file in source_files:
+        _append_unique(
+            provider_files_needing_review,
+            {
+                "kind": kind,
+                "as_of_date": as_of_date,
+                "source_file": source_file,
+                "state": state,
+                "reason": reason,
+            },
+        )
+
+
+def _unavailable_section(kind: str, unavailable_source: Mapping[str, Any]) -> str:
+    if kind == "market_external":
+        return str(
+            unavailable_source.get("item_type")
+            or unavailable_source.get("scope_type")
+            or unavailable_source.get("scope")
+            or "unknown"
+        )
+    return str(unavailable_source.get("item_type") or unavailable_source.get("category") or "unknown")
+
+
+def _mapping(value: object) -> Mapping[str, Any]:
+    return value if isinstance(value, Mapping) else {}
+
+
+def _mapping_values(value: object) -> list[Mapping[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, Mapping)]
+
+
+def _string_values(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if item is not None and str(item)]
+
+
+def _invalid_record_entries(invalid_records: object) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    if not isinstance(invalid_records, list):
+        return entries
+    for issue in invalid_records:
+        entries.append(
+            {
+                "index": getattr(issue, "index", None),
+                "field": getattr(issue, "field", None),
+                "code": getattr(issue, "code", "VALIDATION_ERROR"),
+                "message": getattr(issue, "message", ""),
+            }
+        )
+    return entries
+
+
+def _append_unique(entries: list[dict[str, Any]], entry: dict[str, Any]) -> None:
+    if entry not in entries:
+        entries.append(entry)
+
+
+def _int_value(value: object) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _source_file_entries(

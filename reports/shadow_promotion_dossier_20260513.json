@@ -139,11 +139,11 @@
       "review_status": "blocked",
       "sample_size": 20,
       "source_artifacts": [
+        "reports/strategy_shadow_backtest_20260401_20260508.json",
         "reports/strategy_shadow_monitor_20260513.json",
         "reports/strategy_shadow_monitor_20260513.md",
         "reports/strategy_shadow_promotion_preflight_20260513.json",
         "reports/strategy_shadow_promotion_preflight_20260513.md",
-        "reports/strategy_shadow_backtest_20260401_20260508.json",
         "reports/strategy_shadow_review_20260511.json"
       ]
     },
@@ -284,11 +284,11 @@
       "review_status": "blocked",
       "sample_size": 20,
       "source_artifacts": [
+        "reports/strategy_shadow_backtest_20260401_20260508.json",
         "reports/strategy_shadow_monitor_20260513.json",
         "reports/strategy_shadow_monitor_20260513.md",
         "reports/strategy_shadow_promotion_preflight_20260513.json",
         "reports/strategy_shadow_promotion_preflight_20260513.md",
-        "reports/strategy_shadow_backtest_20260401_20260508.json",
         "reports/strategy_shadow_review_20260511.json"
       ]
     },
@@ -429,11 +429,11 @@
       "review_status": "blocked",
       "sample_size": 20,
       "source_artifacts": [
+        "reports/strategy_shadow_backtest_20260401_20260508.json",
         "reports/strategy_shadow_monitor_20260513.json",
         "reports/strategy_shadow_monitor_20260513.md",
         "reports/strategy_shadow_promotion_preflight_20260513.json",
         "reports/strategy_shadow_promotion_preflight_20260513.md",
-        "reports/strategy_shadow_backtest_20260401_20260508.json",
         "reports/strategy_shadow_review_20260511.json"
       ]
     },
@@ -574,14 +574,14 @@
       "review_status": "blocked",
       "sample_size": 29,
       "source_artifacts": [
-        "reports/strategy_shadow_monitor_20260513.json",
-        "reports/strategy_shadow_monitor_20260513.md",
-        "reports/strategy_shadow_promotion_preflight_20260513.json",
-        "reports/strategy_shadow_promotion_preflight_20260513.md",
         "data/preconfirm_watchlist_backtest_summary.csv",
         "data/preconfirm_watchlist_backtest_trades.csv",
         "reports/preconfirm_watchlist_backtest.json",
-        "reports/preconfirm_watchlist_backtest.md"
+        "reports/preconfirm_watchlist_backtest.md",
+        "reports/strategy_shadow_monitor_20260513.json",
+        "reports/strategy_shadow_monitor_20260513.md",
+        "reports/strategy_shadow_promotion_preflight_20260513.json",
+        "reports/strategy_shadow_promotion_preflight_20260513.md"
       ]
     },
     {
@@ -721,16 +721,16 @@
       "review_status": "blocked",
       "sample_size": 105,
       "source_artifacts": [
+        "reports/pgc_pullback_dip_buy.json",
         "reports/strategy_shadow_monitor_20260513.json",
         "reports/strategy_shadow_monitor_20260513.md",
         "reports/strategy_shadow_promotion_preflight_20260513.json",
-        "reports/strategy_shadow_promotion_preflight_20260513.md",
-        "reports/pgc_pullback_dip_buy.json"
+        "reports/strategy_shadow_promotion_preflight_20260513.md"
       ]
     }
   ],
   "dossier_contract": "shadow_promotion_dossier_v1",
-  "generated_at": "2026-05-14T01:21:16+00:00",
+  "generated_at": "2026-05-14T07:56:41+00:00",
   "next_trade_date": "20260514",
   "release_gate": {
     "active_params_mutated": false,

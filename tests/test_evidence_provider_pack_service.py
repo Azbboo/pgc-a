@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 from pgc_trading.services.common import RequestContext
+from pgc_trading.services.agent_external_data_service import build_agent_external_source_hash
 from pgc_trading.services.evidence_provider_pack_service import (
     BuildEvidenceProviderPackRequest,
     EvidenceProviderPackService,
@@ -56,6 +57,9 @@ class EvidenceProviderPackServiceTest(unittest.TestCase):
                 result.data.manifest["groups"][0]["date_results"][0]["source_files"][0]["source_file_sha256"],
                 self._sha256(market_file),
             )
+            self.assertIn("qa_summary", result.data.manifest)
+            self.assertEqual(result.data.qa_summary, result.data.manifest["qa_summary"])
+            self.assertFalse(result.data.qa_summary["safety"]["live_fetches"])
 
     def test_apply_writes_manifest_and_copies_reviewed_inputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -95,6 +99,148 @@ class EvidenceProviderPackServiceTest(unittest.TestCase):
                 manifest["groups"][1]["date_results"][0]["source_files"][0]["source_file_sha256"],
                 self._sha256(agent_file),
             )
+            self.assertEqual(manifest["qa_summary"], result.data.qa_summary)
+
+    def test_qa_summary_surfaces_closed_remaining_and_review_provider_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc_trading.db"
+            run_migrations(db_path)
+            market_file = Path(tmp) / "market_external_20260508.json"
+            market_file.write_text(
+                json.dumps(
+                    {
+                        "provider_file_contract": "market_external_v1",
+                        "as_of_date": "20260508",
+                        "provider": "manual_reviewed_cache",
+                        "items": [
+                            self._market_record(
+                                provider="manual_reviewed_cache",
+                                scope_type="market",
+                                scope_key="A_SHARE",
+                                item_type="policy",
+                                sentiment="neutral",
+                            )
+                        ],
+                        "unavailable_sources": [
+                            {
+                                "scope_type": "sector",
+                                "provider": "sector_cache",
+                                "reason": "provider_file_absent",
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            stale_agent_record = self._agent_record(
+                published_date="20260507",
+                item_type="announcement",
+                title="历史公告摘要",
+                summary="上一交易日公告摘要，复盘日需要更新。",
+                sentiment="unknown",
+            )
+            agent_file = Path(tmp) / "agent_external_20260508.json"
+            agent_file.write_text(
+                json.dumps(
+                    {
+                        "provider_file_contract": "agent_external_v1",
+                        "as_of_date": "20260508",
+                        "provider": "manual_reviewed_cache",
+                        "records": [stale_agent_record, stale_agent_record],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            result = EvidenceProviderPackService(db_path).build_provider_pack(
+                BuildEvidenceProviderPackRequest(
+                    market_source_files=[market_file],
+                    agent_source_files=[agent_file],
+                    output_dir=Path(tmp) / "evidence_pack",
+                ),
+                RequestContext(request_id="test-evidence-pack-qa", dry_run=True, operator="tester"),
+            )
+
+            self.assertTrue(result.ok)
+            qa = result.data.qa_summary
+            self.assertEqual(qa["status"], "needs_review")
+            self.assertFalse(qa["safety"]["live_fetches"])
+            self.assertIn(
+                ("market_external", "sector", "unavailable"),
+                {(gap["kind"], gap["section"], gap["state"]) for gap in qa["closed_gaps"]},
+            )
+            remaining = {(gap["kind"], gap["section"], gap["state"]) for gap in qa["remaining_gaps"]}
+            self.assertIn(("market_external", "stock", "missing"), remaining)
+            self.assertIn(("agent_external", "fundamental", "missing"), remaining)
+            self.assertIn(("agent_external", "news", "missing"), remaining)
+            self.assertIn(("agent_external", "sentiment", "missing"), remaining)
+            self.assertIn(("agent_external", "freshness", "stale"), remaining)
+            self.assertIn(("agent_external", "duplicates", "duplicate"), remaining)
+            needed_sections = {(item["kind"], item["section"]) for item in qa["provider_files_needed"]}
+            self.assertIn(("market_external", "stock"), needed_sections)
+            self.assertIn(("agent_external", "news"), needed_sections)
+            review_files = {Path(item["source_file"]).name for item in qa["provider_files_needing_review"]}
+            self.assertIn(agent_file.name, review_files)
+
+    def test_qa_summary_surfaces_date_provider_and_source_hash_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "pgc_trading.db"
+            run_migrations(db_path)
+            output_dir = Path(tmp) / "evidence_pack"
+            source_file = Path(tmp) / "bad_market_external.json"
+            missing_provider_record = {
+                "as_of_date": "20260508",
+                "scope_type": "market",
+                "scope_key": "A_SHARE",
+                "item_type": "news",
+                "published_date": "20260508",
+                "source_hash": "bad-hash",
+                "title": "缺少 provider 的摘要",
+                "summary": "这条记录必须被人工复核。",
+                "sentiment": "neutral",
+                "importance": "medium",
+                "metadata": {},
+            }
+            source_file.write_text(
+                json.dumps(
+                    {
+                        "provider_file_contract": "market_external_v1",
+                        "as_of_date": "20260508",
+                        "items": [
+                            self._market_record(
+                                as_of_date="20260507",
+                                source_hash="bad-hash",
+                                title="日期与哈希不匹配摘要",
+                                summary="这条记录的日期和 source_hash 均不应通过。",
+                            ),
+                            missing_provider_record,
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            result = EvidenceProviderPackService(db_path).build_provider_pack(
+                BuildEvidenceProviderPackRequest(market_source_files=[source_file], output_dir=output_dir),
+                RequestContext(request_id="test-evidence-pack-invalid", dry_run=False, operator="tester"),
+            )
+
+            self.assertEqual(result.status, "validation_failed")
+            self.assertFalse(output_dir.exists())
+            self.assertGreater(result.data.qa_summary["remaining_gap_count"], 0)
+            self.assertEqual(result.data.qa_summary["status"], "needs_review")
+            error_codes = {error.code for error in result.errors}
+            self.assertIn("AS_OF_DATE_MISMATCH", error_codes)
+            self.assertIn("SOURCE_HASH_MISMATCH", error_codes)
+            self.assertIn("REQUIRED_FIELD", error_codes)
+            gap_reasons = {gap.get("reason") for gap in result.data.qa_summary["remaining_gaps"]}
+            self.assertIn("AS_OF_DATE_MISMATCH", gap_reasons)
+            self.assertIn("SOURCE_HASH_MISMATCH", gap_reasons)
+            review_files = {Path(item["source_file"]).name for item in result.data.qa_summary["provider_files_needing_review"]}
+            self.assertEqual(review_files, {source_file.name})
 
     def test_rejects_missing_source_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -246,6 +392,56 @@ class EvidenceProviderPackServiceTest(unittest.TestCase):
         digest = hashlib.sha256()
         digest.update(path.read_bytes())
         return digest.hexdigest()
+
+    def _market_record(self, **overrides: object) -> dict[str, object]:
+        record: dict[str, object] = {
+            "as_of_date": "20260508",
+            "scope_type": "market",
+            "scope_key": "A_SHARE",
+            "item_type": "news",
+            "provider": "manual_fixture",
+            "published_date": "20260508",
+            "title": "A股市场摘要",
+            "summary": "人工审核的全市场外部证据摘要。",
+            "sentiment": "neutral",
+            "importance": "medium",
+            "metadata": {},
+        }
+        record.update(overrides)
+        if "source_hash" not in overrides:
+            record["source_hash"] = build_market_external_source_hash(
+                provider=str(record["provider"]),
+                scope_type=str(record["scope_type"]),
+                scope_key=str(record["scope_key"]),
+                published_date=str(record["published_date"]),
+                title=str(record["title"]),
+                summary=str(record["summary"]),
+            )
+        return record
+
+    def _agent_record(self, **overrides: object) -> dict[str, object]:
+        record: dict[str, object] = {
+            "ts_code": "000001.SZ",
+            "published_date": "20260508",
+            "item_type": "announcement",
+            "provider": "manual_fixture",
+            "title": "盘后公告摘要",
+            "summary": "公告摘要未发现重大利空。",
+            "sentiment": "neutral",
+            "importance": "medium",
+            "metadata": {},
+        }
+        record.update(overrides)
+        if "source_hash" not in overrides:
+            record["source_hash"] = build_agent_external_source_hash(
+                provider=str(record["provider"]),
+                item_type=str(record["item_type"]),
+                ts_code=str(record["ts_code"]),
+                published_date=str(record["published_date"]),
+                title=str(record["title"]),
+                summary=str(record["summary"]),
+            )
+        return record
 
 
 if __name__ == "__main__":

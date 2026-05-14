@@ -3066,7 +3066,7 @@ function renderShadowDecisionMemo(data) {
     ? `${candidates.length} 个候选 · ${shadowStatusText(status)}`
     : shadowStatusText(status);
   const alert = errors.length
-    ? `<p class="market-readonly-note">中文决策备忘录读取到异常：${escapeHtml(errors.join("；"))}。该区域仍只读，不批准、不晋升、不交易、不写计划、不改定时任务。</p>`
+    ? `<p class="market-readonly-note">中文决策备忘录读取到异常：${escapeHtml(localizedInlineText(errors.join("；")))}。该区域仍只读，不批准、不晋升、不交易、不写计划、不改定时任务。</p>`
     : `<p class="market-readonly-note">中文决策备忘录聚合评审申请、回放证据、跟踪验证、校准结果和实验登记；用于人工阅读，不是批准动作。</p>`;
   els.shadowDecisionMemoWorkbench.innerHTML = `
     ${alert}
@@ -3082,7 +3082,7 @@ function renderShadowDecisionMemo(data) {
       ["下一步实验", integerText(summary.next_experiment_count ?? experiments.length)],
       ["允许晋升", data.safety?.promotion_allowed ? "是" : "否"],
     ])}
-    <div class="shadow-decision-conclusion">${escapeHtml(summary.conclusion_zh || "候选保持人工复核边界。")}</div>
+    <div class="shadow-decision-conclusion">${escapeHtml(localizedInlineText(summary.conclusion_zh || "候选保持人工复核边界。"))}</div>
     <div class="shadow-decision-grid">
       ${shadowDecisionMemoSectionCard("候选概览", sections["候选概览"], `${candidates.length} 个候选`)}
       ${shadowDecisionMemoSectionCard("证据状态", sections["证据状态"], `${evidenceItems.length} 项证据`)}
@@ -3109,7 +3109,7 @@ function shadowDecisionMemoSectionCard(title, section, chipLabel) {
         <span>${escapeHtml(title)}</span>
         ${chipHtml(chipLabel, "chip-neutral")}
       </div>
-      <p>${escapeHtml(section?.summary_zh || "暂无摘要。")}</p>
+      <p>${escapeHtml(localizedInlineText(section?.summary_zh || "暂无摘要。"))}</p>
       <div class="shadow-decision-section-items">
         ${items.length ? items.slice(0, 4).map((item) => shadowDecisionMemoSectionItem(item)).join("") : emptyState("暂无条目。")}
       </div>
@@ -3119,11 +3119,11 @@ function shadowDecisionMemoSectionCard(title, section, chipLabel) {
 
 function shadowDecisionMemoSectionItem(item) {
   if (item && typeof item === "object") {
-    const label = item.candidate_key ? shadowCandidateKeyText(item.candidate_key) : item.name || item.experiment_key || item.decision_key || item.status || "条目";
-    const detail = item.summary_zh || item.next_step_zh || item.reason || item.note || item.status || "";
+    const label = item.candidate_key ? shadowCandidateKeyText(item.candidate_key) : uiValueText(item.name || item.experiment_key || item.decision_key || item.status || "条目");
+    const detail = localizedInlineText(item.summary_zh || item.next_step_zh || item.reason || item.note || item.status || "");
     return `<span class="shadow-decision-section-item"><b>${escapeHtml(label)}</b>${detail ? `<small>${escapeHtml(detail)}</small>` : ""}</span>`;
   }
-  return `<span class="shadow-decision-section-item">${escapeHtml(item)}</span>`;
+  return `<span class="shadow-decision-section-item">${escapeHtml(localizedInlineText(item))}</span>`;
 }
 
 function shadowDecisionMemoCandidateCard(candidate) {
@@ -3141,7 +3141,7 @@ function shadowDecisionMemoCandidateCard(candidate) {
           ${chipHtml(shadowWalkForwardStatusText(candidate.walk_forward_status), shadowWalkForwardStatusClass(candidate.walk_forward_status))}
         </div>
       </div>
-      <p>${escapeHtml(candidate.summary_zh || "候选仍需人工复核。")}</p>
+      <p>${escapeHtml(localizedInlineText(candidate.summary_zh || "候选仍需人工复核。"))}</p>
       <div class="hypothesis-gate-strip">
         ${chipHtml(`${blockers.length} 个阻断`, blockers.length ? "chip-red" : "chip-green")}
         ${chipHtml(`${experiments.length} 下一步实验`, experiments.length ? "chip-blue" : "chip-neutral")}
@@ -3168,8 +3168,8 @@ function renderShadowPromotionReviewWorkbench(data) {
     ? `${candidates.length} 个候选 · ${integerText(summary.review_ready_count || 0)} 个可复核`
     : shadowPromotionReviewStatusText(status);
   const alert = errors.length || data.artifact_error
-    ? `<p class="market-readonly-note">晋升评审包读取到异常：${escapeHtml([...errors, data.artifact_error].filter(Boolean).join("；"))}。该工作台仍只读，不批准、不晋升、不交易、不改定时任务。</p>`
-    : `<p class="market-readonly-note">晋升评审工作台读取 shadow_promotion_review_request_v1；“可复核”不是批准，只展示人工决策、回放 / 回测证据和回滚边界。</p>`;
+    ? `<p class="market-readonly-note">晋升评审包读取到异常：${escapeHtml(localizedInlineText([...errors, data.artifact_error].filter(Boolean).join("；")))}。该工作台仍只读，不批准、不晋升、不交易、不改定时任务。</p>`
+    : `<p class="market-readonly-note">晋升评审工作台读取影子晋升评审申请 v1；“可复核”不是批准，只展示人工决策、回放 / 回测证据和回滚边界。</p>`;
   els.shadowPromotionReviewWorkbench.innerHTML = `
     ${alert}
     ${actionMetrics([
@@ -3222,7 +3222,7 @@ function shadowPromotionDecisionCard(decision) {
           ${chipHtml(decision.required ? "必需" : "可选", decision.required ? "chip-amber" : "chip-neutral")}
         </div>
       </div>
-      <p>${escapeHtml(decision.note || "暂无说明。")}</p>
+      <p>${escapeHtml(localizedInlineText(decision.note || "暂无说明。"))}</p>
       ${listValue(decision.candidate_keys).length ? `<div class="hypothesis-gate-strip">${listValue(decision.candidate_keys).map((key) => chipHtml(key, "chip-blue")).join("")}</div>` : ""}
       ${listValue(decision.blocked_mutation_targets).length ? `<div class="hypothesis-gate-strip">${listValue(decision.blocked_mutation_targets).map((target) => chipHtml(uiLabelText(target), "chip-red")).join("")}</div>` : ""}
     </article>
@@ -3274,7 +3274,7 @@ function shadowPromotionNoteList(notes) {
   if (!rows.length) return emptyState("暂无回滚说明或安全边界。");
   return `
     <ul class="shadow-review-note-list">
-      ${rows.map((note) => `<li>${escapeHtml(note)}</li>`).join("")}
+      ${rows.map((note) => `<li>${escapeHtml(localizedInlineText(note))}</li>`).join("")}
     </ul>
   `;
 }
@@ -5838,9 +5838,17 @@ function uiValueText(value) {
     linked: "已关联",
     unavailable: "不可用",
     unchanged: "未改变",
+    available: "可用",
     active_cpb_persisted_picks: "当前 CPB 已持久化选择",
+    shadow_decision_memo_v1: "影子决策备忘录 v1",
+    shadow_promotion_review_request_v1: "影子晋升评审申请 v1",
     review_request_is_not_approval: "评审申请不是批准",
     manual_promotion_review_required: "需要人工晋升复核",
+    manual_promotion_approval_required: "需要人工晋升审批",
+    no_review_ready_candidates: "暂无可复核候选",
+    review_ready_is_not_approval: "可复核不是批准",
+    keep_active_cpb_params_hash_unchanged: "保持当前 CPB 参数 / 哈希不变",
+    do_not_create_or_update_strategy_versions: "不创建或更新策略版本",
     preconfirm_watchlist: "预确认观察清单",
     pullback_dip_buy: "回撤低吸",
     breakout_pressure_shadow: "突破承压影子",
@@ -5848,6 +5856,27 @@ function uiValueText(value) {
     trend_extension_shadow: "趋势延续影子",
   };
   return direct[raw] || raw;
+}
+
+function localizedInlineText(value) {
+  const raw = String(value ?? "");
+  if (!raw) return "";
+  const exact = uiValueText(raw);
+  if (exact !== raw) return exact;
+  const replacements = [
+    ["review_ready is not approval", "可复核不是批准"],
+    ["keep active CPB params/hash unchanged", "保持当前 CPB 参数 / 哈希不变"],
+    ["do not create or update strategy versions", "不创建或更新策略版本"],
+    ["manual_promotion_approval_required", "需要人工晋升审批"],
+    ["manual_promotion_review_required", "需要人工晋升复核"],
+    ["no_review_ready_candidates", "暂无可复核候选"],
+    ["review_ready", "可复核"],
+    ["experiment registry", "实验登记册"],
+    ["available", "可用"],
+    ["blockers", "阻断"],
+    ["blocker", "阻断"],
+  ];
+  return replacements.reduce((text, [from, to]) => text.replaceAll(from, to), raw);
 }
 
 function humanizeCodeLabel(value) {
@@ -6667,7 +6696,9 @@ function shadowCandidateKeyText(key) {
 function shadowBlockerText(blocker) {
   return {
     none: "无阻断",
+    no_review_ready_candidates: "暂无可复核候选",
     manual_promotion_review_required: "需要人工晋升复核",
+    manual_promotion_approval_required: "需要人工晋升审批",
     promotion_review_required: "需要晋升复核",
     replay_backtest_evidence_missing: "缺少回放 / 回测证据",
     replay_backtest_evidence_rejected: "回放 / 回测证据被拒绝",
@@ -6697,6 +6728,7 @@ function shadowDecisionKeyText(key) {
   return {
     decision: "人工决策",
     manual_promotion_review_required: "人工晋升复核",
+    manual_promotion_approval_required: "人工晋升审批",
     accept_replay_evidence: "接受回放证据",
     reject_replay_evidence: "拒绝回放证据",
     create_strategy_version_task: "创建策略版本任务",

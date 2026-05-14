@@ -325,6 +325,7 @@ class DailyPipelineScriptTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("duplicate_apply_count=1", result.stdout)
             self.assertIn("duplicate_write_guard=dry_run", result.stdout)
+            self.assertIn("post_apply_review=dry_run_allowed", result.stdout)
             self.assertIn("daily_step=duplicate_apply status=warning", result.stdout)
             self.assertIn("daily_preflight_gate=pass", result.stdout)
             self.assertIn("pipeline_status=pass", result.stdout)
