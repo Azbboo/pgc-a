@@ -20,16 +20,34 @@
     "artifacts": [],
     "confidence": null,
     "execution_mode": null,
-    "external_data_coverage": {},
+    "external_data_coverage": {
+      "announcement": "missing",
+      "fundamental": "available",
+      "news": "missing",
+      "risk_or_research": "available",
+      "sentiment": "available"
+    },
     "external_evidence": [],
-    "missing_data_warnings": [],
+    "missing_data_warnings": [
+      "Agent cached provider evidence 缺失：公告/新闻。"
+    ],
     "note": "Agent 复核尚未接入本次日报；确定性策略和人工检查优先。",
     "report_markdown": null,
     "report_sections": [],
     "risk_level": "unknown",
     "risk_points": [],
     "source_label": null,
-    "source_refs": [],
+    "source_refs": [
+      "agent_external_items:7",
+      "agent_external_items:8",
+      "agent_external_items:9",
+      "agent_external_items:10",
+      "agent_external_items:11",
+      "agent_external_items:12",
+      "agent_external_items:13",
+      "agent_external_items:14",
+      "agent_external_items:15"
+    ],
     "status": "not_run",
     "summary": null,
     "supporting_points": []
@@ -71,39 +89,24 @@
     "blocking_dates": [
       "20260514"
     ],
-    "blocking_entry_count": 10,
+    "blocking_entry_count": 2,
     "db_path": "data/pgc_trading.db",
-    "discovered_manifest_count": 0,
+    "discovered_manifest_count": 1,
     "entries": [
-      {
-        "as_of_date": "20260514",
-        "entity_key": "market",
-        "entity_type": "market",
-        "item_type": "market",
-        "kind": "market_external",
-        "manifest_file": null,
-        "provider": "coverage_summary",
-        "published_date": null,
-        "reason": null,
-        "source_file": null,
-        "source_hash": null,
-        "source_kind": "coverage_status",
-        "source_state": "missing"
-      },
       {
         "as_of_date": "20260514",
         "entity_key": "sector",
         "entity_type": "sector",
         "item_type": "sector",
         "kind": "market_external",
-        "manifest_file": null,
+        "manifest_file": ".pgc-runs/m110-evidence-pack-20260514/pack/manifest.json",
         "provider": "coverage_summary",
         "published_date": null,
         "reason": null,
         "source_file": null,
         "source_hash": null,
         "source_kind": "coverage_status",
-        "source_state": "missing"
+        "source_state": "partial"
       },
       {
         "as_of_date": "20260514",
@@ -111,59 +114,114 @@
         "entity_type": "stock",
         "item_type": "stock",
         "kind": "market_external",
-        "manifest_file": null,
+        "manifest_file": ".pgc-runs/m110-evidence-pack-20260514/pack/manifest.json",
         "provider": "coverage_summary",
         "published_date": null,
         "reason": null,
         "source_file": null,
         "source_hash": null,
         "source_kind": "coverage_status",
-        "source_state": "missing"
+        "source_state": "partial"
       },
       {
         "as_of_date": "20260514",
-        "entity_key": "news",
-        "entity_type": "coverage",
-        "item_type": "news",
-        "kind": "market_external",
-        "manifest_file": null,
-        "provider": "coverage_summary",
-        "published_date": null,
-        "reason": null,
-        "source_file": null,
-        "source_hash": null,
-        "source_kind": "coverage_status",
-        "source_state": "missing"
-      },
-      {
-        "as_of_date": "20260514",
-        "entity_key": "sentiment",
-        "entity_type": "coverage",
+        "entity_key": "market",
+        "entity_type": "market",
         "item_type": "sentiment",
         "kind": "market_external",
-        "manifest_file": null,
-        "provider": "coverage_summary",
+        "manifest_file": ".pgc-runs/m110-evidence-pack-20260514/pack/manifest.json",
+        "note": "M110未取得独立已审情绪provider文件；不以缺失情绪作为安全信号。",
+        "provider": "reviewed_sentiment_cache",
         "published_date": null,
-        "reason": null,
+        "reason": "provider_file_absent",
         "source_file": null,
         "source_hash": null,
-        "source_kind": "coverage_status",
-        "source_state": "missing"
+        "source_kind": "unavailable_source",
+        "source_state": "unavailable"
       },
       {
         "as_of_date": "20260514",
-        "entity_key": "fundamental",
-        "entity_type": "coverage",
-        "item_type": "fundamental",
-        "kind": "agent_external",
-        "manifest_file": null,
-        "provider": "coverage_summary",
-        "published_date": null,
+        "database_item_id": 5,
+        "entity_key": "A_SHARE_CACHE",
+        "entity_type": "market",
+        "expected_source_hash": "bdaa79c6f80ff615517bdaa700be5f5d6c58c37a16969b926441c194d08088c6",
+        "item_type": "news",
+        "kind": "market_external",
+        "manifest_file": ".pgc-runs/m110-evidence-pack-20260514/pack/manifest.json",
+        "provider": "pgc_reviewed_cache_m110",
+        "published_date": "20260514",
         "reason": null,
-        "source_file": null,
-        "source_hash": null,
-        "source_kind": "coverage_status",
-        "source_state": "missing"
+        "source_file": ".pgc-runs/m110-evidence-pack-20260514/pack/market_external/20260514__01__market_external_20260514.json",
+        "source_file_hash_mismatch": false,
+        "source_file_sha256": "0367bf00fdb38d983602e771859aa750f2c3cc9957346dbbfec11eb999894956",
+        "source_hash": "bdaa79c6f80ff615517bdaa700be5f5d6c58c37a16969b926441c194d08088c6",
+        "source_hash_mismatch": false,
+        "source_kind": "provider_pack_row",
+        "source_state": "imported",
+        "validation_issue": null
+      },
+      {
+        "as_of_date": "20260514",
+        "database_item_id": 6,
+        "entity_key": "PGC_U88C5_U4FEE_U88C5_U9970",
+        "entity_type": "sector",
+        "expected_source_hash": "52ee79868845b7481f03e3d3ffc194165e02857dac26cd3046d26cb57616495e",
+        "item_type": "research_note",
+        "kind": "market_external",
+        "manifest_file": ".pgc-runs/m110-evidence-pack-20260514/pack/manifest.json",
+        "provider": "pgc_reviewed_cache_m110",
+        "published_date": "20260514",
+        "reason": null,
+        "source_file": ".pgc-runs/m110-evidence-pack-20260514/pack/market_external/20260514__01__market_external_20260514.json",
+        "source_file_hash_mismatch": false,
+        "source_file_sha256": "0367bf00fdb38d983602e771859aa750f2c3cc9957346dbbfec11eb999894956",
+        "source_hash": "52ee79868845b7481f03e3d3ffc194165e02857dac26cd3046d26cb57616495e",
+        "source_hash_mismatch": false,
+        "source_kind": "provider_pack_row",
+        "source_state": "imported",
+        "validation_issue": null
+      },
+      {
+        "as_of_date": "20260514",
+        "database_item_id": 7,
+        "entity_key": "301188.SZ",
+        "entity_type": "stock",
+        "expected_source_hash": "2c26e107fc6fc33802efd6fc929a36782fa2b132094d4aeb212ae4ccf6f9cec4",
+        "item_type": "research_note",
+        "kind": "market_external",
+        "manifest_file": ".pgc-runs/m110-evidence-pack-20260514/pack/manifest.json",
+        "provider": "pgc_reviewed_cache_m110",
+        "published_date": "20260514",
+        "reason": null,
+        "source_file": ".pgc-runs/m110-evidence-pack-20260514/pack/market_external/20260514__01__market_external_20260514.json",
+        "source_file_hash_mismatch": false,
+        "source_file_sha256": "0367bf00fdb38d983602e771859aa750f2c3cc9957346dbbfec11eb999894956",
+        "source_hash": "2c26e107fc6fc33802efd6fc929a36782fa2b132094d4aeb212ae4ccf6f9cec4",
+        "source_hash_mismatch": false,
+        "source_kind": "provider_pack_row",
+        "source_state": "imported",
+        "validation_issue": null
+      },
+      {
+        "as_of_date": "20260514",
+        "database_item_id": 8,
+        "entity_key": "600397.SH",
+        "entity_type": "stock",
+        "expected_source_hash": "d714d0c38b0a7e0aa522c6e46a45395555aea870d827aabdaa9254083daa21db",
+        "item_type": "research_note",
+        "kind": "market_external",
+        "manifest_file": ".pgc-runs/m110-evidence-pack-20260514/pack/manifest.json",
+        "provider": "pgc_reviewed_cache_m110",
+        "published_date": "20260514",
+        "reason": null,
+        "source_file": ".pgc-runs/m110-evidence-pack-20260514/pack/market_external/20260514__01__market_external_20260514.json",
+        "source_file_hash_mismatch": false,
+        "source_file_sha256": "0367bf00fdb38d983602e771859aa750f2c3cc9957346dbbfec11eb999894956",
+        "source_hash": "d714d0c38b0a7e0aa522c6e46a45395555aea870d827aabdaa9254083daa21db",
+        "source_hash_mismatch": false,
+        "source_kind": "provider_pack_row",
+        "source_state": "imported",
+        "validation_issue": null
       },
       {
         "as_of_date": "20260514",
@@ -171,14 +229,14 @@
         "entity_type": "coverage",
         "item_type": "announcement",
         "kind": "agent_external",
-        "manifest_file": null,
+        "manifest_file": ".pgc-runs/m110-evidence-pack-20260514/pack/manifest.json",
         "provider": "coverage_summary",
         "published_date": null,
         "reason": null,
         "source_file": null,
         "source_hash": null,
         "source_kind": "coverage_status",
-        "source_state": "missing"
+        "source_state": "unavailable"
       },
       {
         "as_of_date": "20260514",
@@ -186,52 +244,265 @@
         "entity_type": "coverage",
         "item_type": "news",
         "kind": "agent_external",
-        "manifest_file": null,
+        "manifest_file": ".pgc-runs/m110-evidence-pack-20260514/pack/manifest.json",
         "provider": "coverage_summary",
         "published_date": null,
         "reason": null,
         "source_file": null,
         "source_hash": null,
         "source_kind": "coverage_status",
-        "source_state": "missing"
+        "source_state": "unavailable"
       },
       {
         "as_of_date": "20260514",
-        "entity_key": "sentiment",
-        "entity_type": "coverage",
+        "entity_key": "all",
+        "entity_type": "stock",
+        "item_type": "announcement",
+        "kind": "agent_external",
+        "manifest_file": ".pgc-runs/m110-evidence-pack-20260514/pack/manifest.json",
+        "note": "M110未取得已审公告provider文件。",
+        "provider": "reviewed_announcement_cache",
+        "published_date": null,
+        "reason": "provider_file_absent",
+        "source_file": null,
+        "source_hash": null,
+        "source_kind": "unavailable_source",
+        "source_state": "unavailable"
+      },
+      {
+        "as_of_date": "20260514",
+        "entity_key": "all",
+        "entity_type": "stock",
+        "item_type": "news",
+        "kind": "agent_external",
+        "manifest_file": ".pgc-runs/m110-evidence-pack-20260514/pack/manifest.json",
+        "note": "M110未取得已审新闻provider文件。",
+        "provider": "reviewed_news_cache",
+        "published_date": null,
+        "reason": "provider_file_absent",
+        "source_file": null,
+        "source_hash": null,
+        "source_kind": "unavailable_source",
+        "source_state": "unavailable"
+      },
+      {
+        "as_of_date": "20260514",
+        "entity_key": "all",
+        "entity_type": "stock",
         "item_type": "sentiment",
         "kind": "agent_external",
-        "manifest_file": null,
-        "provider": "coverage_summary",
+        "manifest_file": ".pgc-runs/m110-evidence-pack-20260514/pack/manifest.json",
+        "note": "M110未取得已审情绪provider文件。",
+        "provider": "reviewed_sentiment_cache",
         "published_date": null,
-        "reason": null,
+        "reason": "provider_file_absent",
         "source_file": null,
         "source_hash": null,
-        "source_kind": "coverage_status",
-        "source_state": "missing"
+        "source_kind": "unavailable_source",
+        "source_state": "unavailable"
       },
       {
         "as_of_date": "20260514",
-        "entity_key": "risk_or_research",
-        "entity_type": "coverage",
-        "item_type": "risk_or_research",
+        "database_item_id": 7,
+        "entity_key": "002647.SZ",
+        "entity_type": "stock",
+        "expected_source_hash": "c2d0d63c13cba080081e37dfb9b8bb446333a6ec008117d2c5ade98f48540cad",
+        "item_type": "fundamental",
         "kind": "agent_external",
-        "manifest_file": null,
-        "provider": "coverage_summary",
-        "published_date": null,
+        "manifest_file": ".pgc-runs/m110-evidence-pack-20260514/pack/manifest.json",
+        "provider": "pgc_reviewed_cache_m110",
+        "published_date": "20260514",
         "reason": null,
-        "source_file": null,
-        "source_hash": null,
-        "source_kind": "coverage_status",
-        "source_state": "missing"
+        "source_file": ".pgc-runs/m110-evidence-pack-20260514/pack/agent_external/20260514__01__agent_external_20260514.json",
+        "source_file_hash_mismatch": false,
+        "source_file_sha256": "1aed7000130a5bc6837dde53ca8de062a3215394179949db3100acc1245432b6",
+        "source_hash": "c2d0d63c13cba080081e37dfb9b8bb446333a6ec008117d2c5ade98f48540cad",
+        "source_hash_mismatch": false,
+        "source_kind": "provider_pack_row",
+        "source_state": "imported",
+        "validation_issue": null
+      },
+      {
+        "as_of_date": "20260514",
+        "database_item_id": 8,
+        "entity_key": "002647.SZ",
+        "entity_type": "stock",
+        "expected_source_hash": "ee4172df86b71278f98e03b444cb25e691383568ffd2664666524311b201a1ac",
+        "item_type": "research_note",
+        "kind": "agent_external",
+        "manifest_file": ".pgc-runs/m110-evidence-pack-20260514/pack/manifest.json",
+        "provider": "pgc_reviewed_cache_m110",
+        "published_date": "20260514",
+        "reason": null,
+        "source_file": ".pgc-runs/m110-evidence-pack-20260514/pack/agent_external/20260514__01__agent_external_20260514.json",
+        "source_file_hash_mismatch": false,
+        "source_file_sha256": "1aed7000130a5bc6837dde53ca8de062a3215394179949db3100acc1245432b6",
+        "source_hash": "ee4172df86b71278f98e03b444cb25e691383568ffd2664666524311b201a1ac",
+        "source_hash_mismatch": false,
+        "source_kind": "provider_pack_row",
+        "source_state": "imported",
+        "validation_issue": null
+      },
+      {
+        "as_of_date": "20260514",
+        "database_item_id": 9,
+        "entity_key": "002647.SZ",
+        "entity_type": "stock",
+        "expected_source_hash": "ddf17b6e84ae103e2316b0c3798a952e4beff975380826cb42a68864e442ccf0",
+        "item_type": "risk_note",
+        "kind": "agent_external",
+        "manifest_file": ".pgc-runs/m110-evidence-pack-20260514/pack/manifest.json",
+        "provider": "pgc_reviewed_cache_m110",
+        "published_date": "20260514",
+        "reason": null,
+        "source_file": ".pgc-runs/m110-evidence-pack-20260514/pack/agent_external/20260514__01__agent_external_20260514.json",
+        "source_file_hash_mismatch": false,
+        "source_file_sha256": "1aed7000130a5bc6837dde53ca8de062a3215394179949db3100acc1245432b6",
+        "source_hash": "ddf17b6e84ae103e2316b0c3798a952e4beff975380826cb42a68864e442ccf0",
+        "source_hash_mismatch": false,
+        "source_kind": "provider_pack_row",
+        "source_state": "imported",
+        "validation_issue": null
+      },
+      {
+        "as_of_date": "20260514",
+        "database_item_id": 10,
+        "entity_key": "301188.SZ",
+        "entity_type": "stock",
+        "expected_source_hash": "58b2c5a3f072650c815a0ef45cf4b6afa33da48569d2a65fd4d71b556ba3e663",
+        "item_type": "fundamental",
+        "kind": "agent_external",
+        "manifest_file": ".pgc-runs/m110-evidence-pack-20260514/pack/manifest.json",
+        "provider": "pgc_reviewed_cache_m110",
+        "published_date": "20260514",
+        "reason": null,
+        "source_file": ".pgc-runs/m110-evidence-pack-20260514/pack/agent_external/20260514__01__agent_external_20260514.json",
+        "source_file_hash_mismatch": false,
+        "source_file_sha256": "1aed7000130a5bc6837dde53ca8de062a3215394179949db3100acc1245432b6",
+        "source_hash": "58b2c5a3f072650c815a0ef45cf4b6afa33da48569d2a65fd4d71b556ba3e663",
+        "source_hash_mismatch": false,
+        "source_kind": "provider_pack_row",
+        "source_state": "imported",
+        "validation_issue": null
+      },
+      {
+        "as_of_date": "20260514",
+        "database_item_id": 11,
+        "entity_key": "301188.SZ",
+        "entity_type": "stock",
+        "expected_source_hash": "beab5eb644b06dcdbf9925d2751660d751198a27278704390e109ab4bf8fd0c4",
+        "item_type": "research_note",
+        "kind": "agent_external",
+        "manifest_file": ".pgc-runs/m110-evidence-pack-20260514/pack/manifest.json",
+        "provider": "pgc_reviewed_cache_m110",
+        "published_date": "20260514",
+        "reason": null,
+        "source_file": ".pgc-runs/m110-evidence-pack-20260514/pack/agent_external/20260514__01__agent_external_20260514.json",
+        "source_file_hash_mismatch": false,
+        "source_file_sha256": "1aed7000130a5bc6837dde53ca8de062a3215394179949db3100acc1245432b6",
+        "source_hash": "beab5eb644b06dcdbf9925d2751660d751198a27278704390e109ab4bf8fd0c4",
+        "source_hash_mismatch": false,
+        "source_kind": "provider_pack_row",
+        "source_state": "imported",
+        "validation_issue": null
+      },
+      {
+        "as_of_date": "20260514",
+        "database_item_id": 12,
+        "entity_key": "301188.SZ",
+        "entity_type": "stock",
+        "expected_source_hash": "c5ed89c039b8516c8185efe02a2efd25c1d60f3cc2792cae58acfc6f6901056a",
+        "item_type": "risk_note",
+        "kind": "agent_external",
+        "manifest_file": ".pgc-runs/m110-evidence-pack-20260514/pack/manifest.json",
+        "provider": "pgc_reviewed_cache_m110",
+        "published_date": "20260514",
+        "reason": null,
+        "source_file": ".pgc-runs/m110-evidence-pack-20260514/pack/agent_external/20260514__01__agent_external_20260514.json",
+        "source_file_hash_mismatch": false,
+        "source_file_sha256": "1aed7000130a5bc6837dde53ca8de062a3215394179949db3100acc1245432b6",
+        "source_hash": "c5ed89c039b8516c8185efe02a2efd25c1d60f3cc2792cae58acfc6f6901056a",
+        "source_hash_mismatch": false,
+        "source_kind": "provider_pack_row",
+        "source_state": "imported",
+        "validation_issue": null
+      },
+      {
+        "as_of_date": "20260514",
+        "database_item_id": 13,
+        "entity_key": "600397.SH",
+        "entity_type": "stock",
+        "expected_source_hash": "38a23e4de2f8baea4a29b05c3514ed5b1a917cf7c6341242796e3f00a031d9f4",
+        "item_type": "fundamental",
+        "kind": "agent_external",
+        "manifest_file": ".pgc-runs/m110-evidence-pack-20260514/pack/manifest.json",
+        "provider": "pgc_reviewed_cache_m110",
+        "published_date": "20260514",
+        "reason": null,
+        "source_file": ".pgc-runs/m110-evidence-pack-20260514/pack/agent_external/20260514__01__agent_external_20260514.json",
+        "source_file_hash_mismatch": false,
+        "source_file_sha256": "1aed7000130a5bc6837dde53ca8de062a3215394179949db3100acc1245432b6",
+        "source_hash": "38a23e4de2f8baea4a29b05c3514ed5b1a917cf7c6341242796e3f00a031d9f4",
+        "source_hash_mismatch": false,
+        "source_kind": "provider_pack_row",
+        "source_state": "imported",
+        "validation_issue": null
+      },
+      {
+        "as_of_date": "20260514",
+        "database_item_id": 14,
+        "entity_key": "600397.SH",
+        "entity_type": "stock",
+        "expected_source_hash": "6744cb2d4895094cfd5718d8fe9afc2bf44de82f7300e5ecea8fd704dbb5008f",
+        "item_type": "research_note",
+        "kind": "agent_external",
+        "manifest_file": ".pgc-runs/m110-evidence-pack-20260514/pack/manifest.json",
+        "provider": "pgc_reviewed_cache_m110",
+        "published_date": "20260514",
+        "reason": null,
+        "source_file": ".pgc-runs/m110-evidence-pack-20260514/pack/agent_external/20260514__01__agent_external_20260514.json",
+        "source_file_hash_mismatch": false,
+        "source_file_sha256": "1aed7000130a5bc6837dde53ca8de062a3215394179949db3100acc1245432b6",
+        "source_hash": "6744cb2d4895094cfd5718d8fe9afc2bf44de82f7300e5ecea8fd704dbb5008f",
+        "source_hash_mismatch": false,
+        "source_kind": "provider_pack_row",
+        "source_state": "imported",
+        "validation_issue": null
+      },
+      {
+        "as_of_date": "20260514",
+        "database_item_id": 15,
+        "entity_key": "600397.SH",
+        "entity_type": "stock",
+        "expected_source_hash": "0b7b1eaa93378bdb8486413254064435b83b1f45f3f14620dc47c8e43b5e6745",
+        "item_type": "risk_note",
+        "kind": "agent_external",
+        "manifest_file": ".pgc-runs/m110-evidence-pack-20260514/pack/manifest.json",
+        "provider": "pgc_reviewed_cache_m110",
+        "published_date": "20260514",
+        "reason": null,
+        "source_file": ".pgc-runs/m110-evidence-pack-20260514/pack/agent_external/20260514__01__agent_external_20260514.json",
+        "source_file_hash_mismatch": false,
+        "source_file_sha256": "1aed7000130a5bc6837dde53ca8de062a3215394179949db3100acc1245432b6",
+        "source_hash": "0b7b1eaa93378bdb8486413254064435b83b1f45f3f14620dc47c8e43b5e6745",
+        "source_hash_mismatch": false,
+        "source_kind": "provider_pack_row",
+        "source_state": "imported",
+        "validation_issue": null
       }
     ],
-    "entry_count": 10,
-    "generated_at": "2026-05-14T10:55:20+00:00",
+    "entry_count": 21,
+    "generated_at": "2026-05-14T14:03:52+00:00",
     "ledger_contract": "evidence_coverage_ledger_v1",
-    "manifest_files": [],
+    "manifest_files": [
+      ".pgc-runs/m110-evidence-pack-20260514/pack/manifest.json"
+    ],
     "provider_counts": {
-      "coverage_summary": 10
+      "coverage_summary": 4,
+      "pgc_reviewed_cache_m110": 13,
+      "reviewed_announcement_cache": 1,
+      "reviewed_news_cache": 1,
+      "reviewed_sentiment_cache": 2
     },
     "ready_dates": [],
     "safety": {
@@ -242,7 +513,9 @@
       "writes_trade_state": false
     },
     "state_counts": {
-      "missing": 10
+      "imported": 13,
+      "partial": 2,
+      "unavailable": 6
     },
     "summary": {
       "blocking_states": [
@@ -256,21 +529,27 @@
         "20260514"
       ],
       "duplicate_count": 0,
-      "manifest_count": 0,
-      "missing_count": 10,
-      "partial_count": 0,
+      "manifest_count": 1,
+      "missing_count": 0,
+      "partial_count": 2,
       "provider_counts": {
-        "coverage_summary": 10
+        "coverage_summary": 4,
+        "pgc_reviewed_cache_m110": 13,
+        "reviewed_announcement_cache": 1,
+        "reviewed_news_cache": 1,
+        "reviewed_sentiment_cache": 2
       },
       "source_hash_mismatch_count": 0,
       "stale_count": 0,
       "state_counts": {
-        "missing": 10
+        "imported": 13,
+        "partial": 2,
+        "unavailable": 6
       },
-      "unavailable_count": 0
+      "unavailable_count": 6
     }
   },
-  "generated_at": "2026-05-14T10:55:20.143979+00:00",
+  "generated_at": "2026-05-14T14:03:52.170897+00:00",
   "latest_market_date": "20260514",
   "lineage": {
     "agent_decision_id": null,
@@ -288,38 +567,52 @@
   "market_review": {
     "breadth_score": 0.1737,
     "continuity_label": "insufficient_evidence",
-    "continuity_reason": "缺少板块轮动、新闻/情绪证据，连续性不能当作安全信号。",
+    "continuity_reason": "缺少板块轮动，连续性不能当作安全信号。",
     "evidence_freshness": {
-      "market": "missing",
-      "sector": "missing",
-      "stock": "missing"
+      "market": "fresh",
+      "sector": "fresh",
+      "stock": "fresh"
     },
     "external_evidence_coverage": {
-      "by_importance": {},
-      "by_item_type": {},
-      "by_provider": {},
-      "by_scope": {},
-      "by_sentiment": {},
-      "coverage": "missing",
-      "fresh_count": 0,
-      "freshness_by_scope": {
-        "market": "missing",
-        "sector": "missing",
-        "stock": "missing"
+      "by_importance": {
+        "high": 2,
+        "medium": 2
       },
-      "market": "missing",
-      "missing_scopes": [
-        "market",
-        "sector",
-        "stock"
+      "by_item_type": {
+        "news": 1,
+        "research_note": 3
+      },
+      "by_provider": {
+        "pgc_reviewed_cache_m110": 4
+      },
+      "by_scope": {
+        "market": 1,
+        "sector": 1,
+        "stock": 2
+      },
+      "by_sentiment": {
+        "neutral": 4
+      },
+      "coverage": "available",
+      "fresh_count": 4,
+      "freshness_by_scope": {
+        "market": "fresh",
+        "sector": "fresh",
+        "stock": "fresh"
+      },
+      "market": "available",
+      "missing_scopes": [],
+      "news": "available",
+      "sector": "partial",
+      "sentiment": "available",
+      "source_refs": [
+        "market_external_items:20260514:market:1",
+        "market_external_items:20260514:sector:1",
+        "market_external_items:20260514:stock:2"
       ],
-      "news": "missing",
-      "sector": "missing",
-      "sentiment": "missing",
-      "source_refs": [],
       "stale_count": 0,
-      "stock": "missing",
-      "total_count": 0
+      "stock": "partial",
+      "total_count": 4
     },
     "market_review_run_id": 6,
     "narrative": {
@@ -332,45 +625,20 @@
           "volume_score": 0.3776
         },
         "label": "insufficient_evidence",
-        "reason": "缺少板块轮动、新闻/情绪证据，连续性不能当作安全信号。",
-        "summary": "连续性判断为证据不足；缺少板块轮动、新闻/情绪证据，连续性不能当作安全信号。"
+        "reason": "缺少板块轮动，连续性不能当作安全信号。",
+        "summary": "连续性判断为证据不足；缺少板块轮动，连续性不能当作安全信号。"
       },
       "evidence_freshness": {
-        "market": "missing",
-        "news": "missing",
-        "sector": "missing",
-        "sentiment": "missing",
-        "stock": "missing"
+        "market": "fresh",
+        "news": "fresh",
+        "sector": "fresh",
+        "sentiment": "fresh",
+        "stock": "fresh"
       },
       "evidence_gaps": [
         {
           "message": "板块轮动数据缺失，板块排名和持续性证据不足。",
           "scope": "sector_data",
-          "status": "missing"
-        },
-        {
-          "message": "市场级新闻/情绪证据缺失，不能编造支持性证据。",
-          "scope": "market",
-          "status": "missing"
-        },
-        {
-          "message": "板块新闻/情绪证据缺失，不能编造支持性证据。",
-          "scope": "sector",
-          "status": "missing"
-        },
-        {
-          "message": "个股新闻/情绪证据缺失，不能编造支持性证据。",
-          "scope": "stock",
-          "status": "missing"
-        },
-        {
-          "message": "新闻证据缺失，不能编造支持性证据。",
-          "scope": "news",
-          "status": "missing"
-        },
-        {
-          "message": "情绪证据缺失，不能编造支持性证据。",
-          "scope": "sentiment",
           "status": "missing"
         },
         {
@@ -408,7 +676,10 @@
       },
       "source_refs": [
         "market_review_runs:6",
-        "market_regime_snapshots:6"
+        "market_regime_snapshots:6",
+        "market_external_items:20260514:market:1",
+        "market_external_items:20260514:sector:1",
+        "market_external_items:20260514:stock:2"
       ]
     },
     "persistence_score": 0.1107,
@@ -417,7 +688,10 @@
     "sentiment_score": null,
     "source_refs": [
       "market_review_runs:6",
-      "market_regime_snapshots:6"
+      "market_regime_snapshots:6",
+      "market_external_items:20260514:market:1",
+      "market_external_items:20260514:sector:1",
+      "market_external_items:20260514:stock:2"
     ],
     "status": "completed",
     "strategy_hypotheses": [],
@@ -457,19 +731,29 @@
         "blocker_codes": [
           "MIN_PAPER_TRADES_NOT_MET"
         ],
-        "detail": "汇总数据新鲜度、证据覆盖、Agent、open-execution 和 readiness gates。",
+        "detail": "纸盘 readiness 未就绪：1 项 blocker。",
         "key": "paper_acceptance",
         "label": "paper acceptance",
-        "manual_action": "处理 paper acceptance 未处理 blocker。",
+        "manual_action": "继续人工记录纸盘完整买卖闭环；还需 9 笔已闭环交易。",
         "source_refs": [
           "market_review_runs:6",
-          "market_regime_snapshots:6"
+          "market_regime_snapshots:6",
+          "market_external_items:20260514:market:1",
+          "market_external_items:20260514:sector:1",
+          "market_external_items:20260514:stock:2",
+          "agent_external_items:7",
+          "agent_external_items:8",
+          "agent_external_items:9",
+          "agent_external_items:10",
+          "agent_external_items:11",
+          "agent_external_items:12",
+          "agent_external_items:13",
+          "agent_external_items:14",
+          "agent_external_items:15"
         ],
         "status": "blocked",
         "summary": "纸盘每日运营验收阻断：1 项 blocker 需要先处理。",
         "warning_codes": [
-          "MARKET_EVIDENCE_MISSING",
-          "AGENT_EXTERNAL_EVIDENCE_MISSING",
           "AGENT_REVIEW_NOT_RUN",
           "AGENT_EVIDENCE_MISSING"
         ]
@@ -479,18 +763,27 @@
         "detail": "Missing evidence is explicit and remains advisory; no cached evidence mutates strategy or trades.",
         "key": "evidence_blockers",
         "label": "证据 freshness / coverage",
-        "manual_action": "补齐或确认 cached provider evidence，再重新运行只读验收。",
+        "manual_action": "证据覆盖通过，保留 source_refs 供人工抽查。",
         "source_refs": [
           "market_review_runs:6",
           "market_review_runs:6",
-          "market_regime_snapshots:6"
+          "market_regime_snapshots:6",
+          "market_external_items:20260514:market:1",
+          "market_external_items:20260514:sector:1",
+          "market_external_items:20260514:stock:2",
+          "agent_external_items:7",
+          "agent_external_items:8",
+          "agent_external_items:9",
+          "agent_external_items:10",
+          "agent_external_items:11",
+          "agent_external_items:12",
+          "agent_external_items:13",
+          "agent_external_items:14",
+          "agent_external_items:15"
         ],
-        "status": "warning",
-        "summary": "全市场证据 0 条；Agent 覆盖 0 项",
-        "warning_codes": [
-          "MARKET_EVIDENCE_MISSING",
-          "AGENT_EXTERNAL_EVIDENCE_MISSING"
-        ]
+        "status": "pass",
+        "summary": "全市场证据 4 条；Agent 覆盖 5 项",
+        "warning_codes": []
       },
       {
         "blocker_codes": [],
@@ -536,38 +829,52 @@
     "market_review": {
       "breadth_score": 0.1737,
       "continuity_label": "insufficient_evidence",
-      "continuity_reason": "缺少板块轮动、新闻/情绪证据，连续性不能当作安全信号。",
+      "continuity_reason": "缺少板块轮动，连续性不能当作安全信号。",
       "evidence_freshness": {
-        "market": "missing",
-        "sector": "missing",
-        "stock": "missing"
+        "market": "fresh",
+        "sector": "fresh",
+        "stock": "fresh"
       },
       "external_evidence_coverage": {
-        "by_importance": {},
-        "by_item_type": {},
-        "by_provider": {},
-        "by_scope": {},
-        "by_sentiment": {},
-        "coverage": "missing",
-        "fresh_count": 0,
-        "freshness_by_scope": {
-          "market": "missing",
-          "sector": "missing",
-          "stock": "missing"
+        "by_importance": {
+          "high": 2,
+          "medium": 2
         },
-        "market": "missing",
-        "missing_scopes": [
-          "market",
-          "sector",
-          "stock"
+        "by_item_type": {
+          "news": 1,
+          "research_note": 3
+        },
+        "by_provider": {
+          "pgc_reviewed_cache_m110": 4
+        },
+        "by_scope": {
+          "market": 1,
+          "sector": 1,
+          "stock": 2
+        },
+        "by_sentiment": {
+          "neutral": 4
+        },
+        "coverage": "available",
+        "fresh_count": 4,
+        "freshness_by_scope": {
+          "market": "fresh",
+          "sector": "fresh",
+          "stock": "fresh"
+        },
+        "market": "available",
+        "missing_scopes": [],
+        "news": "available",
+        "sector": "partial",
+        "sentiment": "available",
+        "source_refs": [
+          "market_external_items:20260514:market:1",
+          "market_external_items:20260514:sector:1",
+          "market_external_items:20260514:stock:2"
         ],
-        "news": "missing",
-        "sector": "missing",
-        "sentiment": "missing",
-        "source_refs": [],
         "stale_count": 0,
-        "stock": "missing",
-        "total_count": 0
+        "stock": "partial",
+        "total_count": 4
       },
       "market_review_run_id": 6,
       "narrative": {
@@ -580,45 +887,20 @@
             "volume_score": 0.3776
           },
           "label": "insufficient_evidence",
-          "reason": "缺少板块轮动、新闻/情绪证据，连续性不能当作安全信号。",
-          "summary": "连续性判断为证据不足；缺少板块轮动、新闻/情绪证据，连续性不能当作安全信号。"
+          "reason": "缺少板块轮动，连续性不能当作安全信号。",
+          "summary": "连续性判断为证据不足；缺少板块轮动，连续性不能当作安全信号。"
         },
         "evidence_freshness": {
-          "market": "missing",
-          "news": "missing",
-          "sector": "missing",
-          "sentiment": "missing",
-          "stock": "missing"
+          "market": "fresh",
+          "news": "fresh",
+          "sector": "fresh",
+          "sentiment": "fresh",
+          "stock": "fresh"
         },
         "evidence_gaps": [
           {
             "message": "板块轮动数据缺失，板块排名和持续性证据不足。",
             "scope": "sector_data",
-            "status": "missing"
-          },
-          {
-            "message": "市场级新闻/情绪证据缺失，不能编造支持性证据。",
-            "scope": "market",
-            "status": "missing"
-          },
-          {
-            "message": "板块新闻/情绪证据缺失，不能编造支持性证据。",
-            "scope": "sector",
-            "status": "missing"
-          },
-          {
-            "message": "个股新闻/情绪证据缺失，不能编造支持性证据。",
-            "scope": "stock",
-            "status": "missing"
-          },
-          {
-            "message": "新闻证据缺失，不能编造支持性证据。",
-            "scope": "news",
-            "status": "missing"
-          },
-          {
-            "message": "情绪证据缺失，不能编造支持性证据。",
-            "scope": "sentiment",
             "status": "missing"
           },
           {
@@ -656,7 +938,10 @@
         },
         "source_refs": [
           "market_review_runs:6",
-          "market_regime_snapshots:6"
+          "market_regime_snapshots:6",
+          "market_external_items:20260514:market:1",
+          "market_external_items:20260514:sector:1",
+          "market_external_items:20260514:stock:2"
         ]
       },
       "persistence_score": 0.1107,
@@ -665,7 +950,10 @@
       "sentiment_score": null,
       "source_refs": [
         "market_review_runs:6",
-        "market_regime_snapshots:6"
+        "market_regime_snapshots:6",
+        "market_external_items:20260514:market:1",
+        "market_external_items:20260514:sector:1",
+        "market_external_items:20260514:stock:2"
       ],
       "status": "completed",
       "strategy_hypotheses": [],
@@ -687,7 +975,7 @@
       "target_name": null,
       "target_stock": null
     },
-    "recommended_manual_action": "处理 paper acceptance 未处理 blocker。",
+    "recommended_manual_action": "继续人工记录纸盘完整买卖闭环；还需 9 笔已闭环交易。",
     "status": "blocked",
     "strategy_proposals": {
       "accepted_count": 0,
@@ -708,7 +996,7 @@
       "target": null,
       "trade_plan_id": null
     },
-    "warning_count": 2
+    "warning_count": 1
   },
   "next_trade_date": "20260515",
   "no_candidate_reason": "no_strategy_signals",
@@ -738,15 +1026,6 @@
         "title": "未处理 blocker"
       },
       {
-        "action": "market",
-        "as_of_date": "20260514",
-        "code": "STALE_OR_MISSING_EVIDENCE",
-        "gate_key": "evidence_coverage",
-        "severity": "warning",
-        "summary": "2026-05-14 存在 MARKET_EVIDENCE_MISSING, AGENT_EXTERNAL_EVIDENCE_MISSING，需人工复核证据覆盖。",
-        "title": "证据或行情不新鲜"
-      },
-      {
         "action": "agent",
         "as_of_date": "20260514",
         "code": "AGENT_REVIEW_MISSING",
@@ -767,6 +1046,7 @@
       "summary": "最新行情日 2026-05-14 / 复盘日 2026-05-14",
       "warning_codes": []
     },
+    "due_exit_positions": [],
     "evidence_coverage": {
       "blocker_codes": [],
       "detail": "Missing evidence is explicit and remains advisory; no cached evidence mutates strategy or trades.",
@@ -775,16 +1055,50 @@
       "source_refs": [
         "market_review_runs:6",
         "market_review_runs:6",
-        "market_regime_snapshots:6"
+        "market_regime_snapshots:6",
+        "market_external_items:20260514:market:1",
+        "market_external_items:20260514:sector:1",
+        "market_external_items:20260514:stock:2",
+        "agent_external_items:7",
+        "agent_external_items:8",
+        "agent_external_items:9",
+        "agent_external_items:10",
+        "agent_external_items:11",
+        "agent_external_items:12",
+        "agent_external_items:13",
+        "agent_external_items:14",
+        "agent_external_items:15"
       ],
-      "status": "warning",
-      "summary": "全市场证据 0 条；Agent 覆盖 0 项",
-      "warning_codes": [
-        "MARKET_EVIDENCE_MISSING",
-        "AGENT_EXTERNAL_EVIDENCE_MISSING"
-      ]
+      "status": "pass",
+      "summary": "全市场证据 4 条；Agent 覆盖 5 项",
+      "warning_codes": []
     },
     "execution_date": "20260515",
+    "exit_lifecycle": {
+      "due_exit_positions_count": 0,
+      "manual_action": "当前无到期退出；人工确认已有退出计划是否已完成。",
+      "next_due_date": null,
+      "open_positions_count": 1,
+      "overdue_t2_count": 0,
+      "overdue_t5_count": 0,
+      "planned_exit_count": 1,
+      "summary": "开放持仓 1；等待 T+2 0；等待 T+5 0；已有退出计划 1；到期 T+2/T+5 0/0。",
+      "waiting_t2_count": 0,
+      "waiting_t5_count": 0
+    },
+    "latest_evidence_status": {
+      "agent_evidence_count": 12,
+      "agent_evidence_status": "available",
+      "agent_status": "missing",
+      "latest_agent_decision_at": null,
+      "latest_agent_decision_count": 0,
+      "latest_agent_evidence_date": "20260514",
+      "latest_market_evidence_date": "20260514",
+      "manual_action": "补齐或确认已审核证据：Agent 决策链路。",
+      "market_evidence_count": 8,
+      "market_evidence_status": "available",
+      "summary": "Agent 链路 0；全市场证据 8；账户标的证据 12。"
+    },
     "open_execution": {
       "as_of_date": "20260515",
       "blocked_reasons": [],
@@ -834,11 +1148,11 @@
           "MIN_PAPER_TRADES_NOT_MET"
         ],
         "detail": "来自 paper-readiness；用于暴露晋级和账本 gate，不会自动执行任何交易动作。",
-        "key": "paper_paper_trade_sample",
-        "label": "Paper 样本交易",
+        "key": "paper_completed_trade_sample",
+        "label": "10 笔闭环交易",
         "source_refs": [],
         "status": "blocked",
-        "summary": "3/10 笔 executed paper trades",
+        "summary": "已闭环 1/10 笔；已执行 3 笔",
         "warning_codes": []
       },
       {
@@ -894,10 +1208,39 @@
         ]
       }
     ],
+    "readiness_next_action": {
+      "blocker_codes": [
+        "MIN_PAPER_TRADES_NOT_MET"
+      ],
+      "headline": "纸盘 readiness 未就绪：1 项 blocker。",
+      "manual_action": "继续人工记录纸盘完整买卖闭环；还需 9 笔已闭环交易。",
+      "not_ready_reasons": [
+        "还需 9 笔已闭环交易"
+      ],
+      "ready_after": [
+        "完成并记录 9 笔买入+卖出闭环",
+        "人工复核警告：AGENT_EVIDENCE_MISSING"
+      ],
+      "safety_note": "只读纸盘进度；不会自动创建交易计划、记录成交、晋级策略、启用券商或定时任务。",
+      "status": "blocked",
+      "warning_codes": [
+        "AGENT_EVIDENCE_MISSING"
+      ]
+    },
+    "readiness_progress": {
+      "completed_trades": 1,
+      "executed_trades": 3,
+      "progress_ratio": 0.1,
+      "ready_after": "还需 9 笔已闭环交易",
+      "remaining_completed_trades": 9,
+      "required_completed_trades": 10,
+      "status": "blocked",
+      "summary": "已闭环 1/10 笔；已执行 3 笔；还差 9 笔闭环交易。"
+    },
     "status": "blocked",
     "summary": "纸盘每日运营验收阻断：1 项 blocker 需要先处理。",
     "unresolved_blockers": [
-      "Paper 样本交易: MIN_PAPER_TRADES_NOT_MET"
+      "10 笔闭环交易: MIN_PAPER_TRADES_NOT_MET"
     ]
   },
   "paper_promotion": {
@@ -905,10 +1248,36 @@
     "as_of_date": "20260514",
     "avg_slippage": 0.0061818181818182,
     "closed_trades_count": 1,
+    "due_exit_positions": [],
     "due_exit_positions_count": 0,
+    "exit_lifecycle": {
+      "due_exit_positions_count": 0,
+      "manual_action": "当前无到期退出；人工确认已有退出计划是否已完成。",
+      "next_due_date": null,
+      "open_positions_count": 1,
+      "overdue_t2_count": 0,
+      "overdue_t5_count": 0,
+      "planned_exit_count": 1,
+      "summary": "开放持仓 1；等待 T+2 0；等待 T+5 0；已有退出计划 1；到期 T+2/T+5 0/0。",
+      "waiting_t2_count": 0,
+      "waiting_t5_count": 0
+    },
     "invariant_ok": true,
     "invariant_violation_codes": [],
     "last_pipeline_status": "success",
+    "latest_evidence_status": {
+      "agent_evidence_count": 12,
+      "agent_evidence_status": "available",
+      "agent_status": "missing",
+      "latest_agent_decision_at": null,
+      "latest_agent_decision_count": 0,
+      "latest_agent_evidence_date": "20260514",
+      "latest_market_evidence_date": "20260514",
+      "manual_action": "补齐或确认已审核证据：Agent 决策链路。",
+      "market_evidence_count": 8,
+      "market_evidence_status": "available",
+      "summary": "Agent 链路 0；全市场证据 8；账户标的证据 12。"
+    },
     "ledger_blockers_count": 0,
     "open_blockers_count": 0,
     "open_positions_count": 1,
@@ -924,10 +1293,10 @@
         "blocker_codes": [
           "MIN_PAPER_TRADES_NOT_MET"
         ],
-        "gate": "paper_trade_sample",
-        "label": "Paper 样本交易",
+        "gate": "completed_trade_sample",
+        "label": "10 笔闭环交易",
         "status": "blocked",
-        "summary": "3/10 笔 executed paper trades",
+        "summary": "已闭环 1/10 笔；已执行 3 笔",
         "warning_codes": []
       },
       {
@@ -973,6 +1342,35 @@
         ]
       }
     ],
+    "readiness_next_action": {
+      "blocker_codes": [
+        "MIN_PAPER_TRADES_NOT_MET"
+      ],
+      "headline": "纸盘 readiness 未就绪：1 项 blocker。",
+      "manual_action": "继续人工记录纸盘完整买卖闭环；还需 9 笔已闭环交易。",
+      "not_ready_reasons": [
+        "还需 9 笔已闭环交易"
+      ],
+      "ready_after": [
+        "完成并记录 9 笔买入+卖出闭环",
+        "人工复核警告：AGENT_EVIDENCE_MISSING"
+      ],
+      "safety_note": "只读纸盘进度；不会自动创建交易计划、记录成交、晋级策略、启用券商或定时任务。",
+      "status": "blocked",
+      "warning_codes": [
+        "AGENT_EVIDENCE_MISSING"
+      ]
+    },
+    "readiness_progress": {
+      "completed_trades": 1,
+      "executed_trades": 3,
+      "progress_ratio": 0.1,
+      "ready_after": "还需 9 笔已闭环交易",
+      "remaining_completed_trades": 9,
+      "required_completed_trades": 10,
+      "status": "blocked",
+      "summary": "已闭环 1/10 笔；已执行 3 笔；还差 9 笔闭环交易。"
+    },
     "realized_pnl": -1536.0,
     "trades_count": 3,
     "win_rate": 0.0
@@ -2571,7 +2969,7 @@
       "summary": {},
       "valid": false
     },
-    "generated_at": "2026-05-14T10:55:20+00:00",
+    "generated_at": "2026-05-14T14:03:52+00:00",
     "language": "zh-CN",
     "memo_contract": "shadow_decision_memo_v1",
     "promotion_review": {

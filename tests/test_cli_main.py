@@ -137,6 +137,27 @@ class _UnexpectedReviewService:
 
 
 @dataclass(frozen=True)
+class _FakeReadinessProgress:
+    required_completed_trades: int = 10
+    completed_trades: int = 10
+    remaining_completed_trades: int = 0
+
+
+@dataclass(frozen=True)
+class _FakeExitLifecycle:
+    waiting_t2_count: int = 0
+    waiting_t5_count: int = 0
+    overdue_t2_count: int = 0
+    overdue_t5_count: int = 0
+    next_due_date: str | None = None
+
+
+@dataclass(frozen=True)
+class _FakeReadinessNextAction:
+    manual_action: str = "可进入下一步人工晋级复核；仍不自动交易、不自动晋级。"
+
+
+@dataclass(frozen=True)
 class _FakeReadinessData:
     account_key: str = "paper-main"
     as_of_date: str = "20260507"
@@ -155,6 +176,9 @@ class _FakeReadinessData:
     invariant_violation_codes: list[str] = field(default_factory=list)
     promotion_blockers: list[str] = field(default_factory=list)
     promotion_warnings: list[str] = field(default_factory=lambda: ["AGENT_EVIDENCE_MISSING"])
+    readiness_progress: _FakeReadinessProgress = field(default_factory=_FakeReadinessProgress)
+    exit_lifecycle: _FakeExitLifecycle = field(default_factory=_FakeExitLifecycle)
+    readiness_next_action: _FakeReadinessNextAction = field(default_factory=_FakeReadinessNextAction)
 
 
 class _FakeReadinessService:
@@ -967,15 +991,20 @@ class CliMainTest(unittest.TestCase):
         self.assertIn("readiness=pass", output)
         self.assertIn("trades_count=10", output)
         self.assertIn("closed_trades_count=2", output)
+        self.assertIn("completed_trade_progress=10/10", output)
+        self.assertIn("remaining_completed_trades=0", output)
         self.assertIn("win_rate=0.5", output)
         self.assertIn("realized_pnl=128.5", output)
         self.assertIn("avg_slippage=none", output)
         self.assertIn("last_pipeline_status=success", output)
         self.assertIn("open_positions_count=0", output)
         self.assertIn("due_exit_positions_count=0", output)
+        self.assertIn("waiting_t2_count=0", output)
+        self.assertIn("overdue_t5_count=0", output)
         self.assertIn("open_blockers_count=0", output)
         self.assertIn("invariant_ok=true", output)
         self.assertIn("promotion_warnings=AGENT_EVIDENCE_MISSING", output)
+        self.assertIn("readiness_next_action=可进入下一步人工晋级复核", output)
 
     def test_agent_review_routes_to_service_with_dry_run_context(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -1,6 +1,6 @@
 # PGC 每日复盘报告
 
-生成时间：2026-05-14T10:55:20.143979+00:00
+生成时间：2026-05-14T14:03:52.714677+00:00
 复盘日：2026-05-14
 最新行情日：2026-05-14
 下一交易日：2026-05-15
@@ -18,14 +18,16 @@
 ## Paper 晋级分数卡
 
 - 状态：阻断，不能晋级 live
-- 样本交易：3
+- 样本交易（已执行）：3
 - 已闭环交易：1
+- 10 笔闭环进度：已闭环 1/10 笔；已执行 3 笔；还差 9 笔闭环交易。
 - 累计实现盈亏：-1,536.00
 - 胜率：0.00%
 - 平均滑点：0.62%
 - 最近 pipeline：success
 - 当前阻断：MIN_PAPER_TRADES_NOT_MET
-- 晋级 live 前还差什么：MIN_PAPER_TRADES_NOT_MET
+- 晋级 live 前还差什么：完成并记录 9 笔买入+卖出闭环；人工复核警告：AGENT_EVIDENCE_MISSING
+- 下一步人工动作：继续人工记录纸盘完整买卖闭环；还需 9 笔已闭环交易。
 - 晋级警告：AGENT_EVIDENCE_MISSING
 
 ## 纸盘每日运营验收
@@ -34,7 +36,7 @@
 - 验收摘要：纸盘每日运营验收阻断：1 项 blocker 需要先处理。
 - 执行日：2026-05-15
 - 数据新鲜度：通过；最新行情日 2026-05-14 / 复盘日 2026-05-14
-- 证据覆盖：警告；全市场证据 0 条；Agent 覆盖 0 项；warning MARKET_EVIDENCE_MISSING, AGENT_EXTERNAL_EVIDENCE_MISSING
+- 证据覆盖：通过；全市场证据 4 条；Agent 覆盖 5 项
 - Agent 状态：警告；not_run / no_opinion / risk unknown；warning AGENT_REVIEW_NOT_RUN
 - open-execution 状态：通过；idle / none
 - 提醒：只读验收面板，不会执行交易、取消计划或改策略参数。
@@ -42,26 +44,34 @@
 readiness gates：
 - daily review readiness gate：通过；readiness=pass
 - 账户容量 gate：通过；持仓 1/3；空闲 2
-- Paper 样本交易：阻断；3/10 笔 executed paper trades；blocker MIN_PAPER_TRADES_NOT_MET
+- 10 笔闭环交易：阻断；已闭环 1/10 笔；已执行 3 笔；blocker MIN_PAPER_TRADES_NOT_MET
 - 账本 invariant：通过；账本 invariant 通过
 - 数据质量 blocker：通过；0 个 open blocker
 - T+2 / T+5 待处理：通过；0 个到期退出判断
 - 现金 / 权益核对：通过；现金/权益核对未发现警告
 - Agent 证据链路：警告；缺少账户级 Agent 证据链路；warning AGENT_EVIDENCE_MISSING
 
+纸盘进度环：
+- 10 笔闭环进度：1/10；已执行 3；还需 9 笔已闭环交易
+- 退出生命周期：开放持仓 1；等待 T+2 0；等待 T+5 0；已有退出计划 1；到期 T+2/T+5 0/0。 下一到期 -；当前无到期退出；人工确认已有退出计划是否已完成。
+- 最新智能体 / 证据状态：Agent 链路 0；全市场证据 8；账户标的证据 12。；补齐或确认已审核证据：Agent 决策链路。
+- 还不能 ready 因为：还需 9 笔已闭环交易
+- 满足条件后：完成并记录 9 笔买入+卖出闭环；人工复核警告：AGENT_EVIDENCE_MISSING
+- 下一步人工动作：继续人工记录纸盘完整买卖闭环；还需 9 笔已闭环交易。
+- 边界：只读纸盘进度；不会自动创建交易计划、记录成交、晋级策略、启用券商或定时任务。
+
 未处理 blocker：
-- Paper 样本交易: MIN_PAPER_TRADES_NOT_MET
+- 10 笔闭环交易: MIN_PAPER_TRADES_NOT_MET
 
 验收告警：
 - [blocker] 未处理 blocker：1 项 blocker 仍未处理，paper acceptance 不能视为通过。
-- [warning] 证据或行情不新鲜：2026-05-14 存在 MARKET_EVIDENCE_MISSING, AGENT_EXTERNAL_EVIDENCE_MISSING，需人工复核证据覆盖。
 - [warning] Agent 复核缺失：2026-05-14 的 Agent 状态为 not_run / no_opinion / risk unknown。
 
 ## 下一交易日决策驾驶舱
 
 - 状态：阻断
 - 摘要：下一交易日决策被 1 项 blocker 阻断。
-- 推荐人工动作：处理 paper acceptance 未处理 blocker。
+- 推荐人工动作：继续人工记录纸盘完整买卖闭环；还需 9 笔已闭环交易。
 - 执行日：2026-05-15
 - 系统建议：无动作
 - 目标：-
@@ -70,8 +80,8 @@ readiness gates：
 - 提醒：驾驶舱只读，不会执行交易、开启 timer 或修改策略参数。
 
 决策清单：
-- paper acceptance：阻断；纸盘每日运营验收阻断：1 项 blocker 需要先处理。；blocker MIN_PAPER_TRADES_NOT_MET；warning MARKET_EVIDENCE_MISSING, AGENT_EXTERNAL_EVIDENCE_MISSING, AGENT_REVIEW_NOT_RUN, AGENT_EVIDENCE_MISSING；下一步：处理 paper acceptance 未处理 blocker。
-- 证据 freshness / coverage：警告；全市场证据 0 条；Agent 覆盖 0 项；warning MARKET_EVIDENCE_MISSING, AGENT_EXTERNAL_EVIDENCE_MISSING；下一步：补齐或确认 cached provider evidence，再重新运行只读验收。
+- paper acceptance：阻断；纸盘每日运营验收阻断：1 项 blocker 需要先处理。；blocker MIN_PAPER_TRADES_NOT_MET；warning AGENT_REVIEW_NOT_RUN, AGENT_EVIDENCE_MISSING；下一步：继续人工记录纸盘完整买卖闭环；还需 9 笔已闭环交易。
+- 证据 freshness / coverage：通过；全市场证据 4 条；Agent 覆盖 5 项；下一步：证据覆盖通过，保留 source_refs 供人工抽查。
 - 全市场复盘 / 计划关系：警告；risk_off / insufficient_evidence；Market regime risk_off: breadth=0.17 trend=0.26 volume=0.38 persistence=0.11 coverage=1.00.；计划关系 missing；warning MARKET_PLAN_CONTEXT_MISSING；下一步：补齐全市场复盘与明日计划关系，或人工确认该计划无需市场上下文。
 - open-execution 下一步：通过；idle / none；下一步：下一交易日没有待执行动作，保持观察。
 - 策略 proposal / hypothesis：通过；没有待审阅策略假设或 proposal。；下一步：无需策略参数动作；继续保持策略 evolution 只读边界。
@@ -104,7 +114,7 @@ readiness gates：
 
 - 结论：全市场处于风险收缩（宽度0.17 / 趋势0.26 / 量能0.38 / 持续0.11）：Market regime risk_off: breadth=0.17 trend=0.26 volume=0.38 persistence=0.11 coverage=1.00.
 - 状态：已完成；风险收缩（宽度0.17 / 趋势0.26 / 持续0.11）：Market regime risk_off: breadth=0.17 trend=0.26 volume=0.38 persistence=0.11 coverage=1.00.
-- 连续性判断：证据不足；缺少板块轮动、新闻/情绪证据，连续性不能当作安全信号。
+- 连续性判断：证据不足；缺少板块轮动，连续性不能当作安全信号。
 
 ### 板块持续性
 
@@ -119,15 +129,15 @@ readiness gates：
 
 ### 证据缺口
 
-- 外部证据覆盖：未找到全市场新闻/情绪证据；freshness market missing / sector missing / stock missing
-- 缺口：板块轮动数据缺失，板块排名和持续性证据不足。; 市场级新闻/情绪证据缺失，不能编造支持性证据。; 板块新闻/情绪证据缺失，不能编造支持性证据。; 个股新闻/情绪证据缺失，不能编造支持性证据。; 新闻证据缺失，不能编造支持性证据。; 情绪证据缺失，不能编造支持性证据。; 明日计划关系缺失，不能自动推导交易动作。
-- 连续性叙事：连续性判断为证据不足；缺少板块轮动、新闻/情绪证据，连续性不能当作安全信号。
+- 外部证据覆盖：4 条；范围 market 1 / sector 1 / stock 2；情绪 neutral 4；来源 pgc_reviewed_cache_m110 4；状态 市场可用 / 板块部分 / 个股部分 / 新闻可用 / 情绪可用；freshness market fresh / sector fresh / stock fresh
+- 缺口：板块轮动数据缺失，板块排名和持续性证据不足。; 明日计划关系缺失，不能自动推导交易动作。
+- 连续性叙事：连续性判断为证据不足；缺少板块轮动，连续性不能当作安全信号。
 
 ### 与明日计划关系
 
 - 计划关系：明日计划关系缺失，不能从复盘自动推导交易动作。
 - 策略假设：未生成策略假设
-- 来源：market_review_runs:6 / market_regime_snapshots:6
+- 来源：market_review_runs:6 / market_regime_snapshots:6 / market_external_items:20260514:market:1 / market_external_items:20260514:sector:1 等 5 项
 
 ## 全市场复盘与明日计划关系
 
@@ -136,9 +146,9 @@ readiness gates：
 
 ## 外部证据覆盖台账
 
-- 覆盖状态：entries=10；blocking=10；ready_dates=无；blocking_dates=20260514
-- 状态计数：missing=10 / unavailable=0 / partial=0 / stale=0 / duplicate=0 / source_hash_mismatch=0
-- Provider pack：manifest_count=0；discovered=0
+- 覆盖状态：entries=21；blocking=2；ready_dates=无；blocking_dates=20260514
+- 状态计数：missing=0 / unavailable=6 / partial=2 / stale=0 / duplicate=0 / source_hash_mismatch=0
+- Provider pack：manifest_count=1；discovered=1
 - 安全边界：read_only=true；live_fetches=false；writes_trade_state=false
 
 ## Shadow 策略观察 (shadow_observation)
@@ -227,6 +237,10 @@ source_refs：monitor_json=/Users/azboo/Desktop/Person/pgc/reports/strategy_shad
 - 风险：未知
 - 摘要：Agent 复核尚未接入本次日报；确定性策略和人工检查优先。
 - 提醒：Agent 只提供复核意见，不会自动改变交易计划。
+- 数据覆盖：技术面 未知 / 基本面 可用 / 新闻面 缺失 / 情绪面 可用
+
+未接入/缺失：
+- Agent cached provider evidence 缺失：公告/新闻。
 
 ## 当前持仓处理
 

@@ -1,0 +1,374 @@
+{
+  "account_key": "paper-main",
+  "as_of_date": "20260514",
+  "blocker_keys": [
+    "evidence_imports",
+    "paper_ledger"
+  ],
+  "checks": [
+    {
+      "detail": "both database snapshots are readable",
+      "key": "database",
+      "label": "Database snapshots",
+      "local_value": {
+        "error": null,
+        "exists": true,
+        "path": "data/pgc_trading.db"
+      },
+      "next_command": null,
+      "remote_value": {
+        "error": null,
+        "exists": true,
+        "path": "/private/tmp/pgc_m108_remote.db"
+      },
+      "status": "pass"
+    },
+    {
+      "detail": "local and remote values match",
+      "key": "migration",
+      "label": "Migration state",
+      "local_value": {
+        "latest_migration": "013_decision_action_log",
+        "pending_migrations": []
+      },
+      "next_command": null,
+      "remote_value": {
+        "latest_migration": "013_decision_action_log",
+        "pending_migrations": []
+      },
+      "status": "pass"
+    },
+    {
+      "detail": "local and remote values match",
+      "key": "market_bars",
+      "label": "Latest market bars",
+      "local_value": {
+        "latest_date": "20260514",
+        "latest_date_count": 263,
+        "latest_date_signature": "926f3e4dea72dfa5"
+      },
+      "next_command": null,
+      "remote_value": {
+        "latest_date": "20260514",
+        "latest_date_count": 263,
+        "latest_date_signature": "926f3e4dea72dfa5"
+      },
+      "status": "pass"
+    },
+    {
+      "detail": "database daily-review rows and report files match",
+      "key": "daily_review",
+      "label": "Daily review artifacts",
+      "local_value": {
+        "latest_db_count": 1,
+        "latest_db_date": "20260513",
+        "latest_report_date": "20260514",
+        "report_files": [
+          "daily_review_20260514.json",
+          "daily_review_20260514.md"
+        ]
+      },
+      "next_command": null,
+      "remote_value": {
+        "latest_db_count": 1,
+        "latest_db_date": "20260513",
+        "latest_report_date": "20260514",
+        "report_files": [
+          "daily_review_20260514.json",
+          "daily_review_20260514.md"
+        ]
+      },
+      "status": "pass"
+    },
+    {
+      "detail": "local and remote values match",
+      "key": "market_review",
+      "label": "Latest market review",
+      "local_value": {
+        "latest_date": "20260514",
+        "latest_signature": "37c4beff0e2c8635",
+        "latest_status": "completed"
+      },
+      "next_command": null,
+      "remote_value": {
+        "latest_date": "20260514",
+        "latest_signature": "37c4beff0e2c8635",
+        "latest_status": "completed"
+      },
+      "status": "pass"
+    },
+    {
+      "detail": "local and remote values differ",
+      "key": "evidence_imports",
+      "label": "Evidence imports",
+      "local_value": {
+        "agent_external_count": 9,
+        "agent_external_latest_date": "20260514",
+        "agent_external_signature": "cb82b0538a9636e9",
+        "market_external_count": 4,
+        "market_external_latest_date": "20260514",
+        "market_external_signature": "3b2a66db81099918"
+      },
+      "next_command": "Import reviewed provider files on the stale endpoint, then rerun parity.",
+      "remote_value": {
+        "agent_external_count": 3,
+        "agent_external_latest_date": "20260508",
+        "agent_external_signature": "ce5a063567bd96b6",
+        "market_external_count": 2,
+        "market_external_latest_date": "20260508",
+        "market_external_signature": "2ad95f40320a78c1"
+      },
+      "status": "blocker"
+    },
+    {
+      "detail": "local and remote values differ",
+      "key": "paper_ledger",
+      "label": "Paper ledger",
+      "local_value": {
+        "account_status": "active",
+        "executed_trades_count": 3,
+        "executed_trades_signature": "ac46ebc4d3c95b16",
+        "positions_by_status": {
+          "closed": 1,
+          "planned_exit": 1
+        },
+        "positions_signature": "603d5ee59b8064de",
+        "trade_plans_by_status": {
+          "active": 2,
+          "cancelled": 1,
+          "executed": 3
+        },
+        "trade_plans_signature": "44c3b7a6c7b5c832"
+      },
+      "next_command": "Pull the production DB after guarded paper-ledger writes, then rerun parity.",
+      "remote_value": {
+        "account_status": "active",
+        "executed_trades_count": 4,
+        "executed_trades_signature": "3d58c8e5edd58f26",
+        "positions_by_status": {
+          "closed": 2
+        },
+        "positions_signature": "a0335f224ad07778",
+        "trade_plans_by_status": {
+          "active": 1,
+          "cancelled": 1,
+          "executed": 4
+        },
+        "trade_plans_signature": "87f9598ccf220e4c"
+      },
+      "status": "blocker"
+    },
+    {
+      "detail": "release metadata matches",
+      "key": "release",
+      "label": "Release metadata",
+      "local_value": {
+        "git_sha": "c8514b3a333e",
+        "release_tag": "pgc-v0.1.0-20260514-m108-m111-plan-r1"
+      },
+      "next_command": null,
+      "remote_value": {
+        "git_sha": "c8514b3a333e",
+        "release_tag": "pgc-v0.1.0-20260514-m108-m111-plan-r1"
+      },
+      "status": "pass"
+    }
+  ],
+  "contract": "remote_local_parity_v1",
+  "generated_at": "2026-05-14T13:58:44+00:00",
+  "local": {
+    "daily_review": {
+      "error": null,
+      "latest_date": null,
+      "latest_date_count": 0,
+      "latest_date_signature": null,
+      "latest_db_count": 1,
+      "latest_db_date": "20260513",
+      "latest_report_date": "20260514",
+      "latest_signature": null,
+      "latest_status": null,
+      "report_files": [
+        "daily_review_20260514.json",
+        "daily_review_20260514.md"
+      ],
+      "reports_dir": "reports"
+    },
+    "database": {
+      "error": null,
+      "exists": true,
+      "path": "data/pgc_trading.db"
+    },
+    "evidence_imports": {
+      "agent_external_count": 9,
+      "agent_external_latest_date": "20260514",
+      "agent_external_signature": "cb82b0538a9636e9",
+      "error": null,
+      "market_external_count": 4,
+      "market_external_latest_date": "20260514",
+      "market_external_signature": "3b2a66db81099918"
+    },
+    "label": "local",
+    "market_bars": {
+      "error": null,
+      "latest_date": "20260514",
+      "latest_date_count": 263,
+      "latest_date_signature": "926f3e4dea72dfa5",
+      "total_count": 47242
+    },
+    "market_review": {
+      "error": null,
+      "latest_date": "20260514",
+      "latest_signature": "37c4beff0e2c8635",
+      "latest_status": "completed"
+    },
+    "migration": {
+      "applied_migrations": [
+        "001_schema_quality",
+        "002_raw_market",
+        "003_accounts",
+        "004_meta",
+        "005_strategy_governance",
+        "006_feature_signal",
+        "007_agent",
+        "008_portfolio",
+        "009_research_views",
+        "010_market_diagnostic_bars",
+        "011_agent_external_data",
+        "012_market_review",
+        "013_decision_action_log"
+      ],
+      "db_path": "data/pgc_trading.db",
+      "error": null,
+      "latest_migration": "013_decision_action_log",
+      "pending_migrations": []
+    },
+    "paper_ledger": {
+      "account_id": 1,
+      "account_key": "paper-main",
+      "account_status": "active",
+      "active_trade_plans_count": 2,
+      "error": null,
+      "executed_trades_count": 3,
+      "executed_trades_signature": "ac46ebc4d3c95b16",
+      "open_positions_count": 1,
+      "positions_by_status": {
+        "closed": 1,
+        "planned_exit": 1
+      },
+      "positions_signature": "603d5ee59b8064de",
+      "trade_plans_by_status": {
+        "active": 2,
+        "cancelled": 1,
+        "executed": 3
+      },
+      "trade_plans_signature": "44c3b7a6c7b5c832"
+    },
+    "release": {
+      "git_sha": "c8514b3a333e3b31d65cd28f66d0efcc533c5a16",
+      "release_tag": "pgc-v0.1.0-20260514-m108-m111-plan-r1"
+    }
+  },
+  "remote": {
+    "daily_review": {
+      "error": null,
+      "latest_date": null,
+      "latest_date_count": 0,
+      "latest_date_signature": null,
+      "latest_db_count": 1,
+      "latest_db_date": "20260513",
+      "latest_report_date": "20260514",
+      "latest_signature": null,
+      "latest_status": null,
+      "report_files": [
+        "daily_review_20260514.json",
+        "daily_review_20260514.md"
+      ],
+      "reports_dir": "/private/tmp/pgc_m108_remote_reports"
+    },
+    "database": {
+      "error": null,
+      "exists": true,
+      "path": "/private/tmp/pgc_m108_remote.db"
+    },
+    "evidence_imports": {
+      "agent_external_count": 3,
+      "agent_external_latest_date": "20260508",
+      "agent_external_signature": "ce5a063567bd96b6",
+      "error": null,
+      "market_external_count": 2,
+      "market_external_latest_date": "20260508",
+      "market_external_signature": "2ad95f40320a78c1"
+    },
+    "label": "remote",
+    "market_bars": {
+      "error": null,
+      "latest_date": "20260514",
+      "latest_date_count": 263,
+      "latest_date_signature": "926f3e4dea72dfa5",
+      "total_count": 47242
+    },
+    "market_review": {
+      "error": null,
+      "latest_date": "20260514",
+      "latest_signature": "37c4beff0e2c8635",
+      "latest_status": "completed"
+    },
+    "migration": {
+      "applied_migrations": [
+        "001_schema_quality",
+        "002_raw_market",
+        "003_accounts",
+        "004_meta",
+        "005_strategy_governance",
+        "006_feature_signal",
+        "007_agent",
+        "008_portfolio",
+        "009_research_views",
+        "010_market_diagnostic_bars",
+        "011_agent_external_data",
+        "012_market_review",
+        "013_decision_action_log"
+      ],
+      "db_path": "/private/tmp/pgc_m108_remote.db",
+      "error": null,
+      "latest_migration": "013_decision_action_log",
+      "pending_migrations": []
+    },
+    "paper_ledger": {
+      "account_id": 1,
+      "account_key": "paper-main",
+      "account_status": "active",
+      "active_trade_plans_count": 1,
+      "error": null,
+      "executed_trades_count": 4,
+      "executed_trades_signature": "3d58c8e5edd58f26",
+      "open_positions_count": 0,
+      "positions_by_status": {
+        "closed": 2
+      },
+      "positions_signature": "a0335f224ad07778",
+      "trade_plans_by_status": {
+        "active": 1,
+        "cancelled": 1,
+        "executed": 4
+      },
+      "trade_plans_signature": "87f9598ccf220e4c"
+    },
+    "release": {
+      "git_sha": "c8514b3a333e3b31d65cd28f66d0efcc533c5a16",
+      "release_tag": "pgc-v0.1.0-20260514-m108-m111-plan-r1"
+    }
+  },
+  "safety": {
+    "broker_order_mutated": false,
+    "live_fetch_in_request_path": false,
+    "paper_live_state_mutated": false,
+    "read_only": true,
+    "source_database_mutated": false,
+    "strategy_state_mutated": false,
+    "timer_mutated": false,
+    "trade_state_mutated": false
+  },
+  "status": "blocker",
+  "warning_keys": []
+}

@@ -156,6 +156,7 @@ function cacheElements() {
     "acceptanceHistoryList",
     "opsBadge",
     "reloadOpsHistoryButton",
+    "opsOperatorFlow",
     "opsHistorySummary",
     "opsHistoryCounts",
     "opsHistoryList",
@@ -168,6 +169,7 @@ function cacheElements() {
     "marketFollowReviewDateButton",
     "marketApplyDateButton",
     "marketReviewDateLabel",
+    "marketOperatorFlow",
     "marketHistoryStrip",
     "marketDiagnosticsPanel",
     "marketRegimeStrip",
@@ -196,6 +198,7 @@ function cacheElements() {
     "shadowHistoryWindowSelect",
     "shadowHistoryApplyButton",
     "shadowSnapshotDateLabel",
+    "shadowOperatorFlow",
     "shadowSummaryPanel",
     "shadowDecisionMemoState",
     "shadowDecisionMemoWorkbench",
@@ -226,6 +229,7 @@ function cacheElements() {
     "reviewNextDateButton",
     "reviewLatestDateButton",
     "reviewApplyDateButton",
+    "reviewOperatorFlow",
     "reviewTimelineState",
     "reviewTimelineList",
     "reviewHistoryState",
@@ -319,6 +323,7 @@ function bindEvents() {
   els.reviewNextDateButton.addEventListener("click", () => shiftReviewDate(1));
   els.reviewLatestDateButton.addEventListener("click", setLatestReviewDate);
   els.reloadReviewHistoryButton.addEventListener("click", loadReviewHistoryAndRender);
+  els.reviewOperatorFlow.addEventListener("click", onOperatorFlowClick);
   els.reviewTimelineList.addEventListener("click", onReviewTimelineClick);
   els.reviewHistoryList.addEventListener("click", onReviewHistoryClick);
   els.reloadAcceptanceButton.addEventListener("click", loadPaperAcceptanceAndRender);
@@ -334,7 +339,10 @@ function bindEvents() {
   els.decisionChecklist.addEventListener("click", onDecisionActionClick);
   els.decisionActionLog.addEventListener("click", onDecisionActionClick);
   els.reloadOpsHistoryButton.addEventListener("click", loadOpsHistoryAndRender);
+  els.opsOperatorFlow.addEventListener("click", onOperatorFlowClick);
+  els.opsHistoryList.addEventListener("click", onOpsHistoryClick);
   els.reloadMarketButton.addEventListener("click", loadMarketReviewAndRender);
+  els.marketOperatorFlow.addEventListener("click", onOperatorFlowClick);
   els.marketApplyDateButton.addEventListener("click", applyMarketReviewDateInput);
   els.marketReviewDateInput.addEventListener("change", applyMarketReviewDateInput);
   els.marketPrevDateButton.addEventListener("click", () => shiftMarketReviewDate(-1));
@@ -353,6 +361,7 @@ function bindEvents() {
   els.strategyHypothesisWorkbenchList.addEventListener("click", onStrategyHypothesisWorkbenchClick);
   els.strategyHypothesisQueue.addEventListener("click", onStrategyHypothesisWorkbenchClick);
   els.reloadShadowStrategyButton.addEventListener("click", loadShadowStrategySnapshotAndRender);
+  els.shadowOperatorFlow.addEventListener("click", onOperatorFlowClick);
   els.shadowHistoryApplyButton.addEventListener("click", applyShadowHistoryControls);
   els.shadowHistoryDateInput.addEventListener("change", applyShadowHistoryControls);
   els.shadowHistoryWindowSelect.addEventListener("change", applyShadowHistoryControls);
@@ -2024,11 +2033,145 @@ function renderStatusBand() {
 }
 
 function renderReview() {
+  renderReviewOperatorFlow();
   renderNextAction();
   renderBlockers();
   renderCandidate();
   renderDuePositions();
   renderAgent();
+}
+
+function renderReviewOperatorFlow() {
+  const report = state.report;
+  const blocked = hasBlockingQuality();
+  const plan = report?.buy_plan;
+  const candidate = report?.candidate;
+  const due = duePositions();
+  const executionDay = executionDate();
+  let tone = "idle";
+  let title = "确认复盘结论和下一交易日动作";
+  let today = "下一交易日动作、候选、T+2 / T+5 和智能体复核";
+  let why = "没有阻断时也只进入人工确认，不会自动成交。";
+  let next = "先看下一交易日动作，再进入开盘执行。";
+  let actions = [
+    { label: "开盘执行", action: "page", page: "execution", primary: true },
+    { label: "智能体详情", action: "agent" },
+  ];
+
+  if (!report) {
+    tone = "blocked";
+    title = "复盘报告未读取";
+    today = "先确认账户、复盘日、策略版本和 API 地址。";
+    why = "缺少复盘报告，不能判断候选、计划或持仓到期。";
+    next = "刷新执行台；仍失败时调整页面上下文。";
+    actions = [
+      { label: "刷新执行台", action: "refresh", primary: true },
+      { label: "数据质量", action: "page", page: "quality" },
+    ];
+  } else if (blocked) {
+    tone = "blocked";
+    title = "先处理复盘阻断";
+    today = "数据阻断和下一交易日动作。";
+    why = primaryBlockerReason();
+    next = "点数据质量，处理后回到每日复盘刷新。";
+    actions = [
+      { label: "数据质量", action: "page", page: "quality", primary: true },
+      { label: "刷新执行台", action: "refresh" },
+    ];
+  } else if (plan) {
+    const planId = plan.trade_plan_id || plan.id;
+    tone = plan.status === "active" ? "ready" : "waiting";
+    title = plan.status === "active" ? "有效计划已就绪" : "计划仍需人工发布";
+    today = `${planStockText(planFromReport(plan))} / 计划交易日 ${displayDate(plan.planned_trade_date || plan.planned_buy_date)}`;
+    why = plan.status === "active"
+      ? "计划已有效；成交录入仍需开盘检查和真实成交事实。"
+      : `计划状态为${statusText(plan.status)}，未成为可执行计划。`;
+    next = plan.status === "active" ? "进入开盘执行，完成检查后录入。" : "进入交易计划页核对并使用原有发布入口。";
+    actions = [
+      { label: plan.status === "active" ? "开盘执行" : "交易计划", action: "page", page: plan.status === "active" ? "execution" : "plans", planId, primary: true },
+      { label: plan.status === "active" ? "计划列表" : "开盘执行", action: "page", page: plan.status === "active" ? "plans" : "execution" },
+    ];
+  } else if (candidate) {
+    tone = "waiting";
+    title = "有候选，尚未形成有效计划";
+    today = `${candidate.ts_code} ${candidate.name} / 评分 ${numberText(candidate.score, 4)}`;
+    why = "候选不等于交易计划；没有有效计划时不能进入成交录入。";
+    next = "打开候选详情核对血缘，再看交易计划。";
+    actions = [
+      { label: "候选详情", action: "candidate", primary: true },
+      { label: "交易计划", action: "page", page: "plans" },
+    ];
+  } else if (due.length) {
+    tone = "waiting";
+    title = "今天优先看退出任务";
+    today = `${due.length} 个 T+2 / T+5 到期待处理持仓。`;
+    why = "没有买入计划，但持仓生命周期需要人工评估。";
+    next = "进入开盘执行评估退出，或到成交录入记录实际卖出。";
+    actions = [
+      { label: "开盘执行", action: "page", page: "execution", primary: true },
+      { label: "当前持仓", action: "page", page: "positions" },
+    ];
+  } else {
+    title = "复盘没有给出主动动作";
+    today = "无候选原因、跨日复盘对比和市场关系。";
+    why = `复盘状态：${reasonText(report.no_candidate_reason)}。`;
+    next = "查看跨日复盘对比，必要时打开全市场复盘。";
+    actions = [
+      { label: "全市场复盘", action: "page", page: "market", primary: true },
+      { label: "刷新执行台", action: "refresh" },
+    ];
+  }
+
+  els.reviewOperatorFlow.innerHTML = operatorFlowPanel({
+    kicker: `每日复盘 · 复盘日 ${displayDate(report?.as_of_date || state.asOfDate)} · 执行日 ${displayDate(executionDay)}`,
+    title,
+    detail: "先把复盘结论、阻断原因和人工下一步收束到一条操作链。",
+    tone,
+    items: [
+      ["今天该看什么", today, tone === "blocked" ? "blocked" : tone],
+      ["为什么不能做", why, tone === "ready" ? "ready" : "blocked"],
+      ["下一步点哪里", next, "action"],
+    ],
+    actions,
+  });
+}
+
+function operatorFlowPanel({ kicker, title, detail, tone = "idle", items = [], actions = [] }) {
+  return `
+    <div class="operator-flow operator-flow--${escapeHtml(tone)}">
+      <div class="operator-flow__head">
+        <span class="workflow-guide__kicker">${escapeHtml(kicker)}</span>
+        <h2>${escapeHtml(title)}</h2>
+        <p>${escapeHtml(detail)}</p>
+      </div>
+      <div class="operator-flow__steps">
+        ${items.map(([label, value, itemTone]) => operatorFlowStep(label, value, itemTone)).join("")}
+      </div>
+      <div class="operator-flow__actions">
+        ${actions.map(operatorFlowActionButton).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function operatorFlowStep(label, value, tone) {
+  return `
+    <div class="operator-flow__step operator-flow__step--${escapeHtml(tone || "idle")}">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value || "-")}</strong>
+    </div>
+  `;
+}
+
+function operatorFlowActionButton(action) {
+  const attrs = [
+    `data-operator-action="${escapeHtml(action.action)}"`,
+    action.page ? `data-page="${escapeHtml(action.page)}"` : "",
+    action.planId ? `data-plan-id="${escapeHtml(action.planId)}"` : "",
+    action.candidateKey ? `data-candidate-key="${escapeHtml(action.candidateKey)}"` : "",
+    action.opsHistoryKey ? `data-ops-history-key="${escapeHtml(action.opsHistoryKey)}"` : "",
+  ].filter(Boolean).join(" ");
+  return `<button type="button" ${attrs} class="${action.primary ? "primary-button" : ""}">${escapeHtml(action.label)}</button>`;
 }
 
 function renderNextDayDecision() {
@@ -2348,6 +2491,8 @@ function renderPaperAcceptance() {
       ["账户", acceptance.account_key || accountContextText()],
       ["复盘日", displayDate(acceptance.as_of_date)],
       ["执行日", displayDate(acceptance.execution_date)],
+      ["闭环进度", acceptanceProgressText(acceptance)],
+      ["到期退出", acceptanceDueExitText(acceptance)],
       ["开盘执行", openExecutionActionText(openExecution.next_action)],
       ["未处理阻断", String(blockers.length)],
       ["顾问警告", String(warningCount)],
@@ -2357,6 +2502,7 @@ function renderPaperAcceptance() {
       <button type="button" data-acceptance-action="quality">查看数据质量</button>
       <button type="button" data-acceptance-action="refresh">刷新验收</button>
     </div>
+    ${acceptanceProgressLoopHtml(acceptance)}
   `;
   renderAcceptanceAlerts(acceptance, paperAcceptanceHistoryData());
 
@@ -2391,6 +2537,52 @@ function paperAcceptanceData() {
 
 function paperAcceptanceHistoryData() {
   return state.paperAcceptanceHistory || null;
+}
+
+function acceptanceProgressText(acceptance) {
+  const progress = acceptance?.readiness_progress || {};
+  const completed = Number(progress.completed_trades || 0);
+  const required = Number(progress.required_completed_trades || 0);
+  return required ? `${completed}/${required}` : "-";
+}
+
+function acceptanceDueExitText(acceptance) {
+  const lifecycle = acceptance?.exit_lifecycle || {};
+  const due = Number(lifecycle.due_exit_positions_count || 0);
+  const open = Number(lifecycle.open_positions_count || 0);
+  return due ? `${due} 到期` : `${open} 持仓`;
+}
+
+function acceptanceProgressLoopHtml(acceptance) {
+  const progress = acceptance?.readiness_progress || null;
+  const lifecycle = acceptance?.exit_lifecycle || null;
+  const evidence = acceptance?.latest_evidence_status || null;
+  const action = acceptance?.readiness_next_action || null;
+  if (!progress && !lifecycle && !evidence && !action) return "";
+  const ratio = Math.max(0, Math.min(100, Math.round(Number(progress?.progress_ratio || 0) * 100)));
+  const duePositions = Array.isArray(acceptance?.due_exit_positions) ? acceptance.due_exit_positions : [];
+  const dueText = duePositions.length
+    ? duePositions.slice(0, 3).map((item) => `${item.ts_code || "-"} ${String(item.due_stage || "").toUpperCase()}`).join(" / ")
+    : "暂无到期退出";
+  return `
+    <section class="acceptance-progress-loop">
+      <div class="acceptance-progress-loop__head">
+        <div>
+          <strong>10 笔闭环进度</strong>
+          <span>${escapeHtml(progress?.summary || "闭环交易进度未计算。")}</span>
+        </div>
+        ${chipHtml(acceptanceStatusText(progress?.status || acceptance?.status), acceptanceStatusClass(progress?.status || acceptance?.status))}
+      </div>
+      <div class="acceptance-progress-rail" aria-hidden="true"><span style="width: ${ratio}%"></span></div>
+      <div class="acceptance-progress-loop__grid">
+        <span><b>退出生命周期</b>${escapeHtml(lifecycle?.summary || "未计算")}</span>
+        <span><b>到期退出</b>${escapeHtml(dueText)}</span>
+        <span><b>最新证据</b>${escapeHtml(evidence?.summary || "未计算")}</span>
+      </div>
+      <p><b>下一步人工动作</b>${escapeHtml(action?.manual_action || lifecycle?.manual_action || "人工复核后继续。")}</p>
+      <small>只读进度环；不会自动下单、晋级策略、启用券商或定时器。</small>
+    </section>
+  `;
 }
 
 function renderAcceptanceAlerts(acceptance, history) {
@@ -2441,6 +2633,7 @@ function acceptanceAlertList(acceptance, history) {
 function renderOpsHistory() {
   const history = opsHistoryData();
   const items = Array.isArray(history?.items) ? history.items : [];
+  renderOpsOperatorFlow(history, items);
   els.opsHistorySummary.textContent = history?.summary || "暂无运维运行历史；该视图不会主动运行远端命令。";
   els.opsHistoryCounts.innerHTML = opsHistoryCountChips(history?.counts || {});
   els.opsHistoryList.innerHTML = items.length
@@ -2450,6 +2643,45 @@ function renderOpsHistory() {
 
 function opsHistoryData() {
   return state.opsHistory || null;
+}
+
+function renderOpsOperatorFlow(history, items) {
+  const latest = items[0] || null;
+  const issueItems = items.filter((item) => ["failed", "blocked", "error", "warning"].includes(String(item.status || "")));
+  const tone = !items.length ? "idle" : issueItems.length ? "blocked" : "ready";
+  const latestKey = latest ? opsHistoryItemKey(latest, 0) : "";
+  const title = !items.length
+    ? "先确认是否已有运维证据"
+    : issueItems.length
+      ? "运维历史存在需要复核的记录"
+      : "运维证据链可读";
+  const today = items.length
+    ? "日终流水线、备份、发布标签、远端健康检查和定时任务证据。"
+    : "刷新运维历史，确认最近流水线和远端健康证据。";
+  const why = issueItems.length
+    ? `${opsHistoryCategoryText(issueItems[0].category)}：${opsHistoryStatusText(issueItems[0].status)}，需人工查看详情。`
+    : "证据/运维页只读，不会主动运行远端命令或重跑正式写入。";
+  const next = latest ? "打开最新运维详情，核对来源、证据和下一步。" : "点刷新运维历史。";
+  els.opsOperatorFlow.innerHTML = operatorFlowPanel({
+    kicker: `证据/运维 · ${items.length ? `${items.length} 条记录` : "暂无记录"}`,
+    title,
+    detail: history?.summary || "把运维证据和阻断边界放在同一条人工复核链路里。",
+    tone,
+    items: [
+      ["今天该看什么", today, tone],
+      ["为什么不能做", why, issueItems.length ? "blocked" : "ready"],
+      ["下一步点哪里", next, "action"],
+    ],
+    actions: latest
+      ? [
+        { label: "打开最新运维详情", action: "ops-detail", opsHistoryKey: latestKey, primary: true },
+        { label: "刷新运维历史", action: "refresh-ops" },
+      ]
+      : [
+        { label: "刷新运维历史", action: "refresh-ops", primary: true },
+        { label: "运营验收", action: "page", page: "acceptance" },
+      ],
+  });
 }
 
 function opsHistoryCountChips(counts) {
@@ -2470,7 +2702,13 @@ function opsHistoryCountChips(counts) {
   return chips.length ? chips.join("") : chipHtml("0", "chip-neutral");
 }
 
-function opsHistoryCard(item) {
+function opsHistoryItemKey(item, index) {
+  if (item.ops_history_id != null) return `id:${item.ops_history_id}`;
+  if (item.id != null) return `id:${item.id}`;
+  return `index:${index}`;
+}
+
+function opsHistoryCard(item, index) {
   const details = item.details || {};
   const detailRows = [
     ["来源", item.source],
@@ -2505,8 +2743,84 @@ function opsHistoryCard(item) {
           `).join("")}
         </div>
       ` : ""}
+      <div class="row-actions">
+        <button type="button" data-ops-history-detail="${escapeHtml(opsHistoryItemKey(item, index))}">打开运维详情</button>
+      </div>
     </article>
   `;
+}
+
+function onOpsHistoryClick(event) {
+  const button = event.target.closest("button[data-ops-history-detail]");
+  if (!button) return;
+  openOpsHistoryDrawer(button.dataset.opsHistoryDetail);
+}
+
+function findOpsHistoryItem(detailKey) {
+  const items = Array.isArray(opsHistoryData()?.items) ? opsHistoryData().items : [];
+  const key = String(detailKey || "");
+  if (key.startsWith("index:")) return items[Number(key.slice(6))] || null;
+  if (key.startsWith("id:")) {
+    const id = key.slice(3);
+    return items.find((item) => String(item.ops_history_id ?? item.id) === id) || null;
+  }
+  return null;
+}
+
+function openOpsHistoryDrawer(detailKey) {
+  const item = findOpsHistoryItem(detailKey);
+  if (!item) return;
+  const details = item.details || {};
+  const blockerRows = uniqueTextList([
+    ...listValue(item.blocker_codes),
+    ...listValue(item.warning_codes),
+    ...listValue(details.blockers),
+    ...listValue(details.unresolved_blockers),
+    ...listValue(details.unresolved_blocker_codes),
+    ...listValue(details.errors),
+  ]);
+  const sourceRows = uniqueTextList([
+    ...listValue(item.source_refs),
+    item.source,
+    details.log_file,
+    details.backup_path,
+    details.release_tag,
+    details.health_url,
+    details.health_command,
+  ]);
+  openDetailDrawer({
+    kicker: "运维详情",
+    title: item.title || opsHistoryCategoryText(item.category),
+    subtitle: "运维详情只解释已有证据；抽屉不会运行远端命令、重跑正式写入、创建交易或改策略状态。",
+    meta: [
+      [opsHistoryCategoryText(item.category), opsHistoryCategoryClass(item.category)],
+      [opsHistoryStatusText(item.status), opsHistoryStatusClass(item.status)],
+      [`日期 ${displayDate(item.as_of_date)}`, "chip-neutral"],
+    ],
+    actions: [
+      { label: "证据/运维", action: "page", page: "ops" },
+      { label: "运营验收", action: "page", page: "acceptance" },
+    ],
+    sections: [
+      detailSection("结论", detailMetrics([
+        ["状态", opsHistoryStatusText(item.status)],
+        ["类别", opsHistoryCategoryText(item.category)],
+        ["发生时间", displayTimestamp(item.occurred_at) || displayDate(item.as_of_date)],
+        ["操作者", item.operator || "-"],
+      ])),
+      detailSection("证据 / 来源", sourceRows.length
+        ? `<div class="acceptance-source-refs">${sourceRows.slice(0, 10).map((ref) => chipHtml(sourceRefText(ref), sourceRefClass(ref))).join("")}</div>`
+        : emptyState("暂无来源引用。")),
+      detailSection("阻断原因", blockerRows.length
+        ? shadowBlockerListHtml(blockerRows)
+        : emptyState("暂无阻断；仍需人工核对真实运维结果。")),
+      detailSection("下一步", detailRows([
+        ["人工下一步", item.next_action || details.next_action || "复核摘要、来源和状态后再决定是否继续操作。"],
+        ["安全边界", "不会启用定时任务、重跑正式写入、创建交易或修改策略状态"],
+      ])),
+      detailSection("详情分组", marketObjectRows(details)),
+    ],
+  });
 }
 
 function acceptanceGateCard(gate) {
@@ -2863,6 +3177,7 @@ function renderAgent() {
 }
 
 function renderMarketReview() {
+  renderMarketOperatorFlow();
   renderMarketReviewNavigation();
   renderMarketHistoryStrip();
   renderMarketScopeMarkers();
@@ -2873,6 +3188,64 @@ function renderMarketReview() {
   renderMarketPlanContext();
   renderMarketSentimentSummary();
   renderMarketHypotheses();
+}
+
+function renderMarketOperatorFlow() {
+  const exists = marketReviewExists();
+  const items = state.marketExternalItems || [];
+  const contexts = state.marketPlanContexts || [];
+  const conflict = contexts.find((context) => (
+    context.management_action === "consider_cancel"
+    || context.alignment === "conflict"
+    || context.risk_level === "high"
+  ));
+  const missing = marketMissingDataText(state.marketReview || state.marketReviewEnvelope?.data);
+  const tone = !exists ? "blocked" : conflict ? "blocked" : items.length ? "ready" : "waiting";
+  const sector = orderedMarketSectors()[0];
+  const title = !exists
+    ? "全市场复盘缺失"
+    : conflict
+      ? "明日计划关系需要人工复核"
+      : "市场解释链可读";
+  const today = exists
+    ? `市场状态、板块轮动、证据新鲜度和明日计划关系${sector ? `；首位板块 ${sector.sector_name || sector.sector_code}` : ""}。`
+    : `全市场日 ${displayDate(marketReviewDate())} 是否已有运行记录。`;
+  const why = !exists
+    ? (missing || "没有全市场复盘运行记录，不能推断市场状态。")
+    : conflict
+      ? (conflict.relationship_reason || marketPlanRelationshipReason(conflict))
+      : items.length
+        ? "证据仅供人工复核，市场关系不会自动发布、取消或执行计划。"
+        : "新闻 / 情绪证据为空，不能把缺失证据当作顺风信号。";
+  const next = !exists
+    ? "点最新全市场或跟随复盘日，确认日期没有固定在旧记录。"
+    : conflict
+      ? "先看明日计划关系，再到开盘执行核对计划。"
+      : items.length
+        ? "打开证据详情，核对来源、日期和情绪。"
+        : "查看板块轮动和计划关系，保持证据缺口显式。";
+  const actions = !exists
+    ? [
+      { label: "最新全市场", action: "market-latest", primary: true },
+      { label: "跟随复盘日", action: "market-follow-review" },
+    ]
+    : [
+      ...(items.length ? [{ label: "证据详情", action: "market-news", primary: true }] : []),
+      { label: "开盘执行", action: "page", page: "execution", primary: !items.length },
+      { label: "假设评估", action: "page", page: "hypotheses" },
+    ];
+  els.marketOperatorFlow.innerHTML = operatorFlowPanel({
+    kicker: `全市场复盘 · 全市场日 ${displayDate(marketReviewDate())}`,
+    title,
+    detail: "先看市场状态，再看证据和明日计划关系；所有结论保持只读。",
+    tone,
+    items: [
+      ["今天该看什么", today, tone],
+      ["为什么不能做", why, tone === "ready" ? "ready" : "blocked"],
+      ["下一步点哪里", next, "action"],
+    ],
+    actions,
+  });
 }
 
 function renderStrategyHypothesisWorkbench() {
@@ -3014,6 +3387,7 @@ function renderShadowStrategyLab() {
   const preflightDate = latest.promotion_preflight_review_date ? `晋升预检 ${displayDate(latest.promotion_preflight_review_date)}` : "晋升预检 -";
   const history = shadowObservationHistoryData();
   els.shadowSnapshotDateLabel.textContent = `${snapshot.as_of_date ? `影子快照 ${displayDate(snapshot.as_of_date)}` : "影子快照 -"} · 历史窗口 ${integerText(history.window || state.shadowHistoryWindow)} 日 · ${monitorDate} · ${preflightDate}`;
+  renderShadowOperatorFlow(snapshot, candidates);
   renderShadowHistoryControls();
   renderShadowSummaryPanel(snapshot, candidates);
   renderShadowDecisionMemo(shadowDecisionMemoData());
@@ -3026,6 +3400,72 @@ function renderShadowStrategyLab() {
   renderShadowFrozenCpb(snapshot.frozen_cpb_comparison || {});
   renderShadowCandidates(candidates);
   renderShadowSafety(snapshot);
+}
+
+function renderShadowOperatorFlow(snapshot, candidates) {
+  const memoCandidates = shadowDecisionMemoCandidates();
+  const reviewCandidates = shadowPromotionReviewCandidates();
+  const errors = [
+    ...errorMessages(state.shadowStrategySnapshotEnvelope || {}),
+    ...errorMessages(state.shadowDecisionMemoEnvelope || {}),
+    ...errorMessages(state.shadowPromotionReviewRequestEnvelope || {}),
+  ];
+  const counts = snapshot.counts || {};
+  const blockerCount = Number(counts.blocked_candidate_count || 0)
+    || candidates.reduce((total, candidate) => total + listValue(candidate.blockers).length, 0);
+  const firstMemo = memoCandidates[0] || null;
+  const firstReview = reviewCandidates[0] || null;
+  const firstCandidate = candidates[0] || null;
+  const tone = errors.length ? "blocked" : blockerCount ? "waiting" : candidates.length ? "ready" : "idle";
+  const title = errors.length
+    ? "影子策略证据读取异常"
+    : candidates.length
+      ? "影子候选保持人工复核"
+      : "暂无影子候选";
+  const today = "中文决策备忘录、晋升评审包、观察历史和候选下钻。";
+  const why = errors.length
+    ? localizedInlineText(errors[0])
+    : blockerCount
+      ? `${blockerCount} 个阻断；可复核不是批准，页面不提供晋升、交易、计划或定时任务控件。`
+      : "没有越界写入；影子结果仍只是研究观察。";
+  const next = firstMemo
+    ? "打开中文备忘录详情，先看证据、阻断和下一步实验。"
+    : firstReview
+      ? "打开晋升评审包，核对人工决策和回放证据。"
+      : firstCandidate
+        ? "打开候选详情，查看跟踪验证和冻结 CPB 对照。"
+        : "刷新影子快照，保持阻断显式。";
+  const actions = firstMemo
+    ? [
+      { label: "中文备忘录详情", action: "shadow-decision", candidateKey: firstMemo.candidate_key, primary: true },
+      { label: "晋升评审包", action: "shadow-review", candidateKey: firstReview?.candidate_key || firstMemo.candidate_key },
+    ]
+    : firstReview
+      ? [
+        { label: "晋升评审包", action: "shadow-review", candidateKey: firstReview.candidate_key, primary: true },
+        { label: "候选下钻", action: "shadow-candidate", candidateKey: firstReview.candidate_key },
+      ]
+      : firstCandidate
+        ? [
+          { label: "候选下钻", action: "shadow-candidate", candidateKey: firstCandidate.candidate_key, primary: true },
+          { label: "刷新影子快照", action: "refresh-shadow" },
+        ]
+        : [
+          { label: "刷新影子快照", action: "refresh-shadow", primary: true },
+          { label: "假设评估", action: "page", page: "hypotheses" },
+        ];
+  els.shadowOperatorFlow.innerHTML = operatorFlowPanel({
+    kicker: `影子策略 · 观察截止 ${displayDate(shadowHistoryDate())}`,
+    title,
+    detail: "把影子候选的证据、阻断和人工下一步压到同一条复核链。",
+    tone,
+    items: [
+      ["今天该看什么", today, tone],
+      ["为什么不能做", why, tone === "ready" ? "ready" : "blocked"],
+      ["下一步点哪里", next, "action"],
+    ],
+    actions,
+  });
 }
 
 function renderShadowSummaryPanel(snapshot, candidates) {
@@ -5017,6 +5457,39 @@ function onWorkflowGuideClick(event) {
   if (action === "record-position" && position) selectPosition(position, { openRecordPage: true });
 }
 
+function onOperatorFlowClick(event) {
+  const button = event.target.closest("button[data-operator-action]");
+  if (!button) return;
+  const action = button.dataset.operatorAction;
+  const page = button.dataset.page;
+  const planId = Number(button.dataset.planId);
+  const candidateKey = button.dataset.candidateKey;
+
+  if (action === "page" && page) setActivePage(page);
+  if (action === "refresh") refreshAll();
+  if (action === "refresh-ops") loadOpsHistoryAndRender();
+  if (action === "refresh-shadow") loadShadowStrategySnapshotAndRender();
+  if (action === "market-news") openMarketNewsDrawer();
+  if (action === "market-latest") setLatestMarketReviewDate();
+  if (action === "market-follow-review") followReviewDateForMarket();
+  if (action === "candidate") openCandidateDrawer();
+  if (action === "agent") openAgentDrawer();
+  if (action === "publish-plan" && planId) publishPlan(planId);
+  if (action === "ops-detail") openOpsHistoryDrawer(button.dataset.opsHistoryKey);
+  if (action === "shadow-candidate" && candidateKey) {
+    const candidate = findShadowCandidate(candidateKey);
+    if (candidate) openShadowCandidateDrawer(candidate);
+  }
+  if (action === "shadow-review" && candidateKey) {
+    const candidate = findShadowPromotionReviewCandidate(candidateKey);
+    if (candidate) openShadowPromotionReviewDrawer(candidate);
+  }
+  if (action === "shadow-decision" && candidateKey) {
+    const candidate = findShadowDecisionMemoCandidate(candidateKey);
+    if (candidate) openShadowDecisionMemoDrawer(candidate);
+  }
+}
+
 function focusContextForm() {
   els.contextForm.scrollIntoView({ block: "center", behavior: "smooth" });
   els.asOfDateInput.focus();
@@ -5652,11 +6125,20 @@ function drawerActionButton(action) {
 
 function detailSection(title, bodyHtml) {
   return `
-    <section class="drawer-section">
+    <section class="drawer-section drawer-section--${escapeHtml(detailSectionClass(title))}">
       <h3>${escapeHtml(title)}</h3>
       ${bodyHtml}
     </section>
   `;
+}
+
+function detailSectionClass(title) {
+  const text = String(title || "");
+  if (/阻断|风险|回滚|错误|缺口|告警|安全边界/.test(text)) return "blockers";
+  if (/下一步|动作|决策|门禁|计划|实验|人工/.test(text)) return "next";
+  if (/证据|来源|产物|血缘|新闻|情绪|回放|回测|指标|引用/.test(text)) return "evidence";
+  if (/摘要|结论|状态|详情|复核/.test(text)) return "conclusion";
+  return "source";
 }
 
 function uiLabelText(label) {

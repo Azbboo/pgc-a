@@ -125,7 +125,7 @@ class DashboardStaticTest(unittest.TestCase):
             "全市场复盘",
             "证据/运维",
             "影子策略实验室",
-            "20260514-m104-production-qa-2",
+            "20260514-m109-operator-flow-1",
         ]:
             self.assertIn(label, source)
         for css_contract in [
@@ -161,6 +161,53 @@ class DashboardStaticTest(unittest.TestCase):
             "Plus Jakarta Sans",
         ]:
             self.assertNotIn(external_dependency, styles)
+
+    def test_dashboard_m109_operator_flow_and_drawer_polish_are_static(self) -> None:
+        source = "\n".join(
+            [
+                (DASHBOARD_DIR / "index.html").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "styles.css").read_text(encoding="utf-8"),
+            ]
+        )
+
+        for label in [
+            'id="reviewOperatorFlow"',
+            'id="marketOperatorFlow"',
+            'id="opsOperatorFlow"',
+            'id="shadowOperatorFlow"',
+            "今天该看什么",
+            "为什么不能做",
+            "下一步点哪里",
+            "打开最新运维详情",
+            "进入交易计划页核对并使用原有发布入口",
+            "证据 / 来源",
+            "详情分组",
+            "不会启用定时任务、重跑正式写入、创建交易或修改策略状态",
+            "function renderReviewOperatorFlow",
+            "function renderMarketOperatorFlow",
+            "function renderOpsOperatorFlow",
+            "function renderShadowOperatorFlow",
+            "function operatorFlowPanel",
+            "function onOperatorFlowClick",
+            "function openOpsHistoryDrawer",
+            "function detailSectionClass",
+            ".operator-flow",
+            ".operator-flow__steps",
+            ".drawer-section--evidence",
+            ".drawer-section--blockers",
+        ]:
+            self.assertIn(label, source)
+
+        for raw_copy in [
+            "Today / Why / Next",
+            "today / why / next",
+            "operator flow",
+            "ops detail",
+            "source/evidence badges",
+            "点发布计划，发布后再做开盘检查",
+        ]:
+            self.assertNotIn(raw_copy, source)
 
     def test_dashboard_m100_detail_surfaces_translate_dense_structures(self) -> None:
         source = "\n".join(
@@ -669,6 +716,10 @@ class DashboardStaticTest(unittest.TestCase):
             "只读验收面板",
             "操作台不会执行交易",
             "不会自动取消或执行计划",
+            "10 笔闭环进度",
+            "退出生命周期",
+            "下一步人工动作",
+            "只读进度环",
         ]:
             self.assertIn(label, source)
         for html_id in [
@@ -693,6 +744,9 @@ class DashboardStaticTest(unittest.TestCase):
             "function acceptanceStatusText",
             "function acceptanceBlockerList",
             "function acceptanceAlertList",
+            "function acceptanceProgressLoopHtml",
+            "function acceptanceProgressText",
+            "function acceptanceDueExitText",
             "function onAcceptanceHistoryClick",
             "function paperAcceptanceAction",
             "function onAcceptanceActionClick",

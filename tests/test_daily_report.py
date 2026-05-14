@@ -38,9 +38,21 @@ AS_OF_DATE = "20260504"
 BUY_DATE = "20260505"
 T2_DATE = "20260507"
 ENTRY_DATE = "20260427"
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class DailyReportTest(unittest.TestCase):
+    def test_committed_m110_report_uses_portable_provider_pack_paths(self) -> None:
+        report_path = ROOT / "reports" / "daily_review_20260514.json"
+        if not report_path.exists():
+            self.skipTest("20260514 report artifact is not present")
+        payload = json.loads(report_path.read_text(encoding="utf-8"))
+        ledger_text = json.dumps(payload.get("evidence_coverage_ledger", {}), ensure_ascii=False)
+
+        self.assertNotIn(str(ROOT), ledger_text)
+        self.assertNotIn("/Users/", ledger_text)
+        self.assertIn(".pgc-runs/m110-evidence-pack-20260514/pack/manifest.json", ledger_text)
+
     def test_report_renders_markdown_and_stable_json_for_plan_ready_day(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = self._plan_ready_db(tmp)
@@ -81,6 +93,10 @@ class DailyReportTest(unittest.TestCase):
             markdown = render_daily_report_markdown(result.data)
             self.assertIn("## Paper 晋级分数卡", markdown)
             self.assertIn("## 纸盘每日运营验收", markdown)
+            self.assertIn("10 笔闭环进度", markdown)
+            self.assertIn("纸盘进度环", markdown)
+            self.assertIn("退出生命周期", markdown)
+            self.assertIn("下一步人工动作", markdown)
             self.assertIn("数据新鲜度", markdown)
             self.assertIn("证据覆盖", markdown)
             self.assertIn("open-execution 状态", markdown)
@@ -112,6 +128,13 @@ class DailyReportTest(unittest.TestCase):
             self.assertIn("action_log", payload["next_day_decision"])
             self.assertEqual(payload["next_day_decision"]["action_log"]["items"], [])
             self.assertIn("readiness_gates", payload["paper_acceptance"])
+            self.assertEqual(
+                payload["paper_acceptance"]["readiness_progress"]["remaining_completed_trades"],
+                10,
+            )
+            self.assertIn("exit_lifecycle", payload["paper_acceptance"])
+            self.assertIn("latest_evidence_status", payload["paper_acceptance"])
+            self.assertIn("readiness_next_action", payload["paper_acceptance"])
             self.assertIn("alerts", payload["paper_acceptance"])
             self.assertIn("MIN_PAPER_TRADES_NOT_MET", payload["paper_promotion"]["promotion_blockers"])
             self.assertEqual(payload["candidate"]["daily_pick_id"], result.data.candidate.daily_pick_id)

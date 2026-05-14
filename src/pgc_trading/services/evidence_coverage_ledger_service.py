@@ -786,7 +786,7 @@ def _build_result(
         generated_at=datetime.now(UTC).replace(microsecond=0).isoformat(),
         db_path=str(db_path),
         as_of_date=request_as_of_date,
-        manifest_files=[str(path) for path in manifest_files],
+        manifest_files=[_portable_path(path) for path in manifest_files],
         discovered_manifest_count=discovered_manifest_count,
         entry_count=len(entries),
         blocking_entry_count=blocking_entry_count,
@@ -843,10 +843,21 @@ def _base_entry(
         "source_kind": source_kind,
         "published_date": published_date,
         "source_hash": source_hash,
-        "manifest_file": manifest_file,
-        "source_file": source_file,
+        "manifest_file": _portable_path(manifest_file),
+        "source_file": _portable_path(source_file),
         "reason": reason,
     }
+
+
+def _portable_path(value: str | Path | None) -> str | None:
+    if value is None:
+        return None
+    path = Path(value).expanduser()
+    candidate = path if path.is_absolute() else ROOT / path
+    try:
+        return candidate.resolve(strict=False).relative_to(ROOT).as_posix()
+    except ValueError:
+        return str(value)
 
 
 def _normalize_source_state(value: Any) -> str | None:

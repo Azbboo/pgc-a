@@ -57,6 +57,11 @@ from pgc_trading.services.operational_readiness_service import (
     OperationalReadinessService,
     PaperReadinessRequest,
 )
+from pgc_trading.services.remote_local_parity_service import (
+    BuildRemoteLocalParityRequest,
+    RemoteLocalParityService,
+    render_remote_local_parity_markdown,
+)
 from pgc_trading.services.market_external_data_service import (
     BackfillMarketExternalDataRequest,
     ImportMarketExternalDataRequest,
@@ -505,7 +510,7 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
         "--min-trades",
         type=_positive_int,
         default=10,
-        help="minimum executed paper trades required to pass",
+        help="minimum completed paper trades required to pass",
     )
     _add_db_path_argument(paper_readiness)
     paper_readiness.set_defaults(handler=_run_paper_readiness)
@@ -1008,6 +1013,40 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
         help="remote SQLite database copy to compare against local --db-path",
     )
     ops_market_review_parity.set_defaults(handler=_run_ops_market_review_parity)
+
+    ops_remote_local_parity = ops_subparsers.add_parser(
+        "remote-local-parity",
+        help="compare local and remote production database/report/evidence state without writing",
+        stdout=stdout,
+        stderr=stderr,
+    )
+    _add_report_date_argument(ops_remote_local_parity)
+    _add_db_path_argument(ops_remote_local_parity)
+    _add_account_arguments(ops_remote_local_parity)
+    ops_remote_local_parity.add_argument(
+        "--remote-db-path",
+        type=Path,
+        required=True,
+        help="remote SQLite database snapshot copied locally for comparison",
+    )
+    ops_remote_local_parity.add_argument(
+        "--reports-dir",
+        type=Path,
+        default=Paths().reports_dir,
+        help="local reports directory to scan for daily_review_YYYYMMDD artifacts",
+    )
+    ops_remote_local_parity.add_argument(
+        "--remote-reports-dir",
+        type=Path,
+        help="optional remote reports snapshot directory copied locally",
+    )
+    ops_remote_local_parity.add_argument("--local-release-tag", help="local release tag or marker")
+    ops_remote_local_parity.add_argument("--remote-release-tag", help="remote deployed release marker")
+    ops_remote_local_parity.add_argument("--local-git-sha", help="local git revision")
+    ops_remote_local_parity.add_argument("--remote-git-sha", help="remote deployed git revision")
+    ops_remote_local_parity.add_argument("--output-json", type=Path, help="write full parity JSON artifact")
+    ops_remote_local_parity.add_argument("--output-md", type=Path, help="write Markdown parity artifact")
+    ops_remote_local_parity.set_defaults(handler=_run_ops_remote_local_parity)
 
     ops_ledger_audit = ops_subparsers.add_parser(
         "ledger-audit",
@@ -2502,6 +2541,45 @@ def _run_ops_market_review_parity(args: argparse.Namespace, stdout: TextIO, serv
     return 0 if result.ok else 1
 
 
+def _run_ops_remote_local_parity(args: argparse.Namespace, stdout: TextIO, services: CommandServices) -> int:
+    db_path = _normalized_db_path(args.db_path)
+    remote_db_path = _normalized_db_path(args.remote_db_path)
+    reports_dir = _normalized_db_path(args.reports_dir) if args.reports_dir is not None else None
+    remote_reports_dir = (
+        _normalized_db_path(args.remote_reports_dir) if args.remote_reports_dir is not None else None
+    )
+    result = RemoteLocalParityService().build(
+        BuildRemoteLocalParityRequest(
+            as_of_date=args.date,
+            local_db_path=db_path,
+            remote_db_path=remote_db_path,
+            local_reports_dir=reports_dir,
+            remote_reports_dir=remote_reports_dir,
+            account_key=args.account_key or "paper-main",
+            local_release_tag=args.local_release_tag,
+            remote_release_tag=args.remote_release_tag,
+            local_git_sha=args.local_git_sha,
+            remote_git_sha=args.remote_git_sha,
+        )
+    )
+
+    _write_remote_local_parity_result(stdout, result)
+    if args.output_json is not None:
+        output_json = _normalized_db_path(args.output_json)
+        output_json.parent.mkdir(parents=True, exist_ok=True)
+        output_json.write_text(
+            json.dumps(result.to_dict(), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        stdout.write(f"output_json={output_json}\n")
+    if args.output_md is not None:
+        output_md = _normalized_db_path(args.output_md)
+        output_md.parent.mkdir(parents=True, exist_ok=True)
+        output_md.write_text(render_remote_local_parity_markdown(result), encoding="utf-8")
+        stdout.write(f"output_md={output_md}\n")
+    return 0 if result.ok else 1
+
+
 def _run_ops_ledger_audit(args: argparse.Namespace, stdout: TextIO, services: CommandServices) -> int:
     db_path = _normalized_db_path(args.db_path)
     if not db_path.exists():
@@ -3854,12 +3932,23 @@ def _write_paper_readiness_result(
     stdout.write(f"readiness={getattr(data, 'readiness', 'n/a')}\n")
     stdout.write(f"trades_count={getattr(data, 'trades_count', 0)}\n")
     stdout.write(f"closed_trades_count={getattr(data, 'closed_trades_count', 0)}\n")
+    progress = getattr(data, "readiness_progress", None)
+    if progress is not None:
+        stdout.write(f"completed_trade_progress={getattr(progress, 'completed_trades', 0)}/{getattr(progress, 'required_completed_trades', 0)}\n")
+        stdout.write(f"remaining_completed_trades={getattr(progress, 'remaining_completed_trades', 0)}\n")
     stdout.write(f"win_rate={_display_optional_ratio(getattr(data, 'win_rate', None))}\n")
     stdout.write(f"realized_pnl={_display_float(getattr(data, 'realized_pnl', 0.0))}\n")
     stdout.write(f"avg_slippage={_display_optional_ratio(getattr(data, 'avg_slippage', None))}\n")
     stdout.write(f"last_pipeline_status={getattr(data, 'last_pipeline_status', None) or 'none'}\n")
     stdout.write(f"open_positions_count={getattr(data, 'open_positions_count', 0)}\n")
     stdout.write(f"due_exit_positions_count={getattr(data, 'due_exit_positions_count', 0)}\n")
+    exit_lifecycle = getattr(data, "exit_lifecycle", None)
+    if exit_lifecycle is not None:
+        stdout.write(f"waiting_t2_count={getattr(exit_lifecycle, 'waiting_t2_count', 0)}\n")
+        stdout.write(f"waiting_t5_count={getattr(exit_lifecycle, 'waiting_t5_count', 0)}\n")
+        stdout.write(f"overdue_t2_count={getattr(exit_lifecycle, 'overdue_t2_count', 0)}\n")
+        stdout.write(f"overdue_t5_count={getattr(exit_lifecycle, 'overdue_t5_count', 0)}\n")
+        stdout.write(f"next_due_date={getattr(exit_lifecycle, 'next_due_date', None) or 'none'}\n")
     stdout.write(f"open_blockers_count={getattr(data, 'open_blockers_count', 0)}\n")
     invariant_ok = bool(getattr(data, "invariant_ok", False))
     stdout.write(f"invariant_ok={str(invariant_ok).lower()}\n")
@@ -3867,6 +3956,9 @@ def _write_paper_readiness_result(
     stdout.write(f"invariant_violation_codes={_display_list(getattr(data, 'invariant_violation_codes', []))}\n")
     stdout.write(f"promotion_blockers={_display_list(getattr(data, 'promotion_blockers', []))}\n")
     stdout.write(f"promotion_warnings={_display_list(getattr(data, 'promotion_warnings', []))}\n")
+    next_action = getattr(data, "readiness_next_action", None)
+    if next_action is not None:
+        stdout.write(f"readiness_next_action={getattr(next_action, 'manual_action', '')}\n")
 
 
 def _write_agent_review_result(
@@ -4542,6 +4634,30 @@ def _write_daily_ops_preflight_result(stdout: TextIO, result: object) -> None:
             f"count={_display_optional_int(getattr(check, 'count', None))} "
             f"detail={_shell_value(getattr(check, 'detail', ''))}\n"
         )
+
+
+def _write_remote_local_parity_result(stdout: TextIO, result: object) -> None:
+    stdout.write("ops remote-local-parity command routed.\n")
+    stdout.write(f"remote_local_parity_status={getattr(result, 'status', 'unknown')}\n")
+    stdout.write(f"parity_contract={getattr(result, 'contract', 'remote_local_parity_v1')}\n")
+    stdout.write(f"review_date={getattr(result, 'as_of_date', 'n/a')}\n")
+    stdout.write(f"generated_at={getattr(result, 'generated_at', 'n/a')}\n")
+    stdout.write(f"account_key={getattr(result, 'account_key', 'paper-main')}\n")
+    stdout.write(f"blockers={_display_list(getattr(result, 'blocker_keys', []))}\n")
+    stdout.write(f"warnings={_display_list(getattr(result, 'warning_keys', []))}\n")
+    local = getattr(result, "local", {}) or {}
+    remote = getattr(result, "remote", {}) or {}
+    stdout.write(f"local_db={(local.get('database') or {}).get('path', 'n/a')}\n")
+    stdout.write(f"remote_db={(remote.get('database') or {}).get('path', 'n/a')}\n")
+    for check in getattr(result, "checks", []):
+        stdout.write(
+            "parity_check="
+            f"{getattr(check, 'key', 'unknown')} "
+            f"status={getattr(check, 'status', 'unknown')} "
+            f"detail={_shell_value(getattr(check, 'detail', ''))} "
+            f"next_command={_shell_value(getattr(check, 'next_command', None) or 'none')}\n"
+        )
+    stdout.write("remote_local_parity_notice=read-only; no strategy/trade/paper-live/broker/timer mutation\n")
 
 
 def _write_pool_intake_result(stdout: TextIO, result: ServiceResult[object]) -> None:

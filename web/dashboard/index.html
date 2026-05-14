@@ -4,8 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>PGC 操作台</title>
-    <link rel="stylesheet" href="/dashboard/assets/styles.css?v=20260514-m104-production-qa-2" />
-    <script defer src="/dashboard/assets/app.js?v=20260514-m104-production-qa-2"></script>
+    <link rel="stylesheet" href="/dashboard/assets/styles.css?v=20260514-m109-operator-flow-1" />
+    <script defer src="/dashboard/assets/app.js?v=20260514-m109-operator-flow-1"></script>
   </head>
   <body>
     <div class="app-shell">
@@ -348,6 +348,8 @@
             </div>
           </div>
 
+          <section class="operator-flow-strip" id="reviewOperatorFlow" aria-live="polite"></section>
+
           <section class="panel review-timeline-panel">
             <div class="panel-heading">
               <h2>跨日复盘对比</h2>
@@ -510,6 +512,8 @@
             </div>
           </div>
 
+          <section class="operator-flow-strip" id="opsOperatorFlow" aria-live="polite"></section>
+
           <section class="panel ops-history-panel">
             <div class="panel-heading">
               <h2>运维运行历史</h2>
@@ -542,6 +546,8 @@
               <button type="button" id="reloadMarketButton">刷新全市场</button>
             </div>
           </div>
+
+          <section class="operator-flow-strip" id="marketOperatorFlow" aria-live="polite"></section>
 
           <section class="market-history-strip" id="marketHistoryStrip" aria-label="全市场历史"></section>
           <section class="market-diagnostics" id="marketDiagnosticsPanel" aria-live="polite"></section>
@@ -690,6 +696,8 @@
               <button type="button" id="reloadShadowStrategyButton">刷新影子快照</button>
             </div>
           </div>
+
+          <section class="operator-flow-strip" id="shadowOperatorFlow" aria-live="polite"></section>
 
           <section class="shadow-summary-panel" id="shadowSummaryPanel" aria-live="polite"></section>
 

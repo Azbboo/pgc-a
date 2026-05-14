@@ -81,6 +81,8 @@ READINESS_REQUIRED_COLUMNS = {
     "equity_snapshots": ("account_id", "as_of_date", "cash", "market_value", "total_equity"),
     "operation_requests": ("operation_type", "as_of_date", "status", "started_at", "finished_at"),
     "agent_decisions": ("id",),
+    "market_external_items": ("as_of_date", "scope_type", "published_date", "source_hash"),
+    "agent_external_items": ("ts_code", "published_date", "item_type", "source_hash"),
 }
 
 
@@ -125,6 +127,73 @@ class NextDayDecisionSummary:
 
 
 @dataclass(frozen=True)
+class PaperReadinessProgress:
+    required_completed_trades: int
+    completed_trades: int
+    executed_trades: int
+    remaining_completed_trades: int
+    progress_ratio: float
+    status: str
+    summary: str
+    ready_after: str
+
+
+@dataclass(frozen=True)
+class PaperDueExitPosition:
+    position_id: int
+    ts_code: str
+    name: str
+    status: str
+    due_stage: str
+    planned_t2_date: str | None
+    planned_t5_date: str | None
+    manual_action: str
+
+
+@dataclass(frozen=True)
+class PaperExitLifecycleSummary:
+    open_positions_count: int
+    waiting_t2_count: int
+    waiting_t5_count: int
+    planned_exit_count: int
+    overdue_t2_count: int
+    overdue_t5_count: int
+    due_exit_positions_count: int
+    next_due_date: str | None
+    summary: str
+    manual_action: str
+
+
+@dataclass(frozen=True)
+class PaperLatestEvidenceStatus:
+    agent_status: str
+    latest_agent_decision_count: int
+    latest_agent_decision_at: str | None
+    market_evidence_status: str
+    market_evidence_count: int
+    latest_market_evidence_date: str | None
+    agent_evidence_status: str
+    agent_evidence_count: int
+    latest_agent_evidence_date: str | None
+    summary: str
+    manual_action: str
+
+
+@dataclass(frozen=True)
+class PaperReadinessNextAction:
+    status: str
+    headline: str
+    manual_action: str
+    not_ready_reasons: list[str] = field(default_factory=list)
+    ready_after: list[str] = field(default_factory=list)
+    blocker_codes: list[str] = field(default_factory=list)
+    warning_codes: list[str] = field(default_factory=list)
+    safety_note: str = (
+        "只读纸盘进度；不会自动创建交易计划、记录成交、晋级策略、启用券商或定时任务。"
+    )
+
+
+@dataclass(frozen=True)
 class PaperReadinessResult:
     account_key: str
     as_of_date: str
@@ -144,6 +213,11 @@ class PaperReadinessResult:
     promotion_blockers: list[str] = field(default_factory=list)
     promotion_warnings: list[str] = field(default_factory=list)
     readiness_gates: list[PaperReadinessGate] = field(default_factory=list)
+    readiness_progress: PaperReadinessProgress | None = None
+    exit_lifecycle: PaperExitLifecycleSummary | None = None
+    due_exit_positions: list[PaperDueExitPosition] = field(default_factory=list)
+    latest_evidence_status: PaperLatestEvidenceStatus | None = None
+    readiness_next_action: PaperReadinessNextAction | None = None
 
 
 class OperationalReadinessService:
@@ -197,21 +271,28 @@ class OperationalReadinessService:
             closed_stats = _closed_trade_stats(conn, account.id)
             avg_slippage = _avg_slippage(conn, account.id)
             last_pipeline_status = _last_pipeline_status(conn, request.as_of_date)
-            open_positions_count = _count_open_positions(conn, account.id)
-            due_exit_positions_count = _count_due_exit_positions(conn, account.id, request.as_of_date)
+            exit_lifecycle, due_exit_positions = _exit_lifecycle(conn, account.id, request.as_of_date)
+            open_positions_count = exit_lifecycle.open_positions_count
+            due_exit_positions_count = exit_lifecycle.due_exit_positions_count
             open_blockers_count = _count_open_data_quality_blockers(conn)
             duplicate_open_positions = _duplicate_open_positions(conn, account.id)
             invariant_report = check_database(self.db_path)
             invariant_violation_codes = [violation.code for violation in invariant_report.violations]
+            readiness_progress = _readiness_progress(
+                min_trades=request.min_trades,
+                trades_count=trades_count,
+                closed_trades_count=closed_stats.closed_trades_count,
+            )
+            latest_evidence_status = _latest_evidence_status(conn, account.id, request.as_of_date)
 
             errors: list[ServiceError] = []
-            if trades_count < request.min_trades:
+            if closed_stats.closed_trades_count < request.min_trades:
                 errors.append(
                     ServiceError(
                         code="MIN_PAPER_TRADES_NOT_MET",
                         message=(
-                            f"Paper account {account.account_key} has {trades_count} executed trades; "
-                            f"minimum is {request.min_trades}."
+                            f"Paper account {account.account_key} has {closed_stats.closed_trades_count} completed "
+                            f"paper trades; minimum is {request.min_trades}."
                         ),
                         entity_type="portfolio_account",
                         entity_id=account.id,
@@ -267,6 +348,31 @@ class OperationalReadinessService:
             agent_evidence_warnings = _agent_evidence_warnings(conn, account.id)
             warnings = [*cash_equity_warnings, *agent_evidence_warnings]
             readiness = "blocked" if errors else "warning" if warnings else "pass"
+            promotion_blockers = [error.code for error in errors]
+            promotion_warnings = [warning.code for warning in warnings]
+            readiness_gates = _paper_readiness_gates(
+                min_trades=request.min_trades,
+                trades_count=trades_count,
+                closed_trades_count=closed_stats.closed_trades_count,
+                invariant_ok=invariant_report.ok,
+                invariant_violation_codes=invariant_violation_codes,
+                open_blockers_count=open_blockers_count,
+                due_exit_positions_count=due_exit_positions_count,
+                cash_equity_warnings=cash_equity_warnings,
+                agent_evidence_warnings=agent_evidence_warnings,
+                duplicate_open_positions=duplicate_open_positions,
+            )
+            readiness_next_action = _readiness_next_action(
+                readiness=readiness,
+                progress=readiness_progress,
+                exit_lifecycle=exit_lifecycle,
+                open_blockers_count=open_blockers_count,
+                invariant_violation_codes=invariant_violation_codes,
+                duplicate_open_positions=duplicate_open_positions,
+                promotion_blockers=promotion_blockers,
+                promotion_warnings=promotion_warnings,
+                latest_evidence_status=latest_evidence_status,
+            )
             data = PaperReadinessResult(
                 account_key=account.account_key,
                 as_of_date=request.as_of_date,
@@ -283,19 +389,14 @@ class OperationalReadinessService:
                 invariant_ok=invariant_report.ok,
                 ledger_blockers_count=len(invariant_report.violations),
                 invariant_violation_codes=invariant_violation_codes,
-                promotion_blockers=[error.code for error in errors],
-                promotion_warnings=[warning.code for warning in warnings],
-                readiness_gates=_paper_readiness_gates(
-                    min_trades=request.min_trades,
-                    trades_count=trades_count,
-                    invariant_ok=invariant_report.ok,
-                    invariant_violation_codes=invariant_violation_codes,
-                    open_blockers_count=open_blockers_count,
-                    due_exit_positions_count=due_exit_positions_count,
-                    cash_equity_warnings=cash_equity_warnings,
-                    agent_evidence_warnings=agent_evidence_warnings,
-                    duplicate_open_positions=duplicate_open_positions,
-                ),
+                promotion_blockers=promotion_blockers,
+                promotion_warnings=promotion_warnings,
+                readiness_gates=readiness_gates,
+                readiness_progress=readiness_progress,
+                exit_lifecycle=exit_lifecycle,
+                due_exit_positions=due_exit_positions,
+                latest_evidence_status=latest_evidence_status,
+                readiness_next_action=readiness_next_action,
             )
             return ServiceResult(
                 status="blocked" if errors else "success",
@@ -385,6 +486,347 @@ def _empty_result(
         promotion_blockers=promotion_blockers or [],
         promotion_warnings=promotion_warnings or [],
         readiness_gates=[],
+        readiness_progress=_readiness_progress(
+            min_trades=request.min_trades,
+            trades_count=0,
+            closed_trades_count=0,
+        ),
+        exit_lifecycle=_empty_exit_lifecycle(),
+        due_exit_positions=[],
+        latest_evidence_status=_empty_evidence_status(),
+        readiness_next_action=PaperReadinessNextAction(
+            status=readiness,
+            headline="Paper readiness 暂无可计算进度。",
+            manual_action="先修复请求或 schema blocker，再重新运行只读 readiness 检查。",
+            not_ready_reasons=promotion_blockers or [],
+            ready_after=["请求和数据库 schema 通过校验"],
+            blocker_codes=promotion_blockers or [],
+            warning_codes=promotion_warnings or [],
+        ),
+    )
+
+
+def _readiness_progress(
+    *,
+    min_trades: int,
+    trades_count: int,
+    closed_trades_count: int,
+) -> PaperReadinessProgress:
+    remaining = max(0, min_trades - closed_trades_count)
+    ratio = min(1.0, closed_trades_count / min_trades) if min_trades else 0.0
+    status = "pass" if remaining == 0 else "blocked"
+    return PaperReadinessProgress(
+        required_completed_trades=min_trades,
+        completed_trades=closed_trades_count,
+        executed_trades=trades_count,
+        remaining_completed_trades=remaining,
+        progress_ratio=ratio,
+        status=status,
+        summary=(
+            f"已闭环 {closed_trades_count}/{min_trades} 笔；"
+            f"已执行 {trades_count} 笔；还差 {remaining} 笔闭环交易。"
+            if remaining
+            else f"已闭环 {closed_trades_count}/{min_trades} 笔；10 笔闭环门槛已满足。"
+        ),
+        ready_after="10 笔闭环交易门槛已满足" if remaining == 0 else f"还需 {remaining} 笔已闭环交易",
+    )
+
+
+def _empty_exit_lifecycle() -> PaperExitLifecycleSummary:
+    return PaperExitLifecycleSummary(
+        open_positions_count=0,
+        waiting_t2_count=0,
+        waiting_t5_count=0,
+        planned_exit_count=0,
+        overdue_t2_count=0,
+        overdue_t5_count=0,
+        due_exit_positions_count=0,
+        next_due_date=None,
+        summary="暂无持仓退出生命周期数据。",
+        manual_action="确认账户和持仓账本后重新运行只读 readiness 检查。",
+    )
+
+
+def _empty_evidence_status() -> PaperLatestEvidenceStatus:
+    return PaperLatestEvidenceStatus(
+        agent_status="unknown",
+        latest_agent_decision_count=0,
+        latest_agent_decision_at=None,
+        market_evidence_status="unknown",
+        market_evidence_count=0,
+        latest_market_evidence_date=None,
+        agent_evidence_status="unknown",
+        agent_evidence_count=0,
+        latest_agent_evidence_date=None,
+        summary="暂无 Agent / evidence 状态。",
+        manual_action="补齐或确认 reviewed evidence 后重新运行只读 readiness 检查。",
+    )
+
+
+def _exit_lifecycle(
+    conn: sqlite3.Connection,
+    account_id: int,
+    as_of_date: str,
+) -> tuple[PaperExitLifecycleSummary, list[PaperDueExitPosition]]:
+    rows = conn.execute(
+        f"""
+        SELECT id, ts_code, name, status, planned_t2_date, planned_t5_date
+        FROM positions
+        WHERE account_id = ?
+          AND status IN ({_placeholders(OPEN_POSITION_STATUS_VALUES)})
+        ORDER BY
+          COALESCE(planned_t2_date, planned_t5_date, '99999999'),
+          id
+        """,
+        (account_id, *OPEN_POSITION_STATUS_VALUES),
+    ).fetchall()
+
+    waiting_t2_count = 0
+    waiting_t5_count = 0
+    planned_exit_count = 0
+    overdue_t2_count = 0
+    overdue_t5_count = 0
+    due_positions: list[PaperDueExitPosition] = []
+    future_due_dates: list[str] = []
+
+    for row in rows:
+        status = str(row["status"])
+        planned_t2_date = row["planned_t2_date"]
+        planned_t5_date = row["planned_t5_date"]
+        due_stage: str | None = None
+        if status in T2_DECISION_DUE_STATUSES and (
+            status == "need_t2_decision" or (planned_t2_date is not None and str(planned_t2_date) <= as_of_date)
+        ):
+            due_stage = "t2"
+            overdue_t2_count += 1
+        elif status in T5_DECISION_DUE_STATUSES and (
+            status == "need_t5_exit" or (planned_t5_date is not None and str(planned_t5_date) <= as_of_date)
+        ):
+            due_stage = "t5"
+            overdue_t5_count += 1
+
+        if status in {"open", "waiting_t2"} and due_stage is None:
+            waiting_t2_count += 1
+            if planned_t2_date and str(planned_t2_date) > as_of_date:
+                future_due_dates.append(str(planned_t2_date))
+        elif status == "holding_to_t5" and due_stage is None:
+            waiting_t5_count += 1
+            if planned_t5_date and str(planned_t5_date) > as_of_date:
+                future_due_dates.append(str(planned_t5_date))
+        elif status == "planned_exit":
+            planned_exit_count += 1
+
+        if due_stage is not None:
+            due_positions.append(
+                PaperDueExitPosition(
+                    position_id=int(row["id"]),
+                    ts_code=str(row["ts_code"]),
+                    name=str(row["name"]),
+                    status=status,
+                    due_stage=due_stage,
+                    planned_t2_date=None if planned_t2_date is None else str(planned_t2_date),
+                    planned_t5_date=None if planned_t5_date is None else str(planned_t5_date),
+                    manual_action=(
+                        "人工评估 T+2 止盈/止损/持有到 T+5，并按结果记录或生成退出计划。"
+                        if due_stage == "t2"
+                        else "人工评估 T+5 超时退出，并按结果记录或生成退出计划。"
+                    ),
+                )
+            )
+
+    due_count = len(due_positions)
+    next_due_date = min(future_due_dates) if future_due_dates else None
+    if due_count:
+        manual_action = f"先人工处理 {due_count} 个到期退出，再判断纸盘 readiness。"
+    elif rows:
+        manual_action = (
+            f"当前无到期退出；等待下一到期日 {next_due_date}。"
+            if next_due_date
+            else "当前无到期退出；人工确认已有退出计划是否已完成。"
+        )
+    else:
+        manual_action = "当前无开放持仓；继续人工记录完整买卖闭环。"
+
+    summary = (
+        f"开放持仓 {len(rows)}；等待 T+2 {waiting_t2_count}；等待 T+5 {waiting_t5_count}；"
+        f"已有退出计划 {planned_exit_count}；到期 T+2/T+5 {overdue_t2_count}/{overdue_t5_count}。"
+    )
+    return (
+        PaperExitLifecycleSummary(
+            open_positions_count=len(rows),
+            waiting_t2_count=waiting_t2_count,
+            waiting_t5_count=waiting_t5_count,
+            planned_exit_count=planned_exit_count,
+            overdue_t2_count=overdue_t2_count,
+            overdue_t5_count=overdue_t5_count,
+            due_exit_positions_count=due_count,
+            next_due_date=next_due_date,
+            summary=summary,
+            manual_action=manual_action,
+        ),
+        due_positions,
+    )
+
+
+def _latest_evidence_status(
+    conn: sqlite3.Connection,
+    account_id: int,
+    as_of_date: str,
+) -> PaperLatestEvidenceStatus:
+    agent_linkage = conn.execute(
+        """
+        SELECT COUNT(DISTINCT ad.id) AS linked_count,
+               MAX(ad.created_at) AS latest_created_at
+        FROM agent_decisions ad
+        LEFT JOIN trade_plans tp ON tp.agent_decision_id = ad.id
+        LEFT JOIN trades t ON t.agent_decision_id = ad.id
+        WHERE tp.account_id = ?
+           OR t.account_id = ?
+        """,
+        (account_id, account_id),
+    ).fetchone()
+    linked_agent_count = int(agent_linkage["linked_count"] or 0)
+    agent_status = "linked" if linked_agent_count else "missing"
+
+    market_evidence = conn.execute(
+        """
+        SELECT COUNT(*) AS evidence_count,
+               MAX(as_of_date) AS latest_evidence_date
+        FROM market_external_items
+        WHERE as_of_date <= ?
+        """,
+        (as_of_date,),
+    ).fetchone()
+    market_evidence_count = int(market_evidence["evidence_count"] or 0)
+    latest_market_date = market_evidence["latest_evidence_date"]
+
+    ts_codes = [
+        str(row["ts_code"])
+        for row in conn.execute(
+            """
+            SELECT DISTINCT ts_code
+            FROM (
+              SELECT ts_code FROM trades WHERE account_id = ?
+              UNION
+              SELECT ts_code FROM positions WHERE account_id = ?
+            )
+            ORDER BY ts_code
+            """,
+            (account_id, account_id),
+        ).fetchall()
+    ]
+    agent_evidence_count = 0
+    latest_agent_evidence_date: str | None = None
+    if ts_codes:
+        row = conn.execute(
+            f"""
+            SELECT COUNT(*) AS evidence_count,
+                   MAX(published_date) AS latest_evidence_date
+            FROM agent_external_items
+            WHERE published_date <= ?
+              AND ts_code IN ({_placeholders(tuple(ts_codes))})
+            """,
+            (as_of_date, *ts_codes),
+        ).fetchone()
+        agent_evidence_count = int(row["evidence_count"] or 0)
+        latest_agent_evidence_date = row["latest_evidence_date"]
+
+    market_status = "available" if market_evidence_count else "missing"
+    agent_evidence_status = "available" if agent_evidence_count else "missing"
+    missing_parts = [
+        label
+        for label, status in [
+            ("Agent 决策链路", agent_status),
+            ("全市场证据", market_status),
+            ("账户标的证据", agent_evidence_status),
+        ]
+        if status == "missing"
+    ]
+    return PaperLatestEvidenceStatus(
+        agent_status=agent_status,
+        latest_agent_decision_count=linked_agent_count,
+        latest_agent_decision_at=agent_linkage["latest_created_at"],
+        market_evidence_status=market_status,
+        market_evidence_count=market_evidence_count,
+        latest_market_evidence_date=None if latest_market_date is None else str(latest_market_date),
+        agent_evidence_status=agent_evidence_status,
+        agent_evidence_count=agent_evidence_count,
+        latest_agent_evidence_date=None if latest_agent_evidence_date is None else str(latest_agent_evidence_date),
+        summary=(
+            f"Agent 链路 {linked_agent_count}；全市场证据 {market_evidence_count}；"
+            f"账户标的证据 {agent_evidence_count}。"
+        ),
+        manual_action=(
+            f"补齐或确认已审核证据：{', '.join(missing_parts)}。"
+            if missing_parts
+            else "Agent 和 evidence 状态可供人工抽查；继续保持只读。"
+        ),
+    )
+
+
+def _readiness_next_action(
+    *,
+    readiness: str,
+    progress: PaperReadinessProgress,
+    exit_lifecycle: PaperExitLifecycleSummary,
+    open_blockers_count: int,
+    invariant_violation_codes: list[str],
+    duplicate_open_positions: list[sqlite3.Row],
+    promotion_blockers: list[str],
+    promotion_warnings: list[str],
+    latest_evidence_status: PaperLatestEvidenceStatus,
+) -> PaperReadinessNextAction:
+    not_ready_reasons: list[str] = []
+    ready_after: list[str] = []
+    if progress.remaining_completed_trades:
+        not_ready_reasons.append(progress.ready_after)
+        ready_after.append(f"完成并记录 {progress.remaining_completed_trades} 笔买入+卖出闭环")
+    if exit_lifecycle.due_exit_positions_count:
+        not_ready_reasons.append(f"{exit_lifecycle.due_exit_positions_count} 个 T+2/T+5 到期退出待处理")
+        ready_after.append(exit_lifecycle.manual_action)
+    if open_blockers_count:
+        not_ready_reasons.append(f"{open_blockers_count} 个 open 数据质量 blocker")
+        ready_after.append("关闭 open data_quality blocker")
+    if invariant_violation_codes:
+        not_ready_reasons.append(f"账本 invariant 失败：{', '.join(invariant_violation_codes)}")
+        ready_after.append("修复账本 invariant")
+    if duplicate_open_positions:
+        duplicate_symbols = ", ".join(str(row["ts_code"]) for row in duplicate_open_positions)
+        not_ready_reasons.append(f"重复开放持仓：{duplicate_symbols}")
+        ready_after.append("合并或修正重复开放持仓")
+    if promotion_warnings:
+        ready_after.append(f"人工复核警告：{', '.join(promotion_warnings)}")
+
+    if exit_lifecycle.due_exit_positions_count:
+        manual_action = exit_lifecycle.manual_action
+    elif open_blockers_count:
+        manual_action = "先清理数据质量 blocker，再重新运行 paper-readiness。"
+    elif invariant_violation_codes or duplicate_open_positions:
+        manual_action = "先修复账本 invariant / 重复持仓，再重新运行 paper-readiness。"
+    elif progress.remaining_completed_trades:
+        manual_action = (
+            f"继续人工记录纸盘完整买卖闭环；还需 {progress.remaining_completed_trades} 笔已闭环交易。"
+        )
+    elif promotion_warnings:
+        manual_action = latest_evidence_status.manual_action
+    else:
+        manual_action = "可进入下一步人工晋级复核；仍不自动交易、不自动晋级。"
+
+    if readiness == "blocked":
+        headline = f"纸盘 readiness 未就绪：{len(not_ready_reasons) or len(promotion_blockers)} 项 blocker。"
+    elif readiness == "warning":
+        headline = f"纸盘 readiness 门槛通过，但有 {len(promotion_warnings)} 项 warning 需要人工复核。"
+    else:
+        headline = "纸盘 readiness 通过；只表示可人工复核下一阶段。"
+
+    return PaperReadinessNextAction(
+        status=readiness,
+        headline=headline,
+        manual_action=manual_action,
+        not_ready_reasons=not_ready_reasons or promotion_blockers,
+        ready_after=ready_after or ["保持人工复核记录完整"],
+        blocker_codes=promotion_blockers,
+        warning_codes=promotion_warnings,
     )
 
 
@@ -392,6 +834,7 @@ def _paper_readiness_gates(
     *,
     min_trades: int,
     trades_count: int,
+    closed_trades_count: int,
     invariant_ok: bool,
     invariant_violation_codes: list[str],
     open_blockers_count: int,
@@ -403,11 +846,11 @@ def _paper_readiness_gates(
     duplicate_codes = ["DUPLICATE_OPEN_POSITIONS"] if duplicate_open_positions else []
     return [
         PaperReadinessGate(
-            gate="paper_trade_sample",
-            label="Paper 样本交易",
-            status="pass" if trades_count >= min_trades else "blocked",
-            summary=f"{trades_count}/{min_trades} 笔 executed paper trades",
-            blocker_codes=[] if trades_count >= min_trades else ["MIN_PAPER_TRADES_NOT_MET"],
+            gate="completed_trade_sample",
+            label="10 笔闭环交易",
+            status="pass" if closed_trades_count >= min_trades else "blocked",
+            summary=f"已闭环 {closed_trades_count}/{min_trades} 笔；已执行 {trades_count} 笔",
+            blocker_codes=[] if closed_trades_count >= min_trades else ["MIN_PAPER_TRADES_NOT_MET"],
         ),
         PaperReadinessGate(
             gate="ledger_invariants",

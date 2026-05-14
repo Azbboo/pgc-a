@@ -1,0 +1,70 @@
+{
+  "artifact_contract": "m110_evidence_provider_pack_qa_v1",
+  "as_of_date": "20260514",
+  "provider": "pgc_reviewed_cache_m110",
+  "provider_pack_manifest": ".pgc-runs/m110-evidence-pack-20260514/pack/manifest.json",
+  "provider_files": {
+    "market_external": ".pgc-runs/m110-evidence-pack-20260514/pack/market_external/20260514__01__market_external_20260514.json",
+    "agent_external": ".pgc-runs/m110-evidence-pack-20260514/pack/agent_external/20260514__01__agent_external_20260514.json"
+  },
+  "imported_rows": {
+    "market_external_items": 4,
+    "agent_external_items": 9
+  },
+  "provider_pack_qa": {
+    "status": "needs_review",
+    "ready_dates": [
+      "20260514"
+    ],
+    "blocking_dates": [],
+    "closed_gap_count": 11,
+    "remaining_gap_count": 2,
+    "remaining_gaps": [
+      {
+        "kind": "market_external",
+        "section": "sector",
+        "state": "partial"
+      },
+      {
+        "kind": "market_external",
+        "section": "stock",
+        "state": "partial"
+      }
+    ],
+    "provider_files_needed": [],
+    "validation_errors": []
+  },
+  "coverage_ledger": {
+    "manifest_count": 1,
+    "discovered_manifest_count": 1,
+    "entry_count": 21,
+    "blocking_entry_count": 2,
+    "state_counts": {
+      "imported": 13,
+      "partial": 2,
+      "unavailable": 6
+    },
+    "missing_count": 0,
+    "stale_count": 0,
+    "duplicate_count": 0,
+    "source_hash_mismatch_count": 0
+  },
+  "refreshed_reports": [
+    "reports/daily_review_20260514.json",
+    "reports/daily_review_20260514.md"
+  ],
+  "safety": {
+    "reviewed_files_only": true,
+    "live_fetches": false,
+    "writes_trade_state": false,
+    "writes_strategy_state": false,
+    "enables_timer": false,
+    "auto_promotes_strategy": false
+  },
+  "notes": [
+    "Market and Agent missing/stale/duplicate/source-hash gaps were closed for 20260514 provider-pack rows.",
+    "Independent Agent announcement/news/sentiment provider files were unavailable and remain explicit in the manifest and evidence ledger.",
+    "Market sector and stock evidence remain partial because provider files provide reviewed context rows, not a complete sector/stock universe.",
+    "The 20260514 market review still lacks fresh sector_daily_snapshots and market_plan_contexts; those remain separate explicit report gaps."
+  ]
+}

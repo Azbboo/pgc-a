@@ -57,6 +57,24 @@ class OperationalReadinessServiceTest(unittest.TestCase):
         self.assertEqual(result.data.trades_count, 0)
         self.assertIn("MIN_PAPER_TRADES_NOT_MET", [error.code for error in result.errors])
 
+    def test_blocks_when_executed_trades_exist_but_completed_trade_gate_is_not_met(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._migrated_seeded_db(tmp)
+            with sqlite3.connect(db_path) as conn:
+                self._insert_executed_trades(conn, 10)
+
+            result = OperationalReadinessService(db_path).check_paper_readiness(
+                PaperReadinessRequest(as_of_date=AS_OF_DATE, account_key=ACCOUNT_KEY),
+                RequestContext(request_id="req-completed-gate", source="cli", dry_run=True),
+            )
+
+        self.assertEqual(result.status, "blocked")
+        self.assertEqual(result.data.trades_count, 10)
+        self.assertEqual(result.data.closed_trades_count, 0)
+        self.assertEqual(result.data.readiness_progress.required_completed_trades, 10)
+        self.assertEqual(result.data.readiness_progress.remaining_completed_trades, 10)
+        self.assertIn("MIN_PAPER_TRADES_NOT_MET", result.data.promotion_blockers)
+
     def test_blocks_when_invariant_check_returns_violations(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = self._migrated_seeded_db(tmp)
@@ -146,6 +164,11 @@ class OperationalReadinessServiceTest(unittest.TestCase):
 
         self.assertEqual(result.status, "blocked")
         self.assertEqual(result.data.due_exit_positions_count, 1)
+        self.assertEqual(result.data.exit_lifecycle.overdue_t2_count, 1)
+        self.assertEqual(result.data.exit_lifecycle.overdue_t5_count, 0)
+        self.assertEqual(result.data.due_exit_positions[0].ts_code, "000001.SZ")
+        self.assertEqual(result.data.due_exit_positions[0].due_stage, "t2")
+        self.assertIn("到期退出", result.data.readiness_next_action.manual_action)
         self.assertIn("DUE_EXIT_DECISIONS", [error.code for error in result.errors])
 
     def test_blocks_when_duplicate_open_positions_exist_for_symbol(self) -> None:
@@ -199,7 +222,16 @@ class OperationalReadinessServiceTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = self._migrated_seeded_db(tmp)
             with sqlite3.connect(db_path) as conn:
-                self._insert_executed_trades(conn, 10)
+                account_id = self._paper_account_id(conn)
+                for index in range(10):
+                    self._insert_closed_position_pair(
+                        conn,
+                        account_id=account_id,
+                        ts_code=f"200{index:03d}.SZ",
+                        buy_price=10.0,
+                        sell_price=10.0,
+                        slippages=(0.0, 0.0),
+                    )
 
             result = OperationalReadinessService(db_path).check_paper_readiness(
                 PaperReadinessRequest(as_of_date=AS_OF_DATE, account_key=ACCOUNT_KEY),
@@ -208,9 +240,9 @@ class OperationalReadinessServiceTest(unittest.TestCase):
 
         self.assertEqual(result.status, "success")
         self.assertEqual(result.data.readiness, "warning")
-        self.assertEqual(result.data.trades_count, 10)
-        self.assertEqual(result.data.closed_trades_count, 0)
-        self.assertIsNone(result.data.win_rate)
+        self.assertEqual(result.data.trades_count, 20)
+        self.assertEqual(result.data.closed_trades_count, 10)
+        self.assertEqual(result.data.win_rate, 0.0)
         self.assertEqual(result.data.realized_pnl, 0.0)
         self.assertEqual(result.data.open_positions_count, 0)
         self.assertEqual(result.data.due_exit_positions_count, 0)
@@ -220,6 +252,9 @@ class OperationalReadinessServiceTest(unittest.TestCase):
         self.assertEqual([warning.code for warning in result.warnings], ["AGENT_EVIDENCE_MISSING"])
         self.assertEqual(result.data.promotion_blockers, [])
         self.assertEqual(result.data.promotion_warnings, ["AGENT_EVIDENCE_MISSING"])
+        self.assertEqual(result.data.readiness_progress.remaining_completed_trades, 0)
+        self.assertEqual(result.data.latest_evidence_status.agent_status, "missing")
+        self.assertIn("已审核证据", result.data.readiness_next_action.manual_action)
 
     def test_calculates_promotion_scorecard_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -254,7 +289,7 @@ class OperationalReadinessServiceTest(unittest.TestCase):
                 )
 
             result = OperationalReadinessService(db_path).check_paper_readiness(
-                PaperReadinessRequest(as_of_date=AS_OF_DATE, account_key=ACCOUNT_KEY),
+                PaperReadinessRequest(as_of_date=AS_OF_DATE, account_key=ACCOUNT_KEY, min_trades=2),
                 RequestContext(request_id="req-scorecard", source="cli", dry_run=True),
             )
 

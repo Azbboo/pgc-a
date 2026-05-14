@@ -470,6 +470,11 @@ class DailyAcceptanceReport:
     open_execution: DailyAcceptanceOpenExecution
     open_execution_gate: DailyAcceptanceGate
     readiness_gates: list[DailyAcceptanceGate] = field(default_factory=list)
+    readiness_progress: Any | None = None
+    exit_lifecycle: Any | None = None
+    due_exit_positions: list[Any] = field(default_factory=list)
+    latest_evidence_status: Any | None = None
+    readiness_next_action: Any | None = None
     unresolved_blockers: list[str] = field(default_factory=list)
     alerts: list[DailyAcceptanceAlert] = field(default_factory=list)
     advisory_note: str = (
@@ -1540,6 +1545,11 @@ def _daily_acceptance_report(
         open_execution=open_execution,
         open_execution_gate=open_execution_gate,
         readiness_gates=readiness_gates,
+        readiness_progress=paper_promotion.readiness_progress if paper_promotion else None,
+        exit_lifecycle=paper_promotion.exit_lifecycle if paper_promotion else None,
+        due_exit_positions=list(paper_promotion.due_exit_positions) if paper_promotion else [],
+        latest_evidence_status=paper_promotion.latest_evidence_status if paper_promotion else None,
+        readiness_next_action=paper_promotion.readiness_next_action if paper_promotion else None,
         unresolved_blockers=unresolved_blockers,
         alerts=alerts,
     )
@@ -2231,19 +2241,27 @@ def _next_day_system_proposal(open_execution: DailyAcceptanceOpenExecution) -> N
 
 
 def _next_day_acceptance_check(acceptance: DailyAcceptanceReport) -> NextDayDecisionChecklistItem:
+    readiness_action = acceptance.readiness_next_action
     return NextDayDecisionChecklistItem(
         key="paper_acceptance",
         label="paper acceptance",
         status=acceptance.status,
         summary=acceptance.summary,
         manual_action=(
+            readiness_action.manual_action
+            if readiness_action is not None and acceptance.status in {"blocked", "warning"}
+            else
             "处理 paper acceptance 未处理 blocker。"
             if acceptance.status == "blocked"
             else "人工复核 paper acceptance warning。"
             if acceptance.status == "warning"
             else "保持只读验收通过记录。"
         ),
-        detail="汇总数据新鲜度、证据覆盖、Agent、open-execution 和 readiness gates。",
+        detail=(
+            readiness_action.headline
+            if readiness_action is not None
+            else "汇总数据新鲜度、证据覆盖、Agent、open-execution 和 readiness gates。"
+        ),
         blocker_codes=_gate_codes(_acceptance_all_gates(acceptance), include_blockers=True, include_warnings=False),
         warning_codes=_gate_codes(_acceptance_all_gates(acceptance), include_blockers=False, include_warnings=True),
         source_refs=_acceptance_source_refs(acceptance),
@@ -5133,19 +5151,24 @@ def _paper_promotion_lines(promotion: PaperReadinessResult | None) -> list[str]:
     blockers = ", ".join(promotion.promotion_blockers) if promotion.promotion_blockers else "无"
     warnings = ", ".join(promotion.promotion_warnings) if promotion.promotion_warnings else "无"
     next_steps = _promotion_next_steps(promotion)
+    progress = promotion.readiness_progress
+    progress_text = progress.summary if progress else f"已闭环 {promotion.closed_trades_count} 笔"
+    action = promotion.readiness_next_action
     return [
         "",
         "## Paper 晋级分数卡",
         "",
         f"- 状态：{_readiness_text(promotion.readiness)}",
-        f"- 样本交易：{promotion.trades_count}",
+        f"- 样本交易（已执行）：{promotion.trades_count}",
         f"- 已闭环交易：{promotion.closed_trades_count}",
+        f"- 10 笔闭环进度：{progress_text}",
         f"- 累计实现盈亏：{_money(promotion.realized_pnl)}",
         f"- 胜率：{_ratio_text(promotion.win_rate)}",
         f"- 平均滑点：{_ratio_text(promotion.avg_slippage)}",
         f"- 最近 pipeline：{promotion.last_pipeline_status or '无记录'}",
         f"- 当前阻断：{blockers}",
         f"- 晋级 live 前还差什么：{next_steps}",
+        f"- 下一步人工动作：{action.manual_action if action else next_steps}",
         f"- 晋级警告：{warnings}",
     ]
 
@@ -5179,6 +5202,46 @@ def _daily_acceptance_lines(acceptance: DailyAcceptanceReport | None) -> list[st
         lines.extend(f"- {gate.label}：{_acceptance_gate_text(gate)}" for gate in acceptance.readiness_gates)
     else:
         lines.append("- 未返回 readiness gates。")
+    lines.extend(["", "纸盘进度环："])
+    progress = acceptance.readiness_progress
+    if progress is not None:
+        lines.append(
+            f"- 10 笔闭环进度：{progress.completed_trades}/{progress.required_completed_trades}；"
+            f"已执行 {progress.executed_trades}；{progress.ready_after}"
+        )
+    else:
+        lines.append("- 10 笔闭环进度：未计算。")
+    exit_lifecycle = acceptance.exit_lifecycle
+    if exit_lifecycle is not None:
+        lines.append(
+            f"- 退出生命周期：{exit_lifecycle.summary} 下一到期 {_date_text(exit_lifecycle.next_due_date)}；"
+            f"{exit_lifecycle.manual_action}"
+        )
+    else:
+        lines.append("- 退出生命周期：未计算。")
+    if acceptance.due_exit_positions:
+        lines.append("- 到期退出明细：")
+        lines.extend(
+            f"  - {item.ts_code} {item.name}：{item.due_stage.upper()} / {item.status}；{item.manual_action}"
+            for item in acceptance.due_exit_positions[:6]
+        )
+    evidence_status = acceptance.latest_evidence_status
+    if evidence_status is not None:
+        lines.append(
+            f"- 最新智能体 / 证据状态：{evidence_status.summary}；{evidence_status.manual_action}"
+        )
+    action = acceptance.readiness_next_action
+    if action is not None:
+        ready_after = "；".join(action.ready_after)
+        reasons = "；".join(action.not_ready_reasons) if action.not_ready_reasons else "无"
+        lines.extend(
+            [
+                f"- 还不能 ready 因为：{reasons}",
+                f"- 满足条件后：{ready_after}",
+                f"- 下一步人工动作：{action.manual_action}",
+                f"- 边界：{action.safety_note}",
+            ]
+        )
     lines.extend(["", "未处理 blocker："])
     if acceptance.unresolved_blockers:
         lines.extend(f"- {blocker}" for blocker in acceptance.unresolved_blockers)
@@ -5926,6 +5989,8 @@ def _optional_float_from_any(value: Any) -> float | None:
 
 
 def _promotion_next_steps(promotion: PaperReadinessResult) -> str:
+    if promotion.readiness_next_action is not None and promotion.readiness_next_action.ready_after:
+        return "；".join(promotion.readiness_next_action.ready_after)
     if promotion.promotion_blockers:
         return ", ".join(promotion.promotion_blockers)
     if promotion.promotion_warnings:
