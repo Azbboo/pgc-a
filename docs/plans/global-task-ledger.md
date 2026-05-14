@@ -9,12 +9,12 @@ This ledger is the single index for historical and active project work. Detailed
 | Field | Value |
 | --- | --- |
 | Branch | `codex/m101-full-market-review-narrative` |
-| Latest deployed commit | `dfa9021f5732480cda07ef8910407002852c1c4c` |
-| Latest release tag | `pgc-v0.1.0-20260514-m104-m107-production-acceptance-r1` |
+| Latest deployed commit | See release tag `pgc-v0.1.0-20260514-m108-m111-plan-r1` |
+| Latest release tag | `pgc-v0.1.0-20260514-m108-m111-plan-r1` |
 | Remote API | `http://150.158.121.150:8020` |
 | Remote migration state | `013_decision_action_log`, `pending_migrations=none` |
 | Latest release health | `status=ok`, `api_health_ok=true`, HTTP `200`, latest migration `013_decision_action_log` |
-| Latest full verification | M104-M107 verification passed on 2026-05-14: `git diff --check`; `node --check web/dashboard/app.js`; `bash -n scripts/run_daily_pipeline.sh`; `python3 -m compileall -q src scripts`; Dashboard static checks (`33 passed, 1 skipped`); daily/CLI/runbook focused checks (`87 passed, 1 subtests passed`); evidence-pack focused checks (`22 passed`); shadow focused checks (`38 passed`); full `PYTHONPATH=src:. pytest -q` (`487 passed, 3 skipped, 10 subtests passed`). Runtime deploy `pgc-v0.1.0-20260514-m104-m107-production-acceptance-r1` ran remote release tests (`490 tests`, `skipped=3`), applied no pending migrations, switched release dir, returned API health `ok`, and remote `ops health --require-current-migrations` passed with latest migration `013_decision_action_log`, `pending_migrations=none`, HTTP `200`. No strategy/trade/position/paper-live/broker/timer mutation was introduced outside existing guarded daily pipeline and paper ledger paths. |
+| Latest full verification | M104-M107 verification passed on 2026-05-14: `git diff --check`; `node --check web/dashboard/app.js`; `bash -n scripts/run_daily_pipeline.sh`; `python3 -m compileall -q src scripts`; Dashboard static checks (`33 passed, 1 skipped`); daily/CLI/runbook focused checks (`87 passed, 1 subtests passed`); evidence-pack focused checks (`22 passed`); shadow focused checks (`38 passed`); full `PYTHONPATH=src:. pytest -q` (`487 passed, 3 skipped, 10 subtests passed`). Runtime deploy `pgc-v0.1.0-20260514-m104-m107-production-acceptance-r1` ran remote release tests (`490 tests`, `skipped=3`), applied no pending migrations, switched release dir, returned API health `ok`, and remote `ops health --require-current-migrations` passed with latest migration `013_decision_action_log`, `pending_migrations=none`, HTTP `200`. Follow-up docs/ledger release `pgc-v0.1.0-20260514-m108-m111-plan-r1` carries the M108-M111 task plan and no runtime behavior changes. No strategy/trade/position/paper-live/broker/timer mutation was introduced outside existing guarded daily pipeline and paper ledger paths. |
 
 ## Status Legend
 
