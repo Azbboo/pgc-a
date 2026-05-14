@@ -301,6 +301,64 @@ class MarketReviewServiceTest(unittest.TestCase):
             self.assertTrue(hierarchy["coverage"]["has_complete_chain"])
             self.assertIn(f"market_review_runs:{run_id}", hierarchy["source_refs"])
             self.assertEqual(result.data["coverage"]["hierarchy"]["plan_context_count"], 1)
+            narrative = hierarchy["narrative"]
+            self.assertIn("风险偏好", narrative["regime_conclusion"]["summary"])
+            self.assertEqual(narrative["sector_ranking_reason"]["status"], "available")
+            self.assertIn("人工智能", narrative["sector_ranking_reason"]["summary"])
+            self.assertEqual(narrative["representative_stock_reason"]["stocks"][0]["ts_code"], "000001.SZ")
+            self.assertIn("代表个股", narrative["representative_stock_reason"]["summary"])
+            self.assertEqual(narrative["evidence_freshness"]["sector"], "fresh")
+            self.assertEqual(narrative["evidence_freshness"]["stock"], "fresh")
+            self.assertIn("market", {gap["scope"] for gap in narrative["evidence_gaps"]})
+            self.assertEqual(narrative["continuity_judgement"]["label"], "improving")
+            self.assertEqual(narrative["next_day_plan_relationship"]["relationship_label"], "aligned")
+            self.assertIn("明日计划", narrative["next_day_plan_relationship"]["summary"])
+
+    def test_market_review_narrative_marks_missing_evidence_explicitly(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = self._migrated_db(tmp)
+            with sqlite3.connect(db_path) as conn:
+                run_id = int(
+                    conn.execute(
+                        """
+                        INSERT INTO market_review_runs
+                          (as_of_date, status, provider_manifest_json, coverage_json, summary_json, completed_at)
+                        VALUES
+                          (?, 'completed', '{"fixture":"m101"}', '{"fixture":true}', '{}', CURRENT_TIMESTAMP)
+                        """,
+                        (AS_OF_DATE,),
+                    ).lastrowid
+                )
+                conn.execute(
+                    """
+                    INSERT INTO market_regime_snapshots
+                      (
+                        market_review_run_id, as_of_date, regime, breadth_score, trend_score,
+                        volume_score, persistence_score, summary
+                      )
+                    VALUES
+                      (?, ?, 'neutral', 0.50, 0.51, 0.48, 0.49, 'Regime only, no downstream evidence.')
+                    """,
+                    (run_id, AS_OF_DATE),
+                )
+
+            result = MarketReviewService(db_path).get_market_review(
+                GetMarketReviewRequest(as_of_date=AS_OF_DATE),
+                RequestContext(request_id="req-m101-missing-narrative", dry_run=True),
+            )
+
+            self.assertTrue(result.ok)
+            narrative = result.data["hierarchy"]["narrative"]
+            self.assertEqual(narrative["sector_ranking_reason"]["status"], "insufficient_evidence")
+            self.assertIn("板块轮动数据缺失", narrative["sector_ranking_reason"]["summary"])
+            self.assertEqual(narrative["representative_stock_reason"]["status"], "insufficient_evidence")
+            self.assertIn("代表个股证据不足", narrative["representative_stock_reason"]["summary"])
+            self.assertEqual(narrative["continuity_judgement"]["label"], "insufficient_evidence")
+            self.assertEqual(narrative["next_day_plan_relationship"]["relationship_label"], "missing")
+            gap_messages = "；".join(gap["message"] for gap in narrative["evidence_gaps"])
+            self.assertIn("新闻证据缺失", gap_messages)
+            self.assertIn("情绪证据缺失", gap_messages)
+            self.assertIn("明日计划关系缺失", gap_messages)
 
     def _migrated_db(self, tmp: str) -> Path:
         db_path = Path(tmp) / "pgc.db"

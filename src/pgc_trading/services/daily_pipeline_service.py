@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -69,12 +71,39 @@ class RunDailyPipelineRequest:
     run_type: str = "paper"
     backup_dir: Path | None = None
     include_market_review: bool = False
+    pool_intake_summary_path: Path | None = None
+    require_pool_intake: bool = False
+    allow_rerun: bool = False
 
 
 @dataclass(frozen=True)
 class PipelineStepSummary:
     status: str
     detail: str | None = None
+
+
+@dataclass(frozen=True)
+class PoolIntakePipelineSummary:
+    status: str
+    audit_path: str | None = None
+    mode: str | None = None
+    input_count: int = 0
+    added_count: int = 0
+    rejected_count: int = 0
+    dedupe_count: int = 0
+    source_hash: str | None = None
+    detail: str | None = None
+
+
+@dataclass(frozen=True)
+class DailyOperatingSummary:
+    state: str
+    can_run_today: bool
+    missing_requirements: list[str]
+    next_command: str
+    write_intent: str
+    summary_zh: str
+    duplicate_apply_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -113,6 +142,20 @@ class DailyPipelineResult:
     shadow_evidence_blockers: str | None = None
     shadow_evidence_dashboard_history: str | None = None
     shadow_evidence_replay_backtest: str | None = None
+    daily_operating_state: str = "unknown"
+    can_run_today: bool = False
+    missing_requirements: list[str] = field(default_factory=list)
+    next_command: str | None = None
+    write_intent: str = "unknown"
+    operating_summary_zh: str | None = None
+    duplicate_apply_count: int = 0
+    pool_intake_status: str | None = None
+    pool_intake_mode: str | None = None
+    pool_intake_input_count: int | None = None
+    pool_intake_added_count: int | None = None
+    pool_intake_rejected_count: int | None = None
+    pool_intake_dedupe_count: int | None = None
+    pool_intake_audit_path: str | None = None
     invariant_violation_codes: list[str] = field(default_factory=list)
     step_summaries: dict[str, PipelineStepSummary] = field(default_factory=dict)
 
@@ -125,6 +168,7 @@ class DailyPipelineService:
         db_path: Path | None = None,
         *,
         reports_dir: Path | None = None,
+        data_dir: Path | None = None,
         daily_close_service_factory: DailyCloseFactory = DailyCloseWorkflowService,
         agent_review_service_factory: AgentReviewFactory = AgentReviewService,
         market_review_service_factory: MarketReviewFactory = MarketReviewService,
@@ -135,6 +179,7 @@ class DailyPipelineService:
     ):
         self.db_path = db_path or Paths().db_path
         self.reports_dir = reports_dir or Paths().reports_dir
+        self.data_dir = data_dir or Paths().data_dir
         self.daily_close_service_factory = daily_close_service_factory
         self.agent_review_service_factory = agent_review_service_factory
         self.market_review_service_factory = market_review_service_factory
@@ -150,11 +195,49 @@ class DailyPipelineService:
     ) -> ServiceResult[DailyPipelineResult]:
         errors = _validate_request(request, ctx)
         if errors:
+            operating_summary = _validation_operating_summary(request, ctx, errors)
             return ServiceResult(
                 status="validation_failed",
                 request_id=ctx.request_id,
-                data=_empty_result(request, "failed"),
+                data=_empty_result(request, "failed", operating_summary=operating_summary),
                 errors=errors,
+            )
+
+        pool_intake_summary = _load_pool_intake_summary(request, self.data_dir)
+        operating_summary = _initial_operating_summary(
+            request,
+            ctx,
+            db_path=self.db_path,
+            pool_intake_summary=pool_intake_summary,
+        )
+        if operating_summary.state in {
+            "data_refresh_needed",
+            "pool_intake_pending",
+            "duplicate_apply_blocked",
+            "apply_blocked",
+        }:
+            error_code = {
+                "data_refresh_needed": "DATA_REFRESH_NEEDED",
+                "pool_intake_pending": "POOL_INTAKE_PENDING",
+                "duplicate_apply_blocked": "DUPLICATE_APPLY_BLOCKED",
+                "apply_blocked": "APPLY_BLOCKED",
+            }[operating_summary.state]
+            return ServiceResult(
+                status="blocked",
+                request_id=ctx.request_id,
+                data=_empty_result(
+                    request,
+                    "blocked",
+                    operating_summary=operating_summary,
+                    pool_intake_summary=pool_intake_summary,
+                ),
+                errors=[
+                    ServiceError(
+                        code=error_code,
+                        message=operating_summary.summary_zh,
+                        severity="blocker",
+                    )
+                ],
             )
 
         backup_path: Path | None = None
@@ -175,7 +258,13 @@ class DailyPipelineService:
                 return ServiceResult(
                     status="blocked",
                     request_id=ctx.request_id,
-                    data=_empty_result(request, "blocked", backup_path=None),
+                    data=_empty_result(
+                        request,
+                        "blocked",
+                        backup_path=None,
+                        operating_summary=_apply_blocked_summary(request, ctx, "database_backup"),
+                        pool_intake_summary=pool_intake_summary,
+                    ),
                     errors=[error],
                 )
 
@@ -195,6 +284,8 @@ class DailyPipelineService:
                 backup_path=str(backup_path) if backup_path is not None else None,
                 invariant_violation_codes=[violation.code for violation in ledger_report.violations],
                 ledger_audit_ok=False,
+                operating_summary=_apply_blocked_summary(request, ctx, "ledger_audit"),
+                pool_intake_summary=pool_intake_summary,
             )
             return ServiceResult(
                 status="blocked",
@@ -232,6 +323,8 @@ class DailyPipelineService:
                 step_summaries=step_summaries,
                 warnings=warnings,
                 errors=daily_close.errors,
+                operating_summary=operating_summary,
+                pool_intake_summary=pool_intake_summary,
             )
 
         daily_pick_id = _daily_pick_id(daily_close.data)
@@ -298,6 +391,8 @@ class DailyPipelineService:
                     step_summaries=step_summaries,
                     warnings=warnings,
                     errors=market_review.errors,
+                    operating_summary=operating_summary,
+                    pool_intake_summary=pool_intake_summary,
                 )
             market_review_run_id = market_review.data.market_review_run_id
         else:
@@ -353,6 +448,8 @@ class DailyPipelineService:
                         step_summaries=step_summaries,
                         warnings=warnings,
                         errors=plan_context.errors,
+                        operating_summary=operating_summary,
+                        pool_intake_summary=pool_intake_summary,
                     )
         else:
             step_summaries["market_plan_context"] = PipelineStepSummary(
@@ -392,6 +489,8 @@ class DailyPipelineService:
                 step_summaries=step_summaries,
                 warnings=warnings,
                 errors=exits.errors,
+                operating_summary=operating_summary,
+                pool_intake_summary=pool_intake_summary,
             )
 
         report_result = self._write_reports(request, ctx)
@@ -421,6 +520,8 @@ class DailyPipelineService:
                 step_summaries=step_summaries,
                 warnings=warnings,
                 errors=report_result.errors,
+                operating_summary=operating_summary,
+                pool_intake_summary=pool_intake_summary,
             )
         step_summaries["shadow_evidence"] = PipelineStepSummary(
             status=report_result.data.shadow_evidence_status or "unknown",
@@ -433,6 +534,12 @@ class DailyPipelineService:
 
         after_counts = _table_counts(self.db_path)
         changed = _counts_changed(before_counts, after_counts) or report_result.data.changed
+        operating_summary = _final_operating_summary(
+            request,
+            ctx,
+            operating_summary,
+            report_result.data,
+        )
         data = DailyPipelineResult(
             pipeline_status="pass",
             review_date=request.as_of_date,
@@ -468,6 +575,20 @@ class DailyPipelineService:
             shadow_evidence_blockers=report_result.data.shadow_evidence_blockers,
             shadow_evidence_dashboard_history=report_result.data.shadow_evidence_dashboard_history,
             shadow_evidence_replay_backtest=report_result.data.shadow_evidence_replay_backtest,
+            daily_operating_state=operating_summary.state,
+            can_run_today=operating_summary.can_run_today,
+            missing_requirements=operating_summary.missing_requirements,
+            next_command=operating_summary.next_command,
+            write_intent=operating_summary.write_intent,
+            operating_summary_zh=operating_summary.summary_zh,
+            duplicate_apply_count=operating_summary.duplicate_apply_count,
+            pool_intake_status=pool_intake_summary.status,
+            pool_intake_mode=pool_intake_summary.mode,
+            pool_intake_input_count=pool_intake_summary.input_count,
+            pool_intake_added_count=pool_intake_summary.added_count,
+            pool_intake_rejected_count=pool_intake_summary.rejected_count,
+            pool_intake_dedupe_count=pool_intake_summary.dedupe_count,
+            pool_intake_audit_path=pool_intake_summary.audit_path,
             step_summaries=step_summaries,
         )
         return ServiceResult(
@@ -597,6 +718,329 @@ class _ReportWriteResult:
     shadow_evidence_replay_backtest: str | None = None
 
 
+def _load_pool_intake_summary(
+    request: RunDailyPipelineRequest,
+    data_dir: Path,
+) -> PoolIntakePipelineSummary:
+    path = _pool_intake_summary_path(request, data_dir)
+    if path is None:
+        return PoolIntakePipelineSummary(status="not_provided")
+    if not path.exists():
+        return PoolIntakePipelineSummary(
+            status="missing",
+            audit_path=str(path),
+            detail=f"pool intake summary not found: {path}",
+        )
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return PoolIntakePipelineSummary(
+            status="unreadable",
+            audit_path=str(path),
+            detail=f"pool intake summary unreadable: {exc}",
+        )
+    if not isinstance(payload, dict):
+        return PoolIntakePipelineSummary(
+            status="unreadable",
+            audit_path=str(path),
+            detail="pool intake summary must be a JSON object",
+        )
+    return PoolIntakePipelineSummary(
+        status="available",
+        audit_path=str(path),
+        mode=str(payload.get("mode") or "unknown"),
+        input_count=_int_value(payload.get("input_count")),
+        added_count=_int_value(payload.get("added_count")),
+        rejected_count=_int_value(payload.get("invalid_count")),
+        dedupe_count=_int_value(payload.get("duplicate_count")),
+        source_hash=str(payload.get("source_hash") or "") or None,
+    )
+
+
+def _pool_intake_summary_path(request: RunDailyPipelineRequest, data_dir: Path) -> Path | None:
+    if request.pool_intake_summary_path is not None:
+        return Path(request.pool_intake_summary_path)
+    candidates = [
+        Path(data_dir) / f"daily_review_{request.as_of_date}_intake_apply.json",
+        Path(data_dir) / f"daily_review_{request.as_of_date}_intake_dry_run.json",
+    ]
+    return next((path for path in candidates if path.exists()), None)
+
+
+def _initial_operating_summary(
+    request: RunDailyPipelineRequest,
+    ctx: RequestContext,
+    *,
+    db_path: Path,
+    pool_intake_summary: PoolIntakePipelineSummary,
+) -> DailyOperatingSummary:
+    market_bar_count = _market_bar_count(db_path, request.as_of_date)
+    if market_bar_count <= 0:
+        return _make_operating_summary(
+            request,
+            ctx,
+            state="data_refresh_needed",
+            can_run_today=False,
+            missing_requirements=["market_data"],
+            next_command="先刷新交易日历和行情到复盘日，再重跑 daily-preflight 与 daily-pipeline dry-run",
+        )
+
+    if _pool_intake_blocks(request, pool_intake_summary):
+        missing = ["pool_intake"]
+        if pool_intake_summary.rejected_count:
+            missing.append("pool_intake_valid_rows")
+        return _make_operating_summary(
+            request,
+            ctx,
+            state="pool_intake_pending",
+            can_run_today=False,
+            missing_requirements=missing,
+            next_command="先执行 ops pool-intake --dry-run，确认 invalid_count=0 后再 --apply",
+        )
+
+    duplicate_apply_count = _duplicate_apply_count(db_path, request.as_of_date)
+    if not ctx.dry_run and duplicate_apply_count > 0 and not request.allow_rerun:
+        return _make_operating_summary(
+            request,
+            ctx,
+            state="duplicate_apply_blocked",
+            can_run_today=False,
+            missing_requirements=["duplicate_apply_review"],
+            next_command="人工核对 operation history、日报和备份后，必要时显式使用 --allow-rerun",
+            duplicate_apply_count=duplicate_apply_count,
+        )
+
+    return _make_operating_summary(
+        request,
+        ctx,
+        state="dry_run_ready" if ctx.dry_run else "apply_ready",
+        can_run_today=True,
+        missing_requirements=[],
+        next_command=_next_daily_command(request, ctx),
+        duplicate_apply_count=duplicate_apply_count,
+    )
+
+
+def _final_operating_summary(
+    request: RunDailyPipelineRequest,
+    ctx: RequestContext,
+    initial: DailyOperatingSummary,
+    report: _ReportWriteResult,
+) -> DailyOperatingSummary:
+    if not ctx.dry_run:
+        return _make_operating_summary(
+            request,
+            ctx,
+            state="apply_complete",
+            can_run_today=True,
+            missing_requirements=[],
+            next_command=f"查看 reports/daily_review_{request.as_of_date}.md，并运行 pgc ops health",
+            duplicate_apply_count=initial.duplicate_apply_count,
+        )
+    if request.include_market_review and _shadow_evidence_needs_pack(report):
+        return _make_operating_summary(
+            request,
+            ctx,
+            state="evidence_pack_needed",
+            can_run_today=False,
+            missing_requirements=["evidence_pack"],
+            next_command="补齐 shadow/evidence pack artifacts 后重跑 daily-pipeline --dry-run",
+            duplicate_apply_count=initial.duplicate_apply_count,
+        )
+    return _make_operating_summary(
+        request,
+        ctx,
+        state="dry_run_ready",
+        can_run_today=True,
+        missing_requirements=[],
+        next_command=_next_daily_command(request, ctx),
+        duplicate_apply_count=initial.duplicate_apply_count,
+    )
+
+
+def _pool_intake_blocks(
+    request: RunDailyPipelineRequest,
+    pool_intake_summary: PoolIntakePipelineSummary,
+) -> bool:
+    if pool_intake_summary.status in {"missing", "unreadable"}:
+        return request.require_pool_intake or request.pool_intake_summary_path is not None
+    if pool_intake_summary.status != "available":
+        return request.require_pool_intake
+    if pool_intake_summary.rejected_count > 0:
+        return True
+    return request.require_pool_intake and pool_intake_summary.mode != "apply"
+
+
+def _validation_operating_summary(
+    request: RunDailyPipelineRequest,
+    ctx: RequestContext,
+    errors: list[ServiceError],
+) -> DailyOperatingSummary:
+    missing = []
+    for error in errors:
+        if error.code == "OPERATOR_REQUIRED":
+            missing.append("operator")
+        elif error.code == "IDEMPOTENCY_KEY_REQUIRED":
+            missing.append("idempotency_key")
+        else:
+            missing.append("valid_request")
+    return _make_operating_summary(
+        request,
+        ctx,
+        state="apply_blocked",
+        can_run_today=False,
+        missing_requirements=sorted(set(missing)),
+        next_command="补齐 operator、idempotency key 和请求参数后重跑 --apply",
+    )
+
+
+def _apply_blocked_summary(
+    request: RunDailyPipelineRequest,
+    ctx: RequestContext,
+    missing_requirement: str,
+) -> DailyOperatingSummary:
+    return _make_operating_summary(
+        request,
+        ctx,
+        state="apply_blocked",
+        can_run_today=False,
+        missing_requirements=[missing_requirement],
+        next_command="先修复阻断项，再重跑 daily-pipeline --dry-run",
+    )
+
+
+def _default_operating_summary(request: RunDailyPipelineRequest) -> DailyOperatingSummary:
+    return _make_operating_summary(
+        request,
+        RequestContext(dry_run=True),
+        state="unknown",
+        can_run_today=False,
+        missing_requirements=["unknown"],
+        next_command="先运行 ops daily-preflight",
+    )
+
+
+def _make_operating_summary(
+    request: RunDailyPipelineRequest,
+    ctx: RequestContext,
+    *,
+    state: str,
+    can_run_today: bool,
+    missing_requirements: list[str],
+    next_command: str,
+    duplicate_apply_count: int = 0,
+) -> DailyOperatingSummary:
+    write_intent = "dry_run_no_writes" if ctx.dry_run else "apply_writes_with_backup"
+    missing_text = "无" if not missing_requirements else ",".join(missing_requirements)
+    will_write = "否" if ctx.dry_run else "是"
+    summary_zh = (
+        f"今天是否能跑：{'是' if can_run_today else '否'}；"
+        f"缺什么：{missing_text}；"
+        f"下一步命令：{next_command}；"
+        f"是否会写库：{will_write}"
+    )
+    return DailyOperatingSummary(
+        state=state,
+        can_run_today=can_run_today,
+        missing_requirements=missing_requirements,
+        next_command=next_command,
+        write_intent=write_intent,
+        summary_zh=summary_zh,
+        duplicate_apply_count=duplicate_apply_count,
+    )
+
+
+def _next_daily_command(request: RunDailyPipelineRequest, ctx: RequestContext) -> str:
+    account_arg = request.account_key or f"account-id-{request.account_id}"
+    market_arg = " --include-market-review" if request.include_market_review else ""
+    if ctx.dry_run:
+        return (
+            "./scripts/run_daily_pipeline.sh "
+            f"--date {request.as_of_date} --account {account_arg} --operator OPERATOR"
+            f"{market_arg} --apply"
+        )
+    return f"查看 backup_path 与 reports/daily_review_{request.as_of_date}.md"
+
+
+def _shadow_evidence_needs_pack(report: _ReportWriteResult) -> bool:
+    return (report.shadow_evidence_status or "unknown") in {
+        "blocked",
+        "missing",
+        "invalid",
+        "unavailable",
+        "failed",
+        "warning",
+    }
+
+
+def _market_bar_count(db_path: Path, as_of_date: str) -> int:
+    if not Path(db_path).exists():
+        return 0
+    try:
+        with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as conn:
+            table = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'market_bars'"
+            ).fetchone()
+            if table is None:
+                return 0
+            row = conn.execute(
+                "SELECT COUNT(*) FROM market_bars WHERE trade_date = ?",
+                (as_of_date,),
+            ).fetchone()
+    except sqlite3.Error:
+        return 0
+    return int(row[0] if row else 0)
+
+
+def _duplicate_apply_count(db_path: Path, as_of_date: str) -> int:
+    if not Path(db_path).exists():
+        return 0
+    operation_types = (
+        "daily_review",
+        "portfolio_generate_buy_plan",
+        "portfolio_generate_sell_plan",
+        "agent_review_daily_pick",
+        "position_exit_evaluate",
+    )
+    try:
+        with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as conn:
+            table = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'operation_requests'"
+            ).fetchone()
+            if table is None:
+                return 0
+            rows = conn.execute(
+                f"""
+                SELECT request_json
+                FROM operation_requests
+                WHERE as_of_date = ?
+                  AND status IN ('success', 'partial_success', 'skipped')
+                  AND operation_type IN ({",".join("?" for _ in operation_types)})
+                """,
+                (as_of_date, *operation_types),
+            ).fetchall()
+    except sqlite3.Error:
+        return 0
+    return sum(1 for row in rows if _loads_json_object(row[0]).get("dry_run") is False)
+
+
+def _loads_json_object(value: str | None) -> dict[str, object]:
+    if not value:
+        return {}
+    try:
+        decoded = json.loads(value)
+    except json.JSONDecodeError:
+        return {}
+    return decoded if isinstance(decoded, dict) else {}
+
+
+def _int_value(value: object) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _shadow_observation_status(shadow: object | None) -> str:
     if shadow is None:
         return "unavailable"
@@ -720,6 +1164,8 @@ def _validate_request(request: RunDailyPipelineRequest, ctx: RequestContext) -> 
         errors.append(ServiceError("VALIDATION_ERROR", "strategy_version is required."))
     if not ctx.dry_run and not (ctx.operator or "").strip():
         errors.append(ServiceError("OPERATOR_REQUIRED", "operator is required for daily-pipeline --apply."))
+    if not ctx.dry_run and not (ctx.idempotency_key or "").strip():
+        errors.append(ServiceError("IDEMPOTENCY_KEY_REQUIRED", "idempotency_key is required for daily-pipeline --apply."))
     return errors
 
 
@@ -836,8 +1282,12 @@ def _failed_pipeline_result(
     market_review_would_write: bool = False,
     market_plan_context_would_write: bool = False,
     exit_decisions: int = 0,
+    operating_summary: DailyOperatingSummary | None = None,
+    pool_intake_summary: PoolIntakePipelineSummary | None = None,
 ) -> ServiceResult[DailyPipelineResult]:
     pipeline_status = "blocked" if status == "blocked" else "failed"
+    operating_summary = operating_summary or _apply_blocked_summary(request, ctx, "pipeline_step")
+    pool_intake_summary = pool_intake_summary or PoolIntakePipelineSummary(status="not_provided")
     return ServiceResult(
         status=status,
         request_id=ctx.request_id,
@@ -864,6 +1314,20 @@ def _failed_pipeline_result(
             market_plan_context_status=market_plan_context_status,
             market_review_would_write=market_review_would_write,
             market_plan_context_would_write=market_plan_context_would_write,
+            daily_operating_state=operating_summary.state,
+            can_run_today=operating_summary.can_run_today,
+            missing_requirements=operating_summary.missing_requirements,
+            next_command=operating_summary.next_command,
+            write_intent=operating_summary.write_intent,
+            operating_summary_zh=operating_summary.summary_zh,
+            duplicate_apply_count=operating_summary.duplicate_apply_count,
+            pool_intake_status=pool_intake_summary.status,
+            pool_intake_mode=pool_intake_summary.mode,
+            pool_intake_input_count=pool_intake_summary.input_count,
+            pool_intake_added_count=pool_intake_summary.added_count,
+            pool_intake_rejected_count=pool_intake_summary.rejected_count,
+            pool_intake_dedupe_count=pool_intake_summary.dedupe_count,
+            pool_intake_audit_path=pool_intake_summary.audit_path,
             step_summaries=step_summaries,
         ),
         warnings=warnings,
@@ -878,7 +1342,11 @@ def _empty_result(
     backup_path: str | None = None,
     invariant_violation_codes: list[str] | None = None,
     ledger_audit_ok: bool = False,
+    operating_summary: DailyOperatingSummary | None = None,
+    pool_intake_summary: PoolIntakePipelineSummary | None = None,
 ) -> DailyPipelineResult:
+    operating_summary = operating_summary or _default_operating_summary(request)
+    pool_intake_summary = pool_intake_summary or PoolIntakePipelineSummary(status="not_provided")
     return DailyPipelineResult(
         pipeline_status=pipeline_status,
         review_date=request.as_of_date,
@@ -893,6 +1361,20 @@ def _empty_result(
         changed=False,
         backup_path=backup_path,
         ledger_audit_ok=ledger_audit_ok,
+        daily_operating_state=operating_summary.state,
+        can_run_today=operating_summary.can_run_today,
+        missing_requirements=operating_summary.missing_requirements,
+        next_command=operating_summary.next_command,
+        write_intent=operating_summary.write_intent,
+        operating_summary_zh=operating_summary.summary_zh,
+        duplicate_apply_count=operating_summary.duplicate_apply_count,
+        pool_intake_status=pool_intake_summary.status,
+        pool_intake_mode=pool_intake_summary.mode,
+        pool_intake_input_count=pool_intake_summary.input_count,
+        pool_intake_added_count=pool_intake_summary.added_count,
+        pool_intake_rejected_count=pool_intake_summary.rejected_count,
+        pool_intake_dedupe_count=pool_intake_summary.dedupe_count,
+        pool_intake_audit_path=pool_intake_summary.audit_path,
         invariant_violation_codes=invariant_violation_codes or [],
     )
 

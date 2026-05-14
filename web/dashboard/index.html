@@ -515,7 +515,7 @@
               <h2>运维运行历史</h2>
               <span id="opsHistorySummary" class="muted">暂无运维运行历史。</span>
             </div>
-            <div id="opsHistoryCounts" class="ops-history-counts" aria-label="ops history 计数"></div>
+            <div id="opsHistoryCounts" class="ops-history-counts" aria-label="运维历史计数"></div>
             <div id="opsHistoryList" class="ops-history-list" aria-label="运维运行历史"></div>
           </section>
         </section>
@@ -693,50 +693,54 @@
 
           <section class="shadow-summary-panel" id="shadowSummaryPanel" aria-live="polite"></section>
 
-          <section class="panel shadow-decision-memo-panel">
-            <div class="panel-heading">
-              <h2>中文决策备忘录</h2>
-              <div class="panel-heading-actions">
-                <span id="shadowDecisionMemoState" class="muted">-</span>
-                <span class="chip chip-agent">中文决策备忘录</span>
+          <div class="shadow-workbench-grid">
+            <section class="panel shadow-decision-memo-panel">
+              <div class="panel-heading">
+                <h2>中文决策备忘录</h2>
+                <div class="panel-heading-actions">
+                  <span id="shadowDecisionMemoState" class="muted">-</span>
+                  <span class="chip chip-agent">中文决策备忘录</span>
+                </div>
               </div>
-            </div>
-            <div id="shadowDecisionMemoWorkbench" class="shadow-decision-memo-workbench"></div>
-          </section>
+              <div id="shadowDecisionMemoWorkbench" class="shadow-decision-memo-workbench"></div>
+            </section>
 
-          <section class="panel shadow-review-workbench-panel">
-            <div class="panel-heading">
-              <h2>晋升评审工作台</h2>
-              <div class="panel-heading-actions">
-                <span id="shadowPromotionReviewState" class="muted">-</span>
-                <span class="chip chip-agent">只读评审包</span>
+            <section class="panel shadow-review-workbench-panel">
+              <div class="panel-heading">
+                <h2>晋升评审工作台</h2>
+                <div class="panel-heading-actions">
+                  <span id="shadowPromotionReviewState" class="muted">-</span>
+                  <span class="chip chip-agent">只读评审包</span>
+                </div>
               </div>
-            </div>
-            <div id="shadowPromotionReviewWorkbench" class="shadow-review-workbench"></div>
-          </section>
+              <div id="shadowPromotionReviewWorkbench" class="shadow-review-workbench"></div>
+            </section>
+          </div>
 
-          <section class="panel shadow-history-panel">
-            <div class="panel-heading">
-              <h2>观察历史</h2>
-              <div class="panel-heading-actions">
-                <span id="shadowObservationHistoryState" class="muted">-</span>
-                <span class="chip chip-neutral">仅研究观察</span>
+          <div class="shadow-observation-grid">
+            <section class="panel shadow-history-panel">
+              <div class="panel-heading">
+                <h2>观察历史</h2>
+                <div class="panel-heading-actions">
+                  <span id="shadowObservationHistoryState" class="muted">-</span>
+                  <span class="chip chip-neutral">仅研究观察</span>
+                </div>
               </div>
-            </div>
-            <div id="shadowObservationHistoryStrip" class="shadow-history-strip" aria-label="影子观察日期时间线"></div>
-            <div id="shadowObservationHistoryList" class="shadow-history-list"></div>
-          </section>
+              <div id="shadowObservationHistoryStrip" class="shadow-history-strip" aria-label="影子观察日期时间线"></div>
+              <div id="shadowObservationHistoryList" class="shadow-history-list"></div>
+            </section>
 
-          <section class="panel shadow-observation-panel">
-            <div class="panel-heading">
-              <h2>观察队列</h2>
-              <div class="panel-heading-actions">
-                <span id="shadowObservationQueueState" class="muted">-</span>
-                <span class="chip chip-neutral">不是纸盘交易</span>
+            <section class="panel shadow-observation-panel">
+              <div class="panel-heading">
+                <h2>观察队列</h2>
+                <div class="panel-heading-actions">
+                  <span id="shadowObservationQueueState" class="muted">-</span>
+                  <span class="chip chip-neutral">不是纸盘交易</span>
+                </div>
               </div>
-            </div>
-            <div id="shadowObservationQueue" class="shadow-observation-queue"></div>
-          </section>
+              <div id="shadowObservationQueue" class="shadow-observation-queue"></div>
+            </section>
+          </div>
 
           <div class="shadow-lab-grid">
             <section class="panel">

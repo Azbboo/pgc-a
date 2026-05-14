@@ -40,6 +40,7 @@ class ShadowStrategyMonitorScriptTest(unittest.TestCase):
             _seed_shadow_market(db_path)
             _write_research_artifacts(reports_dir)
             _write_shadow_replay_backtest_evidence(reports_dir, "trend_extension_shadow", "20260514")
+            _write_shadow_experiment_registry(reports_dir, "20260514")
             before_counts = _state_counts(db_path)
 
             summary = monitor.generate_shadow_monitor(
@@ -84,6 +85,26 @@ class ShadowStrategyMonitorScriptTest(unittest.TestCase):
             self.assertTrue(preflight["release_gate"]["trade_state_counts_unchanged"])
             self.assertTrue(summary["api_summary"]["read_only"])
             self.assertEqual(summary["api_summary"]["promotion_preflight"]["release_gate"]["status"], "blocked")
+            self.assertEqual(summary["experiment_registry"]["status"], "available")
+            self.assertEqual(summary["decision_queue"]["queue_contract"], "shadow_strategy_decision_queue_v1")
+            self.assertFalse(summary["decision_queue"]["promotion_allowed"])
+            queue_trend = next(
+                item
+                for item in summary["decision_queue"]["items"]
+                if item["candidate_key"] == "trend_extension_shadow"
+            )
+            self.assertEqual(queue_trend["experiment_status"]["status"], "registered")
+            self.assertIn("stop_if_manual_approval_boundary_changes", queue_trend["stop_rule"]["rule_keys"])
+            monitor_trend = next(
+                item
+                for item in summary["candidate_monitors"]
+                if item["candidate_key"] == "trend_extension_shadow"
+            )
+            self.assertEqual(monitor_trend["decision_governance"]["experiment_registry_status"], "available")
+            self.assertIn(
+                "stop_if_manual_approval_boundary_changes",
+                monitor_trend["decision_governance"]["stop_rule_keys"],
+            )
             dossier = summary["promotion_dossier"]
             self.assertEqual(dossier["artifact_type"], "shadow_promotion_dossier")
             self.assertEqual(dossier["dossier_contract"], "shadow_promotion_dossier_v1")
@@ -126,6 +147,8 @@ class ShadowStrategyMonitorScriptTest(unittest.TestCase):
             self.assertTrue(scorecard["artifact_only"])
             self.assertFalse(scorecard["safety"]["writes_trade_state"])
             self.assertEqual(scorecard["candidate_count"], 5)
+            self.assertEqual(scorecard["scorecard_contract"], "shadow_observation_scorecard_v1")
+            self.assertEqual(scorecard["decision_queue"]["queue_contract"], "shadow_strategy_decision_queue_v1")
             self.assertEqual(scorecard["replay_backtest_evidence_summary"]["accepted_count"], 1)
             self.assertEqual(scorecard["replay_backtest_evidence_summary"]["missing_count"], 4)
             trend = next(item for item in scorecard["candidates"] if item["candidate_key"] == "trend_extension_shadow")
@@ -295,6 +318,61 @@ def _write_shadow_replay_backtest_evidence(reports_dir: Path, candidate_key: str
     }
     (reports_dir / f"shadow_replay_backtest_evidence_{as_of_date}_{candidate_key}.json").write_text(
         json.dumps(payload, ensure_ascii=False, sort_keys=True),
+        encoding="utf-8",
+    )
+
+
+def _write_shadow_experiment_registry(reports_dir: Path, as_of_date: str) -> None:
+    artifact = {
+        "artifact_type": "shadow_strategy_experiment_registry",
+        "registry_contract": "shadow_strategy_experiment_registry_v1",
+        "as_of_date": as_of_date,
+        "summary": {"status": "artifact_only", "experiment_count": 1, "promotion_allowed": False},
+        "experiments": [
+            {
+                "experiment_key": "trend_extension_shadow:quality_tighten_candidate",
+                "candidate_key": "trend_extension_shadow",
+                "candidate_family": "shadow_bucket",
+                "status": "blocked",
+                "required_evidence": [{"evidence_key": "manual_approval_boundary", "status": "required"}],
+                "stop_rules": [
+                    {
+                        "rule_key": "stop_if_manual_approval_boundary_changes",
+                        "status": "blocking",
+                        "trigger": "promotion permission appears in any artifact",
+                    }
+                ],
+                "rollback_rules": [{"rule_key": "preserve_current_cpb", "writes_trade_state": False}],
+                "manual_approval_boundaries": {
+                    "manual_promotion_approval_required": True,
+                    "strategy_version_publication_allowed": False,
+                    "trade_state_writes_allowed": False,
+                },
+                "release_gate": {"status": "blocked", "promotion_allowed": False},
+                "safety": {"artifact_only": True, "promotion_allowed": False, "writes_trade_state": False},
+                "artifact_only": True,
+                "promotion_allowed": False,
+            }
+        ],
+        "manual_approval_boundaries": {
+            "manual_promotion_approval_required": True,
+            "strategy_version_publication_allowed": False,
+            "trade_state_writes_allowed": False,
+        },
+        "release_gate": {"status": "blocked", "promotion_allowed": False},
+        "safety": {
+            "read_only": True,
+            "artifact_only": True,
+            "promotion_allowed": False,
+            "active_params_mutated": False,
+            "wrote_strategy_versions": False,
+            "writes_trade_state": False,
+            "writes_paper_live_behavior": False,
+            "timer_mutated": False,
+        },
+    }
+    (reports_dir / f"shadow_strategy_experiment_registry_{as_of_date}.json").write_text(
+        json.dumps(artifact, ensure_ascii=False, sort_keys=True),
         encoding="utf-8",
     )
 

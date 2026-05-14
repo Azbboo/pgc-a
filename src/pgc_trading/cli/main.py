@@ -1122,6 +1122,21 @@ def build_parser(*, stdout: TextIO | None = None, stderr: TextIO | None = None) 
         action="store_true",
         help="include market review and market-plan context linking in the daily pipeline",
     )
+    ops_daily_pipeline.add_argument(
+        "--pool-intake-summary",
+        type=Path,
+        help="JSON summary from ops pool-intake --output to link into the pipeline result",
+    )
+    ops_daily_pipeline.add_argument(
+        "--require-pool-intake",
+        action="store_true",
+        help="block until a valid apply-mode pool-intake summary is available",
+    )
+    ops_daily_pipeline.add_argument(
+        "--allow-rerun",
+        action="store_true",
+        help="allow a duplicate daily apply rerun after operator review",
+    )
     _add_live_write_guard_argument(ops_daily_pipeline)
     _add_db_path_argument(ops_daily_pipeline)
     ops_daily_pipeline.set_defaults(handler=_run_ops_daily_pipeline)
@@ -2604,6 +2619,11 @@ def _run_ops_daily_pipeline(args: argparse.Namespace, stdout: TextIO, services: 
         run_type=args.run_type,
         backup_dir=_normalized_db_path(args.backup_dir) if args.backup_dir is not None else None,
         include_market_review=args.include_market_review,
+        pool_intake_summary_path=_normalized_db_path(args.pool_intake_summary)
+        if args.pool_intake_summary is not None
+        else None,
+        require_pool_intake=args.require_pool_intake,
+        allow_rerun=args.allow_rerun,
     )
     account_ref = args.account_key or f"account-id-{args.account_id}"
     ctx = RequestContext(
@@ -4416,6 +4436,13 @@ def _write_daily_pipeline_result(stdout: TextIO, result: ServiceResult[object]) 
 
     stdout.write(f"pipeline_status={getattr(data, 'pipeline_status', result.status)}\n")
     stdout.write(f"review_date={getattr(data, 'review_date', 'n/a')}\n")
+    stdout.write(f"daily_operating_state={getattr(data, 'daily_operating_state', 'unknown')}\n")
+    stdout.write(f"can_run_today={_display_bool(bool(getattr(data, 'can_run_today', False)))}\n")
+    stdout.write(f"missing_requirements={_display_list(getattr(data, 'missing_requirements', []))}\n")
+    stdout.write(f"next_command={_shell_value(getattr(data, 'next_command', None) or 'none')}\n")
+    stdout.write(f"write_intent={getattr(data, 'write_intent', 'unknown')}\n")
+    stdout.write(f"operating_summary_zh={_shell_value(getattr(data, 'operating_summary_zh', None) or 'none')}\n")
+    stdout.write(f"duplicate_apply_count={getattr(data, 'duplicate_apply_count', 0)}\n")
     stdout.write(f"next_trade_date={getattr(data, 'next_trade_date', None) or 'none'}\n")
     stdout.write(f"daily_pick_id={_display_optional_int(getattr(data, 'daily_pick_id', None))}\n")
     stdout.write(f"trade_plan_id={_display_optional_int(getattr(data, 'trade_plan_id', None))}\n")
@@ -4432,6 +4459,13 @@ def _write_daily_pipeline_result(stdout: TextIO, result: ServiceResult[object]) 
     stdout.write(f"agent_status={getattr(data, 'agent_status', None) or 'none'}\n")
     stdout.write(f"market_review_status={getattr(data, 'market_review_status', None) or 'none'}\n")
     stdout.write(f"market_plan_context_status={getattr(data, 'market_plan_context_status', None) or 'none'}\n")
+    stdout.write(f"pool_intake_status={getattr(data, 'pool_intake_status', None) or 'none'}\n")
+    stdout.write(f"pool_intake_mode={getattr(data, 'pool_intake_mode', None) or 'none'}\n")
+    stdout.write(f"pool_intake_input_count={getattr(data, 'pool_intake_input_count', None) or 0}\n")
+    stdout.write(f"pool_intake_added_count={getattr(data, 'pool_intake_added_count', None) or 0}\n")
+    stdout.write(f"pool_intake_rejected_count={getattr(data, 'pool_intake_rejected_count', None) or 0}\n")
+    stdout.write(f"pool_intake_dedupe_count={getattr(data, 'pool_intake_dedupe_count', None) or 0}\n")
+    stdout.write(f"pool_intake_audit_path={getattr(data, 'pool_intake_audit_path', None) or 'none'}\n")
     stdout.write(f"exit_status={getattr(data, 'exit_status', None) or 'none'}\n")
     stdout.write(f"report_status={getattr(data, 'report_status', None) or 'none'}\n")
     stdout.write(f"report_would_write={str(bool(getattr(data, 'report_would_write', False))).lower()}\n")

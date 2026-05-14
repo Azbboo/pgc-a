@@ -822,10 +822,15 @@ class StrategyEvolutionService:
 
         calibration_artifact = _read_json_object_or_empty(calibration_path)
         trade_counts_before = _trade_state_counts(self.db_path)
+        observation_context = _shadow_experiment_registry_observation_context(
+            self.reports_dir,
+            _optional_text(calibration_artifact.get("as_of_date")) or calibration_review.as_of_date or request.as_of_date,
+        )
         artifact = _build_shadow_experiment_registry_artifact(
             calibration_artifact=calibration_artifact,
             calibration_path=calibration_path,
             calibration_review=calibration_review,
+            observation_context=observation_context,
             operator=ctx.operator,
             trade_counts_before=trade_counts_before,
             trade_counts_after=_trade_state_counts(self.db_path),
@@ -2755,6 +2760,7 @@ def _build_shadow_experiment_registry_artifact(
     calibration_artifact: Mapping[str, Any],
     calibration_path: Path,
     calibration_review: ShadowThresholdCalibrationArtifactReview,
+    observation_context: Mapping[str, Any],
     operator: str | None,
     trade_counts_before: Mapping[str, int],
     trade_counts_after: Mapping[str, int],
@@ -2768,7 +2774,11 @@ def _build_shadow_experiment_registry_artifact(
     }
     recommendations = _list_mapping(calibration_artifact.get("recommended_next_experiments"))
     experiments = [
-        _shadow_experiment_payload(recommendation, candidate_by_key.get(str(recommendation.get("candidate_key")), {}))
+        _shadow_experiment_payload(
+            recommendation,
+            candidate_by_key.get(str(recommendation.get("candidate_key")), {}),
+            observation_context,
+        )
         for recommendation in recommendations
     ]
     evidence_status_counts: dict[str, int] = {}
@@ -2832,8 +2842,10 @@ def _build_shadow_experiment_registry_artifact(
         "source_artifacts": {
             "shadow_threshold_calibration": str(calibration_path),
             **_mapping(calibration_artifact.get("source_artifacts")),
+            **_shadow_experiment_observation_source_artifacts(observation_context),
         },
         "summary": summary,
+        "observed_outcomes": observation_context,
         "manual_approval_boundaries": manual_boundaries,
         "experiments": experiments,
         "release_gate": {
@@ -2864,6 +2876,7 @@ def _build_shadow_experiment_registry_artifact(
 def _shadow_experiment_payload(
     recommendation: Mapping[str, Any],
     candidate: Mapping[str, Any],
+    observation_context: Mapping[str, Any],
 ) -> dict[str, Any]:
     candidate_key = (
         _optional_text(recommendation.get("candidate_key"))
@@ -2889,12 +2902,23 @@ def _shadow_experiment_payload(
         frozen_cpb_comparison=frozen_cpb_comparison,
         missing_metrics=missing_metrics,
     )
+    latest_observed_outcomes = _shadow_experiment_latest_observed_outcomes(
+        candidate_key,
+        observation_context,
+    )
+    current_blockers = _shadow_experiment_current_blockers(
+        candidate_key,
+        observation_context,
+        variant_result,
+        replay_evidence,
+    )
     stop_rules = _shadow_experiment_stop_rules(
         replay_evidence=replay_evidence,
         sample_requirements=sample_requirements,
         frozen_cpb_comparison=frozen_cpb_comparison,
         variant_result=variant_result,
         missing_metrics=missing_metrics,
+        current_blockers=current_blockers,
     )
     return {
         "experiment_key": _optional_text(recommendation.get("experiment_key"))
@@ -2922,6 +2946,8 @@ def _shadow_experiment_payload(
         "replay_evidence": replay_evidence,
         "sample_requirements": sample_requirements,
         "frozen_cpb_comparison": frozen_cpb_comparison,
+        "latest_observed_outcomes": latest_observed_outcomes,
+        "current_blockers": current_blockers,
         "calibration_metrics": {
             "sample_size": metrics.get("sample_size"),
             "win_rate_pct": metrics.get("win_rate_pct"),
@@ -2935,6 +2961,14 @@ def _shadow_experiment_payload(
         "required_evidence": required_evidence,
         "stop_rules": stop_rules,
         "rollback_rules": _shadow_experiment_rollback_rules(),
+        "decision_governance": {
+            "status": "blocked",
+            "required_human_decision": "manual_promotion_approval_required",
+            "next_review_date": _mapping(observation_context.get("scorecard")).get("as_of_date")
+            or _mapping(observation_context.get("walk_forward_outcomes")).get("as_of_date"),
+            "promotion_allowed": False,
+            "artifact_only": True,
+        },
         "manual_approval_boundaries": manual_boundaries,
         "release_gate": {
             "status": "blocked",
@@ -3069,6 +3103,7 @@ def _shadow_experiment_stop_rules(
     frozen_cpb_comparison: Mapping[str, Any],
     variant_result: Mapping[str, Any],
     missing_metrics: list[str],
+    current_blockers: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     replay_status = _optional_text(replay_evidence.get("status")) or "missing"
     rules = [
@@ -3105,6 +3140,14 @@ def _shadow_experiment_stop_rules(
                 "rule_key": f"calibration_blocker:{blocker}",
                 "status": "blocking",
                 "trigger": f"calibration blocker remains unresolved: {blocker}",
+            }
+        )
+    for blocker in current_blockers or []:
+        rules.append(
+            {
+                "rule_key": f"current_blocker:{blocker}",
+                "status": "blocking",
+                "trigger": f"latest observation blocker remains unresolved: {blocker}",
             }
         )
     return rules
@@ -3166,6 +3209,204 @@ def _shadow_experiment_registry_safety(
         **_shadow_experiment_item_safety(),
         "trade_state_counts_unchanged": dict(trade_counts_before) == dict(trade_counts_after),
     }
+
+
+def _shadow_experiment_registry_observation_context(
+    reports_dir: Path,
+    as_of_date: str | None,
+) -> dict[str, Any]:
+    scorecard_path = _latest_matching_artifact_path(
+        reports_dir,
+        "shadow_observation_scorecard_*.json",
+        as_of_date,
+    )
+    outcomes_path = _latest_matching_artifact_path(
+        reports_dir,
+        "shadow_walk_forward_outcomes_*.json",
+        as_of_date,
+    )
+    review_path = _latest_matching_artifact_path(
+        reports_dir,
+        "shadow_promotion_review_request_*.json",
+        as_of_date,
+    )
+    scorecard = _shadow_experiment_registry_source_payload(
+        scorecard_path,
+        contract_key="scorecard_contract",
+        expected_contract="shadow_observation_scorecard_v1",
+        expected_artifact_type="shadow_observation_scorecard",
+    )
+    outcomes = _shadow_experiment_registry_source_payload(
+        outcomes_path,
+        contract_key="outcomes_contract",
+        expected_contract="shadow_walk_forward_outcomes_v1",
+        expected_artifact_type="shadow_walk_forward_outcomes",
+    )
+    review_request = _shadow_experiment_registry_source_payload(
+        review_path,
+        contract_key="review_request_contract",
+        expected_contract="shadow_promotion_review_request_v1",
+        expected_artifact_type="shadow_promotion_review_request",
+    )
+    return {
+        "as_of_date": as_of_date,
+        "scorecard": scorecard,
+        "walk_forward_outcomes": outcomes,
+        "promotion_review_request": review_request,
+        "promotion_allowed": False,
+        "artifact_only": True,
+    }
+
+
+def _shadow_experiment_registry_source_payload(
+    path: Path | None,
+    *,
+    contract_key: str,
+    expected_contract: str,
+    expected_artifact_type: str,
+) -> dict[str, Any]:
+    if path is None:
+        return {
+            "status": "missing",
+            "artifact_path": None,
+            "artifact_type": expected_artifact_type,
+            "contract": expected_contract,
+            "candidate_count": 0,
+            "candidates": [],
+            "summary": {},
+            "blockers": [f"{expected_artifact_type}_missing"],
+            "promotion_allowed": False,
+            "artifact_only": True,
+        }
+    payload = _read_json_object_or_empty(path)
+    contract = _optional_text(payload.get(contract_key))
+    artifact_type = _optional_text(payload.get("artifact_type"))
+    safety = _mapping(payload.get("safety"))
+    summary = _mapping(payload.get("summary"))
+    source_dossier = _mapping(payload.get("source_dossier"))
+    candidates = _list_mapping(payload.get("candidates")) or _list_mapping(source_dossier.get("candidates"))
+    valid = artifact_type == expected_artifact_type and (
+        contract == expected_contract or expected_artifact_type == "shadow_observation_scorecard"
+    )
+    blockers = []
+    if artifact_type != expected_artifact_type:
+        blockers.append(f"{expected_artifact_type}_type_invalid")
+    if contract != expected_contract and expected_artifact_type != "shadow_observation_scorecard":
+        blockers.append(f"{expected_artifact_type}_contract_invalid")
+    if _any_truthy_flag(
+        [safety, summary],
+        "promotion_allowed",
+        "active_params_mutated",
+        "wrote_strategy_version",
+        "wrote_strategy_versions",
+        "writes_trade_state",
+        "writes_paper_live_behavior",
+        "timer_mutated",
+    ):
+        blockers.append(f"{expected_artifact_type}_reports_mutation_or_promotion")
+    return {
+        "status": "available" if valid and not blockers else "blocked",
+        "artifact_path": str(path),
+        "artifact_type": artifact_type,
+        "contract": contract,
+        "as_of_date": _optional_text(payload.get("as_of_date")) or _optional_text(payload.get("review_date")),
+        "candidate_count": _int_value(summary.get("candidate_count"), _int_value(payload.get("candidate_count"), len(candidates))),
+        "summary": summary,
+        "source_dossier": source_dossier,
+        "candidates": candidates,
+        "blockers": blockers,
+        "promotion_allowed": False,
+        "artifact_only": True,
+    }
+
+
+def _shadow_experiment_observation_source_artifacts(
+    observation_context: Mapping[str, Any],
+) -> dict[str, str]:
+    result = {}
+    for key in ("scorecard", "walk_forward_outcomes", "promotion_review_request"):
+        path = _optional_text(_mapping(observation_context.get(key)).get("artifact_path"))
+        if path:
+            result[f"shadow_{key}"] = path
+    return result
+
+
+def _shadow_experiment_latest_observed_outcomes(
+    candidate_key: str,
+    observation_context: Mapping[str, Any],
+) -> dict[str, Any]:
+    scorecard_candidate = _shadow_experiment_context_candidate(observation_context, "scorecard", candidate_key)
+    outcome_candidate = _shadow_experiment_context_candidate(observation_context, "walk_forward_outcomes", candidate_key)
+    walk = _mapping(scorecard_candidate.get("walk_forward_progress"))
+    return {
+        "scorecard_source_status": _mapping(observation_context.get("scorecard")).get("status"),
+        "scorecard_status": scorecard_candidate.get("status") or scorecard_candidate.get("promotion_readiness"),
+        "walk_forward_outcomes_status": _mapping(observation_context.get("walk_forward_outcomes")).get("status"),
+        "candidate_status": scorecard_candidate.get("status") or scorecard_candidate.get("promotion_readiness"),
+        "walk_forward_status": (
+            scorecard_candidate.get("walk_forward_status")
+            or walk.get("status")
+            or outcome_candidate.get("status")
+        ),
+        "walk_forward_days": (
+            scorecard_candidate.get("walk_forward_days")
+            or walk.get("days")
+            or outcome_candidate.get("complete_count")
+        ),
+        "latest_t1_close_mean_pct": (
+            _mapping(scorecard_candidate.get("outcome_metrics")).get("t1_close_mean_pct")
+            or _mapping(scorecard_candidate.get("metrics")).get("t1_close_mean_pct")
+            or outcome_candidate.get("t1_close_mean_pct")
+        ),
+        "promotion_allowed": False,
+        "artifact_only": True,
+    }
+
+
+def _shadow_experiment_current_blockers(
+    candidate_key: str,
+    observation_context: Mapping[str, Any],
+    variant_result: Mapping[str, Any],
+    replay_evidence: Mapping[str, Any],
+) -> list[str]:
+    scorecard_candidate = _shadow_experiment_context_candidate(observation_context, "scorecard", candidate_key)
+    review_candidate = _shadow_experiment_review_request_candidate(observation_context, candidate_key)
+    blockers = [
+        *_list_text(scorecard_candidate.get("blockers")),
+        *_list_text(scorecard_candidate.get("blocked_reasons")),
+        *_list_text(review_candidate.get("blockers")),
+        *_list_text(review_candidate.get("blocked_reasons")),
+        *_list_text(replay_evidence.get("blockers")),
+        *_list_text(variant_result.get("blockers")),
+    ]
+    return _unique_texts(blockers)
+
+
+def _shadow_experiment_context_candidate(
+    observation_context: Mapping[str, Any],
+    source_key: str,
+    candidate_key: str,
+) -> dict[str, Any]:
+    source = _mapping(observation_context.get(source_key))
+    for candidate in _list_mapping(source.get("candidates")):
+        if str(candidate.get("candidate_key") or "") == candidate_key:
+            return candidate
+    return {}
+
+
+def _shadow_experiment_review_request_candidate(
+    observation_context: Mapping[str, Any],
+    candidate_key: str,
+) -> dict[str, Any]:
+    review_source = _mapping(observation_context.get("promotion_review_request"))
+    for candidate in _list_mapping(review_source.get("candidates")):
+        if str(candidate.get("candidate_key") or "") == candidate_key:
+            return candidate
+    source_dossier = _mapping(review_source.get("source_dossier"))
+    for candidate in _list_mapping(source_dossier.get("candidates")):
+        if str(candidate.get("candidate_key") or "") == candidate_key:
+            return candidate
+    return {}
 
 
 def _shadow_threshold_candidate_payload(
@@ -4580,6 +4821,18 @@ def _list_text(value: object) -> list[str]:
     if value in (None, ""):
         return []
     return [str(value)]
+
+
+def _unique_texts(values: list[str]) -> list[str]:
+    seen = set()
+    result = []
+    for value in values:
+        text = str(value).strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+    return result
 
 
 def _any_truthy_flag(contexts: list[Mapping[str, Any]], *keys: str) -> bool:

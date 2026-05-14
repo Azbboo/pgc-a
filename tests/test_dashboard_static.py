@@ -104,8 +104,85 @@ class DashboardStaticTest(unittest.TestCase):
             "walk-forward 完成",
             "Ops run history",
             "只记录人工 follow / defer / override",
+            'aria-label="ops history 计数"',
+            "今天有草稿计划，先发布为 active",
+            "没有 active 状态的执行日买入计划",
+            "已满足当前 paper 晋级检查",
+            "查看 Agent",
+            "暂无 frozen CPB 对照数据。",
+            "暂无 review_events",
+            "缺 dossier",
+            "localStorage 固定",
         ]:
             self.assertNotIn(phrase, source)
+
+    def test_dashboard_m100_detail_surfaces_translate_dense_structures(self) -> None:
+        source = "\n".join(
+            [
+                (DASHBOARD_DIR / "index.html").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8"),
+                (DASHBOARD_DIR / "styles.css").read_text(encoding="utf-8"),
+            ]
+        )
+        script = (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8")
+
+        for label in [
+            "结论",
+            "证据",
+            "阻断原因",
+            "下一步",
+            "来源",
+            "详情分组",
+            "function structuredDetailCards",
+            "function structuredDetailCard",
+            "function objectValueText",
+            "function objectSectionForKey",
+            "shadow-workbench-grid",
+            "shadow-observation-grid",
+        ]:
+            self.assertIn(label, source)
+
+        for raw_fragment in [
+            'typeof item === "object" ? JSON.stringify(item)',
+            "return parts.join(\" / \") || JSON.stringify(summary)",
+            "JSON.stringify(value)",
+            "`rank ${integerText(row.rank)}`",
+        ]:
+            self.assertNotIn(raw_fragment, script)
+
+    def test_dashboard_m100_raw_key_translation_has_ops_and_shadow_coverage(self) -> None:
+        script = (DASHBOARD_DIR / "app.js").read_text(encoding="utf-8")
+
+        for mapping in [
+            '"source": "来源"',
+            '"source_refs": "来源引用"',
+            '"scope_type": "范围类型"',
+            '"scope_key": "范围键"',
+            '"item_type": "条目类型"',
+            '"importance": "重要性"',
+            '"published_date": "发布日期"',
+            '"sentiment": "情绪"',
+            '"operation_type": "操作类型"',
+            '"operator_decision": "人工记录"',
+            '"outcome_bucket": "结果分组"',
+            '"outcome_status": "结果状态"',
+            '"system_action": "系统动作"',
+            '"target_type": "目标类型"',
+            '"read_only": "只读"',
+            '"visibility_layer_writes": "可视层写入"',
+            '"writes_paper_live_behavior": "改变纸盘/实盘行为"',
+            '"read_only_evaluation": "只读评估"',
+            '"proposed_change_mutates_active_params": "拟议变更改动当前参数"',
+            '"artifact_reports_active_param_mutation": "产物报告当前参数改动"',
+            '"proposal_wrote_strategy_versions": "提案写策略版本"',
+            '"promotion_allowed": "允许晋升"',
+            '"timer_mutated": "改动定时任务"',
+            '"memo_is_not_approval": "备忘录不是批准"',
+            '"review_request_is_not_approval": "评审申请不是批准"',
+            '"observation_is_not_paper_trading": "观察不是纸盘交易"',
+            '"observation_history_is_research_only": "观察历史仅研究"',
+        ]:
+            self.assertIn(mapping, script)
 
     def test_dashboard_m65_ops_history_is_visible_and_read_only(self) -> None:
         source = "\n".join(
@@ -735,7 +812,7 @@ class DashboardStaticTest(unittest.TestCase):
             "源数据库",
             "missing_downstream_tables",
             "empty_state_reasons",
-            "localStorage 固定",
+            "浏览器固定",
             "下游表状态未知",
         ]:
             self.assertIn(label, source)

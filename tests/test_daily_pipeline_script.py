@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import subprocess
@@ -66,6 +67,65 @@ class DailyPipelineScriptTest(unittest.TestCase):
             self.assertIn("duplicate_apply_count=0", log_text)
             self.assertIn("duplicate_write_guard=dry_run", log_text)
             self.assertIn("pipeline_status=pass", log_text)
+
+    def test_pool_intake_summary_is_checked_and_linked(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = migrated_seeded_daily_close_db(root)
+            summary = root / "intake_apply.json"
+            summary.write_text(
+                json.dumps(
+                    {
+                        "mode": "apply",
+                        "input_count": 2,
+                        "added_count": 1,
+                        "duplicate_count": 1,
+                        "invalid_count": 0,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with sqlite3.connect(db_path) as conn:
+                insert_open_calendar(conn)
+                insert_contracting_pullback_case(conn, "000001.SZ", "Script Pool Link")
+
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(SCRIPT),
+                    "--date",
+                    "latest-closed",
+                    "--account",
+                    PAPER_ACCOUNT_KEY,
+                    "--operator",
+                    "tester",
+                    "--db-path",
+                    str(db_path),
+                    "--pool-intake-summary",
+                    str(summary),
+                    "--require-pool-intake",
+                    "--dry-run",
+                ],
+                cwd=ROOT,
+                env=_script_env(root),
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("daily_preflight_status=pass", result.stdout)
+            self.assertIn("daily_preflight_gate=pass", result.stdout)
+            self.assertIn("daily_operating_state=dry_run_ready", result.stdout)
+            self.assertIn("pool_intake_status=available", result.stdout)
+            self.assertIn("pool_intake_mode=apply", result.stdout)
+            self.assertIn("pool_intake_added_count=1", result.stdout)
+            self.assertIn("pool_intake_dedupe_count=1", result.stdout)
+            self.assertIn("pool_intake_rejected_count=0", result.stdout)
+            self.assertIn(f"pool_intake_audit_path={summary}", result.stdout)
+            log_text = (root / "logs" / f"daily-pipeline-{AS_OF_DATE}.log").read_text(encoding="utf-8")
+            self.assertIn(f"pool_intake_summary={summary}", log_text)
+            self.assertIn("require_pool_intake=1", log_text)
 
     def test_evidence_run_preserves_numbered_dry_run_log(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -223,6 +283,51 @@ class DailyPipelineScriptTest(unittest.TestCase):
             log_text = log_path.read_text(encoding="utf-8")
             self.assertIn("duplicate_apply_count=1", log_text)
             self.assertIn("duplicate_write_guard=blocked", log_text)
+
+    def test_dry_run_allows_duplicate_completed_pipeline_writes_for_review(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = migrated_seeded_daily_close_db(root)
+            with sqlite3.connect(db_path) as conn:
+                insert_open_calendar(conn)
+                insert_contracting_pullback_case(conn, "000001.SZ", "Script Dry Run Duplicate Review")
+                conn.execute(
+                    """
+                    INSERT INTO operation_requests
+                      (idempotency_key, operation_type, as_of_date, status, request_json, operator)
+                    VALUES
+                      ('daily-pipeline:existing:daily-close', 'daily_review', ?, 'success', ?, 'tester')
+                    """,
+                    (AS_OF_DATE, '{"dry_run": false}'),
+                )
+
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(SCRIPT),
+                    "--date",
+                    "latest-closed",
+                    "--account",
+                    PAPER_ACCOUNT_KEY,
+                    "--operator",
+                    "tester",
+                    "--db-path",
+                    str(db_path),
+                    "--dry-run",
+                ],
+                cwd=ROOT,
+                env=_script_env(root),
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("duplicate_apply_count=1", result.stdout)
+            self.assertIn("duplicate_write_guard=dry_run", result.stdout)
+            self.assertIn("daily_step=duplicate_apply status=warning", result.stdout)
+            self.assertIn("daily_preflight_gate=pass", result.stdout)
+            self.assertIn("pipeline_status=pass", result.stdout)
 
 
 def _script_env(root: Path) -> dict[str, str]:

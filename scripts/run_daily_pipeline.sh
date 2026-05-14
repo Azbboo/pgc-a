@@ -12,6 +12,8 @@ INCLUDE_MARKET_REVIEW=0
 PYTHON_BIN="${PGC_PYTHON:-python3}"
 ALLOW_RERUN=0
 EVIDENCE_RUN_ID=""
+POOL_INTAKE_SUMMARY=""
+REQUIRE_POOL_INTAKE=0
 
 usage() {
   cat <<'USAGE'
@@ -23,6 +25,8 @@ Options:
   --db-path PATH                 SQLite database path (default: PGC_DB_PATH or data/pgc_trading.db)
   --backup-dir PATH              backup destination forwarded to ops daily-pipeline --apply
   --include-market-review        include market review and market-plan context linking
+  --pool-intake-summary PATH     link an ops pool-intake JSON summary into preflight/pipeline output
+  --require-pool-intake          block unless the pool-intake summary exists and is apply-mode
   --apply                        persist writes after creating a database backup
   --dry-run                      preview writes (default)
   --allow-rerun                  allow an apply rerun after completed writes are detected
@@ -72,6 +76,18 @@ while [[ $# -gt 0 ]]; do
       ;;
     --include-market-review)
       INCLUDE_MARKET_REVIEW=1
+      shift
+      ;;
+    --pool-intake-summary)
+      POOL_INTAKE_SUMMARY="${2:-}"
+      if [[ -z "$POOL_INTAKE_SUMMARY" ]]; then
+        echo "--pool-intake-summary requires a value" >&2
+        exit 2
+      fi
+      shift 2
+      ;;
+    --require-pool-intake)
+      REQUIRE_POOL_INTAKE=1
       shift
       ;;
     --allow-rerun)
@@ -265,6 +281,14 @@ else
   echo "resolved_date=$DATE"
 fi
 
+if [[ -z "$POOL_INTAKE_SUMMARY" ]]; then
+  if [[ -f "data/daily_review_${DATE}_intake_apply.json" ]]; then
+    POOL_INTAKE_SUMMARY="data/daily_review_${DATE}_intake_apply.json"
+  elif [[ -f "data/daily_review_${DATE}_intake_dry_run.json" ]]; then
+    POOL_INTAKE_SUMMARY="data/daily_review_${DATE}_intake_dry_run.json"
+  fi
+fi
+
 mkdir -p "$LOG_DIR"
 LOG_BASENAME="daily-pipeline-${DATE}"
 if [[ -n "$EVIDENCE_RUN_ID" ]]; then
@@ -287,6 +311,8 @@ printf 'mode=%s\n' "${MODE#--}" >> "$LOG_FILE"
 printf 'db_path=%s\n' "$DB_PATH" >> "$LOG_FILE"
 printf 'backup_dir=%s\n' "${BACKUP_DIR:-none}" >> "$LOG_FILE"
 printf 'include_market_review=%s\n' "$INCLUDE_MARKET_REVIEW" >> "$LOG_FILE"
+printf 'pool_intake_summary=%s\n' "${POOL_INTAKE_SUMMARY:-none}" >> "$LOG_FILE"
+printf 'require_pool_intake=%s\n' "$REQUIRE_POOL_INTAKE" >> "$LOG_FILE"
 if [[ -n "$EVIDENCE_RUN_ID" ]]; then
   printf 'evidence_run_id=%s\n' "$EVIDENCE_RUN_ID" | tee -a "$LOG_FILE"
   printf 'evidence_log_role=dry_run_activation_evidence\n' | tee -a "$LOG_FILE"
@@ -315,6 +341,38 @@ else
   emit_log_line "duplicate_write_guard=dry_run"
 fi
 
+PREFLIGHT_COMMAND=(
+  "$PYTHON_BIN" -m pgc_trading.cli.main
+  ops daily-preflight
+  --date "$DATE"
+  --account "$ACCOUNT"
+  --db-path "$DB_PATH"
+)
+
+if [[ "$INCLUDE_MARKET_REVIEW" == "1" ]]; then
+  PREFLIGHT_COMMAND+=(--include-market-review)
+fi
+
+if [[ -n "$POOL_INTAKE_SUMMARY" ]]; then
+  PREFLIGHT_COMMAND+=(--pool-intake-summary "$POOL_INTAKE_SUMMARY")
+fi
+
+if [[ "$REQUIRE_POOL_INTAKE" == "1" ]]; then
+  PREFLIGHT_COMMAND+=(--require-pool-intake)
+fi
+
+if [[ "$ALLOW_RERUN" == "1" || "$MODE" != "--apply" ]]; then
+  PREFLIGHT_COMMAND+=(--allow-rerun)
+fi
+
+PYTHONPATH=src "${PREFLIGHT_COMMAND[@]}" 2>&1 | tee -a "$LOG_FILE"
+PREFLIGHT_STATUS="${PIPESTATUS[0]}"
+if [[ "$PREFLIGHT_STATUS" -ne 0 ]]; then
+  emit_log_line "daily_preflight_gate=blocked"
+  exit "$PREFLIGHT_STATUS"
+fi
+emit_log_line "daily_preflight_gate=pass"
+
 COMMAND=(
   "$PYTHON_BIN" -m pgc_trading.cli.main
   ops daily-pipeline
@@ -334,6 +392,18 @@ fi
 
 if [[ "$INCLUDE_MARKET_REVIEW" == "1" ]]; then
   COMMAND+=(--include-market-review)
+fi
+
+if [[ -n "$POOL_INTAKE_SUMMARY" ]]; then
+  COMMAND+=(--pool-intake-summary "$POOL_INTAKE_SUMMARY")
+fi
+
+if [[ "$REQUIRE_POOL_INTAKE" == "1" ]]; then
+  COMMAND+=(--require-pool-intake)
+fi
+
+if [[ "$ALLOW_RERUN" == "1" ]]; then
+  COMMAND+=(--allow-rerun)
 fi
 
 PYTHONPATH=src "${COMMAND[@]}" 2>&1 | tee -a "$LOG_FILE"

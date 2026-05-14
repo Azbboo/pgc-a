@@ -12,6 +12,7 @@ from pgc_trading.services.shadow_observation_service import (
     BuildShadowPromotionReviewRequest,
     BuildShadowReplayBacktestEvidenceRequest,
     BuildShadowWalkForwardOutcomesRequest,
+    GetShadowDecisionMemoRequest,
     GetShadowObservationScorecardRequest,
     GetShadowPromotionReviewRequest,
     ListShadowObservationHistoryRequest,
@@ -212,6 +213,78 @@ class ShadowObservationServiceTest(unittest.TestCase):
             }
             self.assertEqual(required["trend_extension_shadow"]["status"], "accepted")
             self.assertFalse(workbench.data.safety["promotion_allowed"])
+
+    def test_shadow_decision_memo_exposes_governed_candidate_decision_queue(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "pgc.db"
+            reports_dir = root / "reports"
+            reports_dir.mkdir()
+            run_migrations(db_path)
+            _seed_market_bar(db_path, "300001.SZ", "20260512")
+            _seed_shadow_observation_artifacts(reports_dir)
+            _write_shadow_replay_backtest_evidence(
+                reports_dir,
+                candidate_key="trend_extension_shadow",
+                as_of_date="20260512",
+            )
+            _write_shadow_decision_governance_source_artifacts(reports_dir)
+            service = ShadowObservationService(db_path, reports_dir=reports_dir)
+            before_counts = _state_counts(db_path)
+            dossier_result = service.build_promotion_dossier(
+                BuildShadowPromotionDossierRequest(as_of_date="20260512"),
+                RequestContext(request_id="req-shadow-dossier-for-queue", dry_run=False, source="test"),
+            )
+            review_result = service.build_promotion_review_request(
+                BuildShadowPromotionReviewRequest(as_of_date="20260512"),
+                RequestContext(request_id="req-shadow-review-for-queue", dry_run=False, source="test"),
+            )
+
+            memo = service.get_decision_memo(
+                GetShadowDecisionMemoRequest(as_of_date="20260512"),
+                RequestContext(request_id="req-shadow-decision-queue", dry_run=True, source="test"),
+            )
+
+            self.assertTrue(dossier_result.ok, dossier_result.errors)
+            self.assertTrue(review_result.ok, review_result.errors)
+            self.assertTrue(memo.ok, memo.errors)
+            self.assertEqual(_state_counts(db_path), before_counts)
+            assert memo.data is not None
+            queue = memo.data.decision_queue
+            self.assertEqual(queue["queue_contract"], "shadow_strategy_decision_queue_v1")
+            self.assertEqual(queue["language"], "zh-CN")
+            self.assertFalse(queue["promotion_allowed"])
+            self.assertEqual(queue["candidate_count"], 2)
+            trend = next(
+                item
+                for item in queue["items"]
+                if item["candidate_key"] == "trend_extension_shadow"
+            )
+            for key in (
+                "current_readiness",
+                "evidence_status",
+                "walk_forward_sufficiency",
+                "experiment_status",
+                "required_human_decision",
+                "stop_rule",
+                "next_review_date",
+                "promotion_boundary",
+            ):
+                self.assertIn(key, trend)
+            self.assertEqual(trend["evidence_status"]["status"], "accepted")
+            self.assertEqual(trend["walk_forward_sufficiency"]["status"], "sufficient")
+            self.assertEqual(trend["experiment_status"]["status"], "registered")
+            self.assertEqual(trend["next_review_date"], "20260513")
+            self.assertIn("stop_if_manual_approval_boundary_changes", trend["stop_rule"]["rule_keys"])
+            self.assertTrue(trend["required_human_decision"]["manual_promotion_approval_required"])
+            self.assertFalse(trend["promotion_boundary"]["promotion_allowed"])
+            self.assertFalse(trend["promotion_boundary"]["strategy_version_publication_allowed"])
+            self.assertFalse(trend["promotion_boundary"]["trade_state_writes_allowed"])
+            self.assertIn("broker_execution", trend["promotion_boundary"]["blocked_mutation_targets"])
+            self.assertFalse(trend["promotion_allowed"])
+            self.assertIn("决策队列", memo.data.sections)
+            self.assertFalse(memo.data.safety["writes_trade_state"])
+            self.assertFalse(memo.data.safety["timer_mutated"])
 
     def test_shadow_observation_history_indexes_scorecard_and_dossier_artifacts_read_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -793,6 +866,163 @@ def _seed_shadow_observation_artifacts(reports_dir: Path) -> None:
     (reports_dir / "strategy_shadow_monitor_20260512.json").write_text(json.dumps(monitor), encoding="utf-8")
     (reports_dir / "strategy_shadow_promotion_preflight_20260512.json").write_text(
         json.dumps(preflight),
+        encoding="utf-8",
+    )
+
+
+def _write_shadow_decision_governance_source_artifacts(reports_dir: Path) -> None:
+    scorecard = {
+        "artifact_type": "shadow_observation_scorecard",
+        "scorecard_contract": "shadow_observation_scorecard_v1",
+        "review_date": "20260512",
+        "as_of_date": "20260512",
+        "status": "blocked",
+        "candidate_count": 2,
+        "candidates": [
+            {
+                "candidate_key": "trend_extension_shadow",
+                "candidate_family": "shadow_bucket",
+                "promotion_readiness": "blocked",
+                "walk_forward_status": "complete",
+                "walk_forward_days": 20,
+                "required_sample_size": 20,
+                "blockers": ["operator_review_required"],
+                "replay_backtest_evidence": {"status": "accepted", "promotion_allowed": False},
+            },
+            {
+                "candidate_key": "breakout_pressure_shadow",
+                "candidate_family": "shadow_bucket",
+                "promotion_readiness": "blocked",
+                "walk_forward_status": "partial",
+                "walk_forward_days": 6,
+                "required_sample_size": 20,
+                "blockers": ["walk_forward_shadow_monitor_20_trading_days_required"],
+                "replay_backtest_evidence": {"status": "missing", "promotion_allowed": False},
+            },
+        ],
+        "summary": {"promotion_allowed": False},
+        "safety": {
+            "read_only": True,
+            "artifact_only": True,
+            "promotion_allowed": False,
+            "writes_trade_state": False,
+            "writes_paper_live_behavior": False,
+            "timer_mutated": False,
+        },
+    }
+    outcomes = {
+        "artifact_type": "shadow_walk_forward_outcomes",
+        "outcomes_contract": "shadow_walk_forward_outcomes_v1",
+        "as_of_date": "20260512",
+        "summary": {"status": "partial", "promotion_allowed": False},
+        "candidates": [
+            {
+                "candidate_key": "trend_extension_shadow",
+                "status": "complete",
+                "signal_count": 20,
+                "complete_count": 20,
+                "t1_close_mean_pct": 2.4,
+            },
+            {
+                "candidate_key": "breakout_pressure_shadow",
+                "status": "partial",
+                "signal_count": 6,
+                "complete_count": 6,
+            },
+        ],
+        "safety": {
+            "read_only": True,
+            "artifact_only": True,
+            "promotion_allowed": False,
+            "writes_trade_state": False,
+            "writes_paper_live_behavior": False,
+            "timer_mutated": False,
+        },
+    }
+    registry = {
+        "artifact_type": "shadow_strategy_experiment_registry",
+        "registry_contract": "shadow_strategy_experiment_registry_v1",
+        "as_of_date": "20260512",
+        "summary": {"status": "artifact_only", "experiment_count": 1, "promotion_allowed": False},
+        "experiments": [
+            {
+                "experiment_key": "trend_extension_shadow:quality_tighten_candidate",
+                "candidate_key": "trend_extension_shadow",
+                "candidate_family": "shadow_bucket",
+                "status": "blocked",
+                "required_evidence": [{"evidence_key": "manual_approval_boundary", "status": "required"}],
+                "stop_rules": [
+                    {
+                        "rule_key": "stop_if_manual_approval_boundary_changes",
+                        "status": "blocking",
+                        "trigger": "promotion permission appears in any artifact",
+                    }
+                ],
+                "rollback_rules": [
+                    {"rule_key": "preserve_current_cpb", "writes_trade_state": False},
+                ],
+                "manual_approval_boundaries": {
+                    "manual_promotion_approval_required": True,
+                    "strategy_version_publication_allowed": False,
+                    "trade_state_writes_allowed": False,
+                },
+                "release_gate": {"status": "blocked", "promotion_allowed": False},
+                "safety": {"artifact_only": True, "promotion_allowed": False, "writes_trade_state": False},
+                "artifact_only": True,
+                "promotion_allowed": False,
+            }
+        ],
+        "release_gate": {
+            "status": "blocked",
+            "promotion_allowed": False,
+            "blocked_mutation_targets": [
+                "active_cpb_params",
+                "strategy_versions",
+                "trade_plans",
+                "trades",
+                "positions",
+                "paper_live_behavior",
+                "broker_execution",
+                "timer_state",
+            ],
+        },
+        "manual_approval_boundaries": {
+            "manual_promotion_approval_required": True,
+            "strategy_version_publication_allowed": False,
+            "trade_state_writes_allowed": False,
+            "blocked_mutation_targets": [
+                "active_cpb_params",
+                "strategy_versions",
+                "trade_plans",
+                "trades",
+                "positions",
+                "paper_live_behavior",
+                "broker_execution",
+                "timer_state",
+            ],
+        },
+        "safety": {
+            "read_only": True,
+            "artifact_only": True,
+            "promotion_allowed": False,
+            "active_params_mutated": False,
+            "wrote_strategy_version": False,
+            "wrote_strategy_versions": False,
+            "writes_trade_state": False,
+            "writes_paper_live_behavior": False,
+            "timer_mutated": False,
+        },
+    }
+    (reports_dir / "shadow_observation_scorecard_20260512.json").write_text(
+        json.dumps(scorecard),
+        encoding="utf-8",
+    )
+    (reports_dir / "shadow_walk_forward_outcomes_20260512.json").write_text(
+        json.dumps(outcomes),
+        encoding="utf-8",
+    )
+    (reports_dir / "shadow_strategy_experiment_registry_20260512.json").write_text(
+        json.dumps(registry),
         encoding="utf-8",
     )
 

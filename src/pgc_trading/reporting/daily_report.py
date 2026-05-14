@@ -27,6 +27,7 @@ from pgc_trading.services.evidence_coverage_ledger_service import (
     BuildEvidenceCoverageLedgerRequest,
     EvidenceCoverageLedgerService,
 )
+from pgc_trading.services.market_review_service import build_market_review_narrative_payload
 from pgc_trading.services.operational_readiness_service import (
     NextDayDecisionChecklistItem,
     NextDayDecisionSummary,
@@ -384,6 +385,7 @@ class MarketReviewReport:
     continuity_label: str = "insufficient_evidence"
     continuity_reason: str = ""
     evidence_freshness: dict[str, str] = field(default_factory=dict)
+    narrative: dict[str, Any] = field(default_factory=dict)
     source_refs: list[str] = field(default_factory=list)
 
 
@@ -3869,6 +3871,7 @@ def _load_market_review(conn: Any, as_of_date: str) -> MarketReviewReport | None
         return None
     run_id = int(row["market_review_run_id"])
     top_sectors = _load_market_review_top_sectors(conn, run_id)
+    sector_persistence = _load_market_review_sector_persistence(conn, run_id)
     external_evidence_coverage = _load_market_external_evidence_coverage(conn, as_of_date)
     continuity_label, continuity_reason = _market_continuity_summary(
         {
@@ -3879,6 +3882,34 @@ def _load_market_review(conn: Any, as_of_date: str) -> MarketReviewReport | None
         },
         top_sectors,
         external_evidence_coverage,
+    )
+    source_refs = _market_review_source_refs(run_id, top_sectors, external_evidence_coverage)
+    narrative = build_market_review_narrative_payload(
+        as_of_date=as_of_date,
+        market_review_run_id=run_id,
+        regime={
+            "regime": row["regime"] or "unknown",
+            "breadth_score": _optional_float(row["breadth_score"]),
+            "trend_score": _optional_float(row["trend_score"]),
+            "volume_score": _optional_float(row["volume_score"]),
+            "sentiment_score": _optional_float(row["sentiment_score"]),
+            "persistence_score": _optional_float(row["persistence_score"]),
+            "summary": row["summary"] or "",
+        },
+        sectors=[asdict(sector) for sector in top_sectors],
+        external_items=_load_market_external_items_for_narrative(conn, as_of_date),
+        continuity={
+            "label": continuity_label,
+            "reason": continuity_reason,
+            "inputs": {
+                "breadth_score": _optional_float(row["breadth_score"]),
+                "trend_score": _optional_float(row["trend_score"]),
+                "volume_score": _optional_float(row["volume_score"]),
+                "persistence_score": _optional_float(row["persistence_score"]),
+            },
+        },
+        plan_relationships=_load_market_plan_relationships_for_narrative(conn, run_id),
+        source_refs=source_refs,
     )
     return MarketReviewReport(
         market_review_run_id=run_id,
@@ -3891,13 +3922,14 @@ def _load_market_review(conn: Any, as_of_date: str) -> MarketReviewReport | None
         sentiment_score=_optional_float(row["sentiment_score"]),
         persistence_score=_optional_float(row["persistence_score"]),
         top_sectors=top_sectors,
-        sector_persistence=_load_market_review_sector_persistence(conn, run_id),
+        sector_persistence=sector_persistence,
         external_evidence_coverage=external_evidence_coverage,
         strategy_hypotheses=_load_strategy_hypothesis_summaries(conn, as_of_date),
         continuity_label=continuity_label,
         continuity_reason=continuity_reason,
         evidence_freshness=_market_evidence_freshness_from_coverage(external_evidence_coverage),
-        source_refs=_market_review_source_refs(run_id, top_sectors, external_evidence_coverage),
+        narrative=narrative,
+        source_refs=source_refs,
     )
 
 
@@ -4105,6 +4137,88 @@ def _load_market_external_evidence_coverage(conn: Any, as_of_date: str) -> dict[
         "by_provider": by_provider,
         "source_refs": _market_external_source_refs(as_of_date, by_scope),
     }
+
+
+def _load_market_external_items_for_narrative(conn: Any, as_of_date: str) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT
+          id,
+          as_of_date,
+          scope_type,
+          scope_key,
+          item_type,
+          provider,
+          title,
+          summary,
+          sentiment,
+          importance,
+          published_date,
+          source_hash
+        FROM market_external_items
+        WHERE as_of_date = ?
+        ORDER BY published_date DESC, importance DESC, id DESC
+        """,
+        (as_of_date,),
+    ).fetchall()
+    return [
+        {
+            "market_external_item_id": int(row["id"]),
+            "as_of_date": row["as_of_date"],
+            "scope_type": row["scope_type"],
+            "scope_key": row["scope_key"],
+            "item_type": row["item_type"],
+            "provider": row["provider"],
+            "title": row["title"],
+            "summary": row["summary"],
+            "sentiment": row["sentiment"],
+            "importance": row["importance"],
+            "published_date": row["published_date"],
+            "source_hash": row["source_hash"],
+        }
+        for row in rows
+    ]
+
+
+def _load_market_plan_relationships_for_narrative(conn: Any, market_review_run_id: int) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT
+          id,
+          market_review_run_id,
+          trade_plan_id,
+          alignment,
+          risk_level,
+          management_action,
+          rationale,
+          evidence_json
+        FROM market_plan_contexts
+        WHERE market_review_run_id = ?
+        ORDER BY id ASC
+        """,
+        (market_review_run_id,),
+    ).fetchall()
+    relationships: list[dict[str, Any]] = []
+    for row in rows:
+        evidence = _loads_json_object(row["evidence_json"])
+        candidate = evidence.get("candidate") if isinstance(evidence.get("candidate"), dict) else {}
+        label = _market_plan_relationship_label(row["alignment"], row["risk_level"], row["management_action"])
+        relationships.append(
+            {
+                "trade_plan_id": int(row["trade_plan_id"]),
+                "market_plan_context_id": int(row["id"]),
+                "market_review_run_id": int(row["market_review_run_id"]),
+                "relationship_label": label,
+                "relationship_reason": _market_plan_relationship_reason(label),
+                "alignment": row["alignment"],
+                "risk_level": row["risk_level"],
+                "management_action": row["management_action"],
+                "rationale": row["rationale"],
+                "candidate": candidate,
+                "source_refs": [f"market_plan_contexts:{row['market_review_run_id']}:{row['trade_plan_id']}"],
+            }
+        )
+    return relationships
 
 
 def _market_external_freshness_by_scope(conn: Any, as_of_date: str) -> dict[str, str]:
@@ -5207,14 +5321,42 @@ def _market_review_lines(review: MarketReviewReport | None) -> list[str]:
         "summary": review.summary,
     }
     top_sector_payloads = [asdict(sector) for sector in review.top_sectors]
+    narrative = review.narrative if isinstance(review.narrative, dict) else {}
+    regime_conclusion = _dict_value(narrative.get("regime_conclusion")) or {}
+    sector_reason = _dict_value(narrative.get("sector_ranking_reason")) or {}
+    representative_reason = _dict_value(narrative.get("representative_stock_reason")) or {}
+    continuity_judgement = _dict_value(narrative.get("continuity_judgement")) or {}
+    plan_relationship = _dict_value(narrative.get("next_day_plan_relationship")) or {}
+    evidence_gaps = _dict_list(narrative.get("evidence_gaps"))
+    gap_messages = [str(gap.get("message") or "") for gap in evidence_gaps if gap.get("message")]
     lines.extend(
         [
+            "### 全市场结论",
+            "",
+            f"- 结论：{regime_conclusion.get('summary') or _market_regime_text(regime_payload)}",
             f"- 状态：{_status_text(review.status)}；{_market_regime_text(regime_payload)}",
             f"- 连续性判断：{_continuity_text(review.continuity_label)}；{review.continuity_reason or '暂无连续性说明'}",
+            "",
+            "### 板块持续性",
+            "",
             f"- Top 5 板块：{_top_sectors_text(top_sector_payloads)}",
-            f"- 代表个股：{_representative_stocks_text(review.top_sectors)}",
             f"- 板块持续性：{_sector_persistence_text(review.sector_persistence)}",
+            f"- 排名理由：{sector_reason.get('summary') or '板块排名理由证据不足。'}",
+            "",
+            "### 代表个股",
+            "",
+            f"- 代表个股：{_representative_stocks_text(review.top_sectors)}",
+            f"- 个股理由：{representative_reason.get('summary') or '代表个股证据不足。'}",
+            "",
+            "### 证据缺口",
+            "",
             f"- 外部证据覆盖：{_external_coverage_text(review.external_evidence_coverage)}；freshness {_evidence_freshness_text(review.evidence_freshness)}",
+            f"- 缺口：{'; '.join(gap_messages[:8]) if gap_messages else '未发现显式证据缺口'}",
+            f"- 连续性叙事：{continuity_judgement.get('summary') or '连续性判断证据不足。'}",
+            "",
+            "### 与明日计划关系",
+            "",
+            f"- 计划关系：{plan_relationship.get('summary') or '明日计划关系缺失。'}",
             f"- 策略假设：{_strategy_hypotheses_text(review.strategy_hypotheses)}",
             f"- 来源：{_source_refs_text(review.source_refs)}",
         ]

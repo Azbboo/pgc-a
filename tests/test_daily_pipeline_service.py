@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 import tempfile
 import unittest
@@ -108,19 +109,46 @@ class DailyPipelineServiceTest(unittest.TestCase):
             self.assertEqual(first.data.market_review_status, "skipped")
             self.assertEqual(first.data.market_plan_context_status, "skipped")
             self.assertFalse(first.data.market_review_would_write)
+            self.assertEqual(first.data.daily_operating_state, "apply_complete")
+            self.assertTrue(first.data.can_run_today)
+            self.assertEqual(first.data.write_intent, "apply_writes_with_backup")
+            self.assertEqual(first.data.missing_requirements, [])
 
-            self.assertTrue(second.ok)
-            self.assertEqual(second.data.pipeline_status, "pass")
-            self.assertTrue(second.data.changed)
-            self.assertEqual(second.data.daily_pick_id, first.data.daily_pick_id)
-            self.assertEqual(second.data.trade_plan_id, first.data.trade_plan_id)
-            self.assertEqual(second.data.agent_run_id, first.data.agent_run_id)
-            self.assertFalse(second.data.report_would_write)
+            self.assertFalse(second.ok)
+            self.assertEqual(second.status, "blocked")
+            self.assertEqual(second.data.pipeline_status, "blocked")
+            self.assertEqual(second.data.daily_operating_state, "duplicate_apply_blocked")
+            self.assertIn("duplicate_apply_review", second.data.missing_requirements)
+            self.assertGreater(second.data.duplicate_apply_count, 0)
+
+            rerun_request = RunDailyPipelineRequest(
+                as_of_date=AS_OF_DATE,
+                account_key=PAPER_ACCOUNT_KEY,
+                allow_rerun=True,
+            )
+            allowed_second = service.run_daily_pipeline(
+                rerun_request,
+                RequestContext(
+                    request_id="pipeline-2-allowed",
+                    idempotency_key="daily-pipeline:test",
+                    dry_run=False,
+                    operator="tester",
+                    source="test",
+                ),
+            )
+
+            self.assertTrue(allowed_second.ok)
+            self.assertEqual(allowed_second.data.pipeline_status, "pass")
+            self.assertTrue(allowed_second.data.changed)
+            self.assertEqual(allowed_second.data.daily_pick_id, first.data.daily_pick_id)
+            self.assertEqual(allowed_second.data.trade_plan_id, first.data.trade_plan_id)
+            self.assertEqual(allowed_second.data.agent_run_id, first.data.agent_run_id)
+            self.assertFalse(allowed_second.data.report_would_write)
             self.assertEqual(len(runner.calls), 1)
 
             Path(first.data.report_markdown).unlink()
             third = service.run_daily_pipeline(
-                request,
+                rerun_request,
                 RequestContext(
                     request_id="pipeline-3",
                     idempotency_key="daily-pipeline:test",
@@ -190,8 +218,8 @@ class DailyPipelineServiceTest(unittest.TestCase):
             self.assertFalse(first.data.market_review_would_write)
             self.assertIn("## 全市场复盘", Path(first.data.report_markdown).read_text(encoding="utf-8"))
 
-            self.assertTrue(second.ok)
-            self.assertEqual(second.data.market_review_run_id, first.data.market_review_run_id)
+            self.assertFalse(second.ok)
+            self.assertEqual(second.data.daily_operating_state, "duplicate_apply_blocked")
             with sqlite3.connect(db_path) as conn:
                 self.assertEqual(count_rows(conn, "market_review_runs"), 1)
                 self.assertEqual(count_rows(conn, "market_plan_contexts"), 1)
@@ -228,6 +256,9 @@ class DailyPipelineServiceTest(unittest.TestCase):
             self.assertIsNone(result.data.backup_path)
             self.assertEqual(result.data.report_status, "skipped")
             self.assertTrue(result.data.report_would_write)
+            self.assertEqual(result.data.daily_operating_state, "dry_run_ready")
+            self.assertTrue(result.data.can_run_today)
+            self.assertEqual(result.data.write_intent, "dry_run_no_writes")
             self.assertIsNotNone(result.data.report_markdown)
             self.assertIsNotNone(result.data.report_json)
             self.assertFalse(Path(result.data.report_markdown).exists())
@@ -273,10 +304,123 @@ class DailyPipelineServiceTest(unittest.TestCase):
             self.assertIsNone(result.data.market_review_run_id)
             self.assertTrue(result.data.market_review_would_write)
             self.assertEqual(result.data.market_plan_context_status, "skipped")
+            self.assertEqual(result.data.daily_operating_state, "evidence_pack_needed")
+            self.assertFalse(result.data.can_run_today)
+            self.assertIn("evidence_pack", result.data.missing_requirements)
             self.assertFalse(Path(result.data.report_markdown).exists())
             with sqlite3.connect(db_path) as conn:
                 self.assertEqual(count_rows(conn, "market_review_runs"), 0)
                 self.assertEqual(count_rows(conn, "market_plan_contexts"), 0)
+
+    def test_state_machine_blocks_when_data_refresh_is_needed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = migrated_seeded_daily_close_db(root)
+            with sqlite3.connect(db_path) as conn:
+                insert_open_calendar(conn)
+                conn.execute(
+                    """
+                    INSERT INTO raw_events
+                      (ts_code, code, name, entry_date, entry_time, entry_price)
+                    VALUES
+                      ('000001.SZ', '000001', 'Missing Bars', '20260427', '15:00', 10.0)
+                    """
+                )
+
+            result = DailyPipelineService(db_path, reports_dir=root / "reports").run_daily_pipeline(
+                RunDailyPipelineRequest(as_of_date=AS_OF_DATE, account_key=PAPER_ACCOUNT_KEY),
+                RequestContext(
+                    request_id="pipeline-missing-data",
+                    idempotency_key="daily-pipeline:missing-data",
+                    dry_run=True,
+                    operator="tester",
+                    source="test",
+                ),
+            )
+
+            self.assertFalse(result.ok)
+            self.assertEqual(result.status, "blocked")
+            self.assertEqual(result.data.daily_operating_state, "data_refresh_needed")
+            self.assertIn("market_data", result.data.missing_requirements)
+            self.assertFalse(result.data.can_run_today)
+
+    def test_state_machine_requires_pool_intake_apply_summary_when_requested(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = migrated_seeded_daily_close_db(root)
+            with sqlite3.connect(db_path) as conn:
+                insert_open_calendar(conn)
+                insert_contracting_pullback_case(conn, "000001.SZ", "Pool Intake Pending")
+
+            missing_summary = root / "daily_review_intake_apply.json"
+            result = DailyPipelineService(db_path, reports_dir=root / "reports").run_daily_pipeline(
+                RunDailyPipelineRequest(
+                    as_of_date=AS_OF_DATE,
+                    account_key=PAPER_ACCOUNT_KEY,
+                    pool_intake_summary_path=missing_summary,
+                    require_pool_intake=True,
+                ),
+                RequestContext(
+                    request_id="pipeline-pool-pending",
+                    idempotency_key="daily-pipeline:pool-pending",
+                    dry_run=True,
+                    operator="tester",
+                    source="test",
+                ),
+            )
+
+            self.assertFalse(result.ok)
+            self.assertEqual(result.status, "blocked")
+            self.assertEqual(result.data.daily_operating_state, "pool_intake_pending")
+            self.assertEqual(result.data.pool_intake_status, "missing")
+            self.assertIn("pool_intake", result.data.missing_requirements)
+
+    def test_pipeline_surfaces_pool_intake_artifact_counts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = migrated_seeded_daily_close_db(root)
+            with sqlite3.connect(db_path) as conn:
+                insert_open_calendar(conn)
+                insert_contracting_pullback_case(conn, "000001.SZ", "Pipeline Pool Summary")
+            summary = root / "daily_review_intake_apply.json"
+            summary.write_text(
+                json.dumps(
+                    {
+                        "mode": "apply",
+                        "input_count": 4,
+                        "added_count": 2,
+                        "duplicate_count": 1,
+                        "invalid_count": 1,
+                        "source_hash": "hash-intake",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result = DailyPipelineService(db_path, reports_dir=root / "reports").run_daily_pipeline(
+                RunDailyPipelineRequest(
+                    as_of_date=AS_OF_DATE,
+                    account_key=PAPER_ACCOUNT_KEY,
+                    pool_intake_summary_path=summary,
+                ),
+                RequestContext(
+                    request_id="pipeline-pool-summary",
+                    idempotency_key="daily-pipeline:pool-summary",
+                    dry_run=True,
+                    operator="tester",
+                    source="test",
+                ),
+            )
+
+            self.assertFalse(result.ok)
+            self.assertEqual(result.data.daily_operating_state, "pool_intake_pending")
+            self.assertEqual(result.data.pool_intake_status, "available")
+            self.assertEqual(result.data.pool_intake_mode, "apply")
+            self.assertEqual(result.data.pool_intake_input_count, 4)
+            self.assertEqual(result.data.pool_intake_added_count, 2)
+            self.assertEqual(result.data.pool_intake_dedupe_count, 1)
+            self.assertEqual(result.data.pool_intake_rejected_count, 1)
+            self.assertEqual(result.data.pool_intake_audit_path, str(summary))
 
     def _agent_factory(
         self,

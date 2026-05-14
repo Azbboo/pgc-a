@@ -35,6 +35,7 @@ class ShadowExperimentRegistryScriptTest(unittest.TestCase):
             output_path = reports_dir / "shadow_strategy_experiment_registry_20260513.json"
             run_migrations(db_path)
             _write_calibration_artifact(reports_dir)
+            _write_observed_outcome_artifacts(reports_dir)
             before_counts = _state_counts(db_path)
 
             result = registry.generate_shadow_experiment_registry(
@@ -65,6 +66,10 @@ class ShadowExperimentRegistryScriptTest(unittest.TestCase):
             self.assertFalse(artifact["release_gate"]["promotion_allowed"])
             self.assertFalse(artifact["manual_approval_boundaries"]["strategy_version_publication_allowed"])
             self.assertGreaterEqual(artifact["summary"]["experiment_count"], 1)
+            self.assertEqual(artifact["observed_outcomes"]["scorecard"]["status"], "available")
+            self.assertEqual(artifact["observed_outcomes"]["walk_forward_outcomes"]["status"], "available")
+            self.assertEqual(artifact["experiments"][0]["latest_observed_outcomes"]["walk_forward_status"], "complete")
+            self.assertIn("operator_review_required", artifact["experiments"][0]["current_blockers"])
 
 
 def _state_counts(db_path: Path) -> dict[str, int]:
@@ -224,6 +229,64 @@ def _write_calibration_artifact(reports_dir: Path) -> None:
     }
     (reports_dir / "shadow_threshold_calibration_20260513.json").write_text(
         json.dumps(artifact, sort_keys=True),
+        encoding="utf-8",
+    )
+
+
+def _write_observed_outcome_artifacts(reports_dir: Path) -> None:
+    scorecard = {
+        "artifact_type": "shadow_observation_scorecard",
+        "scorecard_contract": "shadow_observation_scorecard_v1",
+        "review_date": "20260513",
+        "as_of_date": "20260513",
+        "summary": {"status": "blocked", "promotion_allowed": False},
+        "candidates": [
+            {
+                "candidate_key": "trend_extension_shadow",
+                "candidate_family": "shadow_bucket",
+                "status": "blocked",
+                "blockers": ["operator_review_required"],
+                "walk_forward_status": "complete",
+                "walk_forward_days": 32,
+            }
+        ],
+        "safety": {
+            "read_only": True,
+            "artifact_only": True,
+            "promotion_allowed": False,
+            "writes_trade_state": False,
+            "writes_paper_live_behavior": False,
+            "timer_mutated": False,
+        },
+    }
+    outcomes = {
+        "artifact_type": "shadow_walk_forward_outcomes",
+        "outcomes_contract": "shadow_walk_forward_outcomes_v1",
+        "as_of_date": "20260513",
+        "summary": {"status": "complete", "promotion_allowed": False},
+        "candidates": [
+            {
+                "candidate_key": "trend_extension_shadow",
+                "status": "complete",
+                "signal_count": 32,
+                "complete_count": 32,
+            }
+        ],
+        "safety": {
+            "read_only": True,
+            "artifact_only": True,
+            "promotion_allowed": False,
+            "writes_trade_state": False,
+            "writes_paper_live_behavior": False,
+            "timer_mutated": False,
+        },
+    }
+    (reports_dir / "shadow_observation_scorecard_20260513.json").write_text(
+        json.dumps(scorecard, sort_keys=True),
+        encoding="utf-8",
+    )
+    (reports_dir / "shadow_walk_forward_outcomes_20260513.json").write_text(
+        json.dumps(outcomes, sort_keys=True),
         encoding="utf-8",
     )
 

@@ -143,10 +143,14 @@ class DailyReportTest(unittest.TestCase):
 
             markdown = render_daily_report_markdown(result.data)
             self.assertIn("## 全市场复盘", markdown)
+            self.assertIn("### 全市场结论", markdown)
             self.assertIn("Top 5 板块", markdown)
             self.assertIn("连续性判断", markdown)
             self.assertIn("代表个股", markdown)
-            self.assertIn("板块持续性", markdown)
+            self.assertIn("### 板块持续性", markdown)
+            self.assertIn("### 代表个股", markdown)
+            self.assertIn("### 证据缺口", markdown)
+            self.assertIn("### 与明日计划关系", markdown)
             self.assertIn("外部证据覆盖", markdown)
             self.assertIn("策略假设", markdown)
             self.assertIn("## 全市场复盘与明日计划关系", markdown)
@@ -169,6 +173,19 @@ class DailyReportTest(unittest.TestCase):
             self.assertEqual(payload["market_review"]["external_evidence_coverage"]["sector"], "partial")
             self.assertEqual(payload["market_review"]["external_evidence_coverage"]["market"], "missing")
             self.assertIn("market", payload["market_review"]["external_evidence_coverage"]["missing_scopes"])
+            self.assertIn("narrative", payload["market_review"])
+            self.assertIn("风险偏好", payload["market_review"]["narrative"]["regime_conclusion"]["summary"])
+            self.assertEqual(payload["market_review"]["narrative"]["sector_ranking_reason"]["status"], "available")
+            self.assertIn("人工智能", payload["market_review"]["narrative"]["sector_ranking_reason"]["summary"])
+            self.assertEqual(
+                payload["market_review"]["narrative"]["representative_stock_reason"]["stocks"][0]["ts_code"],
+                "000001.SZ",
+            )
+            self.assertIn("market", {gap["scope"] for gap in payload["market_review"]["narrative"]["evidence_gaps"]})
+            self.assertEqual(
+                payload["market_review"]["narrative"]["next_day_plan_relationship"]["relationship_label"],
+                "aligned",
+            )
             self.assertEqual(payload["market_review"]["strategy_hypotheses"][0]["status"], "proposed")
             self.assertEqual(payload["market_plan_context"]["management_action"], "proceed")
             self.assertEqual(payload["market_plan_context"]["relationship_label"], "aligned")

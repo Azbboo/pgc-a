@@ -680,6 +680,7 @@ def _empty_market_review_hierarchy(as_of_date: str) -> dict[str, Any]:
         "regime": None,
         "sectors": [],
         "evidence_freshness": {"market": "missing", "sector": "missing", "stock": "missing"},
+        "narrative": _empty_market_review_narrative(as_of_date),
         "continuity": {
             "label": "insufficient_evidence",
             "reason": "缺少 market_review_runs，无法建立全市场复盘解释链。",
@@ -710,16 +711,29 @@ def _market_review_hierarchy_payload(
     representative_stock_count = sum(len(sector["representative_stocks"]) for sector in sector_nodes)
     continuity = _continuity_payload(regime, sectors, external_items)
     plan_relationships = [_plan_relationship_payload(context, continuity["label"]) for context in contexts]
+    evidence_freshness = _external_freshness_coverage(external_items, as_of_date)
+    source_refs = _market_hierarchy_source_refs(run_id, sector_nodes, external_items, contexts)
+    narrative = build_market_review_narrative_payload(
+        as_of_date=as_of_date,
+        market_review_run_id=run_id,
+        regime=regime,
+        sectors=sector_nodes,
+        external_items=external_items,
+        continuity=continuity,
+        plan_relationships=plan_relationships,
+        source_refs=source_refs,
+    )
     return {
         "as_of_date": as_of_date,
         "market_review_run_id": run_id,
         "chain": ["regime", "sectors", "representative_stocks", "evidence", "continuity", "next_day_plan"],
         "regime": regime,
         "sectors": sector_nodes,
-        "evidence_freshness": _external_freshness_coverage(external_items, as_of_date),
+        "evidence_freshness": evidence_freshness,
+        "narrative": narrative,
         "continuity": continuity,
         "plan_relationships": plan_relationships,
-        "source_refs": _market_hierarchy_source_refs(run_id, sector_nodes, external_items, contexts),
+        "source_refs": source_refs,
         "coverage": {
             "sector_count": len(sectors),
             "representative_stock_count": representative_stock_count,
@@ -728,6 +742,373 @@ def _market_review_hierarchy_payload(
             "has_complete_chain": bool(regime and sectors and external_items and contexts),
         },
     }
+
+
+def _empty_market_review_narrative(as_of_date: str) -> dict[str, Any]:
+    evidence_freshness = {
+        "market": "missing",
+        "sector": "missing",
+        "stock": "missing",
+        "news": "missing",
+        "sentiment": "missing",
+    }
+    return {
+        "as_of_date": as_of_date,
+        "market_review_run_id": None,
+        "regime_conclusion": {
+            "status": "insufficient_evidence",
+            "summary": "全市场结论证据不足：市场状态缺失。",
+            "reason": "缺少 market_review_runs 或 market_regime_snapshots。",
+            "scores": {},
+        },
+        "sector_ranking_reason": {
+            "status": "insufficient_evidence",
+            "summary": "板块轮动数据缺失，无法解释哪些板块有持续性。",
+            "sectors": [],
+        },
+        "representative_stock_reason": {
+            "status": "insufficient_evidence",
+            "summary": "代表个股证据不足：缺少板块成员排名。",
+            "stocks": [],
+        },
+        "evidence_freshness": evidence_freshness,
+        "evidence_gaps": _market_review_narrative_evidence_gaps(
+            sectors=[],
+            external_items=[],
+            plan_relationships=[],
+            evidence_freshness=evidence_freshness,
+        ),
+        "continuity_judgement": {
+            "label": "insufficient_evidence",
+            "summary": "连续性判断证据不足。",
+            "reason": "缺少全市场、板块或外部证据输入。",
+        },
+        "next_day_plan_relationship": {
+            "relationship_label": "missing",
+            "summary": "明日计划关系缺失，不能从复盘自动推导交易动作。",
+            "relationships": [],
+        },
+        "source_refs": [],
+    }
+
+
+def build_market_review_narrative_payload(
+    *,
+    as_of_date: str,
+    market_review_run_id: int | None,
+    regime: dict[str, Any] | None,
+    sectors: list[dict[str, Any]],
+    external_items: list[dict[str, Any]],
+    continuity: dict[str, Any] | None,
+    plan_relationships: list[dict[str, Any]],
+    source_refs: list[str] | None = None,
+) -> dict[str, Any]:
+    """Assemble a Chinese operator narrative from stored market-review evidence only."""
+
+    evidence_freshness = _narrative_evidence_freshness(external_items, as_of_date)
+    continuity_payload = continuity if isinstance(continuity, dict) else {}
+    return {
+        "as_of_date": as_of_date,
+        "market_review_run_id": market_review_run_id,
+        "regime_conclusion": _narrative_regime_conclusion(regime),
+        "sector_ranking_reason": _narrative_sector_ranking_reason(sectors),
+        "representative_stock_reason": _narrative_representative_stock_reason(sectors),
+        "evidence_freshness": evidence_freshness,
+        "evidence_gaps": _market_review_narrative_evidence_gaps(
+            sectors=sectors,
+            external_items=external_items,
+            plan_relationships=plan_relationships,
+            evidence_freshness=evidence_freshness,
+        ),
+        "continuity_judgement": _narrative_continuity_judgement(continuity_payload),
+        "next_day_plan_relationship": _narrative_next_day_plan_relationship(plan_relationships),
+        "source_refs": source_refs or [],
+    }
+
+
+def _narrative_regime_conclusion(regime: dict[str, Any] | None) -> dict[str, Any]:
+    if not regime:
+        return {
+            "status": "insufficient_evidence",
+            "summary": "全市场结论证据不足：市场状态缺失。",
+            "reason": "缺少 market_regime_snapshots。",
+            "scores": {},
+        }
+    regime_key = str(regime.get("regime") or "unknown")
+    scores = {
+        "breadth": _optional_float(regime.get("breadth_score")),
+        "trend": _optional_float(regime.get("trend_score")),
+        "volume": _optional_float(regime.get("volume_score")),
+        "persistence": _optional_float(regime.get("persistence_score")),
+    }
+    score_parts = [
+        f"{label}{score:.2f}"
+        for label, score in (
+            ("宽度", scores["breadth"]),
+            ("趋势", scores["trend"]),
+            ("量能", scores["volume"]),
+            ("持续", scores["persistence"]),
+        )
+        if score is not None
+    ]
+    summary = f"全市场处于{_regime_label_zh(regime_key)}"
+    if score_parts:
+        summary += f"（{' / '.join(score_parts)}）"
+    source_summary = str(regime.get("summary") or "").strip()
+    if source_summary:
+        summary += f"：{source_summary}"
+    return {
+        "status": "available" if regime_key != "unknown" else "insufficient_evidence",
+        "summary": summary,
+        "reason": source_summary or "依据市场宽度、趋势、量能和持续性评分生成。",
+        "scores": scores,
+    }
+
+
+def _narrative_sector_ranking_reason(sectors: list[dict[str, Any]]) -> dict[str, Any]:
+    if not sectors:
+        return {
+            "status": "insufficient_evidence",
+            "summary": "板块轮动数据缺失，无法解释哪些板块有持续性。",
+            "sectors": [],
+        }
+    sector_reasons = [_narrative_sector_reason(sector) for sector in sectors[:5]]
+    summary = "前排板块排序理由：" + "；".join(item["reason"] for item in sector_reasons[:3])
+    return {
+        "status": "available",
+        "summary": summary,
+        "sectors": sector_reasons,
+    }
+
+
+def _narrative_sector_reason(sector: dict[str, Any]) -> dict[str, Any]:
+    name = str(sector.get("sector_name") or sector.get("sector_code") or "未知板块")
+    rank = _optional_int(sector.get("rank_overall"))
+    persistence = _optional_float(sector.get("persistence_score"))
+    breadth = _optional_float(sector.get("breadth_score"))
+    volume = _optional_float(sector.get("volume_score"))
+    evidence = sector.get("evidence") if isinstance(sector.get("evidence"), dict) else {}
+    evidence_freshness = str(evidence.get("freshness") or sector.get("evidence_freshness") or "missing")
+    rank_text = f"排名 #{rank}" if rank is not None else "排名缺失"
+    score_text = _narrative_score_text(
+        [
+            ("持续", persistence),
+            ("宽度", breadth),
+            ("量能", volume),
+        ]
+    )
+    reason = f"{name}{rank_text}"
+    if score_text:
+        reason += f"，{score_text}"
+    reason += f"，板块证据{_evidence_status_zh(evidence_freshness)}"
+    return {
+        "sector_code": sector.get("sector_code"),
+        "sector_name": name,
+        "rank_overall": rank,
+        "continuity_hint": sector.get("continuity_hint") or _sector_continuity_hint(sector),
+        "evidence_freshness": evidence_freshness,
+        "reason": reason,
+    }
+
+
+def _narrative_representative_stock_reason(sectors: list[dict[str, Any]]) -> dict[str, Any]:
+    stocks: list[dict[str, Any]] = []
+    for sector in sectors[:5]:
+        for stock in _narrative_representatives(sector)[:3]:
+            stocks.append(_narrative_stock_reason(sector, stock))
+    if not stocks:
+        return {
+            "status": "insufficient_evidence",
+            "summary": "代表个股证据不足：缺少 sector_constituents 或板块成员排名。",
+            "stocks": [],
+        }
+    summary = "代表个股理由：" + "；".join(item["reason"] for item in stocks[:5])
+    return {
+        "status": "available",
+        "summary": summary,
+        "stocks": stocks,
+    }
+
+
+def _narrative_representatives(sector: dict[str, Any]) -> list[dict[str, Any]]:
+    representatives = sector.get("representative_stocks")
+    if isinstance(representatives, list):
+        return [item for item in representatives if isinstance(item, dict)]
+    constituents = sector.get("constituents")
+    if isinstance(constituents, list):
+        return [item for item in constituents if isinstance(item, dict)]
+    return []
+
+
+def _narrative_stock_reason(sector: dict[str, Any], stock: dict[str, Any]) -> dict[str, Any]:
+    sector_name = str(sector.get("sector_name") or sector.get("sector_code") or "未知板块")
+    ts_code = str(stock.get("ts_code") or "")
+    name = str(stock.get("name") or "")
+    rank = _optional_int(stock.get("rank_in_sector"))
+    score = _optional_float(stock.get("score"))
+    evidence = stock.get("evidence") if isinstance(stock.get("evidence"), dict) else {}
+    evidence_freshness = str(evidence.get("freshness") or "missing")
+    stock_name = " ".join(part for part in [ts_code, name] if part) or "未知个股"
+    rank_text = f"板块内 #{rank}" if rank is not None else "板块内排名缺失"
+    score_text = f"，评分 {score:.2f}" if score is not None else ""
+    role_text = f"，角色 {stock.get('role')}" if stock.get("role") else ""
+    reason = f"{stock_name} 来自{sector_name}，{rank_text}{score_text}{role_text}，个股证据{_evidence_status_zh(evidence_freshness)}"
+    return {
+        "ts_code": ts_code,
+        "name": name,
+        "sector_code": sector.get("sector_code"),
+        "sector_name": sector_name,
+        "rank_in_sector": rank,
+        "role": stock.get("role"),
+        "score": score,
+        "evidence_freshness": evidence_freshness,
+        "reason": reason,
+    }
+
+
+def _narrative_evidence_freshness(items: list[dict[str, Any]], as_of_date: str) -> dict[str, str]:
+    freshness = _external_freshness_coverage(items, as_of_date)
+    news_like_types = {"news", "announcement", "policy", "risk_note", "research_note"}
+    news_items = [
+        item
+        for item in items
+        if str(item.get("item_type") or "unknown") in news_like_types
+    ]
+    sentiment_items = [
+        item
+        for item in items
+        if str(item.get("sentiment") or "unknown") not in {"", "unknown", "none"}
+    ]
+    return {
+        **freshness,
+        "news": _external_scope_freshness(news_items, as_of_date),
+        "sentiment": _external_scope_freshness(sentiment_items, as_of_date),
+    }
+
+
+def _market_review_narrative_evidence_gaps(
+    *,
+    sectors: list[dict[str, Any]],
+    external_items: list[dict[str, Any]],
+    plan_relationships: list[dict[str, Any]],
+    evidence_freshness: dict[str, str],
+) -> list[dict[str, str]]:
+    gaps: list[dict[str, str]] = []
+    if not sectors:
+        gaps.append(
+            {
+                "scope": "sector_data",
+                "status": "missing",
+                "message": "板块轮动数据缺失，板块排名和持续性证据不足。",
+            }
+        )
+    for scope, label in (
+        ("market", "市场级新闻/情绪证据"),
+        ("sector", "板块新闻/情绪证据"),
+        ("stock", "个股新闻/情绪证据"),
+        ("news", "新闻证据"),
+        ("sentiment", "情绪证据"),
+    ):
+        status = str(evidence_freshness.get(scope) or "missing")
+        if status in {"missing", "stale", "partial", "unavailable"}:
+            gaps.append(
+                {
+                    "scope": scope,
+                    "status": status,
+                    "message": f"{label}{_evidence_gap_suffix(status)}，不能编造支持性证据。",
+                }
+            )
+    if not external_items and not any(gap["scope"] == "news" for gap in gaps):
+        gaps.append({"scope": "news", "status": "missing", "message": "新闻证据缺失，不能编造新闻支持。"})
+    if not plan_relationships:
+        gaps.append(
+            {
+                "scope": "next_day_plan",
+                "status": "missing",
+                "message": "明日计划关系缺失，不能自动推导交易动作。",
+            }
+        )
+    return gaps
+
+
+def _narrative_continuity_judgement(continuity: dict[str, Any]) -> dict[str, Any]:
+    label = str(continuity.get("label") or "insufficient_evidence")
+    reason = str(continuity.get("reason") or "连续性输入缺失。")
+    return {
+        "label": label,
+        "summary": f"连续性判断为{_continuity_label_zh(label)}；{reason}",
+        "reason": reason,
+        "inputs": continuity.get("inputs") if isinstance(continuity.get("inputs"), dict) else {},
+    }
+
+
+def _narrative_next_day_plan_relationship(plan_relationships: list[dict[str, Any]]) -> dict[str, Any]:
+    if not plan_relationships:
+        return {
+            "relationship_label": "missing",
+            "summary": "明日计划关系缺失，不能从复盘自动推导交易动作。",
+            "relationships": [],
+        }
+    first = plan_relationships[0]
+    label = str(first.get("relationship_label") or "missing")
+    reason = str(first.get("relationship_reason") or "暂无计划关系说明。")
+    return {
+        "relationship_label": label,
+        "summary": f"明日计划关系为{_plan_relationship_label_zh(label)}；{reason}",
+        "relationships": plan_relationships,
+    }
+
+
+def _narrative_score_text(items: list[tuple[str, float | None]]) -> str:
+    return " / ".join(f"{label}{score:.2f}" for label, score in items if score is not None)
+
+
+def _regime_label_zh(value: str) -> str:
+    return {
+        "risk_on": "风险偏好",
+        "neutral": "中性震荡",
+        "risk_off": "风险收缩",
+        "unknown": "未知",
+    }.get(value, value)
+
+
+def _continuity_label_zh(value: str) -> str:
+    return {
+        "improving": "改善",
+        "fading": "转弱",
+        "crowded": "拥挤",
+        "divergent": "分化",
+        "insufficient_evidence": "证据不足",
+    }.get(value, value)
+
+
+def _plan_relationship_label_zh(value: str) -> str:
+    return {
+        "aligned": "顺势匹配",
+        "cautious": "谨慎观察",
+        "blocked": "阻断",
+        "missing": "缺失",
+    }.get(value, value)
+
+
+def _evidence_status_zh(value: str) -> str:
+    return {
+        "fresh": "新鲜",
+        "available": "可用",
+        "partial": "部分可用",
+        "stale": "过期",
+        "missing": "缺失",
+        "unavailable": "不可用",
+    }.get(value, value)
+
+
+def _evidence_gap_suffix(status: str) -> str:
+    return {
+        "missing": "缺失",
+        "stale": "过期/不可用",
+        "partial": "不完整",
+        "unavailable": "不可用",
+    }.get(status, "证据不足")
 
 
 def _sector_hierarchy_payload(
@@ -2097,6 +2478,10 @@ def _rounded_ratio(numerator: int, denominator: int) -> float:
 
 def _optional_float(value: object) -> float | None:
     return None if value is None else float(value)
+
+
+def _optional_int(value: object) -> int | None:
+    return None if value is None else int(value)
 
 
 def _summary_number(value: float | None) -> str:

@@ -9,6 +9,7 @@
 - 20 日 walk-forward 状态：complete，20260410 至 20260512 共 20 个可验算信号日。
 - Promotion preflight：blocked；候选 5 类，blocker 23 项，全部仍为 artifact-only。
 - 方向判断可以继续观察，但 paper/proposal/promotion 都必须等 evidence gate 显式清空。
+- 决策队列：blocked；experiment registry=available；候选 5 个，仍不允许晋升。
 
 ## 昨日影子候选今日表现
 
@@ -48,6 +49,16 @@
 | low_price_momentum_shadow | blocked | blocked | paper_observation_not_authorized, walk_forward_shadow_monitor_20_trading_days_required, operator_review_required... |
 | preconfirm_watchlist | blocked | blocked | paper_observation_not_authorized, walk_forward_shadow_monitor_20_trading_days_required, operator_review_required... |
 | pullback_dip_buy | blocked | blocked | paper_observation_not_authorized, walk_forward_shadow_monitor_20_trading_days_required, operator_review_required... |
+
+## 决策队列 / Stop Rules
+
+| 候选 | 证据 | 样本 | 实验 | Stop rules | 下次复核 |
+| --- | --- | --- | --- | --- | --- |
+| trend_extension_shadow | accepted | sufficient | registered | stop_if_replay_evidence_not_accepted, stop_if_sample_size_below_required, stop_if_metric_completeness_fails | 20260514 |
+| breakout_pressure_shadow | accepted | sufficient | registered | stop_if_replay_evidence_not_accepted, stop_if_sample_size_below_required, stop_if_metric_completeness_fails | 20260514 |
+| low_price_momentum_shadow | accepted | sufficient | registered | stop_if_replay_evidence_not_accepted, stop_if_sample_size_below_required, stop_if_metric_completeness_fails | 20260514 |
+| preconfirm_watchlist | accepted | sufficient | registered | stop_if_replay_evidence_not_accepted, stop_if_sample_size_below_required, stop_if_metric_completeness_fails | 20260514 |
+| pullback_dip_buy | accepted | insufficient | registered | stop_if_replay_evidence_not_accepted, stop_if_sample_size_below_required, stop_if_metric_completeness_fails | 20260514 |
 
 ## 昨日各桶 Top1
 

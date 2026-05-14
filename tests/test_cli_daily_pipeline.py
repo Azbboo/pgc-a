@@ -3,7 +3,7 @@ from __future__ import annotations
 import io
 import tempfile
 import unittest
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from pgc_trading.cli.main import CommandServices, main
@@ -14,6 +14,13 @@ from pgc_trading.services.common import RequestContext, ServiceResult
 class _FakePipelineData:
     pipeline_status: str = "pass"
     review_date: str = "20260508"
+    daily_operating_state: str = "dry_run_ready"
+    can_run_today: bool = True
+    missing_requirements: list[str] = field(default_factory=list)
+    next_command: str | None = "./scripts/run_daily_pipeline.sh --date 20260508 --account paper-main --operator OPERATOR --apply"
+    write_intent: str = "dry_run_no_writes"
+    operating_summary_zh: str | None = "今天是否能跑：是；缺什么：无；下一步命令：apply；是否会写库：否"
+    duplicate_apply_count: int = 0
     next_trade_date: str | None = "20260511"
     daily_pick_id: int | None = 2
     trade_plan_id: int | None = 2
@@ -35,6 +42,13 @@ class _FakePipelineData:
     market_plan_context_status: str | None = "skipped"
     market_review_would_write: bool = False
     market_plan_context_would_write: bool = False
+    pool_intake_status: str | None = "available"
+    pool_intake_mode: str | None = "apply"
+    pool_intake_input_count: int | None = 3
+    pool_intake_added_count: int | None = 2
+    pool_intake_rejected_count: int | None = 0
+    pool_intake_dedupe_count: int | None = 1
+    pool_intake_audit_path: str | None = "data/daily_review_20260508_intake_apply.json"
     shadow_observation_status: str | None = "blocked"
     shadow_observation_top_candidates: str | None = "trend_extension_shadow[status=blocked,today=3]"
     shadow_observation_blockers: str | None = "operator_review_required:1"
@@ -104,6 +118,12 @@ class CliDailyPipelineTest(unittest.TestCase):
         output = stdout.getvalue()
         self.assertIn("pipeline_status=pass", output)
         self.assertIn("review_date=20260508", output)
+        self.assertIn("daily_operating_state=dry_run_ready", output)
+        self.assertIn("can_run_today=true", output)
+        self.assertIn("missing_requirements=none", output)
+        self.assertIn("write_intent=dry_run_no_writes", output)
+        self.assertIn("operating_summary_zh=", output)
+        self.assertIn("duplicate_apply_count=0", output)
         self.assertIn("next_trade_date=20260511", output)
         self.assertIn("daily_pick_id=2", output)
         self.assertIn("trade_plan_id=2", output)
@@ -128,6 +148,12 @@ class CliDailyPipelineTest(unittest.TestCase):
         self.assertIn("shadow_evidence_notice=review package only", output)
         self.assertIn("market_review_status=skipped", output)
         self.assertIn("market_plan_context_status=skipped", output)
+        self.assertIn("pool_intake_status=available", output)
+        self.assertIn("pool_intake_mode=apply", output)
+        self.assertIn("pool_intake_added_count=2", output)
+        self.assertIn("pool_intake_rejected_count=0", output)
+        self.assertIn("pool_intake_dedupe_count=1", output)
+        self.assertIn("pool_intake_audit_path=data/daily_review_20260508_intake_apply.json", output)
         self.assertIn("market_review_would_write=false", output)
 
     def test_ops_daily_pipeline_include_market_review_flag_reaches_service(self) -> None:
@@ -148,6 +174,10 @@ class CliDailyPipelineTest(unittest.TestCase):
                     "--db-path",
                     str(db_path),
                     "--include-market-review",
+                    "--pool-intake-summary",
+                    str(Path(tmp) / "intake.json"),
+                    "--require-pool-intake",
+                    "--allow-rerun",
                     "--dry-run",
                 ],
                 stdout=stdout,
@@ -157,6 +187,9 @@ class CliDailyPipelineTest(unittest.TestCase):
         self.assertEqual(code, 0)
         _, request, _ = _FakeDailyPipelineService.calls[0]
         self.assertTrue(request.include_market_review)
+        self.assertEqual(request.pool_intake_summary_path, Path(tmp) / "intake.json")
+        self.assertTrue(request.require_pool_intake)
+        self.assertTrue(request.allow_rerun)
 
     def test_apply_without_operator_fails_before_pipeline_steps(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

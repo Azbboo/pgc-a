@@ -802,6 +802,7 @@ class StrategyEvolutionServiceTest(unittest.TestCase):
                 RequestContext(request_id="m94-for-m97", dry_run=False, operator="azboo"),
             )
             self.assertEqual(calibration.status, "success")
+            _write_shadow_registry_observed_outcome_artifacts(reports_dir)
             params_before = _strategy_param_file_contents()
             strategy_versions_before = _count_strategy_versions(db_path)
             state_counts_before = _state_counts(db_path)
@@ -843,9 +844,17 @@ class StrategyEvolutionServiceTest(unittest.TestCase):
             self.assertIn("replay_evidence", first)
             self.assertIn("sample_requirements", first)
             self.assertIn("frozen_cpb_comparison", first)
+            self.assertIn("latest_observed_outcomes", first)
+            self.assertIn("current_blockers", first)
+            self.assertEqual(first["latest_observed_outcomes"]["scorecard_status"], "blocked")
+            self.assertEqual(first["latest_observed_outcomes"]["walk_forward_status"], "complete")
+            self.assertIn("operator_review_required", first["current_blockers"])
             self.assertIn("required_evidence", first)
             self.assertIn("stop_rules", first)
             self.assertIn("rollback_rules", first)
+            self.assertIn("observed_outcomes", artifact)
+            self.assertEqual(artifact["observed_outcomes"]["scorecard"]["status"], "available")
+            self.assertEqual(artifact["observed_outcomes"]["walk_forward_outcomes"]["status"], "available")
             self.assertTrue(first["manual_approval_boundaries"]["manual_promotion_approval_required"])
             self.assertFalse(first["manual_approval_boundaries"]["strategy_version_publication_allowed"])
             self.assertFalse(first["manual_approval_boundaries"]["trade_state_writes_allowed"])
@@ -1406,8 +1415,11 @@ def _write_shadow_threshold_calibration_inputs(reports_dir: Path) -> None:
             {
                 "candidate_key": "trend_extension_shadow",
                 "candidate_family": "shadow_bucket",
+                "status": "blocked",
+                "blockers": ["operator_review_required"],
                 "sample_size": 24,
                 "walk_forward_progress": {
+                    "status": "complete",
                     "required_days": 20,
                     "days": 24,
                     "t1_close_mean_pct": 2.5,
@@ -1427,8 +1439,11 @@ def _write_shadow_threshold_calibration_inputs(reports_dir: Path) -> None:
             {
                 "candidate_key": "breakout_pressure_shadow",
                 "candidate_family": "shadow_bucket",
+                "status": "blocked",
+                "blockers": ["minimum_sample_not_met"],
                 "sample_size": 12,
                 "walk_forward_progress": {
+                    "status": "partial",
                     "required_days": 20,
                     "days": 12,
                     "t1_close_mean_pct": -0.1,
@@ -1506,6 +1521,81 @@ def _write_shadow_threshold_calibration_inputs(reports_dir: Path) -> None:
     }
     (reports_dir / "shadow_replay_backtest_evidence_20260513_trend_extension_shadow.json").write_text(
         json.dumps(evidence, sort_keys=True),
+        encoding="utf-8",
+    )
+
+
+def _write_shadow_registry_observed_outcome_artifacts(reports_dir: Path) -> None:
+    outcomes = {
+        "artifact_type": "shadow_walk_forward_outcomes",
+        "outcomes_contract": "shadow_walk_forward_outcomes_v1",
+        "as_of_date": "20260513",
+        "summary": {
+            "status": "partial",
+            "candidate_count": 2,
+            "signal_count": 36,
+            "promotion_allowed": False,
+        },
+        "candidates": [
+            {
+                "candidate_key": "trend_extension_shadow",
+                "status": "complete",
+                "signal_count": 24,
+                "complete_count": 24,
+                "t1_close_mean_pct": 2.5,
+            },
+            {
+                "candidate_key": "breakout_pressure_shadow",
+                "status": "partial",
+                "signal_count": 12,
+                "complete_count": 12,
+            },
+        ],
+        "safety": {
+            "read_only": True,
+            "artifact_only": True,
+            "promotion_allowed": False,
+            "writes_trade_state": False,
+            "writes_paper_live_behavior": False,
+            "timer_mutated": False,
+        },
+    }
+    review_request = {
+        "artifact_type": "shadow_promotion_review_request",
+        "review_request_contract": "shadow_promotion_review_request_v1",
+        "as_of_date": "20260513",
+        "summary": {"status": "blocked", "promotion_allowed": False},
+        "source_dossier": {
+            "candidates": [
+                {
+                    "candidate_key": "trend_extension_shadow",
+                    "review_status": "blocked",
+                    "blocked_reasons": ["operator_review_required"],
+                }
+            ]
+        },
+        "review_request": {
+            "required_human_decisions": [
+                {"decision_key": "manual_promotion_approval_required", "status": "required"},
+            ]
+        },
+        "safety": {
+            "read_only": True,
+            "artifact_only": True,
+            "promotion_allowed": False,
+            "active_params_mutated": False,
+            "wrote_strategy_versions": False,
+            "writes_trade_state": False,
+            "writes_paper_live_behavior": False,
+            "timer_mutated": False,
+        },
+    }
+    (reports_dir / "shadow_walk_forward_outcomes_20260513.json").write_text(
+        json.dumps(outcomes, sort_keys=True),
+        encoding="utf-8",
+    )
+    (reports_dir / "shadow_promotion_review_request_20260513.json").write_text(
+        json.dumps(review_request, sort_keys=True),
         encoding="utf-8",
     )
 

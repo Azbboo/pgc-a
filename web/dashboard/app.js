@@ -1669,7 +1669,7 @@ function openingWorkflowGuidance(readiness, executionPlans, executionDay) {
   if (firstDraftPlan) {
     return {
       tone: "waiting",
-      title: "今天有草稿计划，先发布为 active",
+      title: "今天有草稿计划，先发布为有效状态",
       detail: "成交录入只接受有效计划；草稿计划不会进入开盘录入队列。",
       what: `${displayDate(executionDay)} 计划发布后再录入成交`,
       why: "计划仍是草稿，尚未成为可执行计划",
@@ -1709,7 +1709,7 @@ function openingWorkflowGuidance(readiness, executionPlans, executionDay) {
       title: "今天没有有效买入待录入",
       detail: statusSummary,
       what: "核对今日计划状态，确认是否已执行、取消或过期",
-      why: "没有 active 状态的执行日买入计划",
+      why: "没有有效状态的执行日买入计划",
       next: "点“查看交易计划”检查状态和原因",
       whatTone: "idle",
       whyTone: "blocked",
@@ -1894,7 +1894,7 @@ function renderPaperPromotionScorecard() {
 function promotionNextSteps(promotion, blockers = listValue(promotion?.promotion_blockers), warnings = listValue(promotion?.promotion_warnings)) {
   if (blockers.length) return blockers.map(shadowBlockerText).join(" / ");
   if (warnings.length) return warnings.join(" / ");
-  return "已满足当前 paper 晋级检查";
+  return "已满足当前纸盘晋级检查";
 }
 
 function openingPlanCard(plan, executionDay) {
@@ -2565,7 +2565,7 @@ function paperAcceptanceAction(gate) {
 
 function acceptanceActionText(action) {
   return {
-    agent: "查看 Agent",
+    agent: "查看智能体",
     execution: "查看开盘执行",
     market: "查看证据",
     quality: "查看阻断",
@@ -3528,7 +3528,7 @@ function renderShadowFrozenCpb(comparison) {
       ["当前 CPB", shadowStatusText(shadowSnapshotData().active_cpb_integrity?.status || "unchanged")],
     ])}
     <div class="shadow-mini-list">
-      ${rows.length ? rows.map(shadowFrozenComparisonItem).join("") : emptyState("暂无 frozen CPB 对照数据。")}
+      ${rows.length ? rows.map(shadowFrozenComparisonItem).join("") : emptyState("暂无冻结 CPB 对照数据。")}
     </div>
   `;
 }
@@ -3805,7 +3805,7 @@ function openShadowObservationDrawer(row) {
     title: shadowCandidateKeyText(row.candidate_key),
     subtitle: "归因抽屉展示 shadow_observation_scorecard_v1 的只读排名依据；观察不是纸盘交易，不能晋升、交易、写计划或改定时任务。",
     meta: [
-      [`rank ${integerText(row.rank)}`, "chip-blue"],
+      [`排名 ${integerText(row.rank)}`, "chip-blue"],
       [shadowObservationStatusText(row.observation_status), shadowObservationStatusClass(row.observation_status)],
       [sampleCoverageText(row.sample_coverage_status), sampleCoverageClass(row.sample_coverage_status)],
     ],
@@ -4004,9 +4004,9 @@ function renderMarketDiagnostics() {
 function marketPinnedDiagnosticText(selectedDate, latestDate) {
   if (!state.marketDatePinned) return "跟随复盘日";
   if (latestDate && selectedDate !== latestDate) {
-    return `localStorage 固定 ${displayDate(selectedDate)}`;
+    return `浏览器固定 ${displayDate(selectedDate)}`;
   }
-  return "localStorage 固定当前日";
+  return "浏览器固定当前日";
 }
 
 function marketDiagnosticTableChips(tables) {
@@ -5697,6 +5697,21 @@ function uiLabelText(label) {
     target: "目标",
     "target type": "目标类型",
     "target id": "目标 ID",
+    "target_type": "目标类型",
+    "target_id": "目标 ID",
+    "source": "来源",
+    "source_refs": "来源引用",
+    "scope_type": "范围类型",
+    "scope_key": "范围键",
+    "item_type": "条目类型",
+    "importance": "重要性",
+    "published_date": "发布日期",
+    "sentiment": "情绪",
+    "operation_type": "操作类型",
+    "operator_decision": "人工记录",
+    "outcome_bucket": "结果分组",
+    "outcome_status": "结果状态",
+    "system_action": "系统动作",
     "candidate_key": "候选键",
     "candidate_family": "候选族群",
     "signal_source": "信号来源",
@@ -5730,7 +5745,15 @@ function uiLabelText(label) {
     "review_status": "复核状态",
     "evidence_status": "证据状态",
     "walk_forward_status": "跟踪验证状态",
+    "read_only": "只读",
+    "visibility_layer_writes": "可视层写入",
+    "writes_paper_live_behavior": "改变纸盘/实盘行为",
+    "read_only_evaluation": "只读评估",
+    "proposed_change_mutates_active_params": "拟议变更改动当前参数",
+    "artifact_reports_active_param_mutation": "产物报告当前参数改动",
+    "proposal_wrote_strategy_versions": "提案写策略版本",
     "promotion_allowed": "允许晋升",
+    "timer_mutated": "改动定时任务",
     "artifact_path": "产物路径",
     "provider": "提供方",
     "sample_size": "样本数",
@@ -5743,8 +5766,9 @@ function uiLabelText(label) {
     "active_params_mutated": "改动当前参数",
     "wrote_strategy_version": "写策略版本",
     "writes_trade_state": "写交易状态",
-    "timer_mutated": "改动定时任务",
     "memo_is_not_approval": "备忘录不是批准",
+    "observation_is_not_paper_trading": "观察不是纸盘交易",
+    "observation_history_is_research_only": "观察历史仅研究",
     "memo conclusion": "备忘录结论",
     "outcome score": "结果评分",
     "frozen CPB delta": "冻结 CPB 差异",
@@ -6441,7 +6465,7 @@ function marketSummaryText(summary) {
   if (summary.summary) parts.push(summary.summary);
   if (summary.regime) parts.push(`市场状态：${marketRegimeText(summary.regime)}`);
   if (summary.coverage_ratio != null) parts.push(`覆盖率：${percent(summary.coverage_ratio)}`);
-  return parts.join(" / ") || JSON.stringify(summary);
+  return parts.join(" / ") || objectValueText(summary);
 }
 
 function orderedMarketSectors() {
@@ -6699,7 +6723,7 @@ function shadowTopCandidateText(value) {
     const code = value.ts_code || value.code || "";
     const name = value.name || value.stock_name || "";
     const score = value.score != null ? ` 评分 ${numberText(value.score, 2)}` : "";
-    return [code, name].filter(Boolean).join(" ") + score || JSON.stringify(value);
+    return [code, name].filter(Boolean).join(" ") + score || objectValueText(value);
   }
   return dash(value);
 }
@@ -6963,7 +6987,7 @@ function strategyHypothesisProposalReviewRows(artifacts) {
 }
 
 function strategyHypothesisValidationEvents(events) {
-  if (!events.length) return emptyState("暂无 review_events；状态流转和验证记录会显示在这里。");
+  if (!events.length) return emptyState("暂无验证事件；状态流转和验证记录会显示在这里。");
   return `
     <div class="table-wrap market-leadership-table">
       <table>
@@ -7064,11 +7088,97 @@ function marketEvidenceTable(items) {
 
 function marketObjectRows(value) {
   if (!value || typeof value !== "object") return emptyState("暂无结构化数据。");
-  const rows = Object.entries(value).map(([key, item]) => [
-    key,
-    typeof item === "object" ? JSON.stringify(item) : String(item ?? "-"),
+  return structuredDetailCards(value);
+}
+
+function structuredDetailCards(value) {
+  const entries = Object.entries(value || {}).filter(([, item]) => item !== undefined && item !== null && item !== "");
+  if (!entries.length) return emptyState("暂无结构化数据。");
+  const groups = new Map([
+    ["结论", []],
+    ["证据", []],
+    ["阻断原因", []],
+    ["下一步", []],
+    ["来源", []],
   ]);
-  return rows.length ? detailRows(rows) : emptyState("暂无结构化数据。");
+  entries.forEach(([key, item]) => {
+    groups.get(objectSectionForKey(key)).push([key, item]);
+  });
+  const cards = [...groups.entries()]
+    .filter(([, rows]) => rows.length)
+    .map(([title, rows]) => structuredDetailCard(title, rows))
+    .join("");
+  return `<div class="detail-structure-grid" aria-label="详情分组">${cards}</div>`;
+}
+
+function structuredDetailCard(title, rows) {
+  return `
+    <article class="detail-structure-card detail-structure-card--${escapeHtml(detailGroupClass(title))}">
+      <h4>${escapeHtml(title)}</h4>
+      <dl>
+        ${rows.map(([key, value]) => `
+          <dt>${escapeHtml(uiLabelText(key))}</dt>
+          <dd>${escapeHtml(objectValueText(value))}</dd>
+        `).join("")}
+      </dl>
+    </article>
+  `;
+}
+
+function objectSectionForKey(key) {
+  const text = String(key || "").toLowerCase();
+  if (/(block|reject|error|gap|missing|warning|fail|invalid|rollback)/.test(text)) return "阻断原因";
+  if (/(next|recommend|manual|decision|required|gate|plan|task|experiment|action)/.test(text)) return "下一步";
+  if (/(source|provider|url|path|hash|contract|api|ref|date|time|id|key)/.test(text)) return "来源";
+  if (/(evidence|artifact|metric|coverage|sample|freshness|backtest|replay|boundary)/.test(text)) return "证据";
+  return "结论";
+}
+
+function detailGroupClass(title) {
+  return {
+    "结论": "conclusion",
+    "证据": "evidence",
+    "阻断原因": "blockers",
+    "下一步": "next",
+    "来源": "source",
+  }[title] || "default";
+}
+
+function objectValueText(value, depth = 0) {
+  if (value == null || value === "") return "-";
+  if (typeof value === "boolean") return value ? "是" : "否";
+  if (typeof value === "number") return Number.isInteger(value) ? integerText(value) : numberText(value, 4);
+  if (typeof value === "string") return uiValueText(value);
+  if (Array.isArray(value)) {
+    if (!value.length) return "无";
+    return value.slice(0, 5).map((item) => objectValueText(item, depth + 1)).join(" / ");
+  }
+  if (typeof value === "object") {
+    const preferred = [
+      "summary_zh",
+      "summary",
+      "conclusion_zh",
+      "next_step_zh",
+      "reason",
+      "rationale",
+      "note",
+      "status",
+      "candidate_key",
+      "decision_key",
+      "artifact_path",
+      "provider",
+      "source_hash",
+    ];
+    const preferredRows = preferred
+      .filter((key) => value[key] !== undefined && value[key] !== null && value[key] !== "")
+      .map((key) => [key, value[key]]);
+    const rows = preferredRows.length ? preferredRows : Object.entries(value).slice(0, depth > 0 ? 3 : 5);
+    if (!rows.length) return "结构化记录";
+    return rows
+      .map(([key, item]) => `${uiLabelText(key)}：${objectValueText(item, depth + 1)}`)
+      .join("；");
+  }
+  return dash(value);
 }
 
 function setBusy(value) {
@@ -7357,7 +7467,7 @@ function shadowReviewStatusText(value) {
   return {
     review_ready: "可人工复核",
     blocked: "复核阻断",
-    missing: "缺 dossier",
+    missing: "缺评审档案",
     unknown: "未知",
   }[value] || shadowStatusText(value);
 }

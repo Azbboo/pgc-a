@@ -267,6 +267,19 @@ def generate_shadow_monitor(
         candidate_required_samples=candidate_required_samples(candidate_monitors, walk_forward),
     )
     summary["replay_backtest_evidence"] = replay_evidence_index
+    experiment_registry = load_current_shadow_experiment_registry(reports_dir, review_date)
+    summary["experiment_registry"] = experiment_registry
+    summary["candidate_monitors"] = attach_decision_governance(
+        candidate_monitors,
+        experiment_registry=experiment_registry,
+        replay_evidence_index=replay_evidence_index,
+        next_review_date=next_date,
+    )
+    summary["decision_queue"] = build_monitor_decision_queue(
+        summary,
+        experiment_registry=experiment_registry,
+        next_review_date=next_date,
+    )
 
     json_path = reports_dir / f"strategy_shadow_monitor_{review_date}.json"
     md_path = reports_dir / f"strategy_shadow_monitor_{review_date}.md"
@@ -1192,6 +1205,286 @@ def build_api_summary(
     }
 
 
+def load_current_shadow_experiment_registry(reports_dir: Path, review_date: str) -> dict[str, Any]:
+    path = latest_shadow_experiment_registry_path(reports_dir, review_date)
+    if path is None:
+        return {
+            "status": "missing",
+            "artifact_path": None,
+            "registry_contract": "shadow_strategy_experiment_registry_v1",
+            "experiments": [],
+            "by_candidate": {},
+            "promotion_allowed": False,
+            "artifact_only": True,
+        }
+    payload = read_json_object(path)
+    if payload is None:
+        return {
+            "status": "invalid",
+            "artifact_path": str(path),
+            "registry_contract": "shadow_strategy_experiment_registry_v1",
+            "experiments": [],
+            "by_candidate": {},
+            "promotion_allowed": False,
+            "artifact_only": True,
+        }
+    experiments = [item for item in payload.get("experiments", []) if isinstance(item, dict)]
+    by_candidate: dict[str, list[dict[str, Any]]] = {}
+    for experiment in experiments:
+        candidate_key = str(experiment.get("candidate_key") or "").strip()
+        if candidate_key:
+            by_candidate.setdefault(candidate_key, []).append(experiment)
+    safety = payload.get("safety") if isinstance(payload.get("safety"), dict) else {}
+    return {
+        "status": "available",
+        "artifact_path": str(path),
+        "registry_contract": payload.get("registry_contract") or "shadow_strategy_experiment_registry_v1",
+        "as_of_date": payload.get("as_of_date"),
+        "summary": payload.get("summary") if isinstance(payload.get("summary"), dict) else {},
+        "experiment_count": len(experiments),
+        "experiments": experiments,
+        "by_candidate": by_candidate,
+        "promotion_allowed": False,
+        "artifact_only": True,
+        "safety": {
+            **safety,
+            "promotion_allowed": False,
+            "writes_trade_state": False,
+            "writes_paper_live_behavior": False,
+            "timer_mutated": False,
+        },
+    }
+
+
+def latest_shadow_experiment_registry_path(reports_dir: Path, review_date: str) -> Path | None:
+    exact = reports_dir / f"shadow_strategy_experiment_registry_{review_date}.json"
+    if exact.exists():
+        return exact
+    paths = sorted(reports_dir.glob("shadow_strategy_experiment_registry_*.json"))
+    return paths[-1] if paths else None
+
+
+def attach_decision_governance(
+    candidate_monitors: list[dict[str, Any]],
+    *,
+    experiment_registry: dict[str, Any],
+    replay_evidence_index: dict[str, Any],
+    next_review_date: str | None,
+) -> list[dict[str, Any]]:
+    registry_by_candidate = experiment_registry.get("by_candidate", {})
+    replay_by_candidate = (
+        replay_evidence_index.get("by_candidate", {}) if isinstance(replay_evidence_index, dict) else {}
+    )
+    governed = []
+    for monitor in candidate_monitors:
+        candidate_key = str(monitor.get("candidate_key") or "")
+        experiments = (
+            registry_by_candidate.get(candidate_key, {})
+            if isinstance(registry_by_candidate, dict)
+            else []
+        )
+        if not isinstance(experiments, list):
+            experiments = []
+        stop_rules = decision_stop_rules(
+            experiments=experiments,
+            blockers=monitor_blockers(monitor, replay_by_candidate.get(candidate_key, {})),
+        )
+        governed.append(
+            {
+                **monitor,
+                "decision_governance": {
+                    "queue_contract": "shadow_strategy_decision_queue_v1",
+                    "experiment_registry_status": experiment_registry.get("status"),
+                    "experiment_registry_artifact": experiment_registry.get("artifact_path"),
+                    "experiment_count": len(experiments),
+                    "stop_rule_keys": [rule["rule_key"] for rule in stop_rules],
+                    "stop_rules": stop_rules,
+                    "required_human_decision": "manual_promotion_approval_required",
+                    "next_review_date": next_review_date,
+                    "promotion_allowed": False,
+                    "artifact_only": True,
+                },
+            }
+        )
+    return governed
+
+
+def build_monitor_decision_queue(
+    summary: dict[str, Any],
+    *,
+    experiment_registry: dict[str, Any],
+    next_review_date: str | None,
+) -> dict[str, Any]:
+    replay_evidence_index = summary.get("replay_backtest_evidence", {})
+    replay_by_candidate = (
+        replay_evidence_index.get("by_candidate", {}) if isinstance(replay_evidence_index, dict) else {}
+    )
+    registry_by_candidate = experiment_registry.get("by_candidate", {})
+    items = []
+    for monitor in summary.get("candidate_monitors", []):
+        candidate_key = str(monitor.get("candidate_key") or "")
+        replay_evidence = replay_by_candidate.get(candidate_key, {}) if isinstance(replay_by_candidate, dict) else {}
+        progress = monitor.get("walk_forward_progress", {}) if isinstance(monitor.get("walk_forward_progress"), dict) else {}
+        required_days = optional_int(progress.get("required_days")) or optional_int(summary.get("walk_forward_progress", {}).get("required_days")) or 20
+        observed_days = optional_int(progress.get("days")) or optional_int(progress.get("evaluable_signal_days")) or 0
+        experiments = registry_by_candidate.get(candidate_key, []) if isinstance(registry_by_candidate, dict) else []
+        if not isinstance(experiments, list):
+            experiments = []
+        blockers = monitor_blockers(monitor, replay_evidence)
+        stop_rules = decision_stop_rules(experiments=experiments, blockers=blockers)
+        items.append(
+            {
+                "candidate_key": candidate_key,
+                "candidate_family": monitor.get("candidate_family"),
+                "current_readiness": {
+                    "status": "blocked" if blockers else "review_ready",
+                    "blockers": blockers,
+                    "promotion_allowed": False,
+                },
+                "evidence_status": {
+                    "status": replay_evidence.get("status") or "missing",
+                    "artifact_path": replay_evidence.get("artifact_path"),
+                    "blockers": replay_evidence.get("blockers", []),
+                    "promotion_allowed": False,
+                },
+                "walk_forward_sufficiency": {
+                    "status": "sufficient" if observed_days >= required_days else "insufficient",
+                    "walk_forward_status": progress.get("status") or "unknown",
+                    "observed_days": observed_days,
+                    "required_days": required_days,
+                    "promotion_allowed": False,
+                },
+                "experiment_status": {
+                    "status": "registered" if experiments else ("missing_registry" if experiment_registry.get("status") == "missing" else "not_scheduled"),
+                    "experiment_count": len(experiments),
+                    "experiment_keys": [
+                        str(experiment.get("experiment_key"))
+                        for experiment in experiments
+                        if experiment.get("experiment_key") is not None
+                    ],
+                    "promotion_allowed": False,
+                },
+                "required_human_decision": {
+                    "decision_key": f"manual_shadow_decision_required:{candidate_key}",
+                    "status": "required",
+                    "decision_zh": "只允许进入人工复核/补证据任务，不允许在监控脚本内晋升或交易。",
+                    "manual_promotion_approval_required": True,
+                    "future_strategy_version_task_required": True,
+                    "promotion_allowed": False,
+                },
+                "stop_rule": {
+                    "status": "blocking" if any(rule.get("status") == "blocking" for rule in stop_rules) else "clear",
+                    "rule_keys": [rule["rule_key"] for rule in stop_rules],
+                    "rules": stop_rules,
+                    "promotion_allowed": False,
+                },
+                "next_review_date": next_review_date,
+                "promotion_boundary": monitor_promotion_boundary(),
+                "artifact_only": True,
+                "promotion_allowed": False,
+            }
+        )
+    return {
+        "queue_contract": "shadow_strategy_decision_queue_v1",
+        "language": "zh-CN",
+        "review_date": summary.get("review_date"),
+        "candidate_count": len(items),
+        "blocked_candidate_count": sum(1 for item in items if item["stop_rule"]["status"] == "blocking"),
+        "status": "blocked" if items else "empty",
+        "manual_review_required": True,
+        "promotion_allowed": False,
+        "artifact_only": True,
+        "items": items,
+    }
+
+
+def monitor_blockers(monitor: dict[str, Any], replay_evidence: Any) -> list[str]:
+    gates = monitor.get("promotion_gates", {}) if isinstance(monitor.get("promotion_gates"), dict) else {}
+    paper_gate = gates.get("paper_observation_gate", {}) if isinstance(gates.get("paper_observation_gate"), dict) else {}
+    strategy_gate = gates.get("strategy_version_gate", {}) if isinstance(gates.get("strategy_version_gate"), dict) else {}
+    progress = monitor.get("walk_forward_progress", {}) if isinstance(monitor.get("walk_forward_progress"), dict) else {}
+    replay = replay_evidence if isinstance(replay_evidence, dict) else {}
+    blockers = merge_unique(
+        list(paper_gate.get("blockers", [])),
+        list(strategy_gate.get("blockers", [])),
+    )
+    blockers = merge_unique(blockers, list(progress.get("blockers", [])))
+    return apply_shadow_replay_backtest_evidence_to_blockers(blockers, replay)
+
+
+def decision_stop_rules(
+    *,
+    experiments: list[dict[str, Any]],
+    blockers: list[str],
+) -> list[dict[str, Any]]:
+    rules: list[dict[str, Any]] = []
+    for experiment in experiments:
+        for rule in experiment.get("stop_rules", []):
+            if isinstance(rule, dict):
+                key = str(rule.get("rule_key") or rule.get("trigger") or "registry_stop_rule")
+                rules.append(
+                    {
+                        "rule_key": key,
+                        "status": str(rule.get("status") or "blocking"),
+                        "trigger": rule.get("trigger"),
+                        "promotion_allowed": False,
+                    }
+                )
+    if not rules:
+        rules = [
+            {
+                "rule_key": f"blocker:{blocker}",
+                "status": "blocking",
+                "trigger": blocker,
+                "promotion_allowed": False,
+            }
+            for blocker in blockers
+        ]
+    rules.append(
+        {
+            "rule_key": "manual_promotion_approval_required",
+            "status": "blocking",
+            "trigger": "manual approval belongs to a separate future strategy-version task",
+            "promotion_allowed": False,
+        }
+    )
+    return dedupe_rule_keys(rules)
+
+
+def dedupe_rule_keys(rules: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    result = []
+    for rule in rules:
+        key = str(rule.get("rule_key") or "")
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        result.append(rule)
+    return result
+
+
+def monitor_promotion_boundary() -> dict[str, Any]:
+    return {
+        "status": "blocked",
+        "promotion_allowed": False,
+        "paper_observation_allowed": False,
+        "strategy_version_publication_allowed": False,
+        "trade_state_writes_allowed": False,
+        "broker_execution_allowed": False,
+        "timer_mutation_allowed": False,
+        "blocked_mutation_targets": [
+            "active_cpb_params",
+            "strategy_versions",
+            "trade_plans",
+            "trades",
+            "positions",
+            "paper_live_behavior",
+            "broker_execution",
+            "timer_state",
+        ],
+    }
+
+
 def candidate_required_samples(
     candidate_monitors: list[dict[str, Any]],
     walk_forward: dict[str, Any],
@@ -1408,6 +1701,7 @@ def build_shadow_observation_scorecard(
                 "promotion_allowed": bool(proposal_gate.get("allowed")),
                 "blocker_count": len(blockers),
                 "blockers": blockers,
+                "decision_governance": monitor.get("decision_governance", {}),
                 "replay_backtest_evidence": replay_evidence,
                 "comparison_vs_frozen_cpb": monitor.get("comparison_vs_frozen_cpb", {}),
             }
@@ -1418,6 +1712,7 @@ def build_shadow_observation_scorecard(
     )
     return {
         "artifact_type": "shadow_observation_scorecard",
+        "scorecard_contract": "shadow_observation_scorecard_v1",
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "review_date": summary["review_date"],
         "next_trade_date": summary.get("next_trade_date"),
@@ -1432,6 +1727,15 @@ def build_shadow_observation_scorecard(
             for key in sorted(blocker_counts)
         ],
         "replay_backtest_evidence_summary": replay_summary,
+        "decision_queue": summary.get(
+            "decision_queue",
+            {
+                "queue_contract": "shadow_strategy_decision_queue_v1",
+                "items": [],
+                "promotion_allowed": False,
+                "artifact_only": True,
+            },
+        ),
         "top_candidates": sorted(
             candidates,
             key=lambda item: (-(optional_int(item.get("today_candidate_count")) or 0), -item["blocker_count"], str(item["candidate_key"])),
@@ -1548,6 +1852,13 @@ def render_markdown(summary: dict[str, Any]) -> str:
         f"blocker {len(summary['promotion_preflight']['blockers'])} 项，全部仍为 artifact-only。"
     )
     lines.append("- 方向判断可以继续观察，但 paper/proposal/promotion 都必须等 evidence gate 显式清空。")
+    registry = summary.get("experiment_registry", {}) if isinstance(summary.get("experiment_registry"), dict) else {}
+    decision_queue = summary.get("decision_queue", {}) if isinstance(summary.get("decision_queue"), dict) else {}
+    lines.append(
+        f"- 决策队列：{decision_queue.get('status', 'unknown')}；"
+        f"experiment registry={registry.get('status', 'missing')}；"
+        f"候选 {decision_queue.get('candidate_count', 0)} 个，仍不允许晋升。"
+    )
     lines.extend(["", "## 昨日影子候选今日表现", ""])
     lines.extend(table(["桶", "候选数", "T+1收盘均值%", "T+1收盘胜率%", "T+1最高均值%", "最高>=3%"], summary_rows(summary)))
     lines.extend(["", "## 20 日 Walk-forward", ""])
@@ -1585,6 +1896,24 @@ def render_markdown(summary: dict[str, Any]) -> str:
             preflight_rows(summary["promotion_preflight"]),
         )
     )
+    if isinstance(summary.get("decision_queue"), dict):
+        lines.extend(["", "## 决策队列 / Stop Rules", ""])
+        lines.extend(
+            table(
+                ["候选", "证据", "样本", "实验", "Stop rules", "下次复核"],
+                [
+                    [
+                        item.get("candidate_key"),
+                        item.get("evidence_status", {}).get("status"),
+                        item.get("walk_forward_sufficiency", {}).get("status"),
+                        item.get("experiment_status", {}).get("status"),
+                        ", ".join(item.get("stop_rule", {}).get("rule_keys", [])[:3]),
+                        item.get("next_review_date") or "-",
+                    ]
+                    for item in summary["decision_queue"].get("items", [])
+                ],
+            )
+        )
     lines.extend(["", "## 昨日各桶 Top1", ""])
     lines.extend(
         table(

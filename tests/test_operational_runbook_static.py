@@ -289,6 +289,37 @@ class OperationalRunbookStaticTest(unittest.TestCase):
         ]:
             self.assertIn(text, source)
 
+    def test_m102_runbook_documents_daily_state_machine_and_intake_linkage(self) -> None:
+        source = RUNBOOK.read_text(encoding="utf-8")
+
+        for text in [
+            "M102 每日数据与股票池摄入统一状态机",
+            "backup/保护、fetch/import、preflight、dry-run、apply、report、health",
+            "daily_operating_state",
+            "can_run_today",
+            "missing_requirements",
+            "next_command",
+            "write_intent",
+            "operating_summary_zh",
+            "data_refresh_needed",
+            "evidence_pack_needed",
+            "pool_intake_pending",
+            "dry_run_ready",
+            "apply_blocked",
+            "apply_complete",
+            "duplicate_apply_blocked",
+            "pool_intake_added_count",
+            "pool_intake_rejected_count",
+            "pool_intake_dedupe_count",
+            "pool_intake_audit_path",
+            "--pool-intake-summary data/daily_review_S_intake_apply.json --require-pool-intake",
+            "operator、idempotency key、数据库备份和重复写入保护",
+            "duplicate_apply_count>0",
+            "--allow-rerun",
+            "ops health",
+        ]:
+            self.assertIn(text, source)
+
     def test_m82_runbook_documents_shadow_visibility_release_gate(self) -> None:
         source = RUNBOOK.read_text(encoding="utf-8")
 

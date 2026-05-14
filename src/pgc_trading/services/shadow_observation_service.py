@@ -28,12 +28,15 @@ SHADOW_PROMOTION_DOSSIER_CONTRACT = "shadow_promotion_dossier_v1"
 SHADOW_PROMOTION_REVIEW_REQUEST_CONTRACT = "shadow_promotion_review_request_v1"
 SHADOW_REPLAY_BACKTEST_EVIDENCE_CONTRACT = "shadow_replay_backtest_evidence_v1"
 SHADOW_DECISION_MEMO_CONTRACT = "shadow_decision_memo_v1"
+SHADOW_DECISION_QUEUE_CONTRACT = "shadow_strategy_decision_queue_v1"
 SHADOW_WALK_FORWARD_OUTCOMES_CONTRACT = "shadow_walk_forward_outcomes_v1"
 SHADOW_WALK_FORWARD_OUTCOMES_PROVIDER = "pgc_shadow_walk_forward_outcome_accumulator_v1"
 SHADOW_REPLAY_BACKTEST_EVIDENCE_PATTERN = "shadow_replay_backtest_evidence*.json"
 SHADOW_REPLAY_BACKTEST_EVIDENCE_PROVIDER = "pgc_shadow_replay_backtest_evidence_producer_v1"
 SHADOW_THRESHOLD_CALIBRATION_PATTERN = "shadow_threshold_calibration_*.json"
 SHADOW_STRATEGY_EXPERIMENT_REGISTRY_PATTERN = "shadow_strategy_experiment_registry_*.json"
+SHADOW_SCORECARD_ARTIFACT_PATTERN = "shadow_observation_scorecard_*.json"
+SHADOW_WALK_FORWARD_OUTCOMES_PATTERN = "shadow_walk_forward_outcomes_*.json"
 DEFAULT_REQUIRED_SAMPLE_SIZE = 20
 DEFAULT_MIN_FROZEN_CPB_DELTA_PCT = 0.0
 DEFAULT_MAX_DRAWDOWN_PCT = -8.0
@@ -232,9 +235,12 @@ class ShadowDecisionMemoResult:
     artifact_only: bool = True
     summary: dict[str, Any] = field(default_factory=dict)
     sections: dict[str, Any] = field(default_factory=dict)
+    decision_queue: dict[str, Any] = field(default_factory=dict)
     candidate_memos: list[dict[str, Any]] = field(default_factory=list)
     promotion_review: dict[str, Any] = field(default_factory=dict)
+    scorecard: dict[str, Any] = field(default_factory=dict)
     walk_forward: dict[str, Any] = field(default_factory=dict)
+    walk_forward_outcomes: dict[str, Any] = field(default_factory=dict)
     replay_backtest_evidence: dict[str, Any] = field(default_factory=dict)
     calibration: dict[str, Any] = field(default_factory=dict)
     experiment_registry: dict[str, Any] = field(default_factory=dict)
@@ -1353,6 +1359,26 @@ class ShadowObservationService:
             expected_contract="shadow_strategy_experiment_registry_v1",
             missing_status="missing",
         )
+        scorecard = _load_shadow_decision_source_artifact(
+            self.reports_dir,
+            pattern=SHADOW_SCORECARD_ARTIFACT_PATTERN,
+            as_of_date=memo_date,
+            artifact_root=artifact_root,
+            expected_contract_key="scorecard_contract",
+            expected_contract=SHADOW_OBSERVATION_SCORECARD_CONTRACT,
+            missing_status="missing",
+            expected_artifact_type="shadow_observation_scorecard",
+        )
+        walk_forward_outcomes = _load_shadow_decision_source_artifact(
+            self.reports_dir,
+            pattern=SHADOW_WALK_FORWARD_OUTCOMES_PATTERN,
+            as_of_date=memo_date,
+            artifact_root=artifact_root,
+            expected_contract_key="outcomes_contract",
+            expected_contract=SHADOW_WALK_FORWARD_OUTCOMES_CONTRACT,
+            missing_status="missing",
+            expected_artifact_type="shadow_walk_forward_outcomes",
+        )
 
         promotion_payload = _shadow_promotion_workbench_payload(promotion)
         snapshot_payload = _shadow_snapshot_payload(snapshot, snapshot_result)
@@ -1367,6 +1393,8 @@ class ShadowObservationService:
             snapshot=snapshot_payload,
             calibration=calibration,
             registry=registry,
+            scorecard=scorecard,
+            walk_forward_outcomes=walk_forward_outcomes,
             promotion_status=promotion_result.status,
             snapshot_status=snapshot_result.status,
         )
@@ -3150,6 +3178,7 @@ def _empty_shadow_decision_memo(
         },
         sections=_shadow_decision_sections(
             candidate_overview=[],
+            decision_queue=[],
             evidence_items=[],
             blockers=blockers,
             next_experiments=[],
@@ -3157,6 +3186,18 @@ def _empty_shadow_decision_memo(
             rollback_notes=["来源不可用时禁止晋升、交易、写计划或改 timer。"],
             safety=safety,
         ),
+        decision_queue={
+            "queue_contract": SHADOW_DECISION_QUEUE_CONTRACT,
+            "language": "zh-CN",
+            "as_of_date": _compact_history_date(as_of_date) or as_of_date,
+            "status": status,
+            "candidate_count": 0,
+            "blocked_candidate_count": 0,
+            "manual_review_required": True,
+            "promotion_allowed": False,
+            "artifact_only": True,
+            "items": [],
+        },
         source_status={
             "promotion_review": status,
             "snapshot": status,
@@ -3177,6 +3218,8 @@ def _build_shadow_decision_memo_result(
     snapshot: Mapping[str, Any],
     calibration: Mapping[str, Any],
     registry: Mapping[str, Any],
+    scorecard: Mapping[str, Any],
+    walk_forward_outcomes: Mapping[str, Any],
     promotion_status: str,
     snapshot_status: str,
 ) -> ShadowDecisionMemoResult:
@@ -3191,6 +3234,15 @@ def _build_shadow_decision_memo_result(
         snapshot=snapshot,
         calibration=calibration,
         registry=registry,
+    )
+    decision_queue = _shadow_decision_queue(
+        as_of_date=as_of_date,
+        promotion=promotion,
+        snapshot=snapshot,
+        scorecard=scorecard,
+        walk_forward_outcomes=walk_forward_outcomes,
+        registry=registry,
+        candidate_memos=candidate_memos,
     )
     blockers = _shadow_decision_blockers(
         promotion=promotion,
@@ -3225,11 +3277,14 @@ def _build_shadow_decision_memo_result(
         ),
         "threshold_calibration": _optional_text(calibration.get("artifact_path")),
         "experiment_registry": _optional_text(registry.get("artifact_path")),
+        "shadow_observation_scorecard": _optional_text(scorecard.get("artifact_path")),
+        "shadow_walk_forward_outcomes": _optional_text(walk_forward_outcomes.get("artifact_path")),
     }
     source_artifacts = _portable_artifact_paths(source_artifacts, artifact_root)
     summary = {
         "status": status,
         "candidate_count": len(candidate_memos),
+        "decision_queue_candidate_count": _int_value(decision_queue.get("candidate_count"), len(candidate_memos)),
         "review_ready_count": review_ready_count,
         "blocker_count": len(blockers),
         "next_experiment_count": len(next_experiments),
@@ -3255,6 +3310,7 @@ def _build_shadow_decision_memo_result(
         summary=summary,
         sections=_shadow_decision_sections(
             candidate_overview=candidate_memos,
+            decision_queue=_list_mapping(decision_queue.get("items")),
             evidence_items=evidence_items,
             blockers=blockers,
             next_experiments=next_experiments,
@@ -3262,6 +3318,7 @@ def _build_shadow_decision_memo_result(
             rollback_notes=rollback_notes,
             safety=safety,
         ),
+        decision_queue=decision_queue,
         candidate_memos=candidate_memos,
         promotion_review={
             "status": promotion.get("status"),
@@ -3269,7 +3326,9 @@ def _build_shadow_decision_memo_result(
             "summary": promotion_summary,
             "review_request": review_request,
         },
+        scorecard=scorecard,
         walk_forward=_mapping(snapshot.get("walk_forward")),
+        walk_forward_outcomes=walk_forward_outcomes,
         replay_backtest_evidence=replay,
         calibration=calibration,
         experiment_registry=registry,
@@ -3279,6 +3338,8 @@ def _build_shadow_decision_memo_result(
             "snapshot": snapshot_status,
             "calibration": calibration.get("status"),
             "experiment_registry": registry.get("status"),
+            "shadow_observation_scorecard": scorecard.get("status"),
+            "shadow_walk_forward_outcomes": walk_forward_outcomes.get("status"),
         },
         safety=safety,
     )
@@ -3346,6 +3407,7 @@ def _load_shadow_decision_source_artifact(
     expected_contract_key: str,
     expected_contract: str,
     missing_status: str,
+    expected_artifact_type: str | None = None,
 ) -> dict[str, Any]:
     path = _latest_shadow_decision_source_path(reports_dir, pattern, as_of_date)
     source_key = pattern.replace("_*.json", "")
@@ -3375,7 +3437,13 @@ def _load_shadow_decision_source_artifact(
     contract = _optional_text(artifact.get(expected_contract_key))
     contract_valid = contract == expected_contract
     safety = _mapping(artifact.get("safety"))
-    blockers = _shadow_decision_artifact_blockers(artifact, contract_valid=contract_valid, source_key=source_key)
+    artifact_type_valid = expected_artifact_type is None or artifact.get("artifact_type") == expected_artifact_type
+    blockers = _shadow_decision_artifact_blockers(
+        artifact,
+        contract_valid=contract_valid,
+        source_key=source_key,
+        artifact_type_valid=artifact_type_valid,
+    )
     return {
         "status": "available" if not blockers else "blocked",
         "valid": not blockers,
@@ -3418,8 +3486,11 @@ def _shadow_decision_artifact_blockers(
     *,
     contract_valid: bool,
     source_key: str,
+    artifact_type_valid: bool = True,
 ) -> list[str]:
     blockers = []
+    if not artifact_type_valid:
+        blockers.append(f"{source_key}_artifact_type_invalid")
     if not contract_valid:
         blockers.append(f"{source_key}_contract_invalid")
     safety = _mapping(artifact.get("safety"))
@@ -3485,6 +3556,7 @@ def _shadow_decision_candidate_memos(
                 "review_status": candidate.get("review_status") or candidate.get("promotion_readiness") or "blocked",
                 "evidence_status": evidence.get("status") or "missing",
                 "walk_forward_status": walk.get("status") or candidate.get("walk_forward_status") or "unknown",
+                "walk_forward": walk,
                 "sample_size": evidence.get("sample_size"),
                 "required_sample_size": evidence.get("required_sample_size"),
                 "t1_close_mean_pct": _mapping(evidence.get("metrics")).get("t1_close_mean_pct")
@@ -3496,11 +3568,327 @@ def _shadow_decision_candidate_memos(
                 ),
                 "blockers": blockers,
                 "next_experiments": experiments,
+                "replay_backtest_evidence": evidence,
                 "manual_decision_zh": "保持影子观察；如需推进，先补齐证据并另开人工 strategy-version 任务。",
                 "promotion_allowed": False,
             }
         )
     return rows
+
+
+def _shadow_decision_queue(
+    *,
+    as_of_date: str | None,
+    promotion: Mapping[str, Any],
+    snapshot: Mapping[str, Any],
+    scorecard: Mapping[str, Any],
+    walk_forward_outcomes: Mapping[str, Any],
+    registry: Mapping[str, Any],
+    candidate_memos: list[dict[str, Any]],
+) -> dict[str, Any]:
+    scorecard_candidates = _candidate_payloads_by_key(_mapping(scorecard.get("payload")).get("candidates"))
+    outcome_candidates = _candidate_payloads_by_key(_mapping(walk_forward_outcomes.get("payload")).get("candidates"))
+    registry_experiments = _shadow_decision_raw_registry_experiments_by_candidate(registry)
+    human_decisions = _list_mapping(_mapping(promotion.get("review_request")).get("required_human_decisions"))
+    release_gate = _mapping(_mapping(registry.get("payload")).get("release_gate"))
+    manual_boundaries = _mapping(_mapping(registry.get("payload")).get("manual_approval_boundaries"))
+    next_review_date = _optional_text(snapshot.get("next_trade_date")) or _optional_text(promotion.get("as_of_date")) or as_of_date
+    items = []
+    for memo in candidate_memos:
+        candidate_key = _optional_text(memo.get("candidate_key")) or "unknown"
+        scorecard_candidate = _mapping(scorecard_candidates.get(candidate_key))
+        outcome_candidate = _mapping(outcome_candidates.get(candidate_key))
+        experiments = registry_experiments.get(candidate_key, [])
+        blockers = _unique_texts(
+            [
+                *_list_text(memo.get("blockers")),
+                *_list_text(scorecard_candidate.get("blockers")),
+                *_list_text(outcome_candidate.get("blockers")),
+            ]
+        )
+        replay_evidence = _mapping(memo.get("replay_backtest_evidence"))
+        walk = _mapping(memo.get("walk_forward")) or _mapping(scorecard_candidate.get("walk_forward_progress"))
+        stop_rules = _shadow_decision_queue_stop_rules(blockers=blockers, experiments=experiments)
+        items.append(
+            {
+                "candidate_key": candidate_key,
+                "candidate_family": memo.get("candidate_family") or scorecard_candidate.get("candidate_family"),
+                "summary_zh": _shadow_decision_candidate_summary_zh(candidate_key, replay_evidence, walk, blockers),
+                "current_readiness": _shadow_decision_queue_readiness(memo, scorecard_candidate, blockers),
+                "evidence_status": _shadow_decision_queue_evidence_status(replay_evidence),
+                "walk_forward_sufficiency": _shadow_decision_queue_walk_forward_sufficiency(
+                    walk=walk,
+                    scorecard_candidate=scorecard_candidate,
+                    outcome_candidate=outcome_candidate,
+                ),
+                "experiment_status": _shadow_decision_queue_experiment_status(registry, experiments),
+                "required_human_decision": _shadow_decision_queue_human_decision(
+                    candidate_key=candidate_key,
+                    human_decisions=human_decisions,
+                ),
+                "stop_rule": {
+                    "status": "blocking" if any(rule.get("status") == "blocking" for rule in stop_rules) else "clear",
+                    "rule_count": len(stop_rules),
+                    "rule_keys": [
+                        str(rule.get("rule_key"))
+                        for rule in stop_rules
+                        if rule.get("rule_key") is not None
+                    ],
+                    "rules": stop_rules,
+                    "promotion_allowed": False,
+                },
+                "next_review_date": next_review_date,
+                "promotion_boundary": _shadow_decision_queue_promotion_boundary(
+                    release_gate=release_gate,
+                    manual_boundaries=manual_boundaries,
+                ),
+                "source_status": {
+                    "scorecard": scorecard.get("status"),
+                    "walk_forward_outcomes": walk_forward_outcomes.get("status"),
+                    "experiment_registry": registry.get("status"),
+                },
+                "artifact_only": True,
+                "promotion_allowed": False,
+            }
+        )
+    status = "empty" if not items else ("blocked" if any(item["stop_rule"]["status"] == "blocking" for item in items) else "manual_review_required")
+    return {
+        "queue_contract": SHADOW_DECISION_QUEUE_CONTRACT,
+        "language": "zh-CN",
+        "as_of_date": as_of_date,
+        "status": status,
+        "candidate_count": len(items),
+        "blocked_candidate_count": sum(1 for item in items if item["stop_rule"]["status"] == "blocking"),
+        "manual_review_required": True,
+        "promotion_allowed": False,
+        "artifact_only": True,
+        "items": items,
+    }
+
+
+def _candidate_payloads_by_key(value: object) -> dict[str, dict[str, Any]]:
+    return {
+        str(item.get("candidate_key")): item
+        for item in _list_mapping(value)
+        if item.get("candidate_key") is not None
+    }
+
+
+def _shadow_decision_raw_registry_experiments_by_candidate(
+    registry: Mapping[str, Any],
+) -> dict[str, list[dict[str, Any]]]:
+    payload = _mapping(registry.get("payload"))
+    result: dict[str, list[dict[str, Any]]] = {}
+    for experiment in _list_mapping(payload.get("experiments")):
+        key = _optional_text(experiment.get("candidate_key"))
+        if key:
+            result.setdefault(key, []).append(experiment)
+    return result
+
+
+def _shadow_decision_queue_readiness(
+    memo: Mapping[str, Any],
+    scorecard_candidate: Mapping[str, Any],
+    blockers: list[str],
+) -> dict[str, Any]:
+    status = (
+        _optional_text(scorecard_candidate.get("promotion_readiness"))
+        or _optional_text(memo.get("review_status"))
+        or "blocked"
+    )
+    return {
+        "status": status,
+        "blocker_count": len(blockers),
+        "blockers": blockers,
+        "summary_zh": "候选仍需人工复核；review_ready 也不等于批准。"
+        if status == "review_ready"
+        else "候选当前保持阻断，先处理证据、样本、实验或人工边界。",
+        "promotion_allowed": False,
+    }
+
+
+def _shadow_decision_queue_evidence_status(replay_evidence: Mapping[str, Any]) -> dict[str, Any]:
+    status = _optional_text(replay_evidence.get("status")) or "missing"
+    return {
+        "status": status,
+        "accepted": status == "accepted",
+        "sample_size": replay_evidence.get("sample_size"),
+        "required_sample_size": replay_evidence.get("required_sample_size"),
+        "artifact_path": replay_evidence.get("artifact_path"),
+        "blockers": _list_text(replay_evidence.get("blockers")),
+        "advisory_only": True,
+        "promotion_allowed": False,
+    }
+
+
+def _shadow_decision_queue_walk_forward_sufficiency(
+    *,
+    walk: Mapping[str, Any],
+    scorecard_candidate: Mapping[str, Any],
+    outcome_candidate: Mapping[str, Any],
+) -> dict[str, Any]:
+    required_days = _int_value(
+        walk.get("required_days"),
+        _int_value(scorecard_candidate.get("required_sample_size"), DEFAULT_REQUIRED_SAMPLE_SIZE),
+    )
+    observed_days = _int_value(
+        walk.get("days"),
+        _int_value(
+            walk.get("evaluable_signal_days"),
+            _int_value(
+                scorecard_candidate.get("walk_forward_days"),
+                _int_value(outcome_candidate.get("complete_count"), 0),
+            ),
+        ),
+    )
+    walk_status = (
+        _optional_text(walk.get("status"))
+        or _optional_text(scorecard_candidate.get("walk_forward_status"))
+        or _optional_text(outcome_candidate.get("status"))
+        or "unknown"
+    )
+    sufficient = observed_days >= required_days and walk_status in {"complete", "available", "observing"}
+    return {
+        "status": "sufficient" if sufficient else "insufficient",
+        "walk_forward_status": walk_status,
+        "observed_days": observed_days,
+        "required_days": required_days,
+        "outcome_status": outcome_candidate.get("status"),
+        "promotion_allowed": False,
+    }
+
+
+def _shadow_decision_queue_experiment_status(
+    registry: Mapping[str, Any],
+    experiments: list[dict[str, Any]],
+) -> dict[str, Any]:
+    blocking_stop_rules = [
+        rule
+        for experiment in experiments
+        for rule in _list_mapping(experiment.get("stop_rules"))
+        if rule.get("status") == "blocking"
+    ]
+    if experiments:
+        status = "registered"
+    elif registry.get("status") == "missing":
+        status = "missing_registry"
+    else:
+        status = "not_scheduled"
+    return {
+        "status": status,
+        "experiment_count": len(experiments),
+        "experiment_keys": [
+            str(experiment.get("experiment_key"))
+            for experiment in experiments
+            if experiment.get("experiment_key") is not None
+        ],
+        "blocking_stop_rule_count": len(blocking_stop_rules),
+        "promotion_allowed": False,
+    }
+
+
+def _shadow_decision_queue_human_decision(
+    *,
+    candidate_key: str,
+    human_decisions: list[dict[str, Any]],
+) -> dict[str, Any]:
+    decision_keys = [
+        str(decision.get("decision_key"))
+        for decision in human_decisions
+        if decision.get("decision_key") is not None
+    ]
+    return {
+        "decision_key": f"manual_shadow_decision_required:{candidate_key}",
+        "source_decision_keys": decision_keys
+        or ["manual_promotion_approval_required", "future_strategy_version_task_required"],
+        "status": "required",
+        "decision_zh": "人工只能决定是否进入后续独立复核/补证据任务；本队列不批准晋升或交易。",
+        "manual_promotion_approval_required": True,
+        "future_strategy_version_task_required": True,
+        "promotion_allowed": False,
+    }
+
+
+def _shadow_decision_queue_stop_rules(
+    *,
+    blockers: list[str],
+    experiments: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    rules = [
+        {
+            "rule_key": str(rule.get("rule_key") or rule.get("trigger") or "registry_stop_rule"),
+            "status": str(rule.get("status") or "blocking"),
+            "trigger": rule.get("trigger"),
+        }
+        for experiment in experiments
+        for rule in _list_mapping(experiment.get("stop_rules"))
+    ]
+    if not rules:
+        rules = [
+            {
+                "rule_key": f"blocker:{blocker}",
+                "status": "blocking",
+                "trigger": blocker,
+            }
+            for blocker in blockers
+        ]
+    rules.append(
+        {
+            "rule_key": "manual_promotion_approval_required",
+            "status": "blocking",
+            "trigger": "manual approval must happen in a separate future strategy-version task",
+        }
+    )
+    return _dedupe_stop_rules(rules)
+
+
+def _dedupe_stop_rules(rules: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    result = []
+    for rule in rules:
+        key = str(rule.get("rule_key") or "")
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        result.append({**rule, "promotion_allowed": False})
+    return result
+
+
+def _shadow_decision_queue_promotion_boundary(
+    *,
+    release_gate: Mapping[str, Any],
+    manual_boundaries: Mapping[str, Any],
+) -> dict[str, Any]:
+    blocked_targets = _unique_texts(
+        [
+            *_list_text(release_gate.get("blocked_mutation_targets")),
+            *_list_text(manual_boundaries.get("blocked_mutation_targets")),
+        ]
+    )
+    if not blocked_targets:
+        blocked_targets = [
+            "active_cpb_params",
+            "strategy_versions",
+            "trade_plans",
+            "trades",
+            "positions",
+            "paper_live_behavior",
+            "broker_execution",
+            "timer_state",
+        ]
+    return {
+        "status": "blocked",
+        "boundary_zh": "晋升、发版、交易、paper/live 行为和 timer 改动必须由单独批准任务处理；当前队列禁止。",
+        "manual_promotion_approval_required": True,
+        "future_strategy_version_task_required": True,
+        "promotion_allowed": False,
+        "paper_observation_allowed": False,
+        "strategy_version_publication_allowed": False,
+        "trade_state_writes_allowed": False,
+        "broker_execution_allowed": False,
+        "timer_mutation_allowed": False,
+        "blocked_mutation_targets": blocked_targets,
+    }
 
 
 def _shadow_decision_walk_by_candidate(snapshot: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
@@ -3678,6 +4066,7 @@ def _shadow_decision_source_summary_zh(source: Mapping[str, Any], label: str) ->
 def _shadow_decision_sections(
     *,
     candidate_overview: list[dict[str, Any]],
+    decision_queue: list[dict[str, Any]],
     evidence_items: list[dict[str, Any]],
     blockers: list[str],
     next_experiments: list[dict[str, Any]],
@@ -3689,6 +4078,13 @@ def _shadow_decision_sections(
         "候选概览": {
             "summary_zh": f"当前纳入备忘录的 shadow 候选 {len(candidate_overview)} 个，全部保持人工复核边界。",
             "items": candidate_overview,
+        },
+        "决策队列": {
+            "summary_zh": (
+                f"当前决策队列 {len(decision_queue)} 个候选；队列只规范 readiness、证据、实验和回滚边界，"
+                "不提供批准或交易动作。"
+            ),
+            "items": decision_queue,
         },
         "证据状态": {
             "summary_zh": "证据只用于判断下一步研究，不触发 approve、promote、trade、plan 或 timer。",

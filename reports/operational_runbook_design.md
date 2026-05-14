@@ -1429,6 +1429,29 @@ PYTHONPATH=src:. python3 -m pgc_trading.cli.main ops daily-preflight \
 - 只有人工核对日报、operation history、备份路径和失败原因后，才允许在脚本侧显式使用 `--allow-rerun`；
 - M75 不启用生产 timer，不调用 `scripts/install_remote_daily_pipeline_timer.sh --enable`，也不执行 broker 下单或修改活跃策略参数。
 
+### M102 每日数据与股票池摄入统一状态机
+
+M102 之后，子会话执行每日运营时只认一条闭环：backup/保护、fetch/import、preflight、dry-run、apply、report、health。`scripts/run_daily_pipeline.sh` 会先解析日期、检查重复 apply、运行 `ops daily-preflight`，再进入 `ops daily-pipeline`；输出必须保留可解析的 key=value 字段。
+
+标准命令序列：
+
+```bash
+scripts/backup_remote_pgc_db.sh
+python3 scripts/fetch_tushare_market_data.py --end-date S
+PYTHONPATH=src:. python3 -m pgc_trading.cli.main ops pool-intake --file data/daily_review_S_intake_source.json --output data/daily_review_S_intake_dry_run.json --dry-run
+PYTHONPATH=src:. python3 -m pgc_trading.cli.main ops pool-intake --file data/daily_review_S_intake_source.json --output data/daily_review_S_intake_apply.json --apply --operator azboo
+PYTHONPATH=src:. python3 -m pgc_trading.cli.main ops daily-preflight --date S --account paper-main --include-market-review --pool-intake-summary data/daily_review_S_intake_apply.json --require-pool-intake
+./scripts/run_daily_pipeline.sh --date S --account paper-main --operator azboo --include-market-review --pool-intake-summary data/daily_review_S_intake_apply.json --require-pool-intake --dry-run
+./scripts/run_daily_pipeline.sh --date S --account paper-main --operator azboo --include-market-review --pool-intake-summary data/daily_review_S_intake_apply.json --require-pool-intake --apply
+PYTHONPATH=src:. python3 -m pgc_trading.cli.main ops health --db-path data/pgc_trading.db --require-current-migrations
+```
+
+`daily-pipeline` 输出的状态机字段必须包含 `daily_operating_state`、`can_run_today`、`missing_requirements`、`next_command`、`write_intent` 和 `operating_summary_zh`。合法运营状态包括 `data_refresh_needed`、`evidence_pack_needed`、`pool_intake_pending`、`dry_run_ready`、`apply_blocked`、`apply_complete`、`duplicate_apply_blocked`。中文摘要要回答：今天是否能跑、缺什么、下一步命令、是否会写库。
+
+股票池摄入联动字段必须在 pipeline 输出中显式展示：`pool_intake_status`、`pool_intake_mode`、`pool_intake_input_count`、`pool_intake_added_count`、`pool_intake_rejected_count`、`pool_intake_dedupe_count`、`pool_intake_audit_path`。`pool_intake_rejected_count>0`、summary 不可读、`--require-pool-intake` 但 summary 缺失、或 summary 仍是 `mode=dry_run` 时，状态必须是 `pool_intake_pending`，不得静默把股票加入池中。
+
+非 dry-run 写库必须同时满足 operator、idempotency key、数据库备份和重复写入保护。`duplicate_apply_count>0` 时默认进入 `duplicate_apply_blocked`；只有人工核对 operation_requests、日报、`backup_path` 和失败原因后，才允许显式追加 `--allow-rerun`。故障恢复顺序是：保留 `.pgc-runs/daily-pipeline-S.log`，确认最近 `backup_path`，修复缺口，重跑 dry-run；只有 dry-run 回到 `dry_run_ready` 且 `missing_requirements=none`，才允许再次 apply。apply 完成后必须检查 `reports/daily_review_S.md`、`reports/daily_review_S.json` 和 `ops health`。
+
 ## 26. M82 影子策略可视化发布门禁
 
 M82 的发布结论是：shadow visibility remains artifact-only。Shadow Lab、日报和 CLI 只能展示已有研究 artifact，不能把影子候选转成 active CPB 参数、strategy_version、trade plan、成交、持仓、paper/live 行为或 timer 操作。
