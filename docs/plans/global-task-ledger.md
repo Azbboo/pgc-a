@@ -1,6 +1,6 @@
 # Global Task Ledger
 
-Last updated: 2026-05-14
+Last updated: 2026-05-15
 
 This ledger is the single index for historical and active project work. Detailed specs remain in the linked plan and design documents; this file tracks the global status, release anchors, and next dependencies.
 
@@ -57,6 +57,7 @@ This ledger is the single index for historical and active project work. Detailed
 | M104-M107 production acceptance wave | `docs/plans/2026-05-14-m104-m107-production-acceptance-plan.md` |
 | M108-M111 production follow-up wave | `docs/plans/2026-05-14-m108-m111-production-followup-plan.md` |
 | M112-M115 parity/evidence/shadow follow-up wave | `docs/plans/2026-05-14-m112-m115-parity-evidence-shadow-followup-plan.md` |
+| M116-M123 auto-open-buy and simplification wave | `docs/plans/2026-05-15-m116-m123-auto-open-buy-system-simplification-plan.md` |
 | External stock project integration assessment | `docs/plans/2026-05-12-stock-instock-integration-plan.md` |
 | OPS-20260511 daily review and stock pool intake | `docs/plans/2026-05-11-ops-daily-review-stock-pool-plan.md` |
 
@@ -202,16 +203,28 @@ This ledger is the single index for historical and active project work. Detailed
 | M113 | Provider-pack archival and reproducibility | Next | `docs/plans/2026-05-14-m112-m115-parity-evidence-shadow-followup-plan.md` | Move provider-pack evidence from ignored run folders into durable tracked or remote-backed audit storage; keep paths portable and hashes reproducible. |
 | M114 | Dashboard real-browser visual and interaction QA | Next | `docs/plans/2026-05-14-m112-m115-parity-evidence-shadow-followup-plan.md` | Complete desktop/mobile screenshot QA for M109 operator-flow strips and grouped drawers, fixing any layout issues found. |
 | M115 | Shadow v2 research governance | Next | `docs/plans/2026-05-14-m112-m115-parity-evidence-shadow-followup-plan.md` | Formalize the research-only shadow weight optimization seed and tomorrow observation plan; keep it advisory-only with no promotion/trading/timer authority. |
+| M116 | Auto-open buy contract and policy | Next | `docs/plans/2026-05-15-m116-m123-auto-open-buy-system-simplification-plan.md` | Define paper-only automatic open-price buy eligibility, idempotency, data-source, and account guards so no manual opening checklist is needed. |
+| M117 | Open-price paper fill engine | Next | `docs/plans/2026-05-15-m116-m123-auto-open-buy-system-simplification-plan.md` | Automatically write one paper buy trade and resulting position at official open price when M116 policy is ready. |
+| M118 | Auto execution pipeline and audit artifact | Next | `docs/plans/2026-05-15-m116-m123-auto-open-buy-system-simplification-plan.md` | Add timer-safe command/script and `auto_open_buy_YYYYMMDD` audit report for dry-run/apply/readback. |
+| M119 | Dashboard command center simplification | Next | `docs/plans/2026-05-15-m116-m123-auto-open-buy-system-simplification-plan.md` | Make the first screen answer today status, auto trade detail, blockers, and next step; hide noisy research/ops details. |
+| M120 | Information architecture reset | Next | `docs/plans/2026-05-15-m116-m123-auto-open-buy-system-simplification-plan.md` | Collapse navigation into 今日操作、复盘、持仓、研究、运维 so the system is understandable. |
+| M121 | Chinese terminology and state dictionary | Next | `docs/plans/2026-05-15-m116-m123-auto-open-buy-system-simplification-plan.md` | Centralize Chinese labels and prevent raw internal state keys from leaking into primary UI/report copy. |
+| M122 | Daily report simplification | Next | `docs/plans/2026-05-15-m116-m123-auto-open-buy-system-simplification-plan.md` | Put 今日结论、自动成交明细、下一步、异常 first; move evidence/research/audit details later. |
+| M123 | Release, migration, rollback, and adoption gate | Next | `docs/plans/2026-05-15-m116-m123-auto-open-buy-system-simplification-plan.md` | Deploy paper-only auto-open-buy behind an enable flag with rollback and release checks. |
 | OPS-20260511 | Daily review and new stock pool intake | Done, Applied | `reports/daily_review_20260511.md`; `data/daily_review_20260511_ops_summary.json` | Remote `paper-main` ops sync completed with `operator=azboo`: backed up remote DB to `/opt/pgc/backups/pgc_trading-20260511-170517-before-ops-20260511-sync.db` and `/opt/pgc/backups/pgc_trading_20260511_171526_905184_before_daily_pipeline_20260511.db`; ingested 6 screenshot-sourced 黑马集中营 events; refreshed remote `market_bars`/`daily_basic_snapshots` for 247 symbols on `20260511`; dry-run then remote apply pipeline passed; no new daily pick/trade plan because `no_strategy_signals`; server already had one manual executed buy for `301188.SZ` on `20260511`, now reflected in pulled local DB/report; evidence gaps remain explicit (`MARKET_EVIDENCE_MISSING`, `AGENT_EXTERNAL_EVIDENCE_MISSING`, `AGENT_REVIEW_NOT_RUN`, market-review shallow history warning). |
 
 ## Active Parallel Plan
 
 | Lane | Task | Status | Depends On | Review Focus |
 | --- | --- | --- | --- | --- |
-| A | M112 Remote parity blocker closure | Next | M108 parity package, M110 local evidence import, remote port `8020` | Close or formally accept remote evidence/paper-ledger divergence with backups, fresh snapshots, and parity rerun. |
-| B | M113 Provider-pack archival and reproducibility | Next | M110 provider-pack QA, evidence coverage ledger | Make provider pack manifests/files durable and portable instead of `.pgc-runs`-only; add path/hash regressions. |
-| C | M114 Dashboard real-browser visual and interaction QA | Next | M109 operator-flow UI | Capture desktop/mobile screenshots and fix any overflow, clipped text, raw internal labels, or drawer grouping issues. |
-| D | M115 Shadow v2 research governance | Next | Shadow v2 seed artifacts in current branch | Formalize `shadow_weight_optimization_v1` as research-only observation evidence with Chinese outputs and no execution authority. |
+| A | M116 Auto-open buy contract and policy | Next | M111 paper readiness, M45 open execution, M112 parity awareness | Define exact paper-only auto-open eligibility and blocker language before any write path. |
+| B | M117 Open-price paper fill engine | Next | M116 | Write idempotent paper buy trade/position at official open price, with no live broker or manual opening checklist. |
+| C | M118 Auto execution pipeline and audit artifact | Next | M116-M117 | Add timer-safe script/CLI/report artifact so automatic paper fills are auditable and reversible. |
+| D | M119 Dashboard command center simplification | Next | M116 API/result shape | Replace noisy first screen with 今日状态、自动成交明细、异常、下一步. |
+| E | M120 Information architecture reset | Next | M119 | Collapse visible navigation into 今日操作、复盘、持仓、研究、运维. |
+| F | M121 Chinese terminology and state dictionary | Next | M119-M120 | Normalize visible Chinese state names and hide raw internal keys. |
+| G | M122 Daily report simplification | Next | M118 | Put conclusion and auto trade summary first; move evidence/research/audit below. |
+| H | M123 Release, migration, rollback, and adoption gate | Next | M116-M122 | Deploy behind `PGC_AUTO_OPEN_BUY_ENABLED=1`, with rollback and remote health gates. |
 
 ## Review Rules For Future Sessions
 
